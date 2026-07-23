@@ -1,4 +1,4 @@
-use arca_scheduler::{
+use ratmac::{
     model::{RunState, Status},
     Scheduler, StepOutcome, StepRequest,
 };

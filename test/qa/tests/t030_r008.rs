@@ -1,4 +1,4 @@
-use arca_scheduler::cli;
+use ratmac::cli;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};

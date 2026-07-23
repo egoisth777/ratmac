@@ -1,6 +1,6 @@
 //! PT-021-01 / R-020: a refused step is observationally idempotent.
 
-use arca_scheduler::{Scheduler, StepOutcome, StepRequest};
+use ratmac::{Scheduler, StepOutcome, StepRequest};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};

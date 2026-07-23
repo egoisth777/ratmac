@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use arca_scheduler::{machine::MachineClass, Scheduler};
+use ratmac::{machine::MachineClass, Scheduler};
 
 const RATMAC: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),

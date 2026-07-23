@@ -1,6 +1,6 @@
 //! PT-017-01 / R-006: Exit Guards use observable artifacts, never agent claims.
 
-use arca_scheduler::{Scheduler, StepOutcome, StepRequest};
+use ratmac::{Scheduler, StepOutcome, StepRequest};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};

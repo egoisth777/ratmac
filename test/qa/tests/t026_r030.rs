@@ -1,6 +1,6 @@
 //! PT-026-01 / PT-026-02: print-first status and successful-step output.
 
-use arca_scheduler::cli::run_from;
+use ratmac::cli::run_from;
 use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};

@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
-use arca_scheduler::graph::Phase;
-use arca_scheduler::model::{Run, Runs, Status};
+use ratmac::graph::Phase;
+use ratmac::model::{Run, Runs, Status};
 
 fn fixture_phase(path: &str) -> String {
     let source = std::fs::read_to_string(path).expect("run fixture exists");

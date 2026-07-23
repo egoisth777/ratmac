@@ -1,6 +1,6 @@
 //! T-03 / R-019: failed guards produce actionable refusal evidence.
 
-use arca_scheduler::{Scheduler, StepOutcome, StepRequest};
+use ratmac::{Scheduler, StepOutcome, StepRequest};
 use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};

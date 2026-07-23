@@ -1,4 +1,4 @@
-//! Core arca-scheduler library.
+//! Core ratmac library.
 
 pub mod cli;
 pub mod graph;

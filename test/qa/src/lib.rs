@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use arca_scheduler::graph::{MachineGraph, MachineState, Phase, Transition};
+    use ratmac::graph::{MachineGraph, MachineState, Phase, Transition};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -75,7 +75,7 @@ mod tests {
 
     use std::str::FromStr;
 
-    use arca_scheduler::model::{Run, Status};
+    use ratmac::model::{Run, Status};
 
     const STATUS_VALUES: [&str; 5] = ["planned", "executing", "blocked", "passed", "failed"];
 
@@ -126,7 +126,7 @@ mod tests {
             );
         }
     }
-    use arca_scheduler::machine::MachineClass;
+    use ratmac::machine::MachineClass;
 
     const STATUS_DIMENSION_FIXTURE: &str =
         include_str!("../../fixtures/machine-class/status-dimension.toml");
@@ -257,7 +257,7 @@ mod tests {
     fn test_start_reads_class_without_modifying_ratmac() {
         let (project, class_path) = t009_copy_fixture();
         let before = fs::read(&class_path).expect("read ratmac.toml before start");
-        arca_scheduler::Scheduler::open(&project)
+        ratmac::Scheduler::open(&project)
             .expect("open class-read-only fixture")
             .start()
             .expect("start must load the canonical class");
@@ -287,9 +287,9 @@ mod t006 {
     use std::fs;
     use std::path::PathBuf;
 
-    use arca_scheduler::graph::{MachineGraph, Phase, Transition};
-    use arca_scheduler::model::{Run, Status};
-    use arca_scheduler::scheduler::{EntryPrerequisites, Scheduler};
+    use ratmac::graph::{MachineGraph, Phase, Transition};
+    use ratmac::model::{Run, Status};
+    use ratmac::scheduler::{EntryPrerequisites, Scheduler};
 
     fn missing_input_revision_fixture() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -377,8 +377,8 @@ mod t007_state_file {
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use arca_scheduler::model::{RunState, Status};
-    use arca_scheduler::scheduler::Scheduler;
+    use ratmac::model::{RunState, Status};
+    use ratmac::scheduler::Scheduler;
 
     const VALID_STATE: &str = include_str!("../../fixtures/state/valid-state.toml");
     const BLOCKED_STATE: &str = include_str!("../../fixtures/state/blocked-with-blocker.toml");
@@ -524,7 +524,7 @@ mod t007_state_file {
 
 #[cfg(test)]
 mod t008_state_writer_tests {
-    use arca_scheduler::Scheduler;
+    use ratmac::Scheduler;
     use std::collections::hash_map::DefaultHasher;
     use std::fs;
     use std::hash::{Hash, Hasher};
@@ -619,7 +619,7 @@ mod t008_state_writer_tests {
 
 #[cfg(test)]
 mod t010 {
-    use arca_scheduler::Scheduler;
+    use ratmac::Scheduler;
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -690,8 +690,8 @@ mod t005 {
     //! graph. Product code is owned by a later build phase; these tests are the P4
     //! proof boundary for R-011.
 
-    use arca_scheduler::machine::MachineClass;
-    use arca_scheduler::{Scheduler, StepOutcome, StepRequest};
+    use ratmac::machine::MachineClass;
+    use ratmac::{Scheduler, StepOutcome, StepRequest};
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};

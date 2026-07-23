@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Barrier};
 use std::thread;
 
-use arca_scheduler::{Scheduler, StepOutcome, StepRequest};
+use ratmac::{Scheduler, StepOutcome, StepRequest};
 
 fn fixture_root() -> PathBuf {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../fixtures/r015-concurrent-run");

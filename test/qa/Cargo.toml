@@ -1,5 +1,5 @@
 [package]
-name = "arca-scheduler-qa"
+name = "ratmac-qa"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,9 +7,9 @@ edition = "2021"
 path = "src/lib.rs"
 
 [[bin]]
-name = "schd"
-path = "../../src/bin/schd.rs"
+name = "rtm"
+path = "../../src/bin/rtm.rs"
 
 [dependencies]
-arca-scheduler = { path = "../.." }
+ratmac = { path = "../.." }
 toml = "0.8"

@@ -91,3 +91,7 @@
 - 2026-07-23: P2 freeze — goal revision `git:1c709fd6dba9482e80feda63e30e52503532e2ef+goal-sha256:496135c9516d559c2389c656b8be7da26537fef35eeac500b8741a24a5afff5b`.
 - 2026-07-23: P2 complete — RAT-001 satisfied; RAT-002, RAT-003, RAT-004, RAT-006, RAT-008 missing; RAT-005 and RAT-007 partial; residuals res-031 through res-038 created.
 - 2026-07-23: P3 complete — approved vertical tickets t-031 through t-037 map each missing/partial residual exactly once; dependencies are acyclic and ordered; ticket manifests cover all six hidden lanes.
+- 2026-07-23: t-031 P4 — PT-031-01 expected-red: cargo metadata still reported the legacy package/library and binary identities before implementation.
+- 2026-07-23: t-031 P4 hole-poke — metadata test asserts canonical root and QA package/dependency/bin names, source path, and absence of legacy package/bin names; it would fail on a stale package, QA manifest, target path, or duplicate legacy target.
+- 2026-07-23: t-031 P5 — ratmac package/library and rtm source/QA target identities implemented; active QA imports now use ratmac and t029's built-binary lookup uses CARGO_BIN_EXE_rtm. Legacy schd runtime wording/lock semantics remain for t-032/t-036 scope.
+- 2026-07-23: t-031 P5 gates — PT-031-01 passed; HT-031-01..02 passed (including serial all-target build); full workspace cargo test passed (55 tests, 27 suites); hidden fmt/clippy and workspace cargo fmt --all -- --check/cargo clippy --workspace --all-targets --all-features -- -D warnings passed.

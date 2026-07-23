@@ -1,4 +1,4 @@
-use arca_scheduler::{Scheduler, StepOutcome, StepRequest};
+use ratmac::{Scheduler, StepOutcome, StepRequest};
 
 use std::env;
 use std::fs;

@@ -1,4 +1,4 @@
-use arca_scheduler::cli::run_from;
+use ratmac::cli::run_from;
 use std::fs;
 use std::path::{Path, PathBuf};
 

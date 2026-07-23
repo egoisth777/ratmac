@@ -1,6 +1,6 @@
 //! PT-014-01 / R-024: Scheduler-owned Run files stay flat under `.arca`.
 
-use arca_scheduler::Scheduler;
+use ratmac::Scheduler;
 use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};

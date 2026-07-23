@@ -11,9 +11,7 @@ fn main() {
     };
     let mut stdout = io::stdout().lock();
     let mut stderr = io::stderr().lock();
-    if let Err(error) =
-        arca_scheduler::cli::run_from(env::args().skip(1), project_root, &mut stdout)
-    {
+    if let Err(error) = ratmac::cli::run_from(env::args().skip(1), project_root, &mut stdout) {
         let _ = writeln!(stderr, "schd: {error}");
         std::process::exit(1);
     }

@@ -1,4 +1,4 @@
-use arca_scheduler::cli;
+use ratmac::cli;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -32,7 +32,7 @@ fn setup_project() -> Project {
 }
 
 fn run_schd(project: &Project, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_schd"))
+    Command::new(env!("CARGO_BIN_EXE_rtm"))
         .args(args)
         .current_dir(&project.root)
         .output()
