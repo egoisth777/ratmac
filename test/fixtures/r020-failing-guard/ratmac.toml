@@ -1,0 +1,15 @@
+# PT-021-01: the required artifact remains absent for every refusal attempt.
+[phases.build]
+prompt = "Produce the required artifact."
+
+[[phases.build.guards]]
+kind = "files_exact"
+path = "artifacts"
+entries = ["required.txt"]
+
+[phases.complete]
+prompt = "Complete."
+
+[[transitions]]
+from = "build"
+to = "complete"

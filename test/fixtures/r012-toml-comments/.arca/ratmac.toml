@@ -1,0 +1,16 @@
+# COMMENT_BEFORE_PHASE must never reach the agent.
+[phases.build] # COMMENT_INLINE_PHASE must stay parser-only.
+prompt = "Build the artifact." # COMMENT_INLINE_PROMPT must stay hidden.
+
+# COMMENT_BEFORE_GUARD must not leak.
+[[phases.build.guards]] # COMMENT_INLINE_GUARD
+kind = "files_exact" # COMMENT_KIND
+path = "artifacts" # COMMENT_PATH
+entries = ["marker.txt"] # COMMENT_ENTRIES
+
+[phases.review]
+prompt = "Review the artifact." # COMMENT_OTHER_PHASE
+
+[[transitions]]
+from = "build"
+to = "review"

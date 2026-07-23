@@ -1,0 +1,12 @@
+# Valid Machine Class declarations plus one deliberately unknown key.
+unexpected_key = "must be rejected"
+
+[phases.prepare]
+prompt = "Prepare the inputs."
+
+[phases.done]
+prompt = "Finish the run."
+
+[[transitions]]
+from = "prepare"
+to = "done"

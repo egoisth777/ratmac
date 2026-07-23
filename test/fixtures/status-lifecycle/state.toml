@@ -1,0 +1,3 @@
+# Minimal Run state used by PT-002-01: status is recorded beside Phase.
+phase = "build"
+status = "planned"

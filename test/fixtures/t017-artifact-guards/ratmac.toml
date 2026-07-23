@@ -1,0 +1,26 @@
+# PT-017-01 fixture: all three Exit Guard fact types are required.
+[phases.guarded]
+prompt = "Produce the guarded artifact."
+
+[[phases.guarded.guards]]
+kind = "files_exact"
+path = "artifacts"
+entries = ["marker.txt", "result.yaml"]
+
+[[phases.guarded.guards]]
+kind = "file_contains"
+path = "artifacts/result.yaml"
+contains = "result: ok"
+
+[[phases.guarded.guards]]
+kind = "command_exit"
+program = "rustc"
+args = ["--version"]
+expected = 0
+
+[phases.complete]
+prompt = "Complete."
+
+[[transitions]]
+from = "guarded"
+to = "complete"

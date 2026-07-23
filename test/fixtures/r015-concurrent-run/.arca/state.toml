@@ -1,0 +1,7 @@
+phase = "prepare"
+status = "executing"
+goal_revision = "fixture"
+input_revision = "fixture"
+output_revision = "fixture"
+active_refs = []
+blocker = ""

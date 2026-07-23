@@ -1,0 +1,19 @@
+[phases.prepare]
+prompt = "Prepare the run."
+
+[[phases.prepare.guards]]
+kind = "files_exact"
+path = "artifacts"
+entries = ["proof.txt"]
+
+[phases.done]
+prompt = "Complete the run."
+
+[[phases.done.guards]]
+kind = "files_exact"
+path = "artifacts"
+entries = ["proof.txt"]
+
+[[transitions]]
+from = "prepare"
+to = "done"

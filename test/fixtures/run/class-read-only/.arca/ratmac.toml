@@ -1,0 +1,10 @@
+# Human-authored Machine Class: runtime state must never be written here.
+[phases.prepare]
+prompt = "Prepare the run inputs."
+
+[phases.complete]
+prompt = "Confirm the run is complete."
+
+[[transitions]]
+from = "prepare"
+to = "complete"

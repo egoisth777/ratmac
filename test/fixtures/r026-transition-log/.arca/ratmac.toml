@@ -1,0 +1,14 @@
+[phases.prepare]
+prompt = "Prepare the required output."
+
+[[phases.prepare.guards]]
+kind = "files_exact"
+path = "required"
+entries = ["output.txt"]
+
+[phases.done]
+prompt = "The run is complete."
+
+[[transitions]]
+from = "prepare"
+to = "done"

@@ -1,0 +1,9 @@
+[phases.start]
+prompt = "Prepare the run."
+
+[phases.finish]
+prompt = "Finish the run."
+
+[[transitions]]
+from = "start"
+to = "finish"

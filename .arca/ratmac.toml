@@ -1,0 +1,26 @@
+[phases/build]
+prompt = "Build the selected artifact only."
+next = "build-review"
+
+[[phases/build.guards]]
+kind = "files_exact"
+path = "artifacts"
+entries = ["release.txt"]
+
+[[phases/build.guards]]
+kind = "file_contains"
+path = "artifacts/release.txt"
+contains = "ready: true"
+
+[[phases/build.guards]]
+kind = "command_exit"
+program = "rustc"
+args = ["--version"]
+expected = 0
+
+[phases/build-review]
+prompt = "Review the selected artifact."
+next = "build-done"
+
+[phases/build-done]
+prompt = "Finish the selected artifact."

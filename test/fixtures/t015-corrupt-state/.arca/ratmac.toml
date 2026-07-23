@@ -1,0 +1,9 @@
+[phases.build]
+prompt = "Build the output"
+
+[phases.review]
+prompt = "Review the output"
+
+[[transitions]]
+from = "build"
+to = "review"

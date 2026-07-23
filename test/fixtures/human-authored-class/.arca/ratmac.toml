@@ -1,0 +1,12 @@
+# Human-authored and reviewed Machine Class for PT-004-01.
+# The Scheduler consumes this file; it must never generate or rewrite it.
+
+[phases.prepare]
+prompt = "Prepare the reviewed inputs."
+
+[phases.done]
+prompt = "The reviewed inputs are complete."
+
+[[transitions]]
+from = "prepare"
+to = "done"

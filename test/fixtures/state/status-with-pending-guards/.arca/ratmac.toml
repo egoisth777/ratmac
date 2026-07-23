@@ -1,0 +1,10 @@
+[phases.P4]
+prompt = "Implement and report the Scheduler State File."
+
+[[phases.P4.guards]]
+kind = "files_exact"
+path = ".arca/state.toml"
+
+[[phases.P4.guards]]
+kind = "cmd"
+command = "cargo test"

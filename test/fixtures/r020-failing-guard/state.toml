@@ -1,0 +1,7 @@
+phase = "build"
+status = "executing"
+goal_revision = "goal-r020"
+input_revision = "input-r020"
+output_revision = "output-r020"
+active_refs = ["ticket-r020"]
+blocker = ""

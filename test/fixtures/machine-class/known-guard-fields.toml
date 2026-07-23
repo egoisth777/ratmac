@@ -1,0 +1,14 @@
+[phases.prepare]
+prompt = "Prepare the run."
+guards = [
+  { kind = "files_exact", path = "artifacts", entries = ["proof.txt"] },
+  { kind = "file_contains", path = "artifacts/status.txt", contains = "READY" },
+  { kind = "command_exit", program = "echo", args = ["ok"], expected = 0 },
+]
+
+[phases.done]
+prompt = "Complete the run."
+
+[[transitions]]
+from = "prepare"
+to = "done"

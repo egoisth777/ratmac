@@ -1,0 +1,32 @@
+[phases.prepare]
+prompt = "Prepare the release artifact."
+
+[[phases.prepare.guards]]
+kind = "files_exact"
+path = "artifacts"
+entries = ["release.txt"]
+
+[[phases.prepare.guards]]
+kind = "file_contains"
+path = "artifacts/release.txt"
+contains = "ready: true"
+
+[[phases.prepare.guards]]
+kind = "command_exit"
+program = "rustc"
+args = ["--version"]
+expected = 0
+
+[phases.review]
+prompt = "Review the release artifact."
+
+[phases.done]
+prompt = "Finish the release."
+
+[[transitions]]
+from = "prepare"
+to = "review"
+
+[[transitions]]
+from = "review"
+to = "done"

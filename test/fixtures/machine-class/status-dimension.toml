@@ -1,0 +1,12 @@
+# A Machine Class must not define lifecycle status as a graph dimension.
+status = ["planned", "executing", "blocked", "passed", "failed"]
+
+[phases.prepare]
+prompt = "Prepare the inputs."
+
+[phases.done]
+prompt = "Finish the run."
+
+[[transitions]]
+from = "prepare"
+to = "done"

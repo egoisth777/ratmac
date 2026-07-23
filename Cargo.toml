@@ -1,0 +1,19 @@
+[package]
+name = "arca-scheduler"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "arca_scheduler"
+path = "src/lib.rs"
+
+[workspace]
+members = ["test/qa"]
+resolver = "2"
+
+[dependencies]
+toml = "0.8"
+serde = { version = "1", features = ["derive"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Storage_FileSystem"] }

@@ -1,0 +1,7 @@
+phase = "P4"
+status = "blocked"
+goal_revision = "goal-20260722"
+input_revision = ""
+output_revision = "output-def456"
+active_refs = ["R-025", "T-07", "T-15"]
+blocker = "missing entry prerequisite: input_revision"

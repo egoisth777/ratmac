@@ -1,0 +1,24 @@
+[phases.inspect]
+prompt = "Inspect the source material and produce an inspection artifact."
+
+[[phases.inspect.guards]]
+kind = "files_exact"
+path = "artifacts"
+entries = ["composition.ok", "inspection.ok"]
+[phases.compose]
+prompt = "Compose the result from the inspected material."
+
+[[phases.compose.guards]]
+kind = "files_exact"
+path = "artifacts"
+entries = ["composition.ok", "inspection.ok"]
+[phases.publish]
+prompt = "Publish the completed result."
+
+[[transitions]]
+from = "inspect"
+to = "compose"
+
+[[transitions]]
+from = "compose"
+to = "publish"
