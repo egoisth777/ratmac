@@ -88,7 +88,7 @@ impl RunArtifacts {
         Self {
             state_path: arca.join("state.toml"),
             log_path: arca.join("log.md"),
-            lock_path: arca.join("schd.lock"),
+            lock_path: arca.join("rtm.lock"),
         }
     }
 

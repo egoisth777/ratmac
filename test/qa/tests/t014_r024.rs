@@ -50,7 +50,7 @@ fn scheduler_files_are_flat_under_arca() {
 
     assert_eq!(artifacts.state_path(), arca.join("state.toml").as_path());
     assert_eq!(artifacts.log_path(), arca.join("log.md").as_path());
-    assert_eq!(artifacts.lock_path(), arca.join("schd.lock").as_path());
+    assert_eq!(artifacts.lock_path(), arca.join("rtm.lock").as_path());
     assert_eq!(artifacts.state_path().parent(), Some(arca.as_path()));
     assert_eq!(artifacts.log_path().parent(), Some(arca.as_path()));
     assert_eq!(artifacts.lock_path().parent(), Some(arca.as_path()));
@@ -64,7 +64,7 @@ fn scheduler_files_are_flat_under_arca() {
     );
     assert!(
         !artifacts.lock_path().exists(),
-        "schd.lock is transient and must be absent after start returns"
+        "rtm.lock is transient and must be absent after start returns"
     );
     assert_eq!(
         fs::read(&ratmac).expect("class bytes must be readable after start"),

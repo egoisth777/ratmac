@@ -46,10 +46,7 @@ pub fn help(command: impl AsRef<str>) -> &'static str {
 }
 
 fn command_index(args: &[String]) -> usize {
-    usize::from(
-        args.first()
-            .is_some_and(|arg| arg == "rtm" || arg == "schd"),
-    )
+    usize::from(args.first().is_some_and(|arg| arg == "rtm"))
 }
 
 fn is_help(args: &[String]) -> bool {

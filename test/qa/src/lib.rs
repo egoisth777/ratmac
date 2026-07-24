@@ -651,7 +651,7 @@ mod t010 {
 
         assert_eq!(
             run.lock_path().expect("started Run owns lock path"),
-            arca.join("schd.lock"),
+            arca.join("rtm.lock"),
             "Run must own the flat lock path"
         );
         for artifact in ["state.toml", "log.md"] {
@@ -661,7 +661,7 @@ mod t010 {
             );
         }
         assert!(
-            !arca.join("schd.lock").exists(),
+            !arca.join("rtm.lock").exists(),
             "start must release the invocation lock before returning"
         );
         assert_eq!(

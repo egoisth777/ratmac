@@ -107,6 +107,27 @@ struct InvocationLock {
 }
 
 impl InvocationLock {
+    fn legacy_lock_path(path: &Path) -> Option<PathBuf> {
+        path.parent().map(|parent| parent.join("schd.lock"))
+    }
+
+    fn refuse_legacy(path: &Path) -> Result<(), StateError> {
+        let Some(legacy_path) = Self::legacy_lock_path(path) else {
+            return Ok(());
+        };
+        match fs::symlink_metadata(&legacy_path) {
+            Ok(_) => Err(StateError::new(format!(
+                "refusing to run: legacy lock {} exists; explicitly migrate or remove that lock, then retry; it was not modified",
+                legacy_path.display()
+            ))),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(StateError::new(format!(
+                "inspect legacy lock {}: {error}",
+                legacy_path.display()
+            ))),
+        }
+    }
+
     fn try_acquire(path: &Path) -> std::io::Result<Self> {
         OpenOptions::new().write(true).create_new(true).open(path)?;
         Ok(Self {
@@ -114,32 +135,35 @@ impl InvocationLock {
         })
     }
 
-    fn acquire(path: &Path) -> Result<Self, StateError> {
-        Self::try_acquire(path)
-            .map_err(|error| StateError::new(format!("create schd.lock: {error}")))
-    }
-
     fn acquire_with_retry(path: &Path) -> Result<Self, StateError> {
         const MAX_ATTEMPTS: usize = 4_096;
+        Self::refuse_legacy(path)?;
         for attempt in 0..MAX_ATTEMPTS {
             match Self::try_acquire(path) {
-                Ok(lock) => return Ok(lock),
+                Ok(lock) => {
+                    if let Err(error) = Self::refuse_legacy(path) {
+                        drop(lock);
+                        return Err(error);
+                    }
+                    return Ok(lock);
+                }
                 Err(error)
                     if matches!(
                         error.kind(),
                         std::io::ErrorKind::AlreadyExists | std::io::ErrorKind::PermissionDenied
                     ) =>
                 {
+                    Self::refuse_legacy(path)?;
                     if attempt + 1 < MAX_ATTEMPTS {
                         thread::yield_now();
                     } else {
                         return Err(StateError::new(format!(
-                            "acquire schd.lock: lock remained held after {MAX_ATTEMPTS} attempts"
+                            "acquire rtm.lock: lock remained held after {MAX_ATTEMPTS} attempts"
                         )));
                     }
                 }
                 Err(error) => {
-                    return Err(StateError::new(format!("create schd.lock: {error}")));
+                    return Err(StateError::new(format!("create rtm.lock: {error}")));
                 }
             }
         }
@@ -216,8 +240,8 @@ impl Scheduler {
         let arca = root.join(".arca");
         fs::create_dir_all(&arca)
             .map_err(|error| StateError::new(format!("create .arca: {error}")))?;
-        let lock_path = arca.join("schd.lock");
-        let _lock = InvocationLock::acquire(&lock_path)?;
+        let lock_path = arca.join("rtm.lock");
+        let _lock = InvocationLock::acquire_with_retry(&lock_path)?;
         // A canonical State File is the durable marker for an active v1 Run.
         // The invocation lock above is transient and is not used for admission.
         if arca.join("state.toml").exists() {
@@ -274,8 +298,8 @@ impl Scheduler {
             .as_ref()
             .ok_or_else(|| StateError::new("step requires Scheduler::open"))?
             .clone();
-        let lock_path = root.join(".arca/schd.lock");
-        let _lock = InvocationLock::acquire(&lock_path)?;
+        let lock_path = root.join(".arca/rtm.lock");
+        let _lock = InvocationLock::acquire_with_retry(&lock_path)?;
         let source = Self::read_machine_source(&root)?;
         self.machine = Self::machine_from_source(&source)?;
         let state = self.load_state_unlocked()?;
@@ -689,22 +713,13 @@ impl Scheduler {
         run
     }
 
-    fn invocation_lock(&self) -> Result<InvocationLock, StateError> {
-        let root = self
-            .root
-            .as_ref()
-            .ok_or_else(|| StateError::new("operation requires Scheduler::open"))?;
-        let arca = root.join(".arca");
-        InvocationLock::acquire(&arca.join("schd.lock"))
-    }
-
     fn invocation_lock_with_retry(&self) -> Result<InvocationLock, StateError> {
         let root = self
             .root
             .as_ref()
             .ok_or_else(|| StateError::new("operation requires Scheduler::open"))?;
         let arca = root.join(".arca");
-        InvocationLock::acquire_with_retry(&arca.join("schd.lock"))
+        InvocationLock::acquire_with_retry(&arca.join("rtm.lock"))
     }
 
     fn store(&self) -> Result<&StateStore, StateError> {
@@ -733,7 +748,7 @@ impl Scheduler {
     }
 
     pub fn load_state(&self) -> Result<RunState, StateError> {
-        let _lock = self.invocation_lock()?;
+        let _lock = self.invocation_lock_with_retry()?;
         self.load_state_unlocked()
     }
 
@@ -743,7 +758,7 @@ impl Scheduler {
 
     /// Read-only status; it loads state and reports labels from the current class.
     pub fn status(&self) -> Result<StatusReport, StateError> {
-        let _lock = self.invocation_lock()?;
+        let _lock = self.invocation_lock_with_retry()?;
         let root = self
             .root
             .as_ref()

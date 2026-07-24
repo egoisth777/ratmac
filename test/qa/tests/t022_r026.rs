@@ -208,7 +208,7 @@ fn start_log_open_failure_leaves_no_state_and_lock() {
 
     assert!(scheduler.start().is_err());
     assert!(!arca.join("state.toml").exists());
-    assert!(!arca.join("schd.lock").exists());
+    assert!(!arca.join("rtm.lock").exists());
 }
 
 #[test]
@@ -244,7 +244,7 @@ fn non_newline_log_gets_separator_before_record() {
 #[test]
 fn state_mutators_and_status_honor_existing_lock() {
     let (project, state_path, _log_path) = isolated_project("r026-transition-log");
-    let lock = project.0.join(".arca/schd.lock");
+    let lock = project.0.join(".arca/rtm.lock");
     fs::write(&lock, b"held").expect("create held invocation lock");
     let state_before = fs::read(&state_path).expect("read state before lock checks");
     let mut scheduler = Scheduler::open(&project.0).expect("open transition-log fixture");

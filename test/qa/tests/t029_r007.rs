@@ -89,7 +89,7 @@ fn binary_start_creates_owned_artifacts_and_releases_lock() {
     );
     assert!(project.root.join(".arca/state.toml").is_file());
     assert!(project.root.join(".arca/log.md").is_file());
-    assert!(!project.root.join(".arca/schd.lock").exists());
+    assert!(!project.root.join(".arca/rtm.lock").exists());
     assert_eq!(
         before,
         fs::read(class_path).expect("read class after start")

@@ -23,7 +23,7 @@ fn fixture_root() -> PathBuf {
 #[test]
 fn concurrent_steps_are_arbitrated_by_lockfile() {
     let root = fixture_root();
-    let lock_path = root.join(".arca/schd.lock");
+    let lock_path = root.join(".arca/rtm.lock");
     assert!(!lock_path.exists(), "lock starts transient and absent");
 
     let barrier = Arc::new(Barrier::new(2));
