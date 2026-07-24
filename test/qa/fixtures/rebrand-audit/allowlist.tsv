@@ -25,7 +25,4 @@ test/qa/tests/t037_rat008.rs	both	Final acceptance negative probes intentionally
 test/qa/fixtures/rebrand-audit/allowlist.tsv	both	The audit manifest necessarily spells out each legacy token.
 .arca/current/spec.md	both	Frozen external-identity requirement names the superseded repository and path.
 .arca/issue/i-002-ratmac-external-identity/**	both	Accepted external-identity issue preserves the incoming legacy identity as provenance.
-.arca/residual/res-039.md	both	Frozen residual records the pre-cutover GitHub identity.
-.arca/residual/res-040.md	both	Frozen residual records the pre-cutover origin and checkout path.
-.arca/residual/res-042.md	both	Frozen residual records the pre-cutover worktree/path baseline.
 .arca/ticket/t-038.md	both	Active cutover ticket captures old identity for rollback and acceptance.

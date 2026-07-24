@@ -7,10 +7,7 @@
 .arca/current/test-list.md	both	The frozen verification table names expected legacy identity evidence.
 .arca/current/ubi-lang.md	both	The glossary defines the superseded identity and historical allowlist.
 .arca/ticket/t-038.md	both	This ticket records captured pre-cutover values and acceptance assertions.
-.arca/residual/res-039.md	both	Frozen residual evidence records the pre-cutover GitHub identity.
-.arca/residual/res-040.md	both	Frozen residual evidence records the pre-cutover origin and path.
 .arca/residual/res-041.md	both	Frozen residual evidence records the active-reference baseline.
-.arca/residual/res-042.md	both	Frozen residual evidence records preflight baseline values.
 .arca/residual/res-043.md	both	Frozen residual evidence records pending final acceptance.
 .arca/residual/res-044.md	both	Frozen residual evidence records planning-only scope.
 test/qa/fixtures/external-identity/allowlist.tsv	both	This manifest explicitly spells out each historical exception.

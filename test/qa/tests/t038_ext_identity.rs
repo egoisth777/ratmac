@@ -138,15 +138,10 @@ fn historical_bytes_unchanged(root: &Path) {
         "historical allowlist must cover files"
     );
     for path in files.lines().filter(|path| !path.is_empty()) {
-        let expected = stdout(
-            &run(root, "git", &["show", &format!("HEAD:{path}")]),
-            "historical Git snapshot",
-        );
-        let actual = fs::read(root.join(path)).expect("historical file must remain readable");
-        assert_eq!(
-            expected.as_bytes(),
-            actual,
-            "historical bytes changed: {path}"
+        let unchanged = run(root, "git", &["diff", "--quiet", "HEAD", "--", path]);
+        assert!(
+            unchanged.status.success(),
+            "historical file changed in the worktree: {path}"
         );
     }
 }
