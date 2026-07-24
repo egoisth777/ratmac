@@ -23,4 +23,6 @@ test/qa/tests/t032_rat003.rs	schd	Negative CLI assertions and direct legacy reje
 test/qa/tests/t033_rat004.rs	both	Negative QA inventory assertions prove stale-name absence.
 test/qa/tests/t035_rat006.rs	both	Negative generated-metadata and lock assertions prove stale-name absence.
 test/qa/tests/t036_rat007.rs	schd	Legacy-lock fixture and clean-cutover rejection probe.
+test/qa/tests/t037_rat008.rs	both	Final acceptance negative probes intentionally exercise and reject legacy metadata, binary, and lock spellings.
+.arca/residual/res-037.md	schd	Residual evidence records the rejected legacy-lock spelling and preserves its frozen provenance.
 test/qa/fixtures/rebrand-audit/allowlist.tsv	both	The audit manifest necessarily spells out each legacy token.

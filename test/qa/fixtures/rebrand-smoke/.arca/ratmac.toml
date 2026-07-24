@@ -1,0 +1,21 @@
+[phases.prepare]
+prompt = "Prepare the rebrand smoke run."
+
+[[phases.prepare.guards]]
+kind = "files_exact"
+path = "artifacts"
+entries = ["required.txt"]
+
+[phases.review]
+prompt = "Review the rebrand smoke run."
+
+[phases.done]
+prompt = "Finish the rebrand smoke run."
+
+[[transitions]]
+from = "prepare"
+to = "review"
+
+[[transitions]]
+from = "review"
+to = "done"
