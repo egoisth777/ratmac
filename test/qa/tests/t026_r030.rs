@@ -35,7 +35,7 @@ fn temporary_project(ratmac: &str, state: &str, log: &str) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .expect("system clock must be after the Unix epoch")
         .as_nanos();
-    let project = std::env::temp_dir().join(format!("arca-scheduler-t026-{unique}"));
+    let project = std::env::temp_dir().join(format!("ratmac-t026-{unique}"));
     fs::create_dir(&project).expect("temporary project must be creatable");
     fs::create_dir(project.join(".arca")).expect("project .arca directory must be creatable");
     fs::create_dir(project.join("artifacts")).expect("artifact directory must be creatable");
@@ -60,11 +60,11 @@ fn status_prints_current_phase_prompt() {
     ];
     let mut stdout = Vec::new();
     run_from(
-        vec!["schd".to_owned(), "status".to_owned()],
+        vec!["rtm".to_owned(), "status".to_owned()],
         &project,
         &mut stdout,
     )
-    .expect("schd status must succeed for the valid fixture");
+    .expect("rtm status must succeed for the valid fixture");
     let output = String::from_utf8(stdout).expect("status output must be UTF-8");
 
     assert!(
@@ -95,7 +95,7 @@ fn successful_step_prints_prompt_without_spawning() {
     let project = temporary_project(STEP_RATMAC, STEP_STATE, STEP_LOG);
     let arca = project.join(".arca");
     let mut stdout = Vec::new();
-    let args = vec!["schd".to_owned(), "step".to_owned()];
+    let args = vec!["rtm".to_owned(), "step".to_owned()];
     run_from(args, &project, &mut stdout).expect("successful step must return normally");
     let output = String::from_utf8(stdout).expect("step output must be UTF-8");
 

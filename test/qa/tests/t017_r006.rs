@@ -23,10 +23,7 @@ fn isolated_project() -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .expect("system clock is before the Unix epoch")
         .as_nanos();
-    let root = std::env::temp_dir().join(format!(
-        "arca-scheduler-t017-{}-{nonce}",
-        std::process::id()
-    ));
+    let root = std::env::temp_dir().join(format!("ratmac-t017-{}-{nonce}", std::process::id()));
     let arca = root.join(".arca");
     fs::create_dir_all(root.join("artifacts")).expect("create artifact directory");
     fs::create_dir_all(&arca).expect("create Scheduler directory");

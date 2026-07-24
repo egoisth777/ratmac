@@ -18,10 +18,7 @@ fn setup_project() -> Project {
         .duration_since(UNIX_EPOCH)
         .expect("system clock is after the Unix epoch")
         .as_nanos();
-    let root = std::env::temp_dir().join(format!(
-        "arca-scheduler-t030-{}-{stamp}",
-        std::process::id()
-    ));
+    let root = std::env::temp_dir().join(format!("ratmac-t030-{}-{stamp}", std::process::id()));
     let arca = root.join(".arca");
     fs::create_dir_all(&arca).expect("create isolated step-help project");
     let fixture =
@@ -37,7 +34,7 @@ fn step_help_documents_main_agent_only_policy() {
     let before = fs::read(&class_path).expect("read class before help");
     let mut output = Vec::new();
 
-    cli::run_from(["schd", "step", "--help"], &project.root, &mut output)
+    cli::run_from(["rtm", "step", "--help"], &project.root, &mut output)
         .expect("step help is a successful CLI workflow");
     let help = String::from_utf8(output)
         .expect("help output is UTF-8")

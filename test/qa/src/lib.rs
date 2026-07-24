@@ -192,8 +192,7 @@ mod tests {
         let source_class = fixture.join(".arca/ratmac.toml");
         let source_bytes = fs::read(&source_class).expect("canonical ratmac fixture should exist");
 
-        let project =
-            std::env::temp_dir().join(format!("arca-scheduler-pt-004-01-{}", std::process::id()));
+        let project = std::env::temp_dir().join(format!("ratmac-pt-004-01-{}", std::process::id()));
         if project.exists() {
             fs::remove_dir_all(&project).expect("stale PT-004-01 directory should be removable");
         }
@@ -241,11 +240,8 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("system clock must be after Unix epoch")
             .as_nanos();
-        let project = std::env::temp_dir().join(format!(
-            "arca-scheduler-pt-009-{}-{}",
-            std::process::id(),
-            nonce
-        ));
+        let project =
+            std::env::temp_dir().join(format!("ratmac-pt-009-{}-{}", std::process::id(), nonce));
         let arca = project.join(".arca");
         fs::create_dir_all(&arca).expect("create isolated .arca fixture");
         let class_path = arca.join("ratmac.toml");
@@ -297,7 +293,7 @@ mod t006 {
     }
 
     fn present_input_revision_fixture() -> PathBuf {
-        let root = std::env::temp_dir().join("arca-scheduler-t006-present-input");
+        let root = std::env::temp_dir().join("ratmac-t006-present-input");
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).expect("create present input fixture");
         let path = root.join("input_revision");
@@ -392,7 +388,7 @@ mod t007_state_file {
                 .duration_since(UNIX_EPOCH)
                 .expect("system clock is before unix epoch")
                 .as_nanos();
-            let root = std::env::temp_dir().join(format!("arca-scheduler-t007-{nonce}"));
+            let root = std::env::temp_dir().join(format!("ratmac-t007-{nonce}"));
             fs::create_dir_all(&root).expect("create isolated project root");
             Self(root)
         }
@@ -540,10 +536,8 @@ mod t008_state_writer_tests {
             .duration_since(UNIX_EPOCH)
             .expect("system clock is before the Unix epoch")
             .as_nanos();
-        let root = std::env::temp_dir().join(format!(
-            "arca-scheduler-{label}-{}-{nonce}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("ratmac-{label}-{}-{nonce}", std::process::id()));
         fs::create_dir_all(root.join(".arca")).expect("create isolated project");
         root
     }
@@ -569,7 +563,7 @@ mod t008_state_writer_tests {
     }
 
     #[test]
-    fn test_only_schd_writes_state_file() {
+    fn test_only_rtm_writes_state_file() {
         let sentinel = fixture_bytes();
 
         let read_project = temp_project("state-read");
@@ -613,7 +607,7 @@ mod t008_state_writer_tests {
         fs::remove_dir_all(&write_project).expect("remove isolated write project");
 
         // v1 caller identity is policy, not authentication: this test proves the filesystem
-        // boundary and does not claim that schd can authenticate Main-Agent versus subagent.
+        // boundary and does not claim that rtm can authenticate Main-Agent versus subagent.
     }
 }
 
@@ -629,10 +623,8 @@ mod t010 {
             .duration_since(UNIX_EPOCH)
             .expect("system clock is after the Unix epoch")
             .as_nanos();
-        let root = std::env::temp_dir().join(format!(
-            "arca-scheduler-pt010-{}-{stamp}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("ratmac-pt010-{}-{stamp}", std::process::id()));
         let arca = root.join(".arca");
         fs::create_dir_all(&arca).expect("create isolated PT-010 project");
         let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))

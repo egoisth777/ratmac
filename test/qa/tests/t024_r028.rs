@@ -13,7 +13,7 @@ const STATE: &str = include_str!(concat!(
 ));
 
 fn fixture_project() -> PathBuf {
-    let root = std::env::temp_dir().join(format!("arca-scheduler-r028-{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("ratmac-r028-{}", std::process::id()));
     if root.exists() {
         fs::remove_dir_all(&root).expect("remove stale R-028 fixture project");
     }

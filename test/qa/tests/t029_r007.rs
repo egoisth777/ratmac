@@ -19,10 +19,7 @@ fn setup_project() -> Project {
         .duration_since(UNIX_EPOCH)
         .expect("system clock is after the Unix epoch")
         .as_nanos();
-    let root = std::env::temp_dir().join(format!(
-        "arca-scheduler-t029-{}-{stamp}",
-        std::process::id()
-    ));
+    let root = std::env::temp_dir().join(format!("ratmac-t029-{}-{stamp}", std::process::id()));
     let arca = root.join(".arca");
     fs::create_dir_all(&arca).expect("create isolated help project");
     let fixture =
@@ -31,12 +28,12 @@ fn setup_project() -> Project {
     Project { root }
 }
 
-fn run_schd(project: &Project, args: &[&str]) -> Output {
+fn run_rtm(project: &Project, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_rtm"))
         .args(args)
         .current_dir(&project.root)
         .output()
-        .expect("invoke built schd binary")
+        .expect("invoke built rtm binary")
 }
 
 #[test]
@@ -45,7 +42,7 @@ fn start_help_documents_user_only_loop_entry() {
     let class_path = project.root.join(".arca/ratmac.toml");
     let before = fs::read(&class_path).expect("read class before help");
     let mut output = Vec::new();
-    cli::run_from(["schd", "start", "--help"], &project.root, &mut output)
+    cli::run_from(["rtm", "start", "--help"], &project.root, &mut output)
         .expect("start help is a successful CLI workflow");
     let help = String::from_utf8(output)
         .expect("help output is UTF-8")
@@ -84,7 +81,7 @@ fn binary_start_creates_owned_artifacts_and_releases_lock() {
     let project = setup_project();
     let class_path = project.root.join(".arca/ratmac.toml");
     let before = fs::read(&class_path).expect("read class before start");
-    let output = run_schd(&project, &["start"]);
+    let output = run_rtm(&project, &["start"]);
     assert!(
         output.status.success(),
         "start failed: {}",
@@ -102,13 +99,13 @@ fn binary_start_creates_owned_artifacts_and_releases_lock() {
 #[test]
 fn binary_second_start_fails_without_mutating_run() {
     let project = setup_project();
-    let first = run_schd(&project, &["start"]);
+    let first = run_rtm(&project, &["start"]);
     assert!(first.status.success());
     let state = fs::read(project.root.join(".arca/state.toml")).expect("read initial state");
     let log = fs::read(project.root.join(".arca/log.md")).expect("read initial log");
     let class = fs::read(project.root.join(".arca/ratmac.toml")).expect("read initial class");
 
-    let second = run_schd(&project, &["start"]);
+    let second = run_rtm(&project, &["start"]);
     assert!(!second.status.success(), "second active start must fail");
     assert_eq!(
         state,
@@ -124,8 +121,8 @@ fn binary_second_start_fails_without_mutating_run() {
 #[test]
 fn binary_status_prints_report_and_phase_prompt() {
     let project = setup_project();
-    assert!(run_schd(&project, &["start"]).status.success());
-    let output = run_schd(&project, &["status"]);
+    assert!(run_rtm(&project, &["start"]).status.success());
+    let output = run_rtm(&project, &["status"]);
     assert!(
         output.status.success(),
         "status failed: {}",

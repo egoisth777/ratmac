@@ -18,8 +18,7 @@ fn copy_fixture(project: &Path) {
 
 #[test]
 fn phase_prompt_excludes_other_phases_and_graph() {
-    let project =
-        std::env::temp_dir().join(format!("arca-scheduler-t025-r029-{}", std::process::id()));
+    let project = std::env::temp_dir().join(format!("ratmac-t025-r029-{}", std::process::id()));
     if project.exists() {
         fs::remove_dir_all(&project).expect("stale phase-scope directory should be removable");
     }

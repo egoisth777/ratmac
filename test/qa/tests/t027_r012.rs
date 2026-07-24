@@ -14,7 +14,7 @@ fn copy_fixture_to_temp() -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .expect("clock is after the Unix epoch")
         .as_nanos();
-    let root = std::env::temp_dir().join(format!("arca-scheduler-t027-{nonce}"));
+    let root = std::env::temp_dir().join(format!("ratmac-t027-{nonce}"));
     let arca = root.join(".arca");
     fs::create_dir_all(&arca).expect("create isolated .arca directory");
     for file in ["ratmac.toml", "state.toml", "log.md"] {

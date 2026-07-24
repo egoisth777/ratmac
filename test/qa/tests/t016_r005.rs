@@ -15,10 +15,7 @@ fn isolated_project(label: &str) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .expect("system clock is before unix epoch")
         .as_nanos();
-    std::env::temp_dir().join(format!(
-        "arca-scheduler-{label}-{}-{nonce}",
-        std::process::id()
-    ))
+    std::env::temp_dir().join(format!("ratmac-{label}-{}-{nonce}", std::process::id()))
 }
 
 fn copy_fixture(fixture: &Path, project: &Path) {

@@ -20,10 +20,7 @@ fn setup_project() -> Project {
         .duration_since(UNIX_EPOCH)
         .expect("system clock is after the Unix epoch")
         .as_nanos();
-    let root = std::env::temp_dir().join(format!(
-        "arca-scheduler-t019-{}-{stamp}",
-        std::process::id()
-    ));
+    let root = std::env::temp_dir().join(format!("ratmac-t019-{}-{stamp}", std::process::id()));
     let arca = root.join(".arca");
     fs::create_dir_all(&arca).expect("create isolated guard-failure project");
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))

@@ -20,7 +20,7 @@ fn temporary_project() -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .expect("system clock must be after the Unix epoch")
         .as_nanos();
-    let project = std::env::temp_dir().join(format!("arca-scheduler-t014-{unique}"));
+    let project = std::env::temp_dir().join(format!("ratmac-t014-{unique}"));
     fs::create_dir(&project).expect("temporary project must be creatable");
     fs::create_dir_all(project.join(".arca/current"))
         .expect("legacy current directory must be creatable");

@@ -15,8 +15,8 @@ fn copy_fixture(project: &Path) {
     }
 }
 
-fn run_schd(project: &Path, args: &[&str]) -> bool {
-    let mut argv = vec!["schd"];
+fn run_rtm(project: &Path, args: &[&str]) -> bool {
+    let mut argv = vec!["rtm"];
     argv.extend_from_slice(args);
     let mut sink = Vec::new();
     run_from(argv, project, &mut sink).is_ok()
@@ -35,8 +35,7 @@ fn state_phase(path: &Path) -> String {
 
 #[test]
 fn step_and_status_target_active_run_without_run_id() {
-    let project =
-        std::env::temp_dir().join(format!("arca-scheduler-t013-r023-{}", std::process::id()));
+    let project = std::env::temp_dir().join(format!("ratmac-t013-r023-{}", std::process::id()));
     if project.exists() {
         fs::remove_dir_all(&project).expect("stale T-09 directory should be removable");
     }
@@ -44,7 +43,7 @@ fn step_and_status_target_active_run_without_run_id() {
 
     let state_path = project.join(".arca/state.toml");
     let before_status = fs::read(&state_path).expect("active state should be readable");
-    let status = run_schd(&project, &["status"]);
+    let status = run_rtm(&project, &["status"]);
     assert!(status, "status without run-id should target active Run");
     assert_eq!(
         fs::read(&state_path).expect("active state should remain readable"),
@@ -52,7 +51,7 @@ fn step_and_status_target_active_run_without_run_id() {
         "status must remain read-only"
     );
 
-    let step = run_schd(&project, &["step"]);
+    let step = run_rtm(&project, &["step"]);
     assert!(step, "step without run-id should target active Run");
     assert_eq!(
         state_phase(&state_path),
@@ -62,7 +61,7 @@ fn step_and_status_target_active_run_without_run_id() {
 
     let after_step = fs::read(&state_path).expect("active state should remain readable");
     for args in [["status", "stale"], ["step", "stale"]] {
-        let rejected = run_schd(&project, &args);
+        let rejected = run_rtm(&project, &args);
         assert!(!rejected, "{} with a run-id must be rejected", args[0]);
         assert_eq!(
             fs::read(&state_path).expect("active state should remain readable"),

@@ -27,11 +27,7 @@ fn isolated_project(fixture: &str) -> (TempProject, PathBuf, PathBuf) {
         .duration_since(UNIX_EPOCH)
         .expect("system clock must be after the Unix epoch")
         .as_nanos();
-    let root = env::temp_dir().join(format!(
-        "arca-scheduler-pt-022-{}-{}",
-        std::process::id(),
-        nonce
-    ));
+    let root = env::temp_dir().join(format!("ratmac-pt-022-{}-{}", std::process::id(), nonce));
     let arca = root.join(".arca");
     fs::create_dir_all(&arca).expect("create isolated .arca directory");
     let source = fixture_root(fixture);
@@ -58,7 +54,7 @@ fn start_project() -> TempProject {
         .expect("system clock must be after the Unix epoch")
         .as_nanos();
     let root = env::temp_dir().join(format!(
-        "arca-scheduler-pt-022-start-{}-{}",
+        "ratmac-pt-022-start-{}-{}",
         std::process::id(),
         nonce
     ));
@@ -281,7 +277,7 @@ fn status_on_missing_arca_does_not_create_metadata() {
         .expect("system clock must be after the Unix epoch")
         .as_nanos();
     let project = env::temp_dir().join(format!(
-        "arca-scheduler-pt-022-status-missing-{}-{}",
+        "ratmac-pt-022-status-missing-{}-{}",
         std::process::id(),
         nonce
     ));

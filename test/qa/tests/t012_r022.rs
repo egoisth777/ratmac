@@ -10,7 +10,7 @@ const RATMAC: &str = include_str!(concat!(
 ));
 
 fn fresh_project_root() -> PathBuf {
-    let root = std::env::temp_dir().join(format!("arca-scheduler-t012-{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("ratmac-t012-{}", std::process::id()));
     if root.exists() {
         fs::remove_dir_all(&root).expect("remove stale t-012 fixture project");
     }
@@ -38,7 +38,7 @@ fn start_refuses_second_active_run() {
     let project = fresh_project_root();
 
     let mut first_scheduler = Scheduler::open(&project).expect("open fixture project");
-    let first = first_scheduler.start().expect("first schd start succeeds");
+    let first = first_scheduler.start().expect("first rtm start succeeds");
     let before = snapshot_owned_files(&project);
     let mut second_scheduler = Scheduler::open(&project).expect("reopen fixture project");
 

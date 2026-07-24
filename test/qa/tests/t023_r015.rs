@@ -7,7 +7,7 @@ use ratmac::{Scheduler, StepOutcome, StepRequest};
 
 fn fixture_root() -> PathBuf {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../fixtures/r015-concurrent-run");
-    let root = std::env::temp_dir().join(format!("arca-scheduler-r015-{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("ratmac-r015-{}", std::process::id()));
     let _ = fs::remove_dir_all(&root);
     fs::create_dir_all(root.join(".arca")).expect("create isolated project root");
     for name in ["ratmac.toml", "state.toml", "log.md"] {

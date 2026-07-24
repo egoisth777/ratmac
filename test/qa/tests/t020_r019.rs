@@ -19,7 +19,7 @@ fn temporary_project() -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let project = std::env::temp_dir().join(format!("arca-scheduler-t020-{unique}"));
+    let project = std::env::temp_dir().join(format!("ratmac-t020-{unique}"));
     fs::create_dir(&project).unwrap();
     fs::create_dir(project.join(".arca")).unwrap();
     fs::create_dir(project.join("artifacts")).unwrap();

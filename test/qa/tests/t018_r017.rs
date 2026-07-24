@@ -25,11 +25,7 @@ fn isolated_project() -> (TempProject, PathBuf, PathBuf) {
         .duration_since(UNIX_EPOCH)
         .expect("system clock must be after the Unix epoch")
         .as_nanos();
-    let root = env::temp_dir().join(format!(
-        "arca-scheduler-pt-018-{}-{}",
-        std::process::id(),
-        nonce
-    ));
+    let root = env::temp_dir().join(format!("ratmac-pt-018-{}-{}", std::process::id(), nonce));
     let arca = root.join(".arca");
     fs::create_dir_all(&arca).expect("create isolated .arca directory");
     for name in ["ratmac.toml", "state.toml", "log.md"] {
