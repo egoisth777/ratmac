@@ -35,13 +35,25 @@ impl From<io::Error> for CliError {
 pub fn help(command: impl AsRef<str>) -> &'static str {
     match command.as_ref() {
         "start" => {
-            "Usage: schd start\n\nStart is user-only. Loop entry is never agent-initiated; agents must not start a Run.\n"
+            "Usage: rtm start\n\nStart is user-only. Loop entry is never agent-initiated; agents must not start a Run.\n"
         }
+        "status" => "Usage: rtm status\n\nReport the active Run without changing it.\n",
         "step" => {
-            "Usage: schd step [--help]\n\nOnly the Main-Agent or a human invokes schd step. Subagents only read state and never invoke schd.\n"
+            "Usage: rtm step [--help]\n\nOnly the Main-Agent or a human invokes rtm step. Subagents only read state and never invoke rtm.\n"
         }
-        _ => "Usage: schd <command> [options]\n",
+        _ => "Usage: rtm <command> [options]\n\nCommands: start, status, step\n",
     }
+}
+
+fn command_index(args: &[String]) -> usize {
+    usize::from(
+        args.first()
+            .is_some_and(|arg| arg == "rtm" || arg == "schd"),
+    )
+}
+
+fn is_help(args: &[String]) -> bool {
+    args.iter().any(|arg| arg == "--help" || arg == "-h")
 }
 
 /// Run the CLI from supplied arguments without spawning a process.
@@ -65,15 +77,14 @@ where
         .map(|arg| arg.as_ref().to_owned())
         .collect::<Vec<_>>();
     let project_root = project_root.as_ref().to_path_buf();
-    let command_index = usize::from(args.first().is_some_and(|arg| arg == "schd"));
-    let command = args
-        .get(command_index)
-        .ok_or_else(|| CliError::new("missing CLI command"))?;
+    let command_index = command_index(&args);
+    let Some(command) = args.get(command_index) else {
+        writer.write_all(help("").as_bytes())?;
+        return Ok(());
+    };
     let command_args = &args[command_index + 1..];
 
-    if matches!(command.as_str(), "start" | "step")
-        && args.iter().any(|arg| arg == "--help" || arg == "-h")
-    {
+    if is_help(&args) {
         writer.write_all(help(command).as_bytes())?;
         return Ok(());
     }
@@ -107,7 +118,7 @@ where
                     .step(StepRequest::new(""))
                     .map_err(|error| CliError::new(format!("step: {error}")))?;
                 if matches!(outcome, StepOutcome::Refused { .. }) {
-                    writeln!(writer, "{outcome}")?;
+                    writeln!(writer, "rtm: {outcome}")?;
                 } else {
                     let report = scheduler
                         .status()
@@ -123,6 +134,6 @@ where
 
     Err(CliError::new(format!(
         "unsupported command or option: {}",
-        args.join(" ")
+        args.get(command_index).unwrap_or(&String::new())
     )))
 }

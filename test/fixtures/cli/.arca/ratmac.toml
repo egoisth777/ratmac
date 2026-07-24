@@ -1,0 +1,14 @@
+[phases.prepare]
+prompt = "Prepare the run."
+
+[[phases.prepare.guards]]
+kind = "files_exact"
+path = "artifacts"
+entries = ["required.txt"]
+
+[phases.complete]
+prompt = "Complete the run."
+
+[[transitions]]
+from = "prepare"
+to = "complete"
