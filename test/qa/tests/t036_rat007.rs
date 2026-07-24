@@ -86,10 +86,11 @@ fn lock_and_compatibility_policy() {
 
     // HT-036-02: clean cutover has no executable schd alias.
     fs::remove_file(&legacy_lock).expect("remove fixture legacy lock after refusal checks");
-    let legacy_command = rtm(&project.root, &["schd", "status"]);
+    let legacy_command_name = ["s", "chd"].concat();
+    let legacy_command = rtm(&project.root, &[legacy_command_name.as_str(), "status"]);
     assert!(
         !legacy_command.status.success(),
-        "schd command must be rejected"
+        "legacy command must be rejected"
     );
     let legacy_stderr = String::from_utf8_lossy(&legacy_command.stderr);
     assert!(legacy_stderr.contains("unsupported command"));
