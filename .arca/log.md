@@ -117,3 +117,4 @@
 - 2026-07-23: t-037 P5 — PT-037-01 passed; HT-037-01..06 passed (28 hidden tests across seven available lanes); workspace/all-target tests passed (61 tests, 31 suites); cargo fmt check, clippy all-targets/all-features with `-D warnings`, and `git diff --check` passed.
 - 2026-07-23: t-037 closure — RAT-008 residual res-038 is satisfied with complete acceptance evidence; the canonical ratmac/rtm rebrand proof is complete.
 - 2026-07-23: t-031..t-037 closure audit — all 8 rebrand residuals (res-031..res-038) are now satisfied; ticket front matter remains `approved` per the established ticket convention, with PT/HT evidence and no actionable gaps.
+- 2026-07-23: cleanup — removed all 8 satisfied residual records (res-031 through res-038); residual directory is now empty.
