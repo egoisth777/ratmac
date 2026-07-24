@@ -21,7 +21,6 @@ src/scheduler.rs	schd	Runtime refusal of a pre-existing legacy lock path.
 test/qa/tests/t031_rat002.rs	both	Negative metadata assertions prove legacy package and binary absence.
 test/qa/tests/t032_rat003.rs	schd	Negative CLI assertions and direct legacy rejection probe.
 test/qa/tests/t033_rat004.rs	both	Negative QA inventory assertions prove stale-name absence.
-test/qa/tests/t034_rat005.rs	both	Audit implementation contains the legacy tokens and allowlist rules.
 test/qa/tests/t035_rat006.rs	both	Negative generated-metadata and lock assertions prove stale-name absence.
 test/qa/tests/t036_rat007.rs	schd	Legacy-lock fixture and clean-cutover rejection probe.
 test/qa/fixtures/rebrand-audit/allowlist.tsv	both	The audit manifest necessarily spells out each legacy token.

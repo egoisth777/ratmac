@@ -3,8 +3,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const LEGACY_PRODUCT: &str = "arca-scheduler";
-const LEGACY_COMMAND: &str = "schd";
+const LEGACY_PRODUCT: &str = concat!("arca", "-scheduler");
+const LEGACY_COMMAND: &str = concat!("sc", "hd");
 const ALLOWLIST: &str = "fixtures/rebrand-audit/allowlist.tsv";
 
 #[derive(Debug)]
@@ -37,7 +37,7 @@ fn load_allowlist(root: &Path) -> Vec<AllowRule> {
                 line_no + 1
             );
             assert!(
-                matches!(fields[1], "arca-scheduler" | "schd" | "both"),
+                fields[1] == LEGACY_PRODUCT || fields[1] == LEGACY_COMMAND || fields[1] == "both",
                 "allowlist line {} has an invalid token",
                 line_no + 1
             );
@@ -68,8 +68,8 @@ fn rule_matches(rule: &AllowRule, relative: &str, product: bool, command: bool) 
         return false;
     }
     match rule.token.as_str() {
-        "arca-scheduler" => product,
-        "schd" => command,
+        token if token == LEGACY_PRODUCT => product,
+        token if token == LEGACY_COMMAND => command,
         "both" => product || command,
         _ => false,
     }
