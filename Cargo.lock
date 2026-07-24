@@ -3,23 +3,6 @@
 version = 4
 
 [[package]]
-name = "arca-scheduler"
-version = "0.1.0"
-dependencies = [
- "serde",
- "toml",
- "windows-sys",
-]
-
-[[package]]
-name = "arca-scheduler-qa"
-version = "0.1.0"
-dependencies = [
- "arca-scheduler",
- "toml",
-]
-
-[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -63,6 +46,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1fbf4db142a473a8d80c26bbf18454ed458bf8d26c8219c331daecfdbd079001"
 dependencies = [
  "proc-macro2",
+]
+
+[[package]]
+name = "ratmac"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "toml",
+ "windows-sys",
+]
+
+[[package]]
+name = "ratmac-qa"
+version = "0.1.0"
+dependencies = [
+ "ratmac",
+ "toml",
 ]
 
 [[package]]
