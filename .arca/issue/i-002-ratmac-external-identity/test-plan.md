@@ -15,11 +15,11 @@
 
 | Goal/Test File | Status | Reverse Issue Refs |
 | :--- | :--- | :--- |
-| `.arca/current/index.md` | unaffected | `EXT-001`, `EXT-006` |
-| `.arca/current/ubi-lang.md` | unaffected | `EXT-003` |
-| `.arca/current/spec.md` | unaffected | `EXT-001`, `EXT-003` |
-| `.arca/current/design.md` | unaffected | `EXT-004`, `EXT-005` |
-| `.arca/current/test-list.md` | unaffected | `EXT-005` |
+| `.arca/current/index.md` | updated | `EXT-001`, `EXT-006`; front door links the integrated external identity issue and records planning-only scope. |
+| `.arca/current/ubi-lang.md` | updated | `EXT-003`; canonical repository, origin, basename, historical allowlist, and safe cutover are defined once. |
+| `.arca/current/spec.md` | updated | `EXT-001`–`EXT-006`; accepted external identity requirements are authoritative. |
+| `.arca/current/design.md` | updated | `EXT-004`, `EXT-005`; preparation evidence boundary, ordered checkpoints, rollback, and final gates are defined. |
+| `.arca/current/test-list.md` | updated | `EXT-001`–`EXT-006`; `EVR-001`–`EVR-006` map each requirement to observable acceptance. |
 
 ## Contributor Authority/Schema Traces
 

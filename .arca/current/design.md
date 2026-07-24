@@ -98,3 +98,21 @@ Accepted with layout details pending; both open points were later settled (see b
 - Historical records: preserve append-only `.arca/log.md` and archived ticket wording in an explicit audit allowlist.
 
 The full rebrand requirements and verification map are recorded in [i-001-ratmac-rebrand](../issue/i-001-ratmac-rebrand/test-plan.md).
+
+## External repository identity cutover (EXT-001–EXT-006)
+
+The external identity is a one-ticket, operator-controlled cutover layered on the frozen internal `ratmac`/`rtm` goal. It does not alter Rust behavior, Machine/Run/Phase/Status semantics, persisted data, or lock policy.
+
+### Preparation and evidence boundary
+
+Before any mutation, the ticket records the current commit, branch/worktrees, clean status, exact `origin`, Git top-level, checkout basename, `.git/config` identity, target-path collision result, process/path safety, `gh auth status`, target-slug availability, and rename authorization. It inventories old-slug hits by active tracked reference, generated/owned metadata, `.git` metadata, issue records, archived tickets, and append-only log. Only active tracked references and generated assets owned by their tools are changed in the preparatory commit; `.arca/log.md` and archived issue/ticket records are byte-for-byte historical allowlist entries. The preparatory commit is the repository-tracked evidence boundary.
+
+### Ordered cutover and rollback
+
+After the preparatory gates pass, checkpoint A is the committed clean tree and captured old slug/origin/path. Rename the GitHub repository through the authenticated API/`gh`, then checkpoint B verifies `egoisth777/ratmac` by API and `gh repo view`. Update `origin` to exactly `git@github.com:egoisth777/ratmac.git` and checkpoint C verifies `.git/config` and `git remote get-url origin` without pushing. Stop all processes using the old checkout, move the directory to `E:/repos/projs/skill-dev/ratmac`, reopen from that path, and checkpoint D verifies Git top-level and basename. No commit can be made *after* the local move merely to record the external mutation; path/remote/API outputs are operational evidence captured by the ticket run, while tracked preparation remains in the pre-cutover commit.
+
+If any checkpoint fails, do not force-push, delete history, bypass locks, or continue with competing identities. Restore the GitHub slug through the authenticated API, restore the captured old origin, move the checkout back when safe, and revert only the unpushed active-reference preparation through a reviewable Git operation. Preserve commits, logs, archives, and working data; record the recovery result.
+
+### Final acceptance
+
+From the reopened checkout, run API and `gh repo view` checks, exact remote/path/.git checks, active-reference audit with the historical allowlist, clean status, `git diff --check`, formatting, linting, full Rust and QA/hidden suites, current T-001–T-022 behavior checks, integrated VR-001–VR-008 checks, and real `rtm` smoke/help/error checks. Acceptance requires all pass and no unallowlisted old external identity remains.

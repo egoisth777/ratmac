@@ -22,3 +22,9 @@ Glossary of ubiquitous language. One term, one meaning. Terms not listed here mu
 | `rtm status` | Read-only report of a Run's Phase, Status, and pending guards. |
 | Legacy identity | The superseded spellings `arca-scheduler` and `schd`, retained only in the historical allowlist or explicit migration records. |
 | Clean cutover | `ratmac` and `rtm` are the only active product and command spellings; no compatibility alias or package fallback is shipped. |
+| External repository identity | The GitHub slug, canonical `origin` URL, checkout directory, `.git` metadata, and active repository-facing links that identify this project outside its Rust code. |
+| Canonical repository | The GitHub repository `egoisth777/ratmac`; the superseded `egoisth777/arca-scheduler` slug is not canonical after cutover. |
+| Canonical origin | The exact SSH URL `git@github.com:egoisth777/ratmac.git` recorded for the local `origin` remote. |
+| Checkout basename | The final local directory name `ratmac`, verified from the checkout's actual path and Git top-level rather than from a display-only label. |
+| Historical allowlist | Append-only `.arca/log.md`, archived issue/ticket records, and explicit migration evidence where legacy external identity may remain unchanged as provenance. |
+| Safe external cutover | A preflighted, ordered repository rename, origin update, and checkout move with checkpoints and reversible recovery that never discards work, force-pushes, or bypasses Git arbitration. |

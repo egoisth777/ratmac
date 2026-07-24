@@ -3,7 +3,7 @@
 ```yaml
 issue-id: "i-002-ratmac-external-identity"
 provenance: "User request: create a narrowly scoped full external-identity rebrand issue for the GitHub repository, origin, checkout directory, and active repository references."
-status: "pending"
+status: "integrated"
 ```
 
 ## Summary
@@ -20,3 +20,15 @@ The work must begin with collision, authentication, access, and working-tree pre
 | Requirements and decisions | [Specification](spec.md) |
 | Proposed mechanics | [Design](design.md) |
 | Verification and integration traces | [Test plan](test-plan.md) |
+
+## Integration
+
+The accepted requirements are folded into the frozen goal bundle:
+
+- [Goal front door](../../current/index.md)
+- [Goal language](../../current/ubi-lang.md)
+- [Goal specification](../../current/spec.md)
+- [Goal design](../../current/design.md)
+- [Goal verification](../../current/test-list.md)
+
+Reverse requirement traces are carried in the goal specification and verification table as `EXT-001` through `EXT-006`. Residuals `res-039` through `res-044` and the single approved vertical ticket [t-038](../../ticket/t-038.md) carry the P2/P3 execution mapping.

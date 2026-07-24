@@ -26,3 +26,7 @@ ratmac (`rtm`) is a thin, deterministic Rust CLI that owns state-machine transit
 ## Integrated issue
 
 Rebrand requirements are integrated from [i-001-ratmac-rebrand](../issue/i-001-ratmac-rebrand/index.md): `RAT-001` through `RAT-008`.
+
+## Integrated external identity
+
+External repository identity requirements are integrated from [i-002-ratmac-external-identity](../issue/i-002-ratmac-external-identity/index.md): `EXT-001` through `EXT-006`. The cutover is a later build operation; this planning pass performs no GitHub, origin, or checkout mutation.
