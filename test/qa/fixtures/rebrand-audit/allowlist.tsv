@@ -10,8 +10,6 @@
 .arca/issue/i-001-ratmac-rebrand/spec.md	both	Accepted migration requirements explicitly name legacy surfaces.
 .arca/issue/i-001-ratmac-rebrand/test-plan.md	both	Accepted verification plan explicitly names legacy audit and lock checks.
 .arca/issue/i-001-ratmac-rebrand/ubi-lang.md	both	Issue glossary defines the superseded identity.
-.arca/residual/res-032.md	both	Frozen pre-cutover residual records the implementation baseline.
-.arca/residual/res-033.md	both	Frozen pre-cutover residual records the implementation baseline.
 .arca/ticket/t-031.md	schd	Ticket scope records the pre-cutover binary path.
 .arca/ticket/t-032.md	schd	Ticket coverage records direct legacy-command rejection.
 .arca/ticket/t-034.md	both	This ticket defines and verifies the legacy audit itself.
@@ -24,5 +22,10 @@ test/qa/tests/t033_rat004.rs	both	Negative QA inventory assertions prove stale-n
 test/qa/tests/t035_rat006.rs	both	Negative generated-metadata and lock assertions prove stale-name absence.
 test/qa/tests/t036_rat007.rs	schd	Legacy-lock fixture and clean-cutover rejection probe.
 test/qa/tests/t037_rat008.rs	both	Final acceptance negative probes intentionally exercise and reject legacy metadata, binary, and lock spellings.
-.arca/residual/res-037.md	schd	Residual evidence records the rejected legacy-lock spelling and preserves its frozen provenance.
 test/qa/fixtures/rebrand-audit/allowlist.tsv	both	The audit manifest necessarily spells out each legacy token.
+.arca/current/spec.md	both	Frozen external-identity requirement names the superseded repository and path.
+.arca/issue/i-002-ratmac-external-identity/**	both	Accepted external-identity issue preserves the incoming legacy identity as provenance.
+.arca/residual/res-039.md	both	Frozen residual records the pre-cutover GitHub identity.
+.arca/residual/res-040.md	both	Frozen residual records the pre-cutover origin and checkout path.
+.arca/residual/res-042.md	both	Frozen residual records the pre-cutover worktree/path baseline.
+.arca/ticket/t-038.md	both	Active cutover ticket captures old identity for rollback and acceptance.
