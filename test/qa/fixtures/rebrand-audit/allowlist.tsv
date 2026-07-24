@@ -1,0 +1,27 @@
+# path pattern<TAB>legacy token<TAB>provenance reason
+.arca/log.md	both	Append-only workflow evidence; historical bytes are immutable.
+.arca/ticket/archive/**	both	Archived ticket provenance; historical bytes are immutable.
+.arca/current/design.md	both	Current compatibility decision explicitly names rejected legacy surfaces.
+.arca/current/spec.md	schd	Current requirement explicitly names the rejected legacy command.
+.arca/current/test-list.md	schd	Current verification explicitly names the legacy-lock fixture.
+.arca/current/ubi-lang.md	both	Glossary definition of the legacy identity and allowlist policy.
+.arca/issue/i-001-ratmac-rebrand/design.md	both	Accepted migration design explicitly records legacy inventory and lock policy.
+.arca/issue/i-001-ratmac-rebrand/index.md	both	Issue title and provenance preserve the incoming historical request.
+.arca/issue/i-001-ratmac-rebrand/spec.md	both	Accepted migration requirements explicitly name legacy surfaces.
+.arca/issue/i-001-ratmac-rebrand/test-plan.md	both	Accepted verification plan explicitly names legacy audit and lock checks.
+.arca/issue/i-001-ratmac-rebrand/ubi-lang.md	both	Issue glossary defines the superseded identity.
+.arca/residual/res-032.md	both	Frozen pre-cutover residual records the implementation baseline.
+.arca/residual/res-033.md	both	Frozen pre-cutover residual records the implementation baseline.
+.arca/ticket/t-031.md	schd	Ticket scope records the pre-cutover binary path.
+.arca/ticket/t-032.md	schd	Ticket coverage records direct legacy-command rejection.
+.arca/ticket/t-034.md	both	This ticket defines and verifies the legacy audit itself.
+.arca/ticket/t-036.md	schd	Lock-policy ticket records the legacy-lock fixture.
+src/bin/rtm.rs	schd	Runtime clean-cutover rejection of a direct legacy command.
+src/scheduler.rs	schd	Runtime refusal of a pre-existing legacy lock path.
+test/qa/tests/t031_rat002.rs	both	Negative metadata assertions prove legacy package and binary absence.
+test/qa/tests/t032_rat003.rs	schd	Negative CLI assertions and direct legacy rejection probe.
+test/qa/tests/t033_rat004.rs	both	Negative QA inventory assertions prove stale-name absence.
+test/qa/tests/t034_rat005.rs	both	Audit implementation contains the legacy tokens and allowlist rules.
+test/qa/tests/t035_rat006.rs	both	Negative generated-metadata and lock assertions prove stale-name absence.
+test/qa/tests/t036_rat007.rs	schd	Legacy-lock fixture and clean-cutover rejection probe.
+test/qa/fixtures/rebrand-audit/allowlist.tsv	both	The audit manifest necessarily spells out each legacy token.

@@ -27,7 +27,11 @@ fn qa_uses_canonical_ratmac_rtm_identity() {
         // These targets intentionally probe rejected legacy spellings and metadata absence.
         if matches!(
             name,
-            "t031_rat002.rs" | "t032_rat003.rs" | "t033_rat004.rs" | "t035_rat006.rs"
+            "t031_rat002.rs"
+                | "t032_rat003.rs"
+                | "t033_rat004.rs"
+                | "t034_rat005.rs"
+                | "t035_rat006.rs"
         ) {
             continue;
         }
