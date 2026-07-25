@@ -1,0 +1,6 @@
+scenario = "truncated"
+caller = "main-agent"
+
+[[event]]
+kind = "tool_call"
+command = "rtm start

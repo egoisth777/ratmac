@@ -7,9 +7,18 @@ edition = "2021"
 path = "src/lib.rs"
 
 [[bin]]
+name = "guard-probe"
+path = "src/bin/guard_probe.rs"
+
+[[bin]]
+name = "snapshot-manifest"
+path = "src/bin/snapshot_manifest.rs"
+
+[[bin]]
 name = "rtm"
 path = "../../src/bin/rtm.rs"
 
 [dependencies]
 ratmac = { path = "../.." }
 toml = "0.8"
+sha2 = "0.10"

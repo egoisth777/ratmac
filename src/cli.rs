@@ -35,13 +35,22 @@ impl From<io::Error> for CliError {
 pub fn help(command: impl AsRef<str>) -> &'static str {
     match command.as_ref() {
         "start" => {
-            "Usage: rtm start\n\nStart is user-only. Loop entry is never agent-initiated; agents must not start a Run.\n"
+            "Usage: rtm start\n\nA human may invoke rtm start directly. The Main-Agent may invoke it only after explicit human Run-start sign-off for the current target project. A Subagent never invokes any rtm command and only reads state.\n"
         }
         "status" => "Usage: rtm status\n\nReport the active Run without changing it.\n",
         "step" => {
             "Usage: rtm step [--help]\n\nOnly the Main-Agent or a human invokes rtm step. Subagents only read state and never invoke rtm.\n"
         }
-        _ => "Usage: rtm <command> [options]\n\nCommands: start, status, step\n",
+        "hold" => {
+            "Usage: rtm hold <ticket-id> --blocker <issue folder or residual> --confirm \"hold <ticket-id>\"\n\nA human confirms holding an executing ticket that is blocked for an out-of-scope reason. The Run then routes along the Runbook's blocked route while the ticket stays not-passed and its residuals unproven. The confirmation phrase is typed at invocation; it is never read from a file.\n"
+        }
+        "abandon" => {
+            "Usage: rtm abandon --confirm \"abandon <project directory name>\"\n\nA human retires a broken Run: rtm records a terminal abandoned event, then retires the admission state, the Run evidence, and the lock so a fresh Run can start. The confirmation phrase is typed at invocation; it is never read from a file. No bypass flag exists - a stale lock is retired through this path.\n"
+        }
+        "doctor" => {
+            "Usage: rtm doctor\n\nRead-only diagnosis: reports the resolved Engine identity, Runbook validity, and runtime state, and names the next legitimate action. Writes nothing.\n"
+        }
+        _ => "Usage: rtm <command> [options]\n\nCommands: start, status, step, hold, abandon, doctor\n",
     }
 }
 
@@ -84,6 +93,21 @@ where
     if is_help(&args) {
         writer.write_all(help(command).as_bytes())?;
         return Ok(());
+    }
+
+    if command == "doctor" {
+        if !command_args.is_empty() {
+            return Err(CliError::new("doctor accepts no extra arguments"));
+        }
+        return doctor(&project_root, writer);
+    }
+
+    if command == "hold" {
+        return hold(command_args, &project_root, writer);
+    }
+
+    if command == "abandon" {
+        return abandon(command_args, &project_root, writer);
     }
 
     if matches!(command.as_str(), "start" | "status" | "step") {
@@ -133,4 +157,187 @@ where
         "unsupported command or option: {}",
         args.get(command_index).unwrap_or(&String::new())
     )))
+}
+
+/// PGE-006: the human-confirmed blocked route.
+///
+/// Every condition is checked before the first write, so a refusal leaves
+/// Scheduler-owned files byte-identical.
+fn hold<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Result<(), CliError> {
+    let mut ticket = String::new();
+    let mut blocker: Option<String> = None;
+    let mut confirmation: Option<String> = None;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--blocker" => {
+                blocker = Some(args.get(index + 1).cloned().ok_or_else(|| {
+                    CliError::new("hold: --blocker needs an issue folder or residual record")
+                })?);
+                index += 2;
+            }
+            "--confirm" => {
+                confirmation = Some(args.get(index + 1).cloned().ok_or_else(|| {
+                    CliError::new("hold: --confirm needs the exact confirmation phrase")
+                })?);
+                index += 2;
+            }
+            other if other.starts_with("--") => {
+                return Err(CliError::new(format!("hold: unsupported option {other}")))
+            }
+            other if ticket.is_empty() => {
+                ticket = other.to_owned();
+                index += 1;
+            }
+            other => {
+                return Err(CliError::new(format!(
+                    "hold: unexpected extra argument {other}"
+                )))
+            }
+        }
+    }
+
+    let request = crate::blocked::HoldRequest {
+        ticket,
+        blocker,
+        confirmation,
+    };
+    let plan = crate::blocked::plan_hold(project_root, &request)
+        .map_err(|refusal| CliError::new(format!("hold refused; {refusal}")))?;
+    crate::blocked::apply_hold(project_root, &plan)
+        .map_err(|refusal| CliError::new(format!("hold refused; {refusal}")))?;
+    writeln!(
+        writer,
+        "rtm: ticket {} held against {}; Run routed {} -> {}",
+        plan.ticket, plan.blocker, plan.from_phase, plan.to_phase
+    )?;
+    writeln!(
+        writer,
+        "The ticket is not passed and its residuals stay unproven."
+    )?;
+    Ok(())
+}
+
+/// PGE-007: safe human-confirmed Run abandonment.
+///
+/// The confirmation phrase is checked before the first write; the retirement
+/// itself is all-or-nothing.
+fn abandon<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Result<(), CliError> {
+    let mut confirmation: Option<String> = None;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--confirm" => {
+                confirmation = Some(args.get(index + 1).cloned().ok_or_else(|| {
+                    CliError::new(format!(
+                        "abandon: --confirm needs the exact confirmation phrase {:?}",
+                        crate::abandon::required_phrase(project_root)
+                    ))
+                })?);
+                index += 2;
+            }
+            other => {
+                return Err(CliError::new(format!(
+                    "abandon: unsupported option {other}; the only option is --confirm {:?}",
+                    crate::abandon::required_phrase(project_root)
+                )))
+            }
+        }
+    }
+
+    let request = crate::abandon::AbandonRequest { confirmation };
+    let plan = crate::abandon::plan_abandon(project_root, &request)
+        .map_err(|refusal| CliError::new(format!("abandon refused; {refusal}")))?;
+    crate::abandon::apply_abandon(project_root, &plan)
+        .map_err(|refusal| CliError::new(format!("abandon refused; {refusal}")))?;
+    match plan.phase.as_deref() {
+        Some(phase) => writeln!(
+            writer,
+            "rtm: Run abandoned at phase {phase}; admission state, Run evidence, and lock retired. A fresh rtm start may begin."
+        )?,
+        None => writeln!(
+            writer,
+            "rtm: retirement completed; the leftover lock is retired and no Run remains."
+        )?,
+    }
+    Ok(())
+}
+
+/// ORS-002: read-only diagnosis. Reports the resolved Engine identity,
+/// Runbook presence/validity, and runtime state. Writes nothing.
+fn doctor<W: Write>(project_root: &Path, writer: &mut W) -> Result<(), CliError> {
+    let engine_path = std::env::current_exe()
+        .map_err(|error| CliError::new(format!("resolve Engine binary: {error}")))?;
+    let engine_hash = sha256_file(&engine_path)
+        .map_err(|error| CliError::new(format!("hash Engine binary: {error}")))?;
+    writeln!(
+        writer,
+        "Engine: {} (sha256: {})",
+        engine_path.display(),
+        &engine_hash[..16]
+    )?;
+
+    let arca = project_root.join(".arca");
+    let runbook_path = arca.join("ratmac.toml");
+    let state_path = arca.join("state.toml");
+
+    if runbook_path.is_file() {
+        match std::fs::read_to_string(&runbook_path) {
+            Ok(source) => match source.parse::<toml::Value>() {
+                Ok(_) => writeln!(writer, "Runbook: .arca/ratmac.toml (valid)")?,
+                Err(error) => writeln!(writer, "Runbook: .arca/ratmac.toml (INVALID: {error})")?,
+            },
+            Err(error) => writeln!(writer, "Runbook: .arca/ratmac.toml (unreadable: {error})")?,
+        }
+    } else {
+        writeln!(
+            writer,
+            "Runbook: .arca/ratmac.toml (absent — no Machine Class declared)"
+        )?;
+    }
+
+    if state_path.is_file() {
+        match std::fs::read_to_string(&state_path) {
+            Ok(source) => {
+                if let Ok(table) = source.parse::<toml::Value>() {
+                    let phase = table
+                        .get("phase")
+                        .and_then(toml::Value::as_str)
+                        .unwrap_or("unknown");
+                    writeln!(writer, "State: .arca/state.toml (phase: {phase})")?;
+                } else {
+                    writeln!(writer, "State: .arca/state.toml (present, unreadable)")?;
+                }
+            }
+            Err(_) => {
+                writeln!(writer, "State: .arca/state.toml (present, unreadable)")?;
+            }
+        }
+    } else {
+        writeln!(writer, "State: .arca/state.toml (absent — no active Run)")?;
+        writeln!(
+            writer,
+            "Next: .arca/ratmac.toml is the human-authored Machine Class; \
+             .arca/state.toml is Scheduler-owned runtime state created only by \
+             `rtm start`. To begin a Run, invoke `rtm start`."
+        )?;
+    }
+
+    Ok(())
+}
+
+fn sha256_file(path: &Path) -> std::io::Result<String> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0u8; 8192];
+    loop {
+        let n = file.read(&mut buffer)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buffer[..n]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
 }

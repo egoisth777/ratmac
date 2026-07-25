@@ -1,8 +1,11 @@
 //! PT-038-01: pre-cutover acceptance runbook for the external identity.
 //!
-//! This test is deliberately expected-red until the operator performs the
-//! authenticated GitHub rename, exact origin update, and checkout move.
+//! This lane is environment-coupled (live GitHub identity, exact origin,
+//! branch, clean worktree). It runs only under the explicit opt-in
+//! `RATMAC_RELEASE_ACCEPTANCE=1`; plain `cargo test --workspace` skips it
+//! visibly via `release_acceptance_lane_report`.
 
+use ratmac_qa::archive::verify_history_preservation;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -117,7 +120,10 @@ fn active_reference_audit(root: &Path) {
 }
 
 fn historical_bytes_unchanged(root: &Path) {
-    let files = stdout(
+    // AOI-002: one shared, archive-aware oracle. A HEAD path under the
+    // history roots is preserved if it is unchanged in place OR relocated by
+    // a complete authorized archive move of a completed issue folder.
+    let inventory = stdout(
         &run(
             root,
             "git",
@@ -134,15 +140,19 @@ fn historical_bytes_unchanged(root: &Path) {
         "historical-file inventory",
     );
     assert!(
-        !files.trim().is_empty(),
+        !inventory.trim().is_empty(),
         "historical allowlist must cover files"
     );
-    for path in files.lines().filter(|path| !path.is_empty()) {
-        let unchanged = run(root, "git", &["diff", "--quiet", "HEAD", "--", path]);
-        assert!(
-            unchanged.status.success(),
-            "historical file changed in the worktree: {path}"
-        );
+
+    if let Err(violations) = verify_history_preservation(
+        root,
+        &[".arca/log.md", ".arca/issue", ".arca/ticket/archive"],
+    ) {
+        let report: Vec<String> = violations
+            .iter()
+            .map(|violation| format!("{}: {}", violation.path, violation.reason))
+            .collect();
+        panic!("historical preservation broken:\n{}", report.join("\n"));
     }
 }
 
@@ -175,7 +185,16 @@ fn assert_exact_git_identity(root: &Path) {
 }
 
 #[test]
+#[ignore = "release acceptance lane: set RATMAC_RELEASE_ACCEPTANCE=1 to run"]
 fn external_identity_acceptance() {
+    if std::env::var("RATMAC_RELEASE_ACCEPTANCE")
+        .map(|v| v != "1")
+        .unwrap_or(true)
+    {
+        eprintln!("release_acceptance: skipped (set RATMAC_RELEASE_ACCEPTANCE=1 to run)");
+        return;
+    }
+
     let root = repo_root();
 
     // Check the real API and gh view before trusting any tracked label.
@@ -218,4 +237,27 @@ fn external_identity_acceptance() {
     assert_ne!(OLD_SLUG, TARGET_SLUG);
     assert_ne!(OLD_ORIGIN, TARGET_ORIGIN);
     assert_eq!(OWNER, TARGET_SLUG.split('/').next().unwrap());
+}
+
+/// AOIV-006: the release acceptance lane is visibly reported as skipped in
+/// the default suite rather than silently absent.
+#[test]
+fn release_acceptance_lane_report() {
+    let opted_in = std::env::var("RATMAC_RELEASE_ACCEPTANCE").is_ok_and(|v| v == "1");
+    if opted_in {
+        eprintln!("release_acceptance_lane: RUNNING (RATMAC_RELEASE_ACCEPTANCE=1 is set)");
+    } else {
+        eprintln!(
+            "release_acceptance_lane: SKIPPED \
+             (no opt-in; set RATMAC_RELEASE_ACCEPTANCE=1 to run)"
+        );
+    }
+    // The skip is only honest if a reader can find the opt-in: the working
+    // rules must name the same variable this lane reads.
+    let rules =
+        fs::read_to_string(repo_root().join(".arca/index.md")).expect("read the working rules");
+    assert!(
+        rules.contains("RATMAC_RELEASE_ACCEPTANCE"),
+        "the opt-in variable must be documented where a reader will find it"
+    );
 }

@@ -286,6 +286,20 @@ impl Scheduler {
         }
         drop(log);
 
+        // ETB-001: Run evidence carries the Stable Engine pin from Run start,
+        // so every later gate pin is recorded beside a known Engine identity.
+        let mut evidence = crate::pin::Evidence::load(&root);
+        if let Some(identity) = crate::pin::engine_identity() {
+            evidence.set_engine(identity);
+        }
+        // ETB-003: Run start records the baseline goal revision. The freeze
+        // happens later, at the intake-completion boundary.
+        evidence.goal_baseline = crate::goal::revision(&root);
+        evidence.goal_frozen = None;
+        evidence
+            .write(&root)
+            .map_err(|error| StateError::new(format!("write evidence.toml: {error}")))?;
+
         Ok(Run::new(phase, Status::Planned).with_artifact_root(&root))
     }
 
@@ -313,12 +327,31 @@ impl Scheduler {
                 "State File phase {state_phase:?} is undeclared in ratmac.toml"
             )));
         }
-        let failures = self.files_exact_failures(&state.phase, &source)?;
+        let mut failures = self.files_exact_failures(&state.phase, &source)?;
+        // ETB-003: between the freeze and batch closure, the goal is fixed.
+        // The drift check is appended rather than short-circuited so a guard
+        // refusal and a drift refusal are reported in the same reply.
+        let evidence = crate::pin::Evidence::load(&root);
+        if let Some(frozen) = evidence.goal_frozen.as_deref() {
+            let observed = crate::goal::revision(&root).unwrap_or_else(|| "absent".to_owned());
+            if observed != frozen {
+                failures.push(guard_failure(
+                    "goal drift",
+                    crate::goal::GOAL_DIR,
+                    observed,
+                    frozen,
+                ));
+            }
+        }
         if !failures.is_empty() {
             return Ok(StepOutcome::Refused { failures });
         }
 
         let from = Phase::new(state.phase.clone());
+        let freezes_goal = self
+            .machine
+            .transition_for(from.as_str())
+            .is_some_and(crate::graph::Transition::freezes_goal);
         let Some(to) = self.machine.next_phase(&from).cloned() else {
             return Ok(StepOutcome::Refused {
                 failures: vec![guard_failure(
@@ -353,6 +386,23 @@ impl Scheduler {
 
         let mut next = state;
         next.phase = to.to_string();
+        if freezes_goal {
+            // The frozen revision is the post-integration content: it is
+            // computed here, at the boundary that closes intake. Evidence is
+            // written before the State File, so an interrupted freeze leaves
+            // the Run unchanged rather than half-frozen.
+            let frozen = crate::goal::revision(&root)
+                .ok_or_else(|| StateError::new("cannot freeze goal: .arca/current/ is absent"))?;
+            let mut frozen_evidence = crate::pin::Evidence::load(&root);
+            frozen_evidence.goal_frozen = Some(frozen.clone());
+            if let Err(error) = frozen_evidence.write(&root) {
+                drop(log);
+                return Err(StateError::new(format!(
+                    "freeze goal revision: write evidence.toml: {error}"
+                )));
+            }
+            next.goal_revision = frozen;
+        }
         if let Err(state_error) = self.store()?.write(&next) {
             drop(log);
             return Err(state_error);
@@ -462,7 +512,7 @@ impl Scheduler {
                     "malformed",
                     phase,
                     "missing guard kind",
-                    "files_exact, file_contains, or command_exit",
+                    "files_exact, file_contains, command_exit, sensitivity_receipts, completion_gate, intake_contract, or record_contract",
                 ));
                 continue;
             };
@@ -470,6 +520,18 @@ impl Scheduler {
                 "files_exact" => self.evaluate_files_exact(root, table),
                 "file_contains" => self.evaluate_file_contains(root, table),
                 "command_exit" => self.evaluate_command_exit(root, table),
+                "sensitivity_receipts" => self.evaluate_sensitivity_receipts(root, table),
+                "completion_gate" => self.evaluate_completion_gate(root, table),
+                "intake_contract" => self.evaluate_contract(
+                    "intake_contract",
+                    crate::contract::gate_intake(root),
+                    "every issue integrated or rejected, five-file shape intact, requirement IDs in the goal, links resolving",
+                ),
+                "record_contract" => self.evaluate_contract(
+                    "record_contract",
+                    crate::contract::gate_records(root),
+                    "one residual per requirement citing the frozen revision, evidence behind every satisfied, one owning ticket per gap, acyclic dependencies, complete tickets",
+                ),
                 unsupported => Err(guard_failure(
                     unsupported,
                     table
@@ -477,7 +539,7 @@ impl Scheduler {
                         .and_then(toml::Value::as_str)
                         .unwrap_or(phase),
                     "unsupported guard kind",
-                    "files_exact, file_contains, or command_exit",
+                    "files_exact, file_contains, command_exit, sensitivity_receipts, completion_gate, intake_contract, or record_contract",
                 )),
             };
             if let Err(failure) = result {
@@ -485,6 +547,95 @@ impl Scheduler {
             }
         }
         Ok(failures)
+    }
+
+    /// PGE-003: the P4 gate. Every planned test the ticket declares must
+    /// resolve to a sensitivity receipt under `.arca/evidence/`; prose,
+    /// filenames, and status fields satisfy nothing. The predicate runs
+    /// in-process, inside the pinned gate boundary, so no external program is
+    /// trusted to decide whether the work was done.
+    fn evaluate_sensitivity_receipts(
+        &self,
+        root: &Path,
+        table: &toml::map::Map<String, toml::Value>,
+    ) -> Result<(), GuardFailure> {
+        let ticket = table
+            .get("ticket")
+            .and_then(toml::Value::as_str)
+            .ok_or_else(|| {
+                guard_failure(
+                    "sensitivity_receipts",
+                    "ticket",
+                    "missing ticket path",
+                    "ticket = \"<path to the ticket file>\"",
+                )
+            })?;
+        crate::receipt::gate_sensitivity(root, ticket).map_err(|defects| {
+            let observed = defects
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join("; ");
+            guard_failure(
+                "sensitivity_receipts",
+                ticket,
+                observed,
+                "one sensitivity receipt per planned test",
+            )
+        })
+    }
+
+    /// PGE-005: the P5 gate. Every check the executing ticket declares must
+    /// carry a green, fresh, self-consistent completion receipt. The gate
+    /// verifies receipts rather than running the checks, because ETB-001
+    /// forbids rebuilding project source at evaluation time.
+    fn evaluate_completion_gate(
+        &self,
+        root: &Path,
+        table: &toml::map::Map<String, toml::Value>,
+    ) -> Result<(), GuardFailure> {
+        let ticket = table
+            .get("ticket")
+            .and_then(toml::Value::as_str)
+            .ok_or_else(|| {
+                guard_failure(
+                    "completion_gate",
+                    "ticket",
+                    "missing ticket path",
+                    "ticket = \"<path to the ticket file>\"",
+                )
+            })?;
+        crate::completion::gate_completion(root, ticket).map_err(|defects| {
+            let observed = defects
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join("; ");
+            guard_failure(
+                "completion_gate",
+                ticket,
+                observed,
+                "one green, fresh completion receipt per declared check",
+            )
+        })
+    }
+
+    /// PGE-001, PGE-002: render a contract-gate result as a refusal that names
+    /// every offending record.
+    fn evaluate_contract(
+        &self,
+        kind: &str,
+        result: Result<(), Vec<crate::contract::ContractDefect>>,
+        expected: &str,
+    ) -> Result<(), GuardFailure> {
+        result.map_err(|defects| {
+            let observed = defects
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join("; ");
+            guard_failure(kind, ".arca", observed, expected)
+        })
     }
 
     fn evaluate_files_exact(
@@ -613,7 +764,11 @@ impl Scheduler {
         table: &toml::map::Map<String, toml::Value>,
     ) -> Result<(), GuardFailure> {
         let program = required_string(table, "program", "command_exit")?;
-        reject_guard_keys(table, &["kind", "program", "args", "expected"], program)?;
+        reject_guard_keys(
+            table,
+            &["kind", "program", "args", "expected", "exempt"],
+            program,
+        )?;
         let args = match table.get("args") {
             Some(value) => {
                 let Some(args) = value.as_array() else {
@@ -648,14 +803,33 @@ impl Scheduler {
                 "integer exit code",
             ));
         };
-        let null = std::process::Stdio::null();
-        let status = std::process::Command::new(program)
+        // ETB-001: a probe that reads no project state must say so; every
+        // other command guard runs a pinned gate artifact.
+        let exempt = table
+            .get("exempt")
+            .and_then(toml::Value::as_bool)
+            .unwrap_or(false);
+        if let Some(reason) = crate::pin::build_invocation_reason(program, &args) {
+            return Err(guard_failure(
+                "command_exit",
+                program,
+                format!("{reason}; diagnostic: gate not executed: build-at-evaluation guard"),
+                "pinned or exempt gate command that compiles nothing",
+            ));
+        }
+        if !exempt {
+            self.verify_gate_pin(root, program)?;
+        }
+
+        // ETB-002: capture the child's stderr so a refusal can name the
+        // artifact to repair, bounded so a runaway guard cannot flood output.
+        let output = std::process::Command::new(program)
             .args(args)
             .current_dir(root)
-            .stdin(null)
+            .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
+            .stderr(std::process::Stdio::piped())
+            .output()
             .map_err(|error| {
                 guard_failure(
                     "command_exit",
@@ -664,31 +838,85 @@ impl Scheduler {
                     format!("exit {expected}"),
                 )
             })?;
-        let observed = status.code().map(i64::from).unwrap_or(-1);
+        let observed = output.status.code().map(i64::from).unwrap_or(-1);
         if observed == expected {
             Ok(())
         } else {
             Err(guard_failure(
                 "command_exit",
                 program,
-                format!("exit {observed}"),
+                format!("exit {observed}; {}", bounded_diagnostic(&output.stderr)),
                 format!("exit {expected}"),
             ))
         }
     }
 
+    /// ETB-001: resolve, hash, and verify the gate artifact for `program`,
+    /// recording the pin in Run evidence on first use.
+    fn verify_gate_pin(&self, root: &Path, program: &str) -> Result<(), GuardFailure> {
+        let resolved = crate::pin::resolve_program(root, program).map_err(|reason| {
+            guard_failure(
+                "command_exit",
+                program,
+                format!("{reason}; diagnostic: gate artifact not executed: unpinnable path"),
+                "a regular executable file with a stable identity",
+            )
+        })?;
+        let sha256 = crate::pin::sha256_file(&resolved).map_err(|error| {
+            guard_failure(
+                "command_exit",
+                program,
+                format!(
+                    "gate artifact is unreadable: {error}; \
+                     diagnostic: gate artifact not executed: unreadable"
+                ),
+                "a readable executable file",
+            )
+        })?;
+        let observed = crate::pin::Identity {
+            resolved: resolved.to_string_lossy().replace('\\', "/"),
+            sha256,
+        };
+
+        let mut evidence = crate::pin::Evidence::load(root);
+        match evidence.gate(program) {
+            Some(pinned) if *pinned == observed => Ok(()),
+            Some(pinned) => Err(guard_failure(
+                "command_exit",
+                program,
+                format!("{observed}; diagnostic: gate artifact not executed: pin mismatch"),
+                pinned.to_string(),
+            )),
+            None => {
+                evidence.record_gate(program, observed);
+                evidence.write(root).map_err(|error| {
+                    guard_failure(
+                        "command_exit",
+                        program,
+                        format!(
+                            "cannot record gate pin: {error}; \
+                             diagnostic: gate artifact not executed: unrecordable pin"
+                        ),
+                        "writable Run evidence",
+                    )
+                })
+            }
+        }
+    }
+
     fn initial_phase(&self) -> Result<Phase, StateError> {
-        let candidates = self
-            .machine
-            .phases()
-            .filter(|phase| {
-                !self
-                    .machine
-                    .transitions()
-                    .any(|transition| transition.to() == *phase)
-            })
-            .cloned()
-            .collect::<Vec<_>>();
+        let candidates =
+            self.machine
+                .phases()
+                .filter(|phase| {
+                    // A blocked route points backwards by design; it never makes
+                    // its destination a non-initial Phase.
+                    !self.machine.transitions().any(|transition| {
+                        transition.to() == *phase && !transition.is_blocked_route()
+                    })
+                })
+                .cloned()
+                .collect::<Vec<_>>();
         match candidates.as_slice() {
             [phase] => Ok(phase.clone()),
             [] => Err(StateError::new(
@@ -882,6 +1110,40 @@ fn guarded_target(root: &Path, path: &str, kind: &str) -> Result<PathBuf, GuardF
         }
     }
     Ok(target)
+}
+
+/// ETB-002: the deterministic diagnostic bound. A refusal carries at most the
+/// last [`DIAGNOSTIC_BOUND`] bytes of the guard's stderr.
+pub const DIAGNOSTIC_BOUND: usize = 4096;
+
+/// Fixed wording when the guard says nothing: never an omitted field.
+pub const NO_DIAGNOSTIC: &str = "no diagnostic emitted";
+
+/// Explicit overflow marker prefixed to a truncated diagnostic.
+pub const TRUNCATION_MARKER: &str = "\u{2026}truncated";
+
+/// Render a guard's stderr as a bounded, lossy, single-line diagnostic.
+///
+/// The retained window is the *last* [`DIAGNOSTIC_BOUND`] bytes, because a
+/// failing command states why it failed at the end of its output.
+fn bounded_diagnostic(stderr: &[u8]) -> String {
+    let text = String::from_utf8_lossy(stderr);
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return format!("diagnostic: {NO_DIAGNOSTIC}");
+    }
+    let flattened = trimmed.replace(['\r', '\n'], " | ").replace('\0', "\\0");
+    let mut retained: String = flattened;
+    if retained.len() > DIAGNOSTIC_BOUND {
+        // Keep the last DIAGNOSTIC_BOUND bytes, snapped forward to a char
+        // boundary so the retained window is always valid UTF-8.
+        let target = retained.len() - DIAGNOSTIC_BOUND;
+        let start = (target..retained.len())
+            .find(|index| retained.is_char_boundary(*index))
+            .unwrap_or(retained.len());
+        retained = format!("{TRUNCATION_MARKER}{}", &retained[start..]);
+    }
+    format!("diagnostic: {retained}")
 }
 
 fn guard_failure(

@@ -163,6 +163,217 @@ contradicts another gets a log line plus a follow-up ticket, not a stop):
 - `.arca/log.md`: new lines only, never edited; one line per step change, guess, rule-clash
   decision, or fix.
 
+# Caller policy for `rtm`
+
+One policy, and the same one on every surface (goal `ORS-001`, which supersedes the earlier rule reserving start for humans alone):
+
+- A human may invoke argument-free `rtm start` directly.
+- The Main-Agent may invoke `rtm start` only after explicit human Run-start sign-off for the current target project;
+  conversational sign-off is enough, and nothing in the Engine records it.
+- A Subagent never invokes any `rtm` command; it reads state and does the ticket work.
+- Only the Main-Agent or the human invokes `rtm step`; the Scheduler stays the sole writer of `.arca/state.toml`.
+
+# Evidence and archive rules
+
+These are durable working rules; the goal's `AOI-001`–`AOI-003` bind the program that mechanizes them.
+
+- **Authorized archive move.** A completed issue folder — `index.md` status `integrated` or `rejected` — may move to
+  `.arca/issue/archive/<issue-id>/`, keeping its issue-id, its five-file shape, and its bytes, except relative links
+  that must gain one `../` level. Live links pointing at it are updated in the same change, and `i-<nnn>` numbers stay
+  unique across active and archived issues. A complete move IS preservation: every history oracle compares content at
+  the archived destination. A partial move, a content change, or archiving a non-completed issue is a failure.
+- **Reviewable snapshot.** Evidence may only claim what a reviewer can reconstruct. When you record acceptance or
+  merge-gate evidence, every file under the declared evidence roots (`src/`, `test/`, `.arca/`) must be tracked or
+  staged; anything untracked or unstaged is either committed, staged, or declared as an explicit exception in the
+  record. Store the snapshot manifest — path, tracking state, SHA-256 — beside the evidence that cites it
+  (`ratmac_qa::snapshot::record_snapshot`).
+- **Append-only history.** `.arca/log.md` is the one history file that changes in place, and only by appending: its
+  recorded prefix must survive byte for byte. A rewrite of any earlier line is a preservation failure, exactly like an
+  edit to an archived issue file. Who appends depends on who is driving: while no `rtm` Run drives this repository -
+  no `.arca/state.toml` - the contributor loop appends one line per closure. Once a Run is active the Engine owns the
+  file (see [Evidence receipts](#evidence-receipts)); then no agent writes it, and `rtm` records every entry.
+- **Release acceptance lane opt-in.** Environment-coupled release checks (live GitHub identity, exact origin, branch,
+  clean worktree) run only with `RATMAC_RELEASE_ACCEPTANCE=1`. Plain `cargo test --workspace` skips that lane and
+  prints the skip; never make branch work depend on operator-cutover facts.
+
+## Blocked route
+
+A ticket blocked for an out-of-scope reason is held, never quietly passed:
+
+```text
+rtm hold <ticket-id> --blocker <issue folder or residual> --confirm "hold <ticket-id>"
+```
+
+The confirmation phrase is the human's act - typed at invocation, never read
+from a file an agent can write. The Engine keeps no caller identity (ORS-001);
+it checks only that the exact phrase was typed. The blocker must resolve to a
+complete five-file issue folder or a named residual record, and the current
+Phase must declare a blocked route:
+
+```toml
+[[transitions]]
+from = "build"
+to = "intake"
+blocked-route = true
+```
+
+`rtm step` never takes a blocked route, so ordinary routing stays
+deterministic. An authorized hold marks the ticket `held` with its
+`blocker-ref`, routes the Run, and appends one history entry; the ticket stays
+not-passed, its residuals stay unproven, and the completion gate refuses it by
+name. Anything else refuses before the first write, and an interrupted hold
+rolls every touched file back: the Run is pre-route or fully routed, never in
+between.
+
+## Abandoning a Run
+
+A Run that cannot be repaired is retired by `rtm`, never by hand:
+
+```text
+rtm abandon --confirm "abandon <project directory name>"
+```
+
+Agents never delete or edit `.arca/state.toml`, `.arca/log.md`,
+`.arca/evidence.toml`, or `.arca/rtm.lock`; this command is the only path that
+retires them. On the exact phrase - typed at invocation, never read from a file
+- `rtm` records a terminal abandoned event naming the retired Phase, status,
+and goal revision, then retires the admission state, the Run evidence, and the
+lock, so a fresh `rtm start` can begin and records its own baseline and pins.
+
+A stale lock is retired through this same path; no bypass flag exists.
+Everything unconfirmed refuses before the first write, and a retirement that
+cannot finish restores every file it touched - the Run stays active rather than
+half retired, and re-running the confirmed command finishes the job. A leftover
+lock with no admission state is retired without a second terminal event.
+
+## Completion gate
+
+Passing a ticket is evidence, not a status edit. `completion_gate` reads the
+ticket's declared work - its planned tests, its hidden lanes, and every
+backticked command in its Merge Gate - and requires one receipt per check at
+`.arca/evidence/<ticket-id>/completion/<check>.toml`, recording the command,
+working directory, exit status, output digest, and the source roots with their
+digest at the time the check ran.
+
+A receipt counts only when it is green (`exit-status = 0`), its digest
+re-derives from its own recorded output, its command names a program that
+exists, and its `tree-sha256` still matches the declared roots. Edit the work
+after the check and the receipt goes stale by construction. A receipt for a
+check the ticket never declared refuses too.
+
+The gate verifies rather than runs: ETB-001 forbids rebuilding project source
+at evaluation time, so the agent runs the check and records it, and the gate
+re-derives the claim. A refusal names the first missing receipt and writes
+nothing.
+
+## Contract gates
+
+Two gate kinds read the records themselves, so a status edit cannot route the
+loop. Declare them in the Runbook phase that must not be left without them:
+
+- `intake_contract` — every direct issue folder ends `integrated` or
+  `rejected`, keeps its five-file shape exactly, states accepted requirement
+  IDs that exist in the goal, and links that resolve in both directions.
+- `record_contract` — exactly one residual per requirement, each citing the
+  frozen goal revision; `satisfied` only with concrete evidence references;
+  every `missing`/`partial` residual owned by exactly one ticket; acyclic
+  ticket dependencies; every ticket carrying its five sections and all six
+  hidden-lane assessments.
+
+A refusal names the offending artifact and what it found.
+
+- **No satisfaction by absence.** A loop that declares no gate of a required
+  kind classifies that gate's requirement `missing`, whatever its records say,
+  and the record gate refuses a `satisfied` claim resting on that absence.
+
+## Evidence receipts
+
+`.arca/evidence/` is agent-writable. When a Run drives the loop, agents record
+one structured receipt per executed check at
+`.arca/evidence/<ticket-id>/<planned-test-id>.toml` (planned-test ID, ticket,
+sensitivity kind, command, working directory, test file and name, exit status,
+recorded output, and a SHA-256 over that output). The P4 gate
+(`kind = "sensitivity_receipts"`) resolves every planned test the ticket
+declares to such a receipt; prose lines, filename conventions, and status
+fields satisfy nothing, and a passing run is not a sensitivity receipt.
+
+This repository's own loop runs no Run, so no gate consumes receipts here and
+none are written. The same property is carried by artifacts a reviewer can
+re-derive: every residual cites the exact test file and test names behind each
+claim, the mutations that kill each lane, and a snapshot manifest of path,
+tracking state, and SHA-256. A claim resting on prose alone is a defect in
+either loop.
+
+Scheduler-owned files - `.arca/state.toml`, `.arca/log.md`, `.arca/rtm.lock` -
+belong to `rtm` for as long as a Run is active: while one exists, `rtm` writes
+them and no agent does. Independently of any Run, no Phase Prompt and no gate
+contract may ever instruct an agent to write them - that is the unconditional
+rule `ratmac::ownership::audit_ownership` enforces, and it is why an
+agent-authored note belongs in `.arca/evidence/` instead.
+
+With no active Run in a repository - no `.arca/state.toml` - the
+[append-only history](#defaults) rule governs `.arca/log.md`: the contributor
+loop appends one line per closure. That is the only condition under which
+anything but `rtm` appends to it.
+
+## Evidence kinds
+
+A claim about what a caller *invoked* is proven only by behavioral evidence: a
+recorded role scenario under `test/qa/fixtures/role-scenarios/` listing the
+attempted commands or tool calls and whether each was invoked or refrained.
+A check over document wording is guidance-consistency evidence. Every emitted
+check names its kind first (`ratmac_qa::role::Check::render`), and a
+guidance-consistency check can never satisfy a behavioral requirement.
+
+## Bootstrap
+
+One command, run from the project root, makes the Engine usable:
+
+```
+pwsh -File tools/rtm.ps1
+```
+
+It resolves the Engine from the project-local build - building it there when
+absent - hashes it, compares it against the `[engine]` pin in
+`.arca/evidence.toml` when a Run recorded one, and prints the resolved path and
+SHA-256. A pin mismatch refuses naming observed and expected identity instead
+of reporting success.
+
+Nothing is installed, no PATH or global configuration is written, and no
+network is used: the build runs offline, and the only paths it may write are
+the declared build output, `target` and `Cargo.lock`. To orient afterwards, run
+`rtm doctor`: it reports Engine identity, Runbook validity, and runtime state,
+names the next legitimate action when no Run exists, and writes nothing.
+
+## Trial worktrees
+
+Experiments live in trials, not on the experiment base. One entry point owns
+the lifecycle: `pwsh -File tools/trial.ps1 <verb>`, run from the repository
+root with `start`, `status`, `finish`, or `sync` - nothing else, and nothing
+that pushes, fetches, installs, or reaches the network.
+
+- `status` is a dry run: it prints what each verb would do and applies nothing.
+- `start` opens `trial-<nnn>-<slug>` with its linked worktree beside the
+  repository, from a clean `exp/ratmac-deterministic` checkout only.
+- `finish` archives the trial: annotated tag first, then the durable log
+  `trials/<trial-branch>/trial-log.md` committed alone on the base, then the
+  worktree, then the branch. That log is the only trial content that outlives
+  the trial; `.arca/tpl/trial-log.md` is its blank form.
+- `sync` merges `main` into a clean base checkout. Fixes are authored on
+  `main`; the base never receives them any other way.
+
+**Ownership.** A human or the Main-Agent invokes these verbs, from the primary
+checkout with the experiment base checked out. An Advisor authors trial log
+content only and invokes no lifecycle verb. A Subagent invokes neither a
+lifecycle verb nor `rtm`.
+
+**Working directory (Windows).** Run the verbs from the primary checkout,
+never with your working directory inside a trial worktree: Windows refuses to
+remove a directory somebody is standing in. `finish` refuses that case by name
+and tells you where to `cd`; a worktree held by another shell or editor
+refuses the same way - close it, because nothing here forces a removal or
+kills a process.
+
 # Rule
 
 Do:

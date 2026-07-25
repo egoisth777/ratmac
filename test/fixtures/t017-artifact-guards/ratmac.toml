@@ -17,6 +17,8 @@ kind = "command_exit"
 program = "rustc"
 args = ["--version"]
 expected = 0
+# ETB-001: a toolchain probe reads no project state and is marked as such.
+exempt = true
 
 [phases.complete]
 prompt = "Complete."

@@ -50,3 +50,69 @@ Behavior checks derived from [spec.md](spec.md). Each is a testable one-liner.
 | EVR-004 | Preflight evidence covers collision, authentication/authorization, remote availability, path/process safety, branch/worktrees, and clean tree; ordered checkpoints and rollback preserve commits, work, history, and Git arbitration. | EXT-004 |
 | EVR-005 | Final acceptance runs API/`gh`, remote/path/.git, active-reference/history, clean-state, `git diff --check`, format, lint, full Rust/QA/hidden, T-001–T-022, VR-001–VR-008, and real `rtm` smoke/help/error checks, all passing. | EXT-005 |
 | EVR-006 | The planning pass changes no GitHub repository, local directory, origin, source, documentation implementation, push, deploy, or external identity; only the integrated plan and ticket artifacts are committed. | EXT-006 |
+
+## Integrated Engine trust boundary verification
+
+| ID | Check | Requirement |
+|---|---|---|
+| ETBV-002 | An isolated fixture Run with a project-derived command guard records the gate artifact's resolved path and content hash in Run evidence no later than first guard use, alongside the Stable Engine pin. | ETB-001 |
+| ETBV-003 | After the pin, overwriting the gate artifact's bytes refuses the next step with observed-versus-expected identity and no state or history mutation; restoring the bytes lets the identical request proceed. | ETB-001 |
+| ETBV-004 | A fixture Runbook whose guard command would rebuild workspace sources at evaluation time is rejected at validation or pin time with a named reason, and a legitimate guard evaluation compiles nothing. | ETB-001 |
+| ETBV-005 | A failing guard printing `blocking artifact: <path>` to stderr yields a refusal containing that exact text plus program and exit facts, through the real `rtm` CLI. | ETB-002 |
+| ETBV-006 | A failing guard emitting far beyond the bound yields a refusal no larger than the bound plus fixed framing containing the truncation marker; a silent failing guard yields the documented no-diagnostic wording. | ETB-002 |
+| ETBV-007 | In a fixture Run whose intake phase rewrites `.arca/current/`, evidence distinguishes start baseline from frozen goal revision, the frozen value equals the post-integration hash, and gap-analysis output cites it. | ETB-003 |
+| ETBV-008 | After the freeze, editing a `.arca/current/` file refuses the next transition naming goal drift with frozen and observed revisions; reverting clears it; Scheduler-owned files are byte-identical across the refusal. | ETB-003 |
+
+## Integrated contract-gate verification
+
+| ID | Check | Requirement |
+|---|---|---|
+| PGEV-002 | A correctly integrated fixture batch passes the intake gate; `integrated` with an accepted requirement ID absent from the goal, and a dangling reverse link, each refuse naming the offending artifact. | PGE-001 |
+| PGEV-003 | Complete residual and ticket records pass; `satisfied` without evidence refs, a gap owned by zero or two tickets, a dependency cycle, and a ticket missing hidden-lane assessments each refuse naming the record. | PGE-002 |
+| PGEV-004 | A planned test with a baseline-failure receipt passes the P4 gate; the identical fixture with the receipt replaced by a prose log line is refused identifying the receiptless planned test. | PGE-003 |
+| PGEV-005 | An executable audit finds no active prompt or gate contract instructing a write to `.arca/state.toml`, `.arca/log.md`, or `.arca/rtm.lock`; a deliberately violating fixture prompt makes the audit fail. | PGE-004 |
+| PGEV-006 | A ticket whose declared focused, regression, hidden-lane, and quality commands run green (or carry fresh matching receipts) passes the completion gate; receiptless relabeling is refused naming the first missing receipt. | PGE-005 |
+| PGEV-007 | Human-authorized `held` plus a linked blocker record routes the Run onward with the ticket not-passed and residuals unproven; without authorization or blocker link the request refuses with Scheduler-owned files byte-identical. | PGE-006 |
+| PGEV-008 | Gap analysis on a tree with no mechanized contract gates classifies these requirements `missing`; no check reports them satisfied by absence of a loop. | PGE-001–PGE-007 |
+| PGEV-009 | Human-authorized abandonment records a terminal abandoned event and retires admission state and lock so a fresh start succeeds; the unauthorized request refuses atomically with state, log, and lock byte-identical; a stale lock is retired through the authorized path, never bypassed. | PGE-007 |
+
+## Integrated acceptance-oracle verification
+
+| ID | Check | Requirement |
+|---|---|---|
+| AOIV-002 | Recording evidence over declared roots in a clean fixture emits a manifest whose per-path digests match an independent re-hash and whose tracking states are all reviewable. | AOI-001 |
+| AOIV-003 | Adding one untracked file under a declared evidence root makes evidence recording refuse naming the path or forces its explicit enumeration as an exception; silent success fails. | AOI-001 |
+| AOIV-004 | A complete authorized archive move of a completed five-file issue passes the history-preservation oracle with live links updated. | AOI-002 |
+| AOIV-005 | The same move with one byte of preserved content altered fails naming the file; a partial move fails naming the gap; an in-place edit without a move still fails. | AOI-002 |
+| AOIV-006 | On a feature branch with a pending issue folder present and no opt-in configured, `cargo test --workspace` passes and the release acceptance lane visibly reports skipped. | AOI-003 |
+| AOIV-007 | With the documented opt-in set in an unsatisfying environment, only the release acceptance lane fails and its diagnostics name the unsatisfied fact. | AOI-003 |
+| AOIV-008 | `.arca/index.md` states the archive authorization and the reviewable-snapshot rule, in tracked content visible to `git diff`. | AOI-002 |
+
+## Integrated operable Run-start verification
+
+| ID | Check | Requirement |
+|---|---|---|
+| ORSV-002 | CLI help output, the root agent protocol, and present canonical guidance state the human-approved Main-Agent start policy with no active user-only or never-agent-start wording. | ORS-001 |
+| ORSV-003 | Seeding the retired user-only sentence into a fixture copy of an audited surface makes the stale-policy audit fail naming the surface. | ORS-001 |
+| ORSV-004 | Code and schema checks find no caller identity, sign-off token, approval artifact, or new Runbook or State File field; start, status, step, and duplicate-start refusal regressions pass unchanged. | ORS-001 |
+| ORSV-005 | From a clean project root the documented bootstrap reports the resolved Stable Engine path and content hash, mutating no global configuration or PATH. | ORS-002 |
+| ORSV-006 | With a pin record present and a deliberately altered binary at the resolved location, the bootstrap refuses naming observed and expected identity. | ORS-002 |
+| ORSV-007 | With no active Run, doctor output distinguishes `.arca/ratmac.toml` from `.arca/state.toml` by role and names the next legitimate action; with an active Run it reports the phase; snapshots prove zero writes. | ORS-002 |
+| ORSV-008 | Role-scenario transcripts pass: human start invoked, signed-off Main-Agent start invoked exactly once, unsigned Main-Agent and Subagent transcripts contain zero `rtm` invocations, each recorded as behavioral evidence. | ORS-003 |
+| ORSV-009 | A violating transcript (unsigned Main-Agent invoking start) fails the behavioral check; a wording-only check over the same scenario is recorded as guidance-consistency and cannot satisfy the behavioral requirement. | ORS-003 |
+
+## Integrated trial-lifecycle verification
+
+| ID | Check | Requirement |
+|---|---|---|
+| TWLV-002 | On a clean experiment base in a temporary repository, start creates `trial-001-<slug>` at the base tip plus its linked worktree at the derived sibling path and reports both; snapshots show exactly those two additions. | TWL-001, TWL-002, TWL-003 |
+| TWLV-003 | Staged, unstaged, and untracked base variants, plus duplicate branch, worktree, directory, tag, durable-destination, and malformed-slug cases, each refuse with a named reason and byte-identical refs, index, working tree, tags, and registrations. | TWL-001, TWL-002 |
+| TWLV-004 | With a live `trial-001-*` branch and an archived trial 002 surviving as tag and `trials/` directory, inference yields `003`; an explicit request for 001 or 002 refuses naming the collision. | TWL-002 |
+| TWLV-005 | An induced mid-creation failure leaves no new branch ref, tag, worktree registration, or sibling directory, and the refusal names the failure. | TWL-003 |
+| TWLV-006 | A complete committed `trial-log.md` passes validation; a missing section, an empty section, and contradicted identity facts each refuse before any tag creation or deletion, naming the defect. | TWL-004 |
+| TWLV-007 | A successful finish leaves the archive tag at the terminal commit, one base commit containing exactly the durable log, no worktree, and no trial branch, in that order; the printed recovery commands recreate the branch at the identical commit. | TWL-005, TWL-008 |
+| TWLV-008 | A dirty trial worktree, missing log, working directory inside the worktree, held directory handle, and same-named tag at another commit each refuse the failing step and all later steps; nothing is force-removed or killed, and already-created artifacts survive with resume commands printed. | TWL-005, TWL-010 |
+| TWLV-009 | Status/dry-run prints base tip, cleanliness, live and archived trials, next inferred identity, and per-verb planned mutations with recovery commands, leaving refs, index, working tree, tags, and registrations byte-identical — in fixtures and as a real smoke in this checkout. | TWL-006, TWL-009 |
+| TWLV-010 | A fix committed on fixture `main` reaches the clean experiment base only via the explicit merge path; a conflicting merge stops non-zero with markers visible and nothing auto-resolved or auto-aborted; a dirty base sync refuses without mutation. | TWL-007 |
+| TWLV-011 | After a finished trial the base diff against its pre-trial tip contains exactly the durable log file and no trial implementation content; `main` is untouched by every lifecycle verb. | TWL-008 |
+| TWLV-012 | An audit of the interface surface finds exactly the documented verbs and no push, fetch, network, global-install, PATH or global-config mutation, reset, rebase, forced removal, forced deletion, or unrelated pruning; guidance states the ownership split and the Windows working-directory rule. | TWL-009, TWL-010 |

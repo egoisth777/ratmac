@@ -1,0 +1,499 @@
+//! t-049 / PGE-007: safe human-confirmed Run abandonment.
+//!
+//! PT-049-01 `authorized_abandon_retires_run`
+//! PT-049-02 `unauthorized_abandon_refuses_atomically`
+//! PT-049-03 `stale_lock_retired_not_bypassed`
+//! HT-049-01 `near_miss_confirmation_refuses_before_write`
+//! HT-049-02 `interrupted_retirement_completes_idempotently`
+//! HT-049-03 `fresh_run_after_abandonment_records_its_own_pin`
+//!
+//! A broken Run must have a mechanized exit that no agent edit substitutes
+//! for: `rtm` itself records the terminal abandoned event, retires the
+//! admission state and the lock, and lets a fresh Run start. Everything
+//! unconfirmed refuses with the Scheduler-owned files byte-identical, and a
+//! stale lock is retired through this path rather than bypassed.
+
+use std::fs;
+use std::path::PathBuf;
+use std::process::{Command, Output};
+
+struct Fixture {
+    root: PathBuf,
+}
+
+impl Drop for Fixture {
+    fn drop(&mut self) {
+        restore_writable(&self.root);
+        let _ = fs::remove_dir_all(&self.root);
+    }
+}
+
+fn restore_writable(root: &std::path::Path) {
+    for relative in [".arca/log.md", ".arca/state.toml", ".arca/rtm.lock"] {
+        let path = root.join(relative);
+        if let Ok(metadata) = fs::metadata(&path) {
+            let mut permissions = metadata.permissions();
+            #[allow(clippy::permissions_set_readonly_false)]
+            permissions.set_readonly(false);
+            let _ = fs::set_permissions(&path, permissions);
+        }
+    }
+}
+
+impl Fixture {
+    /// A started Run sitting in `build`: an ordinary active Run that a human
+    /// may decide is broken.
+    fn new(label: &str) -> Self {
+        let root = std::env::temp_dir().join(format!(
+            "ratmac-t051-{label}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock after epoch")
+                .as_nanos()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join(".arca")).expect("create fixture tree");
+        fs::create_dir_all(root.join("src")).expect("create source tree");
+        fs::write(root.join("src/lib.rs"), "pub fn work() {}\n").expect("write source");
+        fs::create_dir_all(root.join(".arca/current")).expect("create goal tree");
+        fs::write(root.join(".arca/current/spec.md"), "# Spec\n").expect("write goal");
+        fs::write(
+            root.join(".arca/ratmac.toml"),
+            "[phases.intake]\nprompt = \"Integrate the issues.\"\n\n\
+             [phases.build]\nprompt = \"Build the ticket.\"\n\n\
+             [[transitions]]\nfrom = \"intake\"\nto = \"build\"\n",
+        )
+        .expect("write runbook");
+
+        let fixture = Fixture { root };
+        assert!(
+            fixture.rtm(&["start"]).status.success(),
+            "the fixture Run starts"
+        );
+        assert!(
+            fixture.rtm(&["step"]).status.success(),
+            "the fixture Run reaches build"
+        );
+        fixture
+    }
+
+    fn rtm(&self, args: &[&str]) -> Output {
+        Command::new(env!("CARGO_BIN_EXE_rtm"))
+            .args(args)
+            .current_dir(&self.root)
+            .output()
+            .expect("invoke rtm")
+    }
+
+    fn text(&self, args: &[&str]) -> String {
+        let output = self.rtm(args);
+        format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        )
+    }
+
+    /// The exact phrase a human must type to retire this project's Run.
+    fn phrase(&self) -> String {
+        format!(
+            "abandon {}",
+            self.root
+                .file_name()
+                .expect("fixture has a directory name")
+                .to_string_lossy()
+        )
+    }
+
+    fn abandon(&self, args: &[&str]) -> Output {
+        let mut all = vec!["abandon"];
+        all.extend_from_slice(args);
+        self.rtm(&all)
+    }
+
+    fn path(&self, relative: &str) -> PathBuf {
+        self.root.join(relative)
+    }
+
+    fn exists(&self, relative: &str) -> bool {
+        self.path(relative).exists()
+    }
+
+    fn read(&self, relative: &str) -> String {
+        fs::read_to_string(self.path(relative)).unwrap_or_default()
+    }
+
+    /// The bytes of every Scheduler-owned file, so a refusal can be proven to
+    /// have written nothing at all.
+    fn owned_bytes(&self) -> Vec<(String, Option<Vec<u8>>)> {
+        [".arca/state.toml", ".arca/log.md", ".arca/rtm.lock"]
+            .iter()
+            .map(|relative| ((*relative).to_owned(), fs::read(self.path(relative)).ok()))
+            .collect()
+    }
+}
+
+/// PT-049-01: a confirmed abandonment retires the Run and frees the project.
+#[test]
+fn authorized_abandon_retires_run() {
+    let fixture = Fixture::new("retires");
+    let log_before = fixture.read(".arca/log.md");
+    assert!(fixture.exists(".arca/state.toml"), "the Run is admitted");
+
+    let output = fixture.abandon(&["--confirm", &fixture.phrase()]);
+    assert!(
+        output.status.success(),
+        "a confirmed abandonment succeeds: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let log = fixture.read(".arca/log.md");
+    assert!(
+        log.starts_with(&log_before),
+        "history is append-only across abandonment"
+    );
+    let event = log
+        .strip_prefix(&log_before)
+        .expect("the terminal event is appended");
+    assert!(
+        event.to_ascii_lowercase().contains("abandon"),
+        "a terminal abandoned event is recorded: {event:?}"
+    );
+    assert!(
+        event.contains("build"),
+        "the terminal event names the retired Run's phase: {event:?}"
+    );
+
+    assert!(
+        !fixture.exists(".arca/state.toml"),
+        "the admission state is retired"
+    );
+    assert!(!fixture.exists(".arca/rtm.lock"), "the lock is retired");
+
+    let restart = fixture.rtm(&["start"]);
+    assert!(
+        restart.status.success(),
+        "a fresh Run starts in the same project: {}",
+        String::from_utf8_lossy(&restart.stderr)
+    );
+    assert!(
+        fixture.read(".arca/state.toml").contains("intake"),
+        "the fresh Run begins at the initial Phase"
+    );
+    assert!(
+        fixture.read(".arca/log.md").contains(event.trim()),
+        "the terminal event survives the fresh Run's history"
+    );
+}
+
+/// PT-049-02: without the confirmation phrase nothing is touched.
+#[test]
+fn unauthorized_abandon_refuses_atomically() {
+    let fixture = Fixture::new("unauthorized");
+    let before = fixture.owned_bytes();
+
+    for args in [
+        vec![],
+        vec!["--confirm"],
+        vec!["--confirm", "yes"],
+        vec!["--confirm", "abandon"],
+    ] {
+        let output = fixture.abandon(&args);
+        assert!(
+            !output.status.success(),
+            "an unconfirmed abandonment refuses: {args:?}"
+        );
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            text.contains(&fixture.phrase()),
+            "the refusal names the required phrase: {text:?}"
+        );
+        assert_eq!(
+            fixture.owned_bytes(),
+            before,
+            "state, history, and lock stay byte-identical after {args:?}"
+        );
+    }
+
+    assert!(
+        fixture.rtm(&["step"]).status.success(),
+        "the Run is untouched and still steps"
+    );
+}
+
+/// PT-049-03: a stale lock is retired through this path, never bypassed.
+#[test]
+fn stale_lock_retired_not_bypassed() {
+    let fixture = Fixture::new("stale-lock");
+    fs::write(fixture.path(".arca/rtm.lock"), b"stale\n").expect("seed a stale lock");
+
+    let blocked = fixture.rtm(&["step"]);
+    assert!(
+        !blocked.status.success(),
+        "an ordinary command cannot proceed past a stale lock"
+    );
+
+    for bypass in [
+        vec!["step", "--force"],
+        vec!["step", "--no-lock"],
+        vec!["abandon", "--force"],
+    ] {
+        let output = fixture.rtm(&bypass);
+        assert!(
+            !output.status.success(),
+            "no bypass flag exists: {bypass:?} must not succeed"
+        );
+    }
+    assert!(
+        fixture.exists(".arca/rtm.lock"),
+        "a refused bypass leaves the stale lock in place"
+    );
+
+    let retired = fixture.abandon(&["--confirm", &fixture.phrase()]);
+    assert!(
+        retired.status.success(),
+        "the confirmed path retires the stale lock: {}",
+        String::from_utf8_lossy(&retired.stderr)
+    );
+    assert!(!fixture.exists(".arca/rtm.lock"), "the stale lock is gone");
+    assert!(
+        fixture.rtm(&["start"]).status.success(),
+        "the project is usable again"
+    );
+}
+
+/// HT-049-01: a near-miss phrase is refused before the first byte is written.
+#[test]
+fn near_miss_confirmation_refuses_before_write() {
+    let fixture = Fixture::new("near-miss");
+    let before = fixture.owned_bytes();
+    let phrase = fixture.phrase();
+
+    let near_misses = [
+        format!("{phrase}."),
+        format!(" {phrase}"),
+        phrase.to_uppercase(),
+        phrase.replace("abandon", "abandon "),
+        phrase
+            .trim_end_matches(|character: char| character.is_ascii_alphanumeric())
+            .to_owned(),
+    ];
+    for near in near_misses {
+        let output = fixture.abandon(&["--confirm", &near]);
+        assert!(
+            !output.status.success(),
+            "a near-miss phrase refuses: {near:?}"
+        );
+        assert_eq!(
+            fixture.owned_bytes(),
+            before,
+            "nothing is written for {near:?}"
+        );
+    }
+}
+
+/// HT-049-02: an interrupted retirement never half-retires, and re-running the
+/// confirmed command finishes the job.
+#[test]
+fn interrupted_retirement_completes_idempotently() {
+    let fixture = Fixture::new("interrupted");
+
+    // The terminal event cannot be recorded: nothing is retired.
+    let before = fixture.owned_bytes();
+    let log_path = fixture.path(".arca/log.md");
+    let metadata = fs::metadata(&log_path).expect("read log metadata");
+    let mut permissions = metadata.permissions();
+    permissions.set_readonly(true);
+    fs::set_permissions(&log_path, permissions).expect("make history unwritable");
+
+    let interrupted = fixture.abandon(&["--confirm", &fixture.phrase()]);
+    assert!(
+        !interrupted.status.success(),
+        "retirement fails when the terminal event cannot be recorded"
+    );
+    assert_eq!(
+        fixture.owned_bytes(),
+        before,
+        "an interrupted retirement leaves no half-retired Run"
+    );
+    restore_writable(&fixture.root);
+
+    // An unreadable Run file is refused before the first write, never
+    // snapshotted as "absent" and then deleted by its own rollback.
+    let evidence_path = fixture.path(".arca/evidence.toml");
+    let evidence_bytes = fs::read(&evidence_path).expect("read Run evidence");
+    fs::remove_file(&evidence_path).expect("clear Run evidence");
+    fs::create_dir(&evidence_path).expect("make Run evidence unreadable");
+    let unreadable_before = fixture.owned_bytes();
+    let unreadable = fixture.abandon(&["--confirm", &fixture.phrase()]);
+    assert!(
+        !unreadable.status.success(),
+        "an unreadable Run file refuses the retirement"
+    );
+    assert_eq!(
+        fixture.owned_bytes(),
+        unreadable_before,
+        "the unreadable-file refusal writes nothing"
+    );
+    assert!(
+        evidence_path.exists(),
+        "the unreadable Run file is never deleted by its own rollback"
+    );
+    let unreadable_text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&unreadable.stdout),
+        String::from_utf8_lossy(&unreadable.stderr)
+    );
+    assert!(
+        unreadable_text.contains("evidence.toml"),
+        "the refusal names the file it could not read: {unreadable_text:?}"
+    );
+    assert!(
+        !unreadable_text.contains("rollback incomplete"),
+        "the unreadable file is caught before any write, so nothing needs rolling back: {unreadable_text:?}"
+    );
+    fs::remove_dir(&evidence_path).expect("clear the unreadable Run evidence");
+    fs::write(&evidence_path, &evidence_bytes).expect("restore Run evidence");
+
+    // The promised interruption point: the terminal event is recorded and the
+    // admission state is gone, but the lock cannot be retired.
+    let lock_path = fixture.path(".arca/rtm.lock");
+    let _ = fs::remove_file(&lock_path);
+    fs::create_dir(&lock_path).expect("obstruct lock retirement");
+    let before_lock_failure = fixture.owned_bytes();
+    let evidence_before = fixture.read(".arca/evidence.toml");
+    let log_before = fixture.read(".arca/log.md");
+
+    let half = fixture.abandon(&["--confirm", &fixture.phrase()]);
+    assert!(
+        !half.status.success(),
+        "retirement fails when the lock cannot be retired"
+    );
+    assert_eq!(
+        fixture.owned_bytes(),
+        before_lock_failure,
+        "the admission state and history are restored, not half retired"
+    );
+    assert_eq!(
+        fixture.read(".arca/evidence.toml"),
+        evidence_before,
+        "Run evidence is restored when the retirement cannot finish"
+    );
+    assert_eq!(
+        fixture.read(".arca/log.md"),
+        log_before,
+        "no terminal event survives a retirement that did not happen"
+    );
+    fs::remove_dir(&lock_path).expect("clear the obstruction");
+    assert!(
+        fixture.rtm(&["status"]).status.success(),
+        "the Run is still active after the failed retirement"
+    );
+
+    // The obstruction clears: the same command completes retirement.
+    let retried = fixture.abandon(&["--confirm", &fixture.phrase()]);
+    assert!(
+        retried.status.success(),
+        "the confirmed command completes after the obstruction clears: {}",
+        String::from_utf8_lossy(&retried.stderr)
+    );
+    assert!(!fixture.exists(".arca/state.toml"), "admission is retired");
+
+    // A tree interrupted between the terminal event and lock retirement:
+    // re-running finishes it rather than refusing.
+    fs::write(fixture.path(".arca/rtm.lock"), b"left behind\n").expect("seed a leftover lock");
+    let history_before = fixture.read(".arca/log.md");
+    let completing = fixture.abandon(&["--confirm", &fixture.phrase()]);
+    assert!(
+        completing.status.success(),
+        "re-running completes retirement idempotently: {}",
+        String::from_utf8_lossy(&completing.stderr)
+    );
+    assert!(
+        !fixture.exists(".arca/rtm.lock"),
+        "the leftover lock is gone"
+    );
+    assert_eq!(
+        fixture.read(".arca/log.md"),
+        history_before,
+        "completing retirement records no second terminal event"
+    );
+
+    // Nothing left to retire: an honest refusal, still writing nothing.
+    let nothing_before = fixture.owned_bytes();
+    let nothing = fixture.abandon(&["--confirm", &fixture.phrase()]);
+    assert!(
+        !nothing.status.success(),
+        "abandoning a project with no active Run refuses"
+    );
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&nothing.stdout),
+        String::from_utf8_lossy(&nothing.stderr)
+    );
+    assert!(
+        text.to_ascii_lowercase().contains("no active run"),
+        "the refusal says there is nothing to retire: {text:?}"
+    );
+    assert_eq!(
+        fixture.owned_bytes(),
+        nothing_before,
+        "the empty refusal writes nothing"
+    );
+}
+
+/// HT-049-03: the Run after an abandonment is genuinely new.
+#[test]
+fn fresh_run_after_abandonment_records_its_own_pin() {
+    let fixture = Fixture::new("fresh-pin");
+    let stale_evidence = fixture.read(".arca/evidence.toml");
+    assert!(
+        stale_evidence.contains("[engine]"),
+        "the abandoned Run recorded an Engine pin: {stale_evidence:?}"
+    );
+    // The abandoned Run also carried a gate pin and a frozen goal.
+    fs::write(
+        fixture.path(".arca/evidence.toml"),
+        format!("{stale_evidence}\n[[gates]]\nprogram = \"ghost\"\nresolved = \"E:/ghost.exe\"\nsha256 = \"{}\"\n\n[goal]\nfrozen = \"stale-frozen-revision\"\n", "0".repeat(64)),
+    )
+    .expect("seed stale Run evidence");
+
+    assert!(
+        fixture
+            .abandon(&["--confirm", &fixture.phrase()])
+            .status
+            .success(),
+        "the Run is abandoned"
+    );
+    assert!(
+        !fixture.exists(".arca/evidence.toml"),
+        "Run evidence is retired with the Run"
+    );
+
+    assert!(
+        fixture.rtm(&["start"]).status.success(),
+        "a fresh Run starts"
+    );
+    let evidence = fixture.read(".arca/evidence.toml");
+    assert!(
+        evidence.contains("[engine]"),
+        "the fresh Run records its own Engine pin: {evidence:?}"
+    );
+    assert!(
+        !evidence.contains("ghost"),
+        "no gate pin is inherited from the abandoned Run: {evidence:?}"
+    );
+    assert!(
+        !evidence.contains("stale-frozen-revision"),
+        "no freeze is inherited from the abandoned Run: {evidence:?}"
+    );
+    assert!(
+        fixture.text(&["status"]).contains("intake"),
+        "the fresh Run reports its own baseline position"
+    );
+}

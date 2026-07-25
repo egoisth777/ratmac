@@ -11,6 +11,8 @@ planned-test-refs:
 dependencies:
   - "{{ticket-id}}"
 status: "{{status}}"
+# PGE-006: set only by an authorized `rtm hold`, together with status "held".
+blocker-ref: "{{blocker-issue-folder-or-residual}}"
 ---
 
 # Ticket: {{ticket-id}}

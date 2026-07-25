@@ -25,10 +25,10 @@ The work must begin with collision, authentication, access, and working-tree pre
 
 The accepted requirements are folded into the frozen goal bundle:
 
-- [Goal front door](../../current/index.md)
-- [Goal language](../../current/ubi-lang.md)
-- [Goal specification](../../current/spec.md)
-- [Goal design](../../current/design.md)
-- [Goal verification](../../current/test-list.md)
+- [Goal front door](../../../current/index.md)
+- [Goal language](../../../current/ubi-lang.md)
+- [Goal specification](../../../current/spec.md)
+- [Goal design](../../../current/design.md)
+- [Goal verification](../../../current/test-list.md)
 
-Reverse requirement traces are carried in the goal specification and verification table as `EXT-001` through `EXT-006`. Residuals `res-039` through `res-044` and the single approved vertical ticket [t-038](../../ticket/t-038.md) carry the P2/P3 execution mapping.
+Reverse requirement traces are carried in the goal specification and verification table as `EXT-001` through `EXT-006`. Residuals `res-039` through `res-044` and the single approved vertical ticket [t-038](../../../ticket/t-038.md) carry the P2/P3 execution mapping.

@@ -1,9 +1,17 @@
 //! Core ratmac library.
 
+pub mod abandon;
+pub mod blocked;
 pub mod cli;
+pub mod completion;
+pub mod contract;
+pub mod goal;
 pub mod graph;
 pub mod machine;
 pub mod model;
+pub mod ownership;
+pub mod pin;
+pub mod receipt;
 pub mod scheduler;
 pub mod state;
 

@@ -1,7 +1,7 @@
 # path pattern<TAB>legacy token<TAB>provenance reason
 .arca/log.md	both	Append-only transition history is immutable provenance.
 .arca/ticket/archive/**	both	Archived ticket records are immutable historical provenance.
-.arca/issue/i-002-ratmac-external-identity/**	both	The accepted external-identity issue records the superseded identity as provenance.
+.arca/issue/archive/i-002-ratmac-external-identity/**	both	The accepted external-identity issue records the superseded identity as provenance.
 .arca/current/spec.md	both	The frozen goal names the before/after identity contract.
 .arca/current/design.md	both	The frozen cutover design records captured legacy values and rollback.
 .arca/current/test-list.md	both	The frozen verification table names expected legacy identity evidence.

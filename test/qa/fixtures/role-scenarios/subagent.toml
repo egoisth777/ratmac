@@ -1,0 +1,16 @@
+scenario = "subagent"
+caller = "subagent"
+run_start_signoff = true
+description = "A Subagent works a ticket: it reads state and never invokes rtm, even with a sign-off present."
+
+[[event]]
+kind = "command"
+command = "cat .arca/state.toml"
+outcome = "invoked"
+reason = "a Subagent reads state files directly"
+
+[[event]]
+kind = "tool_call"
+command = "rtm step"
+outcome = "refrained"
+reason = "a Subagent never invokes any rtm command"

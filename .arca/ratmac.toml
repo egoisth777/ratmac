@@ -1,26 +1,36 @@
-[phases/build]
-prompt = "Build the selected artifact only."
-next = "build-review"
+# Project Runbook. Phase prompts are agent-facing instructions; they never ask
+# an agent to write a Scheduler-owned file (PGE-004).
 
-[[phases/build.guards]]
+[phases.build]
+prompt = "Build the selected artifact only, then record your evidence under .arca/evidence/."
+
+[[phases.build.guards]]
 kind = "files_exact"
 path = "artifacts"
 entries = ["release.txt"]
 
-[[phases/build.guards]]
+[[phases.build.guards]]
 kind = "file_contains"
 path = "artifacts/release.txt"
 contains = "ready: true"
 
-[[phases/build.guards]]
+[[phases.build.guards]]
 kind = "command_exit"
 program = "rustc"
 args = ["--version"]
 expected = 0
+exempt = true
 
-[phases/build-review]
+[phases.build-review]
 prompt = "Review the selected artifact."
-next = "build-done"
 
-[phases/build-done]
+[phases.build-done]
 prompt = "Finish the selected artifact."
+
+[[transitions]]
+from = "build"
+to = "build-review"
+
+[[transitions]]
+from = "build-review"
+to = "build-done"

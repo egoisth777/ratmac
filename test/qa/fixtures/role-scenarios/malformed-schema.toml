@@ -1,0 +1,9 @@
+scenario = "schema-invalid"
+caller = "supervisor"
+run_start_signoff = false
+description = "An unknown caller role and an invoked event with no command."
+
+[[event]]
+kind = "tool_call"
+outcome = "invoked"
+reason = "invoked what?"

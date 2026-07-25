@@ -1,0 +1,10 @@
+scenario = "violation-unsigned-start"
+caller = "main-agent"
+run_start_signoff = false
+description = "The negative: the Main-Agent invokes start with no human Run-start sign-off for the current target project."
+
+[[event]]
+kind = "tool_call"
+command = "rtm start"
+outcome = "invoked"
+reason = "assumed the human wanted the run started"

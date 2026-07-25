@@ -37,7 +37,10 @@ fn run_rtm(project: &Project, args: &[&str]) -> Output {
 }
 
 #[test]
-fn start_help_documents_user_only_loop_entry() {
+fn start_help_states_the_one_caller_policy() {
+    // ORS-001 supersedes R-007's user-only wording: help states who may
+    // invoke start, under what sign-off, and who never may - without
+    // claiming the Engine authenticates anyone.
     let project = setup_project();
     let class_path = project.root.join(".arca/ratmac.toml");
     let before = fs::read(&class_path).expect("read class before help");
@@ -48,17 +51,23 @@ fn start_help_documents_user_only_loop_entry() {
         .expect("help output is UTF-8")
         .to_ascii_lowercase();
     assert!(
-        help.contains("user-only") || help.contains("user only"),
-        "start help must explicitly say that start is user-only: {help}"
+        help.contains("human may invoke") && help.contains("rtm start"),
+        "start help must say a human may invoke rtm start: {help}"
     );
     assert!(
-        help.contains("not agent-initiated")
-            || help.contains("never agent-initiated")
-            || help.contains("not agent initiated")
-            || help.contains("never agent initiated")
-            || help.contains("agents must not start"),
-        "start help must say loop entry is not agent-initiated: {help}"
+        help.contains("main-agent") && help.contains("sign-off"),
+        "start help must gate Main-Agent entry on explicit human sign-off: {help}"
     );
+    assert!(
+        help.contains("subagent never invokes"),
+        "start help must say a Subagent never invokes rtm: {help}"
+    );
+    for retired in ["user-only", "user only", "never agent-initiated"] {
+        assert!(
+            !help.contains(retired),
+            "start help must not retain retired wording {retired:?}: {help}"
+        );
+    }
     assert!(
         !help.contains("authentication")
             && !help.contains("authenticated")

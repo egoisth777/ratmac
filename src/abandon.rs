@@ -1,0 +1,241 @@
+//! PGE-007: safe human-confirmed Run abandonment.
+//!
+//! A Run can break in ways no Phase transition can fix. The honest exit is not
+//! an agent deleting Scheduler-owned files - the schema forbids that - but a
+//! human running
+//!
+//! ```text
+//! rtm abandon --confirm "abandon <project directory name>"
+//! ```
+//!
+//! The Engine keeps no caller identity (ORS-001); it checks only that the
+//! exact phrase was typed at invocation, never read from a file an agent can
+//! write. On that phrase, and only then, `rtm` itself:
+//!
+//! 1. records a terminal abandoned event in the append-only history, naming
+//!    the retired Run's Phase, status, and revisions;
+//! 2. retires the admission state (`.arca/state.toml`) so a fresh Run can
+//!    start;
+//! 3. retires the Run-scoped evidence (`.arca/evidence.toml`) so the next Run
+//!    records its own baseline and pins rather than inheriting them;
+//! 4. retires the invocation lock (`.arca/rtm.lock`) - retired through this
+//!    path, never bypassed by a flag.
+//!
+//! Every check runs before the first write, so an unconfirmed request leaves
+//! state, history, and lock byte-identical. The apply step is all-or-nothing:
+//! if any step fails, every file it touched is restored, leaving the Run
+//! active rather than half retired. Re-running the confirmed command then
+//! finishes the job.
+//!
+//! Retirement is idempotent: a leftover lock with no admission state is
+//! retired without appending a second terminal event, because the lock is
+//! transient invocation machinery and its removal is not Run history.
+
+use std::fmt;
+use std::fs;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+
+/// Why an abandonment cannot proceed.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AbandonRefusal {
+    pub reason: String,
+}
+
+impl fmt::Display for AbandonRefusal {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.reason)
+    }
+}
+
+fn refusal(reason: impl Into<String>) -> AbandonRefusal {
+    AbandonRefusal {
+        reason: reason.into(),
+    }
+}
+
+/// The exact phrase a human must type to retire this project's Run.
+pub fn required_phrase(root: &Path) -> String {
+    format!("abandon {}", project_name(root))
+}
+
+fn project_name(root: &Path) -> String {
+    let named = |path: &Path| {
+        path.file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .filter(|name| !name.is_empty() && name != "." && name != "..")
+    };
+    named(root)
+        .or_else(|| fs::canonicalize(root).ok().as_deref().and_then(named))
+        .unwrap_or_else(|| "this project".to_owned())
+}
+
+/// What a human asked for.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AbandonRequest {
+    pub confirmation: Option<String>,
+}
+
+/// The retirement `rtm` will perform, decided before anything is written.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AbandonPlan {
+    /// The terminal event to append, present only when a Run is admitted.
+    pub event: Option<String>,
+    /// The retired Run's Phase, for the operator-facing report.
+    pub phase: Option<String>,
+    /// Scheduler-owned paths to retire, in order.
+    pub retire: Vec<PathBuf>,
+}
+
+/// Decide whether this project's Run may be retired. Writes nothing.
+pub fn plan_abandon(root: &Path, request: &AbandonRequest) -> Result<AbandonPlan, AbandonRefusal> {
+    let required = required_phrase(root);
+    match request.confirmation.as_deref() {
+        None => {
+            return Err(refusal(format!(
+                "abandonment is unconfirmed: a human must type --confirm {required:?}"
+            )))
+        }
+        Some(phrase) if phrase != required => {
+            return Err(refusal(format!(
+                "abandonment is unconfirmed: confirmation {phrase:?} does not match the required phrase {required:?}"
+            )))
+        }
+        Some(_) => {}
+    }
+
+    let arca = root.join(".arca");
+    let state_path = arca.join("state.toml");
+    let evidence_path = arca.join(crate::pin::EVIDENCE_FILE);
+    let lock_path = arca.join("rtm.lock");
+
+    let admitted = state_path.exists();
+    if !admitted && !lock_path.exists() {
+        return Err(refusal(format!(
+            "no active Run to abandon in {}: nothing to retire",
+            project_name(root)
+        )));
+    }
+
+    let mut retire = Vec::new();
+    let mut phase = None;
+    let mut event = None;
+    if admitted {
+        let state = crate::state::StateStore::new(root)
+            .load()
+            .map_err(|error| refusal(format!("abandon cannot read the State File: {error}")))?;
+        phase = Some(state.phase.clone());
+        event = Some(format!(
+            "- Abandoned: Run retired at phase {} (status {}, goal revision {}) on an explicit human confirmation; admission state, Run evidence, and lock retired. The Run is terminal: no transition may proceed on it.\n",
+            state.phase,
+            state.status,
+            revision_or_none(&state.goal_revision),
+        ));
+        retire.push(state_path);
+        if evidence_path.exists() {
+            retire.push(evidence_path);
+        }
+    }
+    if lock_path.exists() {
+        retire.push(lock_path);
+    }
+
+    Ok(AbandonPlan {
+        event,
+        phase,
+        retire,
+    })
+}
+
+fn revision_or_none(revision: &str) -> String {
+    if revision.trim().is_empty() {
+        "none".to_owned()
+    } else {
+        revision.to_owned()
+    }
+}
+
+/// Perform the planned retirement, all of it or none of it.
+pub fn apply_abandon(root: &Path, plan: &AbandonPlan) -> Result<(), AbandonRefusal> {
+    let log_path = root.join(".arca/log.md");
+    let lock_path = root.join(".arca/rtm.lock");
+
+    // Snapshot every file whose bytes rollback must be able to put back. The
+    // lock is excluded deliberately: it is transient invocation machinery,
+    // retired last, with no content worth restoring. An unreadable Run file is
+    // refused here, before the first write, rather than silently treated as
+    // absent - restoring "absent" would delete the very file it claims to
+    // protect.
+    let mut snapshot: Vec<(PathBuf, Option<Vec<u8>>)> = Vec::new();
+    for path in std::iter::once(&log_path).chain(plan.retire.iter().filter(|p| **p != lock_path)) {
+        match fs::read(path) {
+            Ok(bytes) => snapshot.push((path.clone(), Some(bytes))),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                snapshot.push((path.clone(), None))
+            }
+            Err(error) => {
+                return Err(refusal(format!(
+                    "abandon cannot snapshot {} for rollback: {error}",
+                    path.display()
+                )))
+            }
+        }
+    }
+
+    let restore = |problem: AbandonRefusal| -> AbandonRefusal {
+        let mut unrestored = Vec::new();
+        for (path, bytes) in &snapshot {
+            let outcome = match bytes {
+                Some(bytes) => fs::write(path, bytes),
+                None => match fs::remove_file(path) {
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                    other => other,
+                },
+            };
+            if let Err(error) = outcome {
+                unrestored.push(format!("{}: {error}", path.display()));
+            }
+        }
+        if unrestored.is_empty() {
+            problem
+        } else {
+            // Never report a clean refusal over a tree we could not put back.
+            refusal(format!(
+                "{}; rollback incomplete, restore by hand: {}",
+                problem.reason,
+                unrestored.join(", ")
+            ))
+        }
+    };
+
+    // The terminal event is recorded before anything is retired, so history
+    // can never lose a Run that the filesystem has already forgotten.
+    if let Some(entry) = plan.event.as_deref() {
+        if let Err(error) = append(&log_path, entry) {
+            return Err(restore(refusal(format!(
+                "abandon cannot record the terminal event: {error}"
+            ))));
+        }
+    }
+
+    for path in &plan.retire {
+        if let Err(error) = fs::remove_file(path) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                return Err(restore(refusal(format!(
+                    "abandon cannot retire {}: {error}",
+                    path.display()
+                ))));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn append(path: &Path, entry: &str) -> std::io::Result<()> {
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
+    file.write_all(entry.as_bytes())?;
+    file.sync_all()
+}

@@ -1,0 +1,16 @@
+scenario = "human-start"
+caller = "human"
+run_start_signoff = false
+description = "A human opens the project and starts the Run directly."
+
+[[event]]
+kind = "command"
+command = "rtm start"
+outcome = "invoked"
+reason = "a human may invoke argument-free rtm start"
+
+[[event]]
+kind = "command"
+command = "rtm status"
+outcome = "invoked"
+reason = "reading state after the start"

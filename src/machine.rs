@@ -139,7 +139,7 @@ impl MachineClass {
                     }
                     Self::reject_unknown_keys(
                         table,
-                        &["from", "to"],
+                        &["from", "to", "freeze", "blocked-route"],
                         &format!("transition {index}"),
                     )?;
                     let from =
@@ -155,7 +155,25 @@ impl MachineClass {
                         .ok_or_else(|| MachineClassParseError {
                             message: "invalid transition: missing to phase".to_owned(),
                         })?;
-                    Ok(Transition::new(from, to))
+                    let mut transition = Transition::new(from, to);
+                    // PGE-006: an escape a human confirms, never an edge the
+                    // Scheduler may take on its own.
+                    if table
+                        .get("blocked-route")
+                        .and_then(toml::Value::as_bool)
+                        .unwrap_or(false)
+                    {
+                        transition = transition.blocked_route();
+                    }
+                    match table.get("freeze").and_then(toml::Value::as_str) {
+                        None => Ok(transition),
+                        Some("goal") => Ok(transition.freezing_goal()),
+                        Some(other) => Err(MachineClassParseError {
+                            message: format!(
+                                "invalid ratmac.toml: transition {index} freeze {other:?} is unknown; the only freeze is \"goal\""
+                            ),
+                        }),
+                    }
                 })
                 .collect::<Result<Vec<_>, MachineClassParseError>>()?,
         };
@@ -226,6 +244,12 @@ impl MachineClass {
                 "entries",
                 "program",
                 "args",
+                // PGE-003: the P4 gate names the ticket whose planned tests
+                // must each carry a sensitivity receipt.
+                "ticket",
+                // ETB-001: marks a toolchain probe that reads no project
+                // state, so it is identifiable and needs no gate pin.
+                "exempt",
             ],
             location,
         )

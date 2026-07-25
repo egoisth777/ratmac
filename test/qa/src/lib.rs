@@ -1,3 +1,16 @@
+//! ratmac QA harness.
+//!
+//! Public modules are shared oracles used by the integration suites in
+//! `tests/`; the private `tests` module holds the behavior checks that need
+//! no fixture sharing.
+
+pub mod archive;
+pub mod policy;
+pub mod role;
+pub mod snapshot;
+pub mod tempgit;
+pub mod trial;
+
 #[cfg(test)]
 mod tests {
     use ratmac::graph::{MachineGraph, MachineState, Phase, Transition};

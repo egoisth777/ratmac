@@ -23,10 +23,10 @@ Replace the active product identity `arca-scheduler` with `ratmac` and the user-
 
 The accepted requirements are folded into the frozen goal bundle:
 
-- [Goal front door](../../current/index.md)
-- [Goal language](../../current/ubi-lang.md)
-- [Goal specification](../../current/spec.md)
-- [Goal design](../../current/design.md)
-- [Goal verification](../../current/test-list.md)
+- [Goal front door](../../../current/index.md)
+- [Goal language](../../../current/ubi-lang.md)
+- [Goal specification](../../../current/spec.md)
+- [Goal design](../../../current/design.md)
+- [Goal verification](../../../current/test-list.md)
 
 Reverse requirement traces are carried in the goal specification and verification table as `RAT-001` through `RAT-008`.

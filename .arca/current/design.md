@@ -97,7 +97,7 @@ Accepted with layout details pending; both open points were later settled (see b
 - Transient lock: use `.arca/rtm.lock`; if `.arca/schd.lock` exists, refuse safely and require explicit operator migration/removal; never silently delete or bypass it.
 - Historical records: preserve append-only `.arca/log.md` and archived ticket wording in an explicit audit allowlist.
 
-The full rebrand requirements and verification map are recorded in [i-001-ratmac-rebrand](../issue/i-001-ratmac-rebrand/test-plan.md).
+The full rebrand requirements and verification map are recorded in [i-001-ratmac-rebrand](../issue/archive/i-001-ratmac-rebrand/test-plan.md).
 
 ## External repository identity cutover (EXT-001–EXT-006)
 
@@ -116,3 +116,74 @@ If any checkpoint fails, do not force-push, delete history, bypass locks, or con
 ### Final acceptance
 
 From the reopened checkout, run API and `gh repo view` checks, exact remote/path/.git checks, active-reference audit with the historical allowlist, clean status, `git diff --check`, formatting, linting, full Rust and QA/hidden suites, current T-001–T-022 behavior checks, integrated VR-001–VR-008 checks, and real `rtm` smoke/help/error checks. Acceptance requires all pass and no unallowlisted old external identity remains.
+
+## Engine trust boundary (ETB-001–ETB-003)
+
+**Context.** A self-hosted Runbook run routed every phase transition through a command guard that rebuilt mutable candidate QA code, printed refusals stripped of the gate's diagnostics, and cited a pre-integration goal hash in every residual. Integrated from [i-006-engine-trust-boundary](../issue/archive/i-006-engine-trust-boundary/design.md).
+
+**Decision.**
+
+- *Pinning.* Gate predicates that need project knowledge are folded into the pinned `rtm` binary itself (`rtm gate <predicate>`), so the Stable Engine pin covers all routing logic and there is a single trust surface. Where an external gate program is unavoidable, its resolved path and SHA-256 are recorded in Run evidence no later than first guard use and re-hashed at every evaluation; a mismatch refuses naming observed and expected identity. A guard command that would compile the workspace at evaluation time is rejected at Runbook validation or pin time, not silently executed.
+- *Run evidence file.* Run evidence is the Scheduler-owned `.arca/evidence.toml`: an `[engine]` table with the running Engine's resolved path and SHA-256, written at Run start, plus one `[[gate]]` entry per pinned gate artifact (declared program, resolved path, SHA-256) written no later than first guard use. It is deliberately separate from `.arca/state.toml`, whose seven fields (R-025) stay unchanged.
+- *Exemption.* Non-project probe commands (for example `rustc --version`) are marked `exempt = true` in the guard table so the pin rule stays enforceable without forbidding toolchain checks. An unmarked command guard is treated as project-derived and must resolve to a regular executable file: a directory or a symlink has no stable identity and is refused instead of pinned.
+- *Diagnostics.* The `command_exit` evaluator replaces null stdio with a bounded capture of the child's stderr — last 4096 bytes, deterministic — embedded in the `GuardFailure` observed text, with an explicit `…truncated` marker on overflow and the fixed text `no diagnostic emitted` when the child is silent.
+- *Freeze.* The goal content hash is computed inside the transition that closes intake integration. `baseline_revision` (Run creation) and `goal_revision` (post-integration freeze) are distinct Run-evidence fields; each later transition request re-verifies the frozen hash until batch closure and refuses on drift.
+- *Freeze mechanics.* The Runbook marks the intake-completion transition `freeze = "goal"`; it is the only recognised freeze. The goal revision is a SHA-256 over every file under `.arca/current/` - relative path and bytes, in sorted order - so an added, renamed, or removed file is drift even when no file is edited. Run evidence carries `[goal] baseline` (Run start) and `[goal] frozen` (intake completion) as distinct fields; the frozen value is mirrored into the existing `goal_revision` State File field, which is what gap analysis prints. At the boundary the frozen evidence is written before the State File, so an interrupted freeze leaves the Run unfrozen rather than half-frozen. A drift failure is appended to the guard failures of the same transition request rather than short-circuiting them, so a pin refusal and a drift refusal are reported together.
+
+**Consequences.** Guard evaluation is a hash-verified, build-free operation; refusals name the artifact to repair; residual records cite a freeze that actually describes the classified requirements.
+
+## Contract-verifying gates and honest routing (PGE-001–PGE-007)
+
+**Context.** Mechanized P1–P5 gates checked shapes and statuses, not work: statuses could be relabeled past integration, evidence, sensitivity, and completion. Integrated from [i-007-contract-verifying-gates](../issue/archive/i-007-contract-verifying-gates/design.md).
+
+**Decision.**
+
+- *Gate implementation.* Every phase predicate lives inside the pinned gate boundary (in-process in `rtm`), parsing issue, residual, and ticket records through the same schema code paths as the shape check, so contract and shape cannot drift apart.
+- *Receipts.* `.arca/evidence/` is agent-writable and holds one structured file per executed check — command, working directory, target refs (planned-test ID, residual ID), exit status, and a SHA-256 over captured output — plus a per-ticket index. The P4 gate resolves each planned-test ID to a receipt carrying a failing baseline or mutation kill; the P5 gate re-executes the ticket's declared commands or verifies fresh receipts whose digests match re-hashed output. Receipts are evidence inputs, never Scheduler state.
+- *Ownership.* Prompts direct agent-authored notes to the ticket file or `.arca/evidence/`; an executable prompt audit scans active Runbook prompts and gate contracts for Scheduler-owned paths.
+- *Blocked route.* The human `hold t-<id>` convention is the authorization; the held ticket carries a `blocker-ref` to a new five-file issue (preferred) or a named residual. Route predicate `p5-blocked` verifies held-plus-linked state and routes to intake, leaving ticket status `held` and residuals untouched.
+- *Abandonment.* `rtm abandon` requires an explicit human confirmation phrase, checks authorization before the first write, appends the terminal abandoned event to the Scheduler-owned log itself, marks the State File terminal, and retires the lock. Stale-lock recovery routes through this same authorized path; no bypass flag exists.
+
+**Consequences.** A status edit can no longer route the loop; honest blockage and honest abandonment both have mechanized, human-authorized exits; ownership of Scheduler-owned files is obeyable.
+
+## Reviewable snapshots and honest acceptance oracles (AOI-001–AOI-003)
+
+**Context.** Green gates were computed over largely untracked candidate content, and the committed external-identity acceptance test failed the workspace suite over an authorized archive move while demanding live GitHub facts in default runs. Integrated from [i-008-honest-acceptance-oracles](../issue/archive/i-008-honest-acceptance-oracles/design.md).
+
+**Decision.**
+
+- *Snapshot audit.* A QA-side helper (callable later from the pinned gate boundary) runs `git status --porcelain` scoped to declared evidence roots — product sources, `test/`, and `.arca/` contributor artifacts by default — refuses on undeclared untracked or unstaged entries, and emits a manifest of sorted path, tracking state, and SHA-256 rows stored beside the evidence that cites it.
+- *Archive-aware oracle.* The history-preservation oracle resolves moves: for each HEAD path under the history roots it accepts either an unchanged path or a complete authorized relocation to `.arca/issue/archive/<issue-id>/` whose bytes match HEAD except relative-link rewrites, requiring the whole five-file set to move together. Content mutation and partial moves stay loud failures.
+- *Opt-in lane.* The environment-coupled release acceptance lane is `#[ignore]`-marked with an explicit runtime opt-in (`RATMAC_RELEASE_ACCEPTANCE=1`), plus one always-running reporter test that prints whether the lane ran or was skipped.
+- *Schema.* The archive authorization and the reviewable-snapshot rule are recorded as durable working rules in `.arca/index.md`.
+
+**Consequences.** Evidence describes a tree a reviewer can reconstruct; authorized archiving is preservation, not mutation; ordinary branch work is not blocked by operator-cutover facts.
+
+## Operable Run start and honest role evidence (ORS-001–ORS-003)
+
+**Context.** A fresh session could not perform the documented first step: no project-local bootstrap, stale user-only help text, and role tests that asserted wording while claiming behavioral proof. Integrated from [i-009-operable-run-start](../issue/archive/i-009-operable-run-start/design.md).
+
+**Decision.**
+
+- *Policy surfaces.* `rtm start` help, `AGENTS.md`, `.arca/index.md`, and any canonical skill state one policy: human may start; Main-Agent may start only after explicit human Run-start sign-off; Subagent never invokes `rtm`. A QA audit scans active surfaces for retired user-only or never-agent-start wording. Conversational sign-off suffices; the Engine gains no caller identity or authorization state.
+- *Bootstrap and doctor.* A read-only `rtm doctor` subcommand plus one repo-local launcher resolves the Engine binary from the project-local build or recorded pin path, hashes it, compares against the pin when present, and prints path, hash, Runbook validity, and state summary — offline and side-effect free. With no active Run it distinguishes `.arca/ratmac.toml` (human-authored Runbook) from `.arca/state.toml` (Scheduler-owned runtime state) and names the next legitimate action.
+- *Behavioral harness.* Role scenarios are recorded transcripts of attempted commands or tool calls; QA asserts exactly one start invocation for the signed-off Main-Agent scenario and zero `rtm` invocations for unsigned and Subagent scenarios, with one deliberately violating transcript that must fail. Each check records its evidence kind (behavioral or guidance-consistency) so residual classification cannot conflate them.
+
+**Consequences.** A fresh session can orient and start without ad-hoc installs; the caller policy is stated once and audited; invocation claims are proven by invocation records.
+
+## Trial-worktree lifecycle (TWL-001–TWL-010)
+
+**Context.** Repeated experiments on the experiment base had no lifecycle; the one observed trial died as an abandoned uncommitted branch whose evidence was discarded. Integrated from [i-010-trial-worktree-lifecycle](../issue/archive/i-010-trial-worktree-lifecycle/design.md).
+
+**Decision.**
+
+- *Interface.* One PowerShell 7 script `tools/trial.ps1` with verbs `start`, `status`, `finish`, `sync`, invoked as `pwsh -File tools/trial.ps1 <verb>` from the repository root, using plain Git and built-in cmdlets only. Exit 0 on success; non-zero refusals print one named reason plus guidance on stderr. The experiment base is the fixed constant `exp/ratmac-deterministic` (TWL-001), not a parameter: the interface offers no way to start a trial from another branch.
+- *Dry-run.* Every mutating verb computes a plan first; `status` prints those plans — planned mutations plus recovery commands — and applies nothing.
+- *Start.* Preflight (branch equals base, clean porcelain, no collision across `refs/heads/trial-*`, archive tags, registered worktrees, sibling directory, and `trials/*/`), then a single `git worktree add -b <trial-branch> <sibling-path> <base>`, then post-verification. Partial failure removes only the newly registered worktree without force and compare-and-deletes the new branch ref only if it still points at the recorded base commit; a failed rollback prints exact manual recovery commands.
+- *Identity.* Trial number = max over `refs/heads/trial-*`, `refs/tags/trial-archive/*`, and `trials/trial-*/`, plus one, zero-padded to three digits. Worktree path = `<repo-parent>/<repo-basename>-<trial-branch>`. Archive tag = `trial-archive/<trial-branch>`, annotated, message carrying base and terminal commits plus the verdict line.
+- *Finish order.* Preflights, then: create and verify the annotated tag at the trial tip (refuse if a same-named tag targets another commit); commit the durable log alone on the base as `trial(<trial-branch>): archive durable log`; `git worktree remove` without `--force`; compare-and-delete `refs/heads/<trial-branch>` via `git update-ref -d` only while the branch still points at the recorded terminal commit preserved by the verified tag. Status recognizes tag-only and log-only intermediate states and prints resume commands.
+- *Windows locks.* Self-lock (working directory inside the worktree) refuses with a `cd` hint; an in-use directory refusal names the held sibling path and suggests closing shells rooted there — no `Remove-Item -Force`, no process enumeration or kill.
+- *Sync.* Preflight clean base, then plain `git merge main`; on conflict exit non-zero listing conflicted files and leave the in-progress merge visible — no abort, reset, rebase, or force flag anywhere in the script.
+- *Guidance and tests.* `.arca/index.md` gains the entry point, ownership split, and Windows working-directory rule. QA fixtures build throwaway repositories under a temp directory, shell out to `pwsh -File tools/trial.ps1`, and assert ref/worktree/tag snapshots around every positive and negative case, including a deterministic lock fixture; the one non-fixture check is the read-only `status` smoke in this checkout.
+
+**Consequences.** Trials are free to fail: contained, numbered, reversible from their archive tag, and durable only through their log.

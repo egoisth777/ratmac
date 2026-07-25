@@ -5,11 +5,11 @@
 .arca/current/spec.md	schd	Current requirement explicitly names the rejected legacy command.
 .arca/current/test-list.md	schd	Current verification explicitly names the legacy-lock fixture.
 .arca/current/ubi-lang.md	both	Glossary definition of the legacy identity and allowlist policy.
-.arca/issue/i-001-ratmac-rebrand/design.md	both	Accepted migration design explicitly records legacy inventory and lock policy.
-.arca/issue/i-001-ratmac-rebrand/index.md	both	Issue title and provenance preserve the incoming historical request.
-.arca/issue/i-001-ratmac-rebrand/spec.md	both	Accepted migration requirements explicitly name legacy surfaces.
-.arca/issue/i-001-ratmac-rebrand/test-plan.md	both	Accepted verification plan explicitly names legacy audit and lock checks.
-.arca/issue/i-001-ratmac-rebrand/ubi-lang.md	both	Issue glossary defines the superseded identity.
+.arca/issue/archive/i-001-ratmac-rebrand/design.md	both	Accepted migration design explicitly records legacy inventory and lock policy.
+.arca/issue/archive/i-001-ratmac-rebrand/index.md	both	Issue title and provenance preserve the incoming historical request.
+.arca/issue/archive/i-001-ratmac-rebrand/spec.md	both	Accepted migration requirements explicitly name legacy surfaces.
+.arca/issue/archive/i-001-ratmac-rebrand/test-plan.md	both	Accepted verification plan explicitly names legacy audit and lock checks.
+.arca/issue/archive/i-001-ratmac-rebrand/ubi-lang.md	both	Issue glossary defines the superseded identity.
 .arca/ticket/t-031.md	schd	Ticket scope records the pre-cutover binary path.
 .arca/ticket/t-032.md	schd	Ticket coverage records direct legacy-command rejection.
 .arca/ticket/t-034.md	both	This ticket defines and verifies the legacy audit itself.
@@ -24,5 +24,5 @@ test/qa/tests/t036_rat007.rs	schd	Legacy-lock fixture and clean-cutover rejectio
 test/qa/tests/t037_rat008.rs	both	Final acceptance negative probes intentionally exercise and reject legacy metadata, binary, and lock spellings.
 test/qa/fixtures/rebrand-audit/allowlist.tsv	both	The audit manifest necessarily spells out each legacy token.
 .arca/current/spec.md	both	Frozen external-identity requirement names the superseded repository and path.
-.arca/issue/i-002-ratmac-external-identity/**	both	Accepted external-identity issue preserves the incoming legacy identity as provenance.
+.arca/issue/archive/i-002-ratmac-external-identity/**	both	Accepted external-identity issue preserves the incoming legacy identity as provenance.
 .arca/ticket/t-038.md	both	Active cutover ticket captures old identity for rollback and acceptance.
