@@ -192,6 +192,9 @@ These are durable working rules; the goal's `AOI-001`–`AOI-003` bind the progr
   edit to an archived issue file. Who appends depends on who is driving: while no `rtm` Run drives this repository -
   no `.arca/state.toml` - the contributor loop appends one line per closure. Once a Run is active the Engine owns the
   file (see [Evidence receipts](#evidence-receipts)); then no agent writes it, and `rtm` records every entry.
+- **Out-of-ticket trace.** Work landed outside the ticketed system — docs, config, tooling, harness edits — still
+  appends one `- YYYY-MM-DD: <what landed, where, why>` line to `.arca/log.md` before the session ends. Subsequent
+  sessions read the log first instead of reconstructing changes from `git diff`/history.
 - **Release acceptance lane opt-in.** Environment-coupled release checks (live GitHub identity, exact origin, branch,
   clean worktree) run only with `RATMAC_RELEASE_ACCEPTANCE=1`. Plain `cargo test --workspace` skips that lane and
   prints the skip; never make branch work depend on operator-cutover facts.
