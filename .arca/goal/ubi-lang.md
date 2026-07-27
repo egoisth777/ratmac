@@ -31,9 +31,9 @@ Glossary of ubiquitous language. One term, one meaning. Terms not listed here mu
 | Stable Engine pin | The recorded identity (resolved path plus content hash) of the `rtm` binary that owns the active Run. |
 | Pinned gate artifact | A prebuilt executable whose resolved path and content hash are recorded alongside the Stable Engine pin; the only project-derived code a command guard may execute during a Run. |
 | Refusal diagnostic | The bounded observed-versus-expected text a refused transition prints, naming the concrete artifact or predicate to repair. |
-| Start baseline revision | The content revision of `.arca/current/` recorded when the Run is created, before any intake integration. |
-| Frozen goal revision | The content revision of `.arca/current/` computed after intake integration completes; the only revision gap analysis and residual records may cite as the freeze. |
-| Goal drift | Any change to `.arca/current/` observed after the frozen goal revision is recorded and before the build batch closes. |
+| Start baseline revision | The content revision of `.arca/goal/` recorded when the Run is created, before any intake integration. |
+| Frozen goal revision | The content revision of `.arca/goal/` computed after intake integration completes; the only revision gap analysis and residual records may cite as the freeze. |
+| Goal drift | Any change to `.arca/goal/` observed after the frozen goal revision is recorded and before the build batch closes. |
 | Contract gate | A mechanized phase gate that verifies the phase's artifact contract and evidence, so status or prose edits alone can never satisfy it. |
 | Evidence receipt | A structured, tamper-evident record of one executed check: the command or predicate, the exercised target, the observed result, and a content digest binding them. |
 | Sensitivity receipt | An evidence receipt proving a planned test can fail: a recorded baseline failure before implementation or a controlled mutation that flips it. |

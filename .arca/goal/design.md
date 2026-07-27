@@ -42,7 +42,7 @@ Accepted with layout details pending; both open points were later settled (see b
 
 **Decision.** `ratmac.toml` = Machine Class: pure template, no runtime state inside it. `rtm start` instantiates a Run from the class. A Run owns: its State File, its Transition Log, its lockfile. The Scheduler arbitrates concurrent access per Run via the lockfile; the class file is read-only at runtime. The engine holds zero project knowledge: wishwillow's P1–P5 loop is merely the first Machine Class.
 
-**Formerly open, now settled.** Run identity / targeting and concurrent-Run count → ADR-0007 (model N, allow 1 active). On-disk layout → ADR-0008 (`.arca/state.toml` + `.arca/log.md`, `.arca/current/` retired).
+**Formerly open, now settled.** Run identity / targeting and concurrent-Run count → ADR-0007 (model N, allow 1 active). On-disk layout → ADR-0008 (`.arca/state.toml` + `.arca/log.md`, `.arca/goal/` retired).
 
 ## Guard failure — refuse, report, stay (ADR-0006)
 
@@ -62,7 +62,7 @@ Accepted with layout details pending; both open points were later settled (see b
 
 ## State layout — flat `.arca/state.toml` + `.arca/log.md` (ADR-0008)
 
-**Context.** wishwillow's `.arca/current/` folder (`current.md` YAML, `log.md`) predates the Scheduler. The session owner removed the folder in favor of a general-purpose state file; the format then settled on TOML for rigor (consistent with ADR-0004).
+**Context.** wishwillow's `.arca/goal/` folder (`current.md` YAML, `log.md`) predates the Scheduler. The session owner removed the folder in favor of a general-purpose state file; the format then settled on TOML for rigor (consistent with ADR-0004).
 
 **Decision.** Scheduler-owned files, all directly under `.arca/`, no folder:
 
@@ -71,7 +71,7 @@ Accepted with layout details pending; both open points were later settled (see b
 - `.arca/log.md` — Transition Log, append-only, human-readable.
 - `.arca/rtm.lock` — lockfile while an `rtm` invocation runs (one active Run in v1, ADR-0007).
 
-**Consequences.** `.arca/current/` is retired; wishwillow is asked via wish file, not edited by this project (see ADR-0005 consequences discipline). N-Run extension path: when ADR-0007's limit lifts, per-Run files move under a runs directory; the v1 flat layout is the one-active-Run projection of that — additive migration, deferred. State parse errors are hard errors: a corrupt `rtm` invocation halts with a report, never a guess.
+**Consequences.** `.arca/goal/` is retired; wishwillow is asked via wish file, not edited by this project (see ADR-0005 consequences discipline). N-Run extension path: when ADR-0007's limit lifts, per-Run files move under a runs directory; the v1 flat layout is the one-active-Run projection of that — additive migration, deferred. State parse errors are hard errors: a corrupt `rtm` invocation halts with a report, never a guess.
 
 ## Phase Prompt — inline prose in `ratmac.toml`, guard list generated (ADR-0009)
 
@@ -128,7 +128,7 @@ From the reopened checkout, run API and `gh repo view` checks, exact remote/path
 - *Exemption.* Non-project probe commands (for example `rustc --version`) are marked `exempt = true` in the guard table so the pin rule stays enforceable without forbidding toolchain checks. An unmarked command guard is treated as project-derived and must resolve to a regular executable file: a directory or a symlink has no stable identity and is refused instead of pinned.
 - *Diagnostics.* The `command_exit` evaluator replaces null stdio with a bounded capture of the child's stderr — last 4096 bytes, deterministic — embedded in the `GuardFailure` observed text, with an explicit `…truncated` marker on overflow and the fixed text `no diagnostic emitted` when the child is silent.
 - *Freeze.* The goal content hash is computed inside the transition that closes intake integration. `baseline_revision` (Run creation) and `goal_revision` (post-integration freeze) are distinct Run-evidence fields; each later transition request re-verifies the frozen hash until batch closure and refuses on drift.
-- *Freeze mechanics.* The Runbook marks the intake-completion transition `freeze = "goal"`; it is the only recognised freeze. The goal revision is a SHA-256 over every file under `.arca/current/` - relative path and bytes, in sorted order - so an added, renamed, or removed file is drift even when no file is edited. Run evidence carries `[goal] baseline` (Run start) and `[goal] frozen` (intake completion) as distinct fields; the frozen value is mirrored into the existing `goal_revision` State File field, which is what gap analysis prints. At the boundary the frozen evidence is written before the State File, so an interrupted freeze leaves the Run unfrozen rather than half-frozen. A drift failure is appended to the guard failures of the same transition request rather than short-circuiting them, so a pin refusal and a drift refusal are reported together.
+- *Freeze mechanics.* The Runbook marks the intake-completion transition `freeze = "goal"`; it is the only recognised freeze. The goal revision is a SHA-256 over every file under `.arca/goal/` - relative path and bytes, in sorted order - so an added, renamed, or removed file is drift even when no file is edited. Run evidence carries `[goal] baseline` (Run start) and `[goal] frozen` (intake completion) as distinct fields; the frozen value is mirrored into the existing `goal_revision` State File field, which is what gap analysis prints. At the boundary the frozen evidence is written before the State File, so an interrupted freeze leaves the Run unfrozen rather than half-frozen. A drift failure is appended to the guard failures of the same transition request rather than short-circuiting them, so a pin refusal and a drift refusal are reported together.
 
 **Consequences.** Guard evaluation is a hash-verified, build-free operation; refusals name the artifact to repair; residual records cite a freeze that actually describes the classified requirements.
 

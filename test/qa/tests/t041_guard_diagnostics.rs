@@ -16,7 +16,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-/// The documented bound from `.arca/current/design.md` (ETB-002).
+/// The documented bound from `.arca/goal/design.md` (ETB-002).
 const DIAGNOSTIC_BOUND: usize = 4096;
 const TRUNCATION_MARKER: &str = "…truncated";
 const NO_DIAGNOSTIC: &str = "no diagnostic emitted";

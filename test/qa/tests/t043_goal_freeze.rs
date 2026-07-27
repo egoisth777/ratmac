@@ -8,7 +8,7 @@
 //!
 //! The goal revision cited by gap analysis is frozen at the intake-completion
 //! boundary, not at Run start; after the freeze a change under
-//! `.arca/current/` is refused as goal drift naming both revisions.
+//! `.arca/goal/` is refused as goal drift naming both revisions.
 
 use std::fs;
 use std::path::PathBuf;
@@ -36,7 +36,7 @@ impl Fixture {
                 .as_nanos()
         ));
         let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(root.join(".arca/current")).expect("create fixture project");
+        fs::create_dir_all(root.join(".arca/goal")).expect("create fixture project");
         let class = format!(
             "[phases.intake]\n\
              prompt = \"Integrate the issues.\"\n\
@@ -65,7 +65,7 @@ impl Fixture {
     }
 
     fn write_goal(&self, name: &str, content: &str) {
-        fs::write(self.root.join(".arca/current").join(name), content).expect("write goal file");
+        fs::write(self.root.join(".arca/goal").join(name), content).expect("write goal file");
     }
 
     fn rtm(&self, args: &[&str]) -> Output {
@@ -147,7 +147,7 @@ fn freeze_is_post_integration() {
         "gap analysis must not cite an unfrozen revision"
     );
 
-    // The intake phase does what intake does: it rewrites `.arca/current/`.
+    // The intake phase does what intake does: it rewrites `.arca/goal/`.
     fixture.write_goal("spec.md", "# Spec\n\nrequirement one\nrequirement two\n");
     fixture.write_goal("design.md", "# Design\n\nintegrated\n");
 
@@ -186,7 +186,7 @@ fn drift_refuses_and_revert_clears() {
     );
     let frozen = field(&goal_table(&fixture.evidence()), "frozen").expect("goal is frozen");
 
-    let spec = fixture.root.join(".arca/current/spec.md");
+    let spec = fixture.root.join(".arca/goal/spec.md");
     let pristine = fs::read_to_string(&spec).expect("read goal file");
     fs::write(&spec, format!("{pristine}requirement three\n")).expect("edit the frozen goal");
 
@@ -246,7 +246,7 @@ fn frozen_fixture(label: &str) -> (Fixture, String) {
 #[test]
 fn added_and_removed_goal_files_are_drift() {
     let (fixture, frozen) = frozen_fixture("added");
-    let added = fixture.root.join(".arca/current/ubi-lang.md");
+    let added = fixture.root.join(".arca/goal/ubi-lang.md");
     fs::write(&added, "# Words\n").expect("add a goal file");
     let refusal = fixture.step_text();
     assert!(
@@ -266,8 +266,8 @@ fn added_and_removed_goal_files_are_drift() {
     // A rename with identical bytes: only a revision that covers the goal's
     // shape can see this.
     let (fixture, _) = frozen_fixture("renamed");
-    let spec = fixture.root.join(".arca/current/spec.md");
-    let renamed = fixture.root.join(".arca/current/spec-v2.md");
+    let spec = fixture.root.join(".arca/goal/spec.md");
+    let renamed = fixture.root.join(".arca/goal/spec-v2.md");
     fs::rename(&spec, &renamed).expect("rename a goal file");
     let refusal = fixture.step_text();
     assert!(
@@ -281,7 +281,7 @@ fn added_and_removed_goal_files_are_drift() {
     );
 
     let (fixture, _) = frozen_fixture("removed");
-    fs::remove_file(fixture.root.join(".arca/current/test-list.md")).expect("delete a goal file");
+    fs::remove_file(fixture.root.join(".arca/goal/test-list.md")).expect("delete a goal file");
     let refusal = fixture.step_text();
     assert!(
         refusal.contains("step refused") && refusal.contains("goal drift"),
@@ -388,7 +388,7 @@ fn drift_and_pin_tamper_are_both_reported() {
         ),
     )
     .expect("seed a stale pin");
-    let spec = fixture.root.join(".arca/current/spec.md");
+    let spec = fixture.root.join(".arca/goal/spec.md");
     let pristine = fs::read_to_string(&spec).expect("read goal file");
     fs::write(&spec, format!("{pristine}drifted\n")).expect("edit the frozen goal");
 

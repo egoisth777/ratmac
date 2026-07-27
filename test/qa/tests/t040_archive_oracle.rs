@@ -28,10 +28,10 @@ fn issue_body(issue_id: &str, name: &str, status: &str) -> String {
     if name == "index.md" {
         format!(
             "# {issue_id}\n\n```yaml\nissue-id: \"{issue_id}\"\nstatus: \"{status}\"\n```\n\n\
-             See [goal spec](../../current/spec.md).\n"
+             See [goal spec](../../goal/spec.md).\n"
         )
     } else {
-        format!("# {name} for {issue_id}\n\nSee [goal spec](../../current/spec.md).\n")
+        format!("# {name} for {issue_id}\n\nSee [goal spec](../../goal/spec.md).\n")
     }
 }
 

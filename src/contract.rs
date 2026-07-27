@@ -78,11 +78,11 @@ fn defect(artifact: impl Into<String>, reason: impl Into<String>) -> ContractDef
 /// PGE-001: verify intake completion over the working tree.
 pub fn gate_intake(root: &Path) -> Result<(), Vec<ContractDefect>> {
     let mut defects = Vec::new();
-    let goal_path = root.join(".arca/current/spec.md");
+    let goal_path = root.join(".arca/goal/spec.md");
     let goal = fs::read_to_string(&goal_path).unwrap_or_default();
     if goal.trim().is_empty() {
         defects.push(defect(
-            ".arca/current/spec.md",
+            ".arca/goal/spec.md",
             "goal authority is missing or empty, so no integration claim can be checked",
         ));
     }
@@ -184,10 +184,10 @@ pub fn gate_intake(root: &Path) -> Result<(), Vec<ContractDefect>> {
 
     // Reverse links from the goal must resolve too.
     for target in markdown_targets(&goal) {
-        let base = root.join(".arca/current");
+        let base = root.join(".arca/goal");
         if !resolves(&base, &target) {
             defects.push(defect(
-                ".arca/current/spec.md",
+                ".arca/goal/spec.md",
                 format!("reverse link does not resolve: {target}"),
             ));
         }
@@ -212,7 +212,7 @@ pub fn gate_records(root: &Path) -> Result<(), Vec<ContractDefect>> {
     }
 
     let unmechanized = unproven_mechanization(root);
-    let goal = fs::read_to_string(root.join(".arca/current/spec.md")).unwrap_or_default();
+    let goal = fs::read_to_string(root.join(".arca/goal/spec.md")).unwrap_or_default();
     let goal_ids = requirement_ids(&goal);
 
     // Residuals.

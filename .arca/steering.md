@@ -2,10 +2,10 @@
 
 Read me before the goal bundle. This file is direction: what ratmac is for,
 the bets behind it, and the lines no goal, issue, or ticket may cross. When
-direction changes, this file changes **first**; `.arca/current/`,
+direction changes, this file changes **first**; `.arca/goal/`,
 `.arca/issue/`, and `.arca/ticket/` re-align to it, in that order. It binds
 contributors (people and agents) choosing what to build next; it never
-overrides `.arca/current/spec.md` on what the running program does.
+overrides `.arca/goal/spec.md` on what the running program does.
 
 ## What we are building
 
@@ -62,21 +62,21 @@ Era: make the Machine Class truly first-class.
    write -> doctor -> repair a runbook without reading Rust source.
 
 Deferred: a git-state guard kind; extracting the hard-coded
-`.arca/issue|ticket|residual|current` paths from the Engine (R-016 debt) -
-and with that extraction, renaming `.arca/current/` to `.arca/goal/`: the
-bundle is the goal in force, and a name that reads as system state invites
-the drift the freeze exists to stop.
+`.arca/issue|ticket|residual|goal` paths from the Engine (R-016 debt).
+(The `.arca/current/` -> `.arca/goal/` rename landed ahead of that
+extraction, 2026-07-27: the bundle is the goal in force, and a name that
+read as system state invited the drift the freeze exists to stop.)
 
 ## How direction flows
 
 | File | Question it answers | Changes when |
 | :--- | :--- | :--- |
 | `steering.md` | Why, and where to | direction pivots (rare, first) |
-| `.arca/current/` - the goal bundle | What must become true | re-derived from steering; frozen per Run |
+| `.arca/goal/` - the goal bundle | What must become true | re-derived from steering; frozen per Run |
 | `.arca/issue/` | What is wrong or missing | on discovery, anytime |
 | `.arca/ticket/` | What work, provably done | cut from gap records at P3 |
 | `.arca/residual/` | Is each requirement proven | every gap check |
 | `.arca/log.md` | What happened | append-only, always |
 
-On a pivot: steering -> `current/` -> issue triage -> tickets. The frozen goal
+On a pivot: steering -> `goal/` -> issue triage -> tickets. The frozen goal
 is never edited while tickets are open; a new issue is the only road back.

@@ -41,7 +41,7 @@ impl Tree {
         ));
         let _ = fs::remove_dir_all(&root);
         for dir in [
-            ".arca/current",
+            ".arca/goal",
             ".arca/issue/i-100-demo",
             ".arca/residual",
             ".arca/ticket",
@@ -60,7 +60,7 @@ impl Tree {
 
     fn write_goal(&self) {
         fs::write(
-            self.root.join(".arca/current/spec.md"),
+            self.root.join(".arca/goal/spec.md"),
             "# Goal spec\n\n\
              | Req ID | Requirement | Source |\n\
              |---|---|---|\n\
@@ -77,7 +77,7 @@ impl Tree {
             format!(
                 "# Issue {folder}\n\n\
                  ```yaml\nstatus: \"{status}\"\n```\n\n\
-                 See [goal spec](../../current/spec.md).\n"
+                 See [goal spec](../../goal/spec.md).\n"
             ),
         )
         .expect("write issue index");
@@ -248,7 +248,7 @@ fn intake_contract_verified() {
     // A dangling reverse link from the goal to an issue that does not exist.
     let tree = Tree::new("dangling");
     fs::write(
-        tree.root.join(".arca/current/spec.md"),
+        tree.root.join(".arca/goal/spec.md"),
         "# Goal spec\n\n\
          | Req ID | Requirement | Source |\n|---|---|---|\n\
          | DEMO-001 | The demo behaves. | [issue DEMO-001](../issue/i-999-gone/spec.md#requirement-records) |\n",
@@ -355,7 +355,7 @@ fn no_vacuous_satisfaction() {
     // A goal that states the mechanization requirement, and a record that
     // claims it is done.
     fs::write(
-        tree.root.join(".arca/current/spec.md"),
+        tree.root.join(".arca/goal/spec.md"),
         "# Goal spec\n\n\
          | Req ID | Requirement | Source |\n|---|---|---|\n\
          | PGE-001 | The intake gate verifies integration. | [issue PGE-001](../issue/i-100-demo/spec.md#requirement-records) |\n",

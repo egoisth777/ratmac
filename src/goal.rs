@@ -1,6 +1,6 @@
 //! ETB-003: the goal revision and its freeze boundary.
 //!
-//! The goal is the content of `.arca/current/`. Its revision is a content
+//! The goal is the content of `.arca/goal/`. Its revision is a content
 //! hash over the whole directory - names included - so an added, removed, or
 //! renamed file is as visible as an edited one. Run start records the
 //! *baseline* revision; the transition that closes intake integration records
@@ -13,14 +13,14 @@ use std::path::Path;
 use sha2::{Digest, Sha256};
 
 /// The goal directory, relative to the project root.
-pub const GOAL_DIR: &str = ".arca/current";
+pub const GOAL_DIR: &str = ".arca/goal";
 
-/// Content hash of `.arca/current/`, or `None` when the goal is absent.
+/// Content hash of `.arca/goal/`, or `None` when the goal is absent.
 ///
 /// The digest covers every file's path and bytes in sorted order, so it is
 /// stable across runs and platforms and sensitive to the directory's shape.
 pub fn revision(root: &Path) -> Option<String> {
-    let goal = root.join(".arca").join("current");
+    let goal = root.join(".arca").join("goal");
     if !goal.is_dir() {
         return None;
     }

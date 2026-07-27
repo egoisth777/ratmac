@@ -56,8 +56,8 @@ impl Fixture {
         fs::create_dir_all(root.join(".arca")).expect("create fixture tree");
         fs::create_dir_all(root.join("src")).expect("create source tree");
         fs::write(root.join("src/lib.rs"), "pub fn work() {}\n").expect("write source");
-        fs::create_dir_all(root.join(".arca/current")).expect("create goal tree");
-        fs::write(root.join(".arca/current/spec.md"), "# Spec\n").expect("write goal");
+        fs::create_dir_all(root.join(".arca/goal")).expect("create goal tree");
+        fs::write(root.join(".arca/goal/spec.md"), "# Spec\n").expect("write goal");
         fs::write(
             root.join(".arca/ratmac.toml"),
             "[phases.intake]\nprompt = \"Integrate the issues.\"\n\n\

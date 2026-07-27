@@ -2,10 +2,10 @@
 .arca/log.md	both	Append-only transition history is immutable provenance.
 .arca/ticket/archive/**	both	Archived ticket records are immutable historical provenance.
 .arca/issue/archive/i-002-ratmac-external-identity/**	both	The accepted external-identity issue records the superseded identity as provenance.
-.arca/current/spec.md	both	The frozen goal names the before/after identity contract.
-.arca/current/design.md	both	The frozen cutover design records captured legacy values and rollback.
-.arca/current/test-list.md	both	The frozen verification table names expected legacy identity evidence.
-.arca/current/ubi-lang.md	both	The glossary defines the superseded identity and historical allowlist.
+.arca/goal/spec.md	both	The frozen goal names the before/after identity contract.
+.arca/goal/design.md	both	The frozen cutover design records captured legacy values and rollback.
+.arca/goal/test-list.md	both	The frozen verification table names expected legacy identity evidence.
+.arca/goal/ubi-lang.md	both	The glossary defines the superseded identity and historical allowlist.
 .arca/ticket/t-038.md	both	This ticket records captured pre-cutover values and acceptance assertions.
 .arca/residual/res-041.md	both	Frozen residual evidence records the active-reference baseline.
 .arca/residual/res-043.md	both	Frozen residual evidence records pending final acceptance.

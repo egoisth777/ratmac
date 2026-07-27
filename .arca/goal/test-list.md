@@ -60,8 +60,8 @@ Behavior checks derived from [spec.md](spec.md). Each is a testable one-liner.
 | ETBV-004 | A fixture Runbook whose guard command would rebuild workspace sources at evaluation time is rejected at validation or pin time with a named reason, and a legitimate guard evaluation compiles nothing. | ETB-001 |
 | ETBV-005 | A failing guard printing `blocking artifact: <path>` to stderr yields a refusal containing that exact text plus program and exit facts, through the real `rtm` CLI. | ETB-002 |
 | ETBV-006 | A failing guard emitting far beyond the bound yields a refusal no larger than the bound plus fixed framing containing the truncation marker; a silent failing guard yields the documented no-diagnostic wording. | ETB-002 |
-| ETBV-007 | In a fixture Run whose intake phase rewrites `.arca/current/`, evidence distinguishes start baseline from frozen goal revision, the frozen value equals the post-integration hash, and gap-analysis output cites it. | ETB-003 |
-| ETBV-008 | After the freeze, editing a `.arca/current/` file refuses the next transition naming goal drift with frozen and observed revisions; reverting clears it; Scheduler-owned files are byte-identical across the refusal. | ETB-003 |
+| ETBV-007 | In a fixture Run whose intake phase rewrites `.arca/goal/`, evidence distinguishes start baseline from frozen goal revision, the frozen value equals the post-integration hash, and gap-analysis output cites it. | ETB-003 |
+| ETBV-008 | After the freeze, editing a `.arca/goal/` file refuses the next transition naming goal drift with frozen and observed revisions; reverting clears it; Scheduler-owned files are byte-identical across the refusal. | ETB-003 |
 
 ## Integrated contract-gate verification
 

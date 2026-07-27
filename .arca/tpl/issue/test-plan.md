@@ -10,11 +10,11 @@
 
 | Goal/Test File | Status | Reverse Issue Refs |
 | :--- | :--- | :--- |
-| `.arca/current/index.md` | {{updated\|unaffected}} | {{reverse-issue-refs-if-updated}} |
-| `.arca/current/ubi-lang.md` | {{updated\|unaffected}} | {{reverse-issue-refs-if-updated}} |
-| `.arca/current/spec.md` | {{updated\|unaffected}} | {{reverse-issue-refs-if-updated}} |
-| `.arca/current/design.md` | {{updated\|unaffected}} | {{reverse-issue-refs-if-updated}} |
-| `.arca/current/test-list.md` | {{updated\|unaffected}} | {{reverse-issue-refs-if-updated}} |
+| `.arca/goal/index.md` | {{updated\|unaffected}} | {{reverse-issue-refs-if-updated}} |
+| `.arca/goal/ubi-lang.md` | {{updated\|unaffected}} | {{reverse-issue-refs-if-updated}} |
+| `.arca/goal/spec.md` | {{updated\|unaffected}} | {{reverse-issue-refs-if-updated}} |
+| `.arca/goal/design.md` | {{updated\|unaffected}} | {{reverse-issue-refs-if-updated}} |
+| `.arca/goal/test-list.md` | {{updated\|unaffected}} | {{reverse-issue-refs-if-updated}} |
 
 ## Contributor Authority/Schema Traces
 

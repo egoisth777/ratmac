@@ -10,9 +10,9 @@ const RATMAC: &str = include_str!(concat!(
     "/../fixtures/t014-flat-arca/.arca/ratmac.toml"
 ));
 
-const CURRENT_SENTINEL: &[u8] = include_bytes!(concat!(
+const GOAL_SENTINEL: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../fixtures/t014-flat-arca/.arca/current/sentinel.txt"
+    "/../fixtures/t014-flat-arca/.arca/goal/sentinel.txt"
 ));
 
 fn temporary_project() -> PathBuf {
@@ -22,9 +22,9 @@ fn temporary_project() -> PathBuf {
         .as_nanos();
     let project = std::env::temp_dir().join(format!("ratmac-t014-{unique}"));
     fs::create_dir(&project).expect("temporary project must be creatable");
-    fs::create_dir_all(project.join(".arca/current"))
+    fs::create_dir_all(project.join(".arca/goal"))
         .expect("legacy current directory must be creatable");
-    fs::write(project.join(".arca/current/sentinel.txt"), CURRENT_SENTINEL)
+    fs::write(project.join(".arca/goal/sentinel.txt"), GOAL_SENTINEL)
         .expect("legacy current sentinel must be writable");
     fs::write(project.join(".arca/ratmac.toml"), RATMAC)
         .expect("fixture ratmac.toml must be writable");
@@ -36,7 +36,7 @@ fn scheduler_files_are_flat_under_arca() {
     let project = temporary_project();
     let arca = project.join(".arca");
     let ratmac = arca.join("ratmac.toml");
-    let sentinel = arca.join("current/sentinel.txt");
+    let sentinel = arca.join("goal/sentinel.txt");
     let ratmac_before = fs::read(&ratmac).expect("class bytes must be readable before start");
     let sentinel_before = fs::read(&sentinel).expect("legacy current sentinel must be readable");
 
@@ -74,13 +74,13 @@ fn scheduler_files_are_flat_under_arca() {
     assert_eq!(
         fs::read(&sentinel).expect("legacy current sentinel must remain"),
         sentinel_before,
-        "legacy .arca/current content must remain untouched"
+        "legacy .arca/goal content must remain untouched"
     );
     assert!(
-        !artifacts.state_path().starts_with(arca.join("current"))
-            && !artifacts.log_path().starts_with(arca.join("current"))
-            && !artifacts.lock_path().starts_with(arca.join("current")),
-        "scheduler-owned artifacts must not be nested below .arca/current"
+        !artifacts.state_path().starts_with(arca.join("goal"))
+            && !artifacts.log_path().starts_with(arca.join("goal"))
+            && !artifacts.lock_path().starts_with(arca.join("goal")),
+        "scheduler-owned artifacts must not be nested below .arca/goal"
     );
 
     let _ = fs::remove_dir_all(project);

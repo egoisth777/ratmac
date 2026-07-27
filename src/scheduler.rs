@@ -392,7 +392,7 @@ impl Scheduler {
             // written before the State File, so an interrupted freeze leaves
             // the Run unchanged rather than half-frozen.
             let frozen = crate::goal::revision(&root)
-                .ok_or_else(|| StateError::new("cannot freeze goal: .arca/current/ is absent"))?;
+                .ok_or_else(|| StateError::new("cannot freeze goal: .arca/goal/ is absent"))?;
             let mut frozen_evidence = crate::pin::Evidence::load(&root);
             frozen_evidence.goal_frozen = Some(frozen.clone());
             if let Err(error) = frozen_evidence.write(&root) {

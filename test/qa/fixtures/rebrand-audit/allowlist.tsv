@@ -1,10 +1,10 @@
 # path pattern<TAB>legacy token<TAB>provenance reason
 .arca/log.md	both	Append-only workflow evidence; historical bytes are immutable.
 .arca/ticket/archive/**	both	Archived ticket provenance; historical bytes are immutable.
-.arca/current/design.md	both	Current compatibility decision explicitly names rejected legacy surfaces.
-.arca/current/spec.md	schd	Current requirement explicitly names the rejected legacy command.
-.arca/current/test-list.md	schd	Current verification explicitly names the legacy-lock fixture.
-.arca/current/ubi-lang.md	both	Glossary definition of the legacy identity and allowlist policy.
+.arca/goal/design.md	both	Current compatibility decision explicitly names rejected legacy surfaces.
+.arca/goal/spec.md	schd	Current requirement explicitly names the rejected legacy command.
+.arca/goal/test-list.md	schd	Current verification explicitly names the legacy-lock fixture.
+.arca/goal/ubi-lang.md	both	Glossary definition of the legacy identity and allowlist policy.
 .arca/issue/archive/i-001-ratmac-rebrand/design.md	both	Accepted migration design explicitly records legacy inventory and lock policy.
 .arca/issue/archive/i-001-ratmac-rebrand/index.md	both	Issue title and provenance preserve the incoming historical request.
 .arca/issue/archive/i-001-ratmac-rebrand/spec.md	both	Accepted migration requirements explicitly name legacy surfaces.
@@ -23,6 +23,6 @@ test/qa/tests/t035_rat006.rs	both	Negative generated-metadata and lock assertion
 test/qa/tests/t036_rat007.rs	schd	Legacy-lock fixture and clean-cutover rejection probe.
 test/qa/tests/t037_rat008.rs	both	Final acceptance negative probes intentionally exercise and reject legacy metadata, binary, and lock spellings.
 test/qa/fixtures/rebrand-audit/allowlist.tsv	both	The audit manifest necessarily spells out each legacy token.
-.arca/current/spec.md	both	Frozen external-identity requirement names the superseded repository and path.
+.arca/goal/spec.md	both	Frozen external-identity requirement names the superseded repository and path.
 .arca/issue/archive/i-002-ratmac-external-identity/**	both	Accepted external-identity issue preserves the incoming legacy identity as provenance.
 .arca/ticket/t-038.md	both	Active cutover ticket captures old identity for rollback and acceptance.
