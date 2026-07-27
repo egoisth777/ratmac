@@ -11,11 +11,11 @@ read [index.md](index.md): that is the index; this is the schema it points to.
 
 There are two sets of rules. **They never limit each other.**
 
-1. **Product rules** — `.arca/goal/` (order of authority: `spec.md` &gt; `design.md` &gt; `test-list.md`). They say
- what ratmac-the-program does while it is running and handling a wish. They bind the program's behavior
- and what its tests expect — nothing else.
+1. **Product rules** — `.arca/goal/` (order of authority: `spec.md` > `design.md` > `test-list.md`). They say
+   what ratmac-the-program does while it is running and handling a wish. They bind the program's behavior
+   and what its tests expect — nothing else.
 2. **Working rules** — this file. It says what a contributor (person or agent) does while building the
- program: gap records, tickets, tests, code.
+   program: gap records, tickets, tests, code.
 
 If a goal sentence seems to forbid a working file (e.g. "no working files", "creates no code/tickets/tests"),
 it is talking about the running program, never about your workspace (`.arca/residual/`,
@@ -29,15 +29,13 @@ Any user request that touches this work — an issue, a gap, a ticket, tests, co
 an entry. Start at the nearest step and catch up the earlier ones yourself: check each earlier step's finish
 line; if it is unmet, produce the missing piece yourself, minimally. Never ask the user to run a step.
 
-
 | User intent (examples)                                                         | Enter at |
-| :------------------------------------------------------------------------------ | :-------- |
-| "new issue", "integrate the issues"                                            | P1       |
-| "what's missing", "where are the gaps"                                         | P2       |
-| "plan the work", "cut tickets"                                                 | P3       |
-| "write/implement the tests", "implement the rust tests from test/test-list.md" | P4       |
-| "implement", "fix", "run QA"                                                   | P5       |
-
+| :----------------------------------------------------------------------------- | :------- |
+| "new issue", "integrate the issues"                                             | P1       |
+| "what's missing", "where are the gaps"                                          | P2       |
+| "plan the work", "cut tickets"                                                  | P3       |
+| "write/implement the tests", "implement the rust tests from test/test-list.md"  | P4       |
+| "implement", "fix", "run QA"                                                    | P5       |
 
 `start issue loop` still works (enters P1). Once entered, run on your own all the way through the build loop
 without prompting. Return to Idle when no gap record says `missing` or `partial`, or when the user says stop.
@@ -48,34 +46,32 @@ without prompting. Return to Idle when no gap record says `missing` or `partial`
 
 1. **Work it out** from the defaults table or from how the repo already does things.
 2. **Pick the safest reasonable value**; log `assumed: <what> — <why>`; keep going. A guess can be undone:
- if the user corrects it, redo the affected pieces — don't start over.
+   if the user corrects it, redo the affected pieces — don't start over.
 3. **Ask** — put every open question into one message, and meanwhile keep doing all work that does not
- depend on the answers. Put the open question in that one message; when entry prerequisites are missing, `rtm` records them in `blocker` in `state.toml`.
+   depend on the answers. Put the open question in that one message; when entry prerequisites are missing, `rtm` records them in `blocker` in `state.toml`.
 
 An unanswered question pauses only the piece that needs it, never the whole.
 
 ## Defaults
 
-
-| Input                                  | Default                                                                                               |
-| :-------------------------------------- | :----------------------------------------------------------------------------------------------------- |
-| Goal freeze                            | Note the current git HEAD of `.arca/goal/` as the frozen version. Writing that note IS the freeze. |
-| Ticket approval                        | Approved the moment it is created. The user may say `hold t-<id>` to pause that one ticket.           |
-| `test_root`                            | `test/` (Rust harness: cargo test crate under `test/qa/`; create it if absent).                       |
-| `discovery_command` / `run_command`    | By language — Rust: `cargo test`; otherwise look at the repo and pick.                                |
-| `fixture_setup`                        | Copies of test data in a temp folder, kept separate per test; none when not needed.                   |
-| `private_artifact_root` (hidden tests) | `.arca-private/` (kept out of git), created when first needed.                                        |
-
+| Input                        | Default                                                                                        |
+| :--------------------------- | :--------------------------------------------------------------------------------------------- |
+| Goal freeze                  | Note the current git HEAD of `.arca/goal/` as the frozen version. Writing that note IS the freeze. |
+| Ticket approval              | Approved the moment it is created. The user may say `hold t-<id>` to pause that one ticket.    |
+| `test_root`                  | `test/` (Rust harness: cargo test crate under `test/qa/`; create it if absent).                |
+| `discovery_command` / `run_command` | By language — Rust: `cargo test`; otherwise look at the repo and pick.                  |
+| `fixture_setup`              | Copies of test data in a temp folder, kept separate per test; none when not needed.            |
+| `private_artifact_root` (hidden tests) | `.arca-private/` (kept out of git), created when first needed.                       |
 
 # The work — one straight pass, then a loop
 
 The work has two parts with different shapes:
 
 - **Planning (P1 → P2 → P3)** runs **straight through, once**, each time new issues come in. It never loops.
-Many issues become one frozen goal, the goal is compared against reality, and each gap becomes one ticket.
+  Many issues become one frozen goal, the goal is compared against reality, and each gap becomes one ticket.
 - **Building (P4 → P5)** is **a loop: one full turn per ticket**. This is where nearly all the time goes.
-For each ticket: write its tests, try to poke holes in them, write the code, run everything, fix until
-green, review, take the next ticket.
+  For each ticket: write its tests, try to poke holes in them, write the code, run everything, fix until
+  green, review, take the next ticket.
 
 The two parts meet at the gap check (P2). When the last ticket is done, do the gap check again: nothing
 missing → rest (Idle). Something still missing → cut more tickets and keep building. The gap check is how the
@@ -88,40 +84,36 @@ the moment the goal is frozen until the last ticket is done, the goal does not m
 ## The issue folder
 
 - Each direct child of `.arca/issue/` is a folder holding exactly five files created from `.arca/tpl/issue/`:
-`index.md` (front door: identity, where it came from, status, links), `ubi-lang.md` (issue-specific words,
-or `No issue-specific terms.`), `spec.md` (what is asked for, plus what was decided about each ask),
-`design.md` (suggested how — carries no weight until folded into the goal), `test-plan.md` (how to prove it
-works, plus traces).
+  `index.md` (front door: identity, where it came from, status, links), `ubi-lang.md` (issue-specific words,
+  or `No issue-specific terms.`), `spec.md` (what is asked for, plus what was decided about each ask),
+  `design.md` (suggested how — carries no weight until folded into the goal), `test-plan.md` (how to prove it
+  works, plus traces).
 - Naming: folder name = `issue-id` = `i-<nnn>-<condensed-name>` — zero-padded number plus a short dashed name
-taken from the title (2–4 words, e.g. `i-007-continuous-qa`). `<nnn>` alone guarantees uniqueness and
-order; the name part is set at creation and does not change if the title changes later.
+  taken from the title (2–4 words, e.g. `i-007-continuous-qa`). `<nnn>` alone guarantees uniqueness and
+  order; the name part is set at creation and does not change if the title changes later.
 - `index.md` front matter: `issue-id` equal to the folder name, non-empty origin, status
-`pending|integrated|rejected`; relative links to the other four files; no unfilled template blanks.
+  `pending|integrated|rejected`; relative links to the other four files; no unfilled template blanks.
 - The schema gate is mechanized by `rtm` Exit Guards; agents don't hand-run it. See .arca/goal/design.md, ADR-0006 and ADR-0009.
-A failed check is a **fix you do right away**, not a stop; log the check and the fix.
+  A failed check is a **fix you do right away**, not a stop; log the check and the fix.
 - Creating an issue is a direct act: write the five files from the blanks, run the shape check, done. It
-enters no loop step and touches neither `.arca/state.toml` nor `.arca/log.md`; the next planning pass folds it in.
+  enters no loop step and touches neither `.arca/state.toml` nor `.arca/log.md`; the next planning pass folds it in.
 
 ## The steps (P1–P5)
 
 **Planning — straight through, once per batch of issues:**
 
-
-| Step                  | Does                                                                                                                                                         | Finish line                                                                                                                                                                                            |
-| :--------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------ | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **P1** Fold in issues | Work every `pending` issue into the goal: give each ask a stable requirement ID and a decision `accepted                                                     | rejected                                                                                                                                                                                               |
-| **P2** Find the gaps  | Freeze the goal (note git HEAD), then compare each requirement against what actually exists; write one record in `.arca/residual/` per requirement: `missing | partial                                                                                                                                                                                                |
-| **P3** Cut tickets    | Turn each `missing                                                                                                                                           | partial`record into one small, self-contained, provable piece of work in`.arca/ticket/`(from`.arca/tpl/ticket.md`); order them so a ticket that needs another comes after it; **approved on creation** |
-
+| Step                  | Does                                                                                                             | Finish line                                                                          |
+| :-------------------- | :--------------------------------------------------------------------------------------------------------------- | :----------------------------------------------------------------------------------- |
+| **P1** Fold in issues | Work every `pending` issue into the goal: give each ask a stable requirement ID and a decision `accepted|rejected|duplicate|deferred`, link everything both ways; shape check | Every issue ends `integrated|rejected`; all links resolve (fix them yourself, don't set them aside) |
+| **P2** Find the gaps  | Freeze the goal (note git HEAD), then compare each requirement against what actually exists; write one record in `.arca/residual/` per requirement: `missing|partial|satisfied`, with pointers to the proof and a short why | Every requirement has exactly one record; no proof ⇒ never `satisfied`               |
+| **P3** Cut tickets    | Turn each `missing|partial` record into one small, self-contained, provable piece of work in `.arca/ticket/` (from `.arca/tpl/ticket.md`); order them so a ticket that needs another comes after it; **approved on creation** | Each such record ↔ exactly one ticket; all links resolve                             |
 
 **Building — one full turn per ticket, in order:**
 
-
-| Step                             | Does                                                                                                                                                                                                                                                                                                    | Finish line                                                                                                   |
-| :-------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------- |
-| **P4** Write this ticket's tests | Turn the ticket's planned checks (planned-test-ID → test function, recorded in the ticket) into runnable tests; then re-read them trying to poke holes: would they catch a wrong answer, do they cover the edges, does each stand alone; run them — they should fail, since the code is not written yet | Every planned check for this ticket runs as a real test; hole-poking notes logged                             |
-| **P5** Write the code            | Implement; run **every test so far** (all earlier tickets' plus this one's); run the hidden test lanes (test code in `.arca-private/`, listed in the ticket with `hidden-id`, `goal-contract-ref`, `category`, `oracle`, `owner`); fix and re-run until all green; short review; take the next ticket   | All tests green including hidden lanes. No tickets left → redo P2's gap check → Idle when nothing is `missing |
-
+| Step                            | Does                                                                                                             | Finish line                                                                          |
+| :------------------------------ | :--------------------------------------------------------------------------------------------------------------- | :----------------------------------------------------------------------------------- |
+| **P4** Write this ticket's tests | Turn the ticket's planned checks (planned-test-ID → test function, recorded in the ticket) into runnable tests; then re-read them trying to poke holes: would they catch a wrong answer, do they cover the edges, does each stand alone; run them — they should fail, since the code is not written yet | Every planned check for this ticket runs as a real test; hole-poking notes logged    |
+| **P5** Write the code           | Implement; run **every test so far** (all earlier tickets' plus this one's); run the hidden test lanes (test code in `.arca-private/`, listed in the ticket with `hidden-id`, `goal-contract-ref`, `category`, `oracle`, `owner`); fix and re-run until all green; short review; take the next ticket | All tests green including hidden lanes. No tickets left → redo P2's gap check → Idle when nothing is `missing|partial` |
 
 ```mermaid
 flowchart LR
@@ -143,23 +135,21 @@ Hidden/breaking test lanes (run inside P5's full test run; frozen versions, sepa
 random seeds; one coordinator merges results by fingerprint and keeps the artifacts — a result that
 contradicts another gets a log line plus a follow-up ticket, not a stop):
 
-
-| Lane                | Owns                                                                                                      |
-| :------------------- | :--------------------------------------------------------------------------------------------------------- |
-| Regression          | Things that once worked still work; settled issues stay settled                                           |
-| Input/Routing       | Malformed and hostile input, parsing edges, and input reaching the right handler                          |
-| Lifecycle/Model     | Objects move between states only in allowed ways; not crash/restart concerns                              |
-| Durability/Recovery | Crashes, restarts, and coming back up with nothing lost                                                   |
+| Lane                | Owns                                                                                     |
+| :------------------ | :---------------------------------------------------------------------------------------- |
+| Regression          | Things that once worked still work; settled issues stay settled                          |
+| Input/Routing       | Malformed and hostile input, parsing edges, and input reaching the right handler         |
+| Lifecycle/Model     | Objects move between states only in allowed ways; not crash/restart concerns             |
+| Durability/Recovery | Crashes, restarts, and coming back up with nothing lost                                  |
 | Output/Filesystem   | Issue folder shape, required files, relative links, never touching user files, writing only where allowed |
-| Cross-Feature       | Two or more features used together                                                                        |
-
+| Cross-Feature       | Two or more features used together                                                       |
 
 # State
 
 - `.arca/state.toml`: `phase`, `status: planned|executing|blocked|passed|failed`, versions in play,
-`blocker` (the missing entry prerequisite recorded by `rtm` — nothing else).
+  `blocker` (the missing entry prerequisite recorded by `rtm` — nothing else).
 - `.arca/log.md`: new lines only, never edited; one line per step change, guess, rule-clash
-decision, or fix.
+  decision, or fix.
 
 # Caller policy for `rtm`
 
@@ -167,7 +157,7 @@ One policy, and the same one on every surface (goal `ORS-001`, which supersedes 
 
 - A human may invoke argument-free `rtm start` directly.
 - The Main-Agent may invoke `rtm start` only after explicit human Run-start sign-off for the current target project;
-conversational sign-off is enough, and nothing in the Engine records it.
+  conversational sign-off is enough, and nothing in the Engine records it.
 - A Subagent never invokes any `rtm` command; it reads state and does the ticket work.
 - Only the Main-Agent or the human invokes `rtm step`; the Scheduler stays the sole writer of `.arca/state.toml`.
 
@@ -176,26 +166,26 @@ conversational sign-off is enough, and nothing in the Engine records it.
 These are durable working rules; the goal's `AOI-001`–`AOI-003` bind the program that mechanizes them.
 
 - **Authorized archive move.** A completed issue folder — `index.md` status `integrated` or `rejected` — may move to
-`.arca/issue/archive/<issue-id>/`, keeping its issue-id, its five-file shape, and its bytes, except relative links
-that must gain one `../` level. Live links pointing at it are updated in the same change, and `i-<nnn>` numbers stay
-unique across active and archived issues. A complete move IS preservation: every history oracle compares content at
-the archived destination. A partial move, a content change, or archiving a non-completed issue is a failure.
+  `.arca/issue/archive/<issue-id>/`, keeping its issue-id, its five-file shape, and its bytes, except relative links
+  that must gain one `../` level. Live links pointing at it are updated in the same change, and `i-<nnn>` numbers stay
+  unique across active and archived issues. A complete move IS preservation: every history oracle compares content at
+  the archived destination. A partial move, a content change, or archiving a non-completed issue is a failure.
 - **Reviewable snapshot.** Evidence may only claim what a reviewer can reconstruct. When you record acceptance or
-merge-gate evidence, every file under the declared evidence roots (`src/`, `test/`, `.arca/`) must be tracked or
-staged; anything untracked or unstaged is either committed, staged, or declared as an explicit exception in the
-record. Store the snapshot manifest — path, tracking state, SHA-256 — beside the evidence that cites it
-(`ratmac_qa::snapshot::record_snapshot`).
+  merge-gate evidence, every file under the declared evidence roots (`src/`, `test/`, `.arca/`) must be tracked or
+  staged; anything untracked or unstaged is either committed, staged, or declared as an explicit exception in the
+  record. Store the snapshot manifest — path, tracking state, SHA-256 — beside the evidence that cites it
+  (`ratmac_qa::snapshot::record_snapshot`).
 - **Append-only history.** `.arca/log.md` is the one history file that changes in place, and only by appending: its
-recorded prefix must survive byte for byte. A rewrite of any earlier line is a preservation failure, exactly like an
-edit to an archived issue file. Who appends depends on who is driving: while no `rtm` Run drives this repository -
-no `.arca/state.toml` - the contributor loop appends one line per closure. Once a Run is active the Engine owns the
-file (see [Evidence receipts](#evidence-receipts)); then no agent writes it, and `rtm` records every entry.
+  recorded prefix must survive byte for byte. A rewrite of any earlier line is a preservation failure, exactly like an
+  edit to an archived issue file. Who appends depends on who is driving: while no `rtm` Run drives this repository -
+  no `.arca/state.toml` - the contributor loop appends one line per closure. Once a Run is active the Engine owns the
+  file (see [Evidence receipts](#evidence-receipts)); then no agent writes it, and `rtm` records every entry.
 - **Out-of-ticket trace.** Work landed outside the ticketed system — docs, config, tooling, harness edits — still
-appends one `- YYYY-MM-DD: <what landed, where, why>` line to `.arca/log.md` before the session ends. Subsequent
-sessions read the log first instead of reconstructing changes from `git diff`/history.
+  appends one `- YYYY-MM-DD: <what landed, where, why>` line to `.arca/log.md` before the session ends. Subsequent
+  sessions read the log first instead of reconstructing changes from `git diff`/history.
 - **Release acceptance lane opt-in.** Environment-coupled release checks (live GitHub identity, exact origin, branch,
-clean worktree) run only with `RATMAC_RELEASE_ACCEPTANCE=1`. Plain `cargo test --workspace` skips that lane and
-prints the skip; never make branch work depend on operator-cutover facts.
+  clean worktree) run only with `RATMAC_RELEASE_ACCEPTANCE=1`. Plain `cargo test --workspace` skips that lane and
+  prints the skip; never make branch work depend on operator-cutover facts.
 
 ## Blocked route
 
@@ -237,7 +227,6 @@ rtm abandon --confirm "abandon <project directory name>"
 Agents never delete or edit `.arca/state.toml`, `.arca/log.md`,
 `.arca/evidence.toml`, or `.arca/rtm.lock`; this command is the only path that
 retires them. On the exact phrase - typed at invocation, never read from a file
-
 - `rtm` records a terminal abandoned event naming the retired Phase, status,
 and goal revision, then retires the admission state, the Run evidence, and the
 lock, so a fresh `rtm start` can begin and records its own baseline and pins.
@@ -274,19 +263,19 @@ Two gate kinds read the records themselves, so a status edit cannot route the
 loop. Declare them in the Runbook phase that must not be left without them:
 
 - `intake_contract` — every direct issue folder ends `integrated` or
-`rejected`, keeps its five-file shape exactly, states accepted requirement
-IDs that exist in the goal, and links that resolve in both directions.
+  `rejected`, keeps its five-file shape exactly, states accepted requirement
+  IDs that exist in the goal, and links that resolve in both directions.
 - `record_contract` — exactly one residual per requirement, each citing the
-frozen goal revision; `satisfied` only with concrete evidence references;
-every `missing`/`partial` residual owned by exactly one ticket; acyclic
-ticket dependencies; every ticket carrying its five sections and all six
-hidden-lane assessments.
+  frozen goal revision; `satisfied` only with concrete evidence references;
+  every `missing`/`partial` residual owned by exactly one ticket; acyclic
+  ticket dependencies; every ticket carrying its five sections and all six
+  hidden-lane assessments.
 
 A refusal names the offending artifact and what it found.
 
 - **No satisfaction by absence.** A loop that declares no gate of a required
-kind classifies that gate's requirement `missing`, whatever its records say,
-and the record gate refuses a `satisfied` claim resting on that absence.
+  kind classifies that gate's requirement `missing`, whatever its records say,
+  and the record gate refuses a `satisfied` claim resting on that absence.
 
 ## Evidence receipts
 
@@ -356,13 +345,13 @@ that pushes, fetches, installs, or reaches the network.
 
 - `status` is a dry run: it prints what each verb would do and applies nothing.
 - `start` opens `trial-<nnn>-<slug>` with its linked worktree beside the
-repository, from a clean `exp/ratmac-deterministic` checkout only.
+  repository, from a clean `exp/ratmac-deterministic` checkout only.
 - `finish` archives the trial: annotated tag first, then the durable log
-`trials/<trial-branch>/trial-log.md` committed alone on the base, then the
-worktree, then the branch. That log is the only trial content that outlives
-the trial; `.arca/tpl/trial-log.md` is its blank form.
+  `trials/<trial-branch>/trial-log.md` committed alone on the base, then the
+  worktree, then the branch. That log is the only trial content that outlives
+  the trial; `.arca/tpl/trial-log.md` is its blank form.
 - `sync` merges `main` into a clean base checkout. Fixes are authored on
-`main`; the base never receives them any other way.
+  `main`; the base never receives them any other way.
 
 **Ownership.** A human or the Main-Agent invokes these verbs, from the primary
 checkout with the experiment base checked out. An Advisor authors trial log
@@ -381,9 +370,9 @@ kills a process.
 Do:
 
 - Enter on any work-shaped request; catch up missing earlier steps yourself.
-- Prefer work-it-out &gt; safe guess &gt; ask; log every guess; put all questions in one message.
+- Prefer work-it-out > safe guess > ask; log every guess; put all questions in one message.
 - Write each ticket's tests in P4, before its code. Keep hidden test code in `.arca-private/`, listed in the
-owning ticket.
+  owning ticket.
 - Fill in real files from the blanks in `.arca/tpl/`; keep `.arca/log.md` new-lines-only.
 - Found a goal problem mid-build? File a new issue in `.arca/issue/` — that is the only road back.
 
@@ -400,10 +389,10 @@ Don't:
 User: "I want to implement the rust tests based on test/test-list.md" →
 
 1. Route: **P4**. Catch up: P1 (fold in any `pending` issues, else log the skip) → P2 (freeze = note git
- HEAD; write one gap record per requirement) → P3 (one approved ticket per `missing|partial` record).
+   HEAD; write one gap record per requirement) → P3 (one approved ticket per `missing|partial` record).
 2. Loop, one ticket at a time: **P4** — create the `test/qa/` cargo crate if absent; write one `#[test]` per
- TP/CT mapping recorded in the ticket; poke holes in your own tests; `cargo test` (failing is expected).
- **P5** — write the code; `cargo test` full suite; hidden-lane pass; fix; review; next ticket.
+   TP/CT mapping recorded in the ticket; poke holes in your own tests; `cargo test` (failing is expected).
+   **P5** — write the code; `cargo test` full suite; hidden-lane pass; fix; review; next ticket.
 3. No tickets left → redo the gap check → Idle.
 
 Zero questions unless something truly cannot be worked out — then one batched message while every independent
