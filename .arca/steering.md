@@ -62,14 +62,17 @@ Era: make the Machine Class truly first-class.
    write -> doctor -> repair a runbook without reading Rust source.
 
 Deferred: a git-state guard kind; extracting the hard-coded
-`.arca/issue|ticket|residual|current` paths from the Engine (R-016 debt).
+`.arca/issue|ticket|residual|current` paths from the Engine (R-016 debt) -
+and with that extraction, renaming `.arca/current/` to `.arca/goal/`: the
+bundle is the goal in force, and a name that reads as system state invites
+the drift the freeze exists to stop.
 
 ## How direction flows
 
 | File | Question it answers | Changes when |
 | :--- | :--- | :--- |
 | `steering.md` | Why, and where to | direction pivots (rare, first) |
-| `.arca/current/` | What outcome now | a new goal is derived; frozen per Run |
+| `.arca/current/` - the goal bundle | What must become true | re-derived from steering; frozen per Run |
 | `.arca/issue/` | What is wrong or missing | on discovery, anytime |
 | `.arca/ticket/` | What work, provably done | cut from gap records at P3 |
 | `.arca/residual/` | Is each requirement proven | every gap check |

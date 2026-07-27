@@ -151,3 +151,4 @@
 - 2026-07-27: landed .arca docs on main (ae9e886): feasibility research 01-04 + direction.md; steering.md and dict.md are empty stubs pending content.
 - 2026-07-27: index.md rule added: out-of-ticket landings must append a trace line here before session end.
 - 2026-07-27: steering.md filled (direction, thesis, invariants, non-goals, current thrust, direction-flow table); index.md routes it; on a direction pivot steering changes first, then current/, issue/, ticket/.
+- 2026-07-27: steering.md corrected: .arca/current/ named as the goal bundle (destination, not system state); rename current/ -> goal/ recorded as deferred, to land with the R-016 path extraction.
