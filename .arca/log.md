@@ -150,3 +150,4 @@
 - 2026-07-24: cycle close - the five integrated issues i-006..i-010 moved whole into .arca/issue/archive/ with one added ../ on their outbound links and every live goal-bundle link updated in the same change; gap check redone: 32 residual records all satisfied, every live requirement owned by a closed ticket (RAT-001..008 remain covered by the closed t-031..t-037 suites); default and opt-in suites 156 passed / 1 ignored; issue queue empty - Idle.
 - 2026-07-27: landed .arca docs on main (ae9e886): feasibility research 01-04 + direction.md; steering.md and dict.md are empty stubs pending content.
 - 2026-07-27: index.md rule added: out-of-ticket landings must append a trace line here before session end.
+- 2026-07-27: steering.md filled (direction, thesis, invariants, non-goals, current thrust, direction-flow table); index.md routes it; on a direction pivot steering changes first, then current/, issue/, ticket/.

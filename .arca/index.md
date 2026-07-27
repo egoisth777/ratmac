@@ -4,6 +4,7 @@ All agent routing and documentation must use these paths.
 
 | Path                       | Role                                                                                                     |
 | :------------------------- | :------------------------------------------------------------------------------------------------------- |
+| `.arca/steering.md`        | Direction and guardrails: why ratmac exists, thesis, invariants, non-goals; the first file re-aligned when direction changes. |
 | `.arca/current/index.md`      | Goal front door: short summary plus links across the bundle.                                             |
 | `.arca/current/ubi-lang.md`   | Words the goal uses, defined once.                                                                       |
 | `.arca/current/spec.md`       | What the product must do — the deciding document for behavior.                                           |
