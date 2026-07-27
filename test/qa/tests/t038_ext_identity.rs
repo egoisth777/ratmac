@@ -255,7 +255,7 @@ fn release_acceptance_lane_report() {
     // The skip is only honest if a reader can find the opt-in: the working
     // rules must name the same variable this lane reads.
     let rules =
-        fs::read_to_string(repo_root().join(".arca/index.md")).expect("read the working rules");
+        fs::read_to_string(repo_root().join(".arca/schema.md")).expect("read the working rules");
     assert!(
         rules.contains("RATMAC_RELEASE_ACCEPTANCE"),
         "the opt-in variable must be documented where a reader will find it"

@@ -30,7 +30,7 @@ fn active_surfaces(root: &Path) -> Vec<PolicySurface> {
         },
         // AGENTS.md is a pointer; the audit resolves it to what it points at.
         surface_from_file(root, "AGENTS.md"),
-        surface_from_file(root, ".arca/index.md"),
+        surface_from_file(root, ".arca/schema.md"),
     ]
 }
 
@@ -52,7 +52,7 @@ fn surfaces_agree_and_audit_is_sensitive() {
     // Negative: a seeded copy carrying the retired wording must fail.
     let mut seeded = active_surfaces(&root);
     seeded.push(PolicySurface {
-        name: "seeded-fixture/.arca/index.md".to_owned(),
+        name: "seeded-fixture/.arca/schema.md".to_owned(),
         text: format!(
             "{}\n\nStart is user-only; loop entry is never agent-initiated.\n",
             seeded[2].text
@@ -62,7 +62,7 @@ fn surfaces_agree_and_audit_is_sensitive() {
         audit_caller_policy(&seeded).expect_err("retired user-only wording must fail the audit");
     assert!(
         violations.iter().any(
-            |violation| violation.surface == "seeded-fixture/.arca/index.md"
+            |violation| violation.surface == "seeded-fixture/.arca/schema.md"
                 && violation.reason.contains("user-only")
         ),
         "the audit names the offending surface and phrase: {violations:?}"
@@ -255,6 +255,7 @@ fn no_active_surface_retains_retired_wording() {
         root.join("CLAUDE.md"),
         root.join("README.md"),
         root.join(".arca/index.md"),
+        root.join(".arca/schema.md"),
         root.join("src/cli.rs"),
     ];
     candidates.extend(collect_skill_files(&root));

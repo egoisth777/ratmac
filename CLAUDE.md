@@ -1,1 +1,1 @@
-@index.md
+@.arca/schema.md

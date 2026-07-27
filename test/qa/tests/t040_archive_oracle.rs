@@ -157,7 +157,7 @@ fn repo_root() -> PathBuf {
 #[test]
 fn schema_states_archive_and_snapshot_rules() {
     let root = repo_root();
-    let schema = fs::read_to_string(root.join(".arca/index.md")).expect("read .arca/index.md");
+    let schema = fs::read_to_string(root.join(".arca/schema.md")).expect("read .arca/schema.md");
 
     assert!(
         schema.contains(".arca/issue/archive/<issue-id>/"),
@@ -173,7 +173,7 @@ fn schema_states_archive_and_snapshot_rules() {
     );
 
     let tracked = Command::new("git")
-        .args(["ls-files", "--error-unmatch", ".arca/index.md"])
+        .args(["ls-files", "--error-unmatch", ".arca/schema.md"])
         .current_dir(&root)
         .output()
         .expect("git ls-files runs");

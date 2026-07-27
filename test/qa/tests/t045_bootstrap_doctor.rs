@@ -174,7 +174,7 @@ fn text(output: &Output) -> String {
 /// The one command the contributor guidance documents, read from the guidance
 /// itself so the test cannot drift from what a reader is told to run.
 fn documented_command() -> String {
-    let index = fs::read_to_string(project_root().join(".arca/index.md")).expect("read index");
+    let index = fs::read_to_string(project_root().join(".arca/schema.md")).expect("read index");
     let section = index
         .split("## Bootstrap")
         .nth(1)

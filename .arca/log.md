@@ -152,3 +152,4 @@
 - 2026-07-27: index.md rule added: out-of-ticket landings must append a trace line here before session end.
 - 2026-07-27: steering.md filled (direction, thesis, invariants, non-goals, current thrust, direction-flow table); index.md routes it; on a direction pivot steering changes first, then current/, issue/, ticket/.
 - 2026-07-27: steering.md corrected: .arca/current/ named as the goal bundle (destination, not system state); rename current/ -> goal/ recorded as deferred, to land with the R-016 path extraction.
+- 2026-07-27: split index.md: working rules moved whole to schema.md (git mv, header retargeted); index.md rewritten as the one-minute front door; map.md added (stamped c86e921, orientation only, never evidence); AGENTS.md/CLAUDE.md point at schema.md; QA wording surfaces retargeted (t038,t040,t044,t045,t046,t054); default + opt-in lanes: 156 passed / 0 failed / 1 ignored.

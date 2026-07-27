@@ -329,7 +329,7 @@ fn sync_leaves_live_trials_alone() {
 #[test]
 fn ownership_and_windows_rule_enforced() {
     let index =
-        fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.arca/index.md"))
+        fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.arca/schema.md"))
             .expect("read the contributor guidance");
     let section = index
         .split("## ")

@@ -202,7 +202,7 @@ fn every_check_carries_an_evidence_kind() {
     // run - and in the guidance-consistency column.
     let root = repo_root();
     let surfaces = [
-        surface_from_file(&root, ".arca/index.md"),
+        surface_from_file(&root, ".arca/schema.md"),
         surface_from_file(&root, "AGENTS.md"),
     ];
     let audit = audit_caller_policy(&surfaces);
