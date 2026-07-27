@@ -1,22 +1,21 @@
 //! TRIAL-001 throwaway probe — not for merge.
-//! Question: does the PGE-001 intake gate catch an issue folder that is
-//! nothing but unfilled template blanks?
 
 use std::path::PathBuf;
 
-#[test]
-fn blank_issue_against_intake_gate() {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+fn root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(|p| p.parent())
         .expect("repo root")
-        .to_path_buf();
+        .to_path_buf()
+}
 
-    let probe = root.join(".arca/issue/i-011-issue-authoring-scaffold");
-    assert!(probe.is_dir(), "probe issue folder must exist at {probe:?}");
+/// The issue authored end-to-end through the intended path, status `pending`.
+#[test]
+fn fully_authored_pending_issue() {
+    let root = root();
+    let issue = root.join(".arca/issue/i-011-issue-authoring-scaffold");
 
-    // Facts about the probe, stated so the report is self-contained.
-    let index = std::fs::read_to_string(probe.join("index.md")).unwrap();
     let mut blanks = 0usize;
     for file in [
         "index.md",
@@ -25,39 +24,60 @@ fn blank_issue_against_intake_gate() {
         "design.md",
         "test-plan.md",
     ] {
-        let text = std::fs::read_to_string(probe.join(file)).unwrap();
-        blanks += text.matches("{{").count();
+        blanks += std::fs::read_to_string(issue.join(file))
+            .unwrap()
+            .matches("{{")
+            .count();
     }
+    println!("--- fully authored issue ---");
+    println!("unfilled placeholders remaining : {blanks}");
+    assert_eq!(blanks, 0, "the issue is authored, nothing left blank");
 
-    println!("--- probe facts ---");
-    println!("unfilled {{{{...}}}} placeholders : {blanks}");
-    println!(
-        "issue-id field              : {}",
-        index
-            .lines()
-            .find(|l| l.starts_with("issue-id:"))
-            .unwrap_or("<absent>")
-    );
-    println!(
-        "provenance field            : {}",
-        index
-            .lines()
-            .find(|l| l.starts_with("provenance:"))
-            .unwrap_or("<absent>")
-    );
-    println!("folder name                 : i-011-issue-authoring-scaffold");
-
-    let verdict = ratmac::contract::gate_intake(&root);
-    println!("--- gate_intake verdict ---");
-    match &verdict {
-        Ok(()) => println!("PASS - the gate accepted this folder"),
+    println!("--- gate_intake verdict on the finished, pending issue ---");
+    match ratmac::contract::gate_intake(&root) {
+        Ok(()) => println!("PASS"),
         Err(defects) => {
             println!("REFUSED with {} defect(s):", defects.len());
-            for d in defects {
+            for d in &defects {
                 println!("  {d}");
             }
         }
     }
+}
 
-    assert!(blanks > 0, "probe must still contain unfilled blanks");
+/// IAS-005: disposition is read from the whole row, not the column.
+#[test]
+fn disposition_is_read_from_the_whole_row() {
+    let spec = "\
+| Requirement ID | Requirement | Disposition | Rationale | Refs |
+| :--- | :--- | :--- | :--- | :--- |
+| `ZZZ-001` | some ask | rejected | we have not accepted this, and will not | none |
+";
+    // Mirror of src/contract.rs::accepted_requirements.
+    let mut counted = Vec::new();
+    for line in spec.lines() {
+        let t = line.trim();
+        if !t.starts_with('|') || !t.to_ascii_lowercase().contains("accepted") {
+            continue;
+        }
+        let first = t
+            .trim_start_matches('|')
+            .split('|')
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .trim_matches('`')
+            .to_owned();
+        counted.push(first);
+    }
+
+    println!("--- IAS-005 probe ---");
+    println!("row disposition column : rejected");
+    println!("rationale contains     : \"not accepted\"");
+    println!("parser counted as accepted : {counted:?}");
+    assert_eq!(
+        counted,
+        vec!["ZZZ-001".to_string()],
+        "demonstrates the defect: a rejected row is counted accepted"
+    );
 }
