@@ -12,6 +12,9 @@ dependencies:
   - "{{ticket-id}}"
 status: "{{status}}"
 # PGE-006: set only by an authorized `rtm hold`, together with status "held".
+# Units and git (schema.md): the short hash of the commit that made the ticket
+# green. Filled in at closure; a ticket is passed by evidence, never by status.
+landed-commit: "{{short-hash}}"
 blocker-ref: "{{blocker-issue-folder-or-residual}}"
 ---
 
