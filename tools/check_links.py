@@ -22,11 +22,27 @@ def read(path: str) -> str:
     return io.open(path, encoding="utf-8").read()
 
 
+# Historical roots: archived records are preserved byte-for-byte (AOI-002,
+# EXT-003 historical allowlist), so their links are frozen provenance, not live
+# routing. The archive-preservation oracle owns them; link resolution does not.
+HISTORICAL = (
+    os.path.join(".arca", "issue", "archive"),
+    os.path.join(".arca", "ticket", "archive"),
+)
+
+
+def is_historical(path: str) -> bool:
+    rel = os.path.relpath(path, ROOT)
+    return any(rel.startswith(root + os.sep) for root in HISTORICAL)
+
+
 def markdown_files(rel_root: str):
     for base, _dirs, names in os.walk(os.path.join(ROOT, rel_root)):
         for name in names:
             if name.endswith(".md"):
-                yield os.path.join(base, name)
+                path = os.path.join(base, name)
+                if not is_historical(path):
+                    yield path
 
 
 def main() -> int:
@@ -46,7 +62,7 @@ def main() -> int:
                     f"dangling link: {os.path.relpath(path, ROOT)} -> {target}"
                 )
 
-    goal_spec = read(os.path.join(ROOT, ".arca/current/spec.md"))
+    goal_spec = read(os.path.join(ROOT, ".arca/goal/spec.md"))
     issue_root = os.path.join(ROOT, ".arca/issue")
     for entry in sorted(os.listdir(issue_root)):
         folder = os.path.join(issue_root, entry)

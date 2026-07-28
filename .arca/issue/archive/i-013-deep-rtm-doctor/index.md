@@ -3,7 +3,7 @@
 ```yaml
 issue-id: "i-013-deep-rtm-doctor"
 provenance: "User request, 2026-07-27 - steering.md Current sprint, route item 2; cut at loop entry (task ledger #2)"
-status: "pending"
+status: "integrated"
 ```
 
 ## Summary
@@ -21,3 +21,15 @@ codes — the foundation the authoring loop (i-014) repairs against.
 | Requirements | [Specification](spec.md) |
 | Proposed mechanics | [Design](design.md) |
 | Verification and integration traces | [Test plan](test-plan.md) |
+
+## Integration
+
+Folded into the goal on 2026-07-28 (P1). Every requirement disposition in [spec.md](spec.md) was confirmed `accepted`.
+
+| Goal artifact | What it now carries |
+| :--- | :--- |
+| [Goal specification](../../../goal/spec.md) | Requirement records `DRD-001`–`DRD-007` |
+| [Goal design](../../../goal/design.md) | Doctor as one finding list with two renderings, `RB1xx`–`RB4xx` codes, exit `0`/`1`/`2` |
+| [Goal test list](../../../goal/test-list.md) | Checks `DRDV-001`–`DRDV-006` |
+| [Goal ubiquitous language](../../../goal/ubi-lang.md) | Finding, Diagnostic code, and Guard lint |
+| [Goal index](../../../goal/index.md) | Reverse link to this issue |

@@ -11,7 +11,7 @@ Glossary of ubiquitous language. One term, one meaning. Terms not listed here mu
 | Scheduler | The generic engine — Rust CLI, binary `rtm`. Sole writer of State Files. Holds no project-specific knowledge. |
 | Phase | A node of the Machine where agent work happens. The ONLY dimension of machine state (ADR-0001). Always say "Phase", never "state", for machine nodes. |
 | Status | Phase-local lifecycle (`planned\|executing\|blocked\|passed\|failed`) recorded by the Scheduler. Not part of the Machine graph (ADR-0001). |
-| Exit Guard | A predicate over the working tree, evaluated by the Scheduler at `rtm step`. Checks artifacts — filesystem shape (`files_exact`), file content (`yaml_field`), or a command's exit code (`cmd`) — never agent claims. Passing ALL of a Phase's Exit Guards is the only way to leave it. |
+| Exit Guard | A predicate over the working tree, evaluated by the Scheduler at `rtm step`. Checks artifacts, never agent claims; passing ALL of a Phase's Exit Guards is the only way to leave it. The closed guard-kind vocabulary — each kind's semantics, required fields, and forbidden fields — is defined once in `.arca/runbook-spec.md` and restated nowhere else (RBS-002, RBS-004). |
 | State File | `.arca/state.toml` (ADR-0008). Per-Run machine-readable current state. Written ONLY by the Scheduler; all agents read, never write (ADR-0003). |
 | Transition Log | `.arca/log.md` (ADR-0008). Per-Run append-only record of every transition the Scheduler performs. |
 | Phase Prompt | What an agent receives for a Phase: inline prose from `ratmac.toml` + the Scheduler-generated Exit Guard list (ADR-0009). The ONLY machine information ever shown to an agent. |
@@ -68,3 +68,12 @@ Glossary of ubiquitous language. One term, one meaning. Terms not listed here mu
 | Advisor | The reviewer agent that authors trial-log content and never invokes a lifecycle mutation or any Git write. |
 | Windows directory lock | An open handle on the trial worktree directory that blocks removal; it grounds a safe named refusal with guidance — never a forced removal, never a guessed process kill. |
 | Main-first fix flow | The policy that defects exposed by trials are fixed on local `main`, then received by a clean experiment base only via explicit merge/sync — never reset, rebase, or force — with conflicts left visible. |
+| Runbook specification | `.arca/runbook-spec.md`: the single written authority for the Machine Class format — top-level shape, phase and transition fields, the guard-kind vocabulary, ownership rules, and the diagnostic-code table. Code implements it; nothing restates it. |
+| Guard-kind vocabulary | The closed list of guard kinds a runbook may declare, each with its semantics and its per-kind required and forbidden fields. A kind outside the list is not a guard but a parse error. |
+| Typed parse | The single deserialization of `ratmac.toml` into the Machine Class, after which every consumer reads the typed value; no module re-reads the file. |
+| Named refusal | An error that states what is wrong and where, carried to the caller, as opposed to proceeding on a default value — an absent runbook refuses instead of yielding an empty machine. |
+| Finding | One doctor result: a stable code, a severity (`error` or `warning`), a location, and a message. The doctor produces a list of findings; `--json` and the human report are two renderings of that one list. |
+| Diagnostic code | The stable identifier of one defect class (`RB1xx` parse and schema, `RB2xx` graph, `RB3xx` guard lint, `RB4xx` ownership). Stable means the same defect yields the same code across runs and releases. |
+| Guard lint | The doctor checks on guards beyond parseability: a `command_exit` guard neither `exempt` nor pinnable, and a guard whose verdict rests on agent-writable content. |
+| Scaffold | The minimal doctor-clean runbook `rtm scaffold <path>` writes, so authoring begins from valid rather than from blank. |
+| Authoring loop | write → `rtm doctor --json` → repair by code, repeated until the doctor reports clean. |

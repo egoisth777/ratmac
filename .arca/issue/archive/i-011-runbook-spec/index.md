@@ -3,7 +3,7 @@
 ```yaml
 issue-id: "i-011-runbook-spec"
 provenance: "User request, 2026-07-27 - steering.md Current sprint, route item 0; cut at loop entry (task ledger #4)"
-status: "pending"
+status: "integrated"
 ```
 
 ## Summary
@@ -21,3 +21,15 @@ first and be the single authority they cite.
 | Requirements | [Specification](spec.md) |
 | Proposed mechanics | [Design](design.md) |
 | Verification and integration traces | [Test plan](test-plan.md) |
+
+## Integration
+
+Folded into the goal on 2026-07-28 (P1). Every requirement disposition in [spec.md](spec.md) was confirmed `accepted`.
+
+| Goal artifact | What it now carries |
+| :--- | :--- |
+| [Goal specification](../../../goal/spec.md) | Requirement records `RBS-001`–`RBS-005` |
+| [Goal design](../../../goal/design.md) | Home of the specification (`.arca/runbook-spec.md`, shop lane, outside the frozen bundle) and single-authority rule |
+| [Goal test list](../../../goal/test-list.md) | Checks `RBSV-001`–`RBSV-005` |
+| [Goal ubiquitous language](../../../goal/ubi-lang.md) | Runbook specification and Guard-kind vocabulary |
+| [Goal index](../../../goal/index.md) | Reverse link to this issue |

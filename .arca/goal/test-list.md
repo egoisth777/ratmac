@@ -116,3 +116,44 @@ Behavior checks derived from [spec.md](spec.md). Each is a testable one-liner.
 | TWLV-010 | A fix committed on fixture `main` reaches the clean experiment base only via the explicit merge path; a conflicting merge stops non-zero with markers visible and nothing auto-resolved or auto-aborted; a dirty base sync refuses without mutation. | TWL-007 |
 | TWLV-011 | After a finished trial the base diff against its pre-trial tip contains exactly the durable log file and no trial implementation content; `main` is untouched by every lifecycle verb. | TWL-008 |
 | TWLV-012 | An audit of the interface surface finds exactly the documented verbs and no push, fetch, network, global-install, PATH or global-config mutation, reset, rebase, forced removal, forced deletion, or unrelated pruning; guidance states the ownership split and the Windows working-directory rule. | TWL-009, TWL-010 |
+
+## Integrated runbook-specification verification
+
+| ID | Check | Requirement |
+|---|---|---|
+| RBSV-001 | The guard-kind table in `.arca/runbook-spec.md` and the Engine's guard-kind vocabulary are the same set: every documented kind parses, every parsable kind is documented, and the per-kind required/forbidden field lists match the parser's. | RBS-002 |
+| RBSV-002 | No schema term is defined twice: the specification is the only place enumerating guard kinds, runbook keys, or diagnostic codes; `.arca/goal/ubi-lang.md`, `.arca/runbook-authoring.md`, and the doctor's own help route to it instead of restating it. | RBS-004 |
+| RBSV-003 | R-002, R-003, R-011, R-028, ETB-001, ETB-002, ETB-003, PGE-003, PGE-005, and PGE-006 each appear as a back-reference in the specification, and the behavior each names still holds in the existing lanes. | RBS-005 |
+| RBSV-004 | Every ownership rule in the specification names its enforcer or is explicitly marked prose-only, and each named enforcer exists in `src/`. | RBS-003 |
+| RBSV-005 | The specification is routed from `.arca/index.md` and states the top-level shape, per-phase fields, and per-transition fields the parser accepts. | RBS-001 |
+
+## Integrated typed-parser verification
+
+| ID | Check | Requirement |
+|---|---|---|
+| TRPV-001 | A runbook with an unknown guard kind is refused by a typed parse error naming the kind and its phase and index; no machine is built. | TRP-002 |
+| TRPV-002 | For each guard kind, a runbook omitting a required field and a runbook carrying a field foreign to that kind are each refused naming kind and field. | TRP-003 |
+| TRPV-003 | `src/` reads the runbook in exactly one place: no module besides the parser parses runbook TOML, and the Scheduler's guard evaluation, prompt rendering, and pending-guard listing all consume the typed Machine Class. | TRP-001 |
+| TRPV-004 | Every guard authored in a multi-kind runbook is present on the parsed Machine Class, in declaration order, with its fields intact. | TRP-004 |
+| TRPV-005 | With `.arca/ratmac.toml` absent or unreadable, `rtm status`, `rtm step`, and `rtm start` each refuse by name; no code path yields an empty machine for a missing file. | TRP-005 |
+| TRPV-006 | R-002/R-003/R-011 refusals are unchanged in behavior, and the default and opt-in lanes stay green. | TRP-006 |
+
+## Integrated deep-doctor verification
+
+| ID | Check | Requirement |
+|---|---|---|
+| DRDV-001 | One fixture per graph and guard-lint defect class — no phases, ambiguous initial phase, unreachable phase, dead end, duplicate edge, self-loop, unpinnable `command_exit`, agent-writable guard — is reported with its documented code at the right location. | DRD-002, DRD-003 |
+| DRDV-002 | `rtm doctor --json <path>` emits parsable JSON whose findings carry code, severity, location, and message, and two runs over the identical fixture are byte-identical. | DRD-006 |
+| DRDV-003 | A clean fixture exits `0`, a warning-only fixture exits `1`, and an error fixture exits `2` — three distinct observed values. | DRD-007 |
+| DRDV-004 | A parse-refused fixture is reported by the doctor as the same defect the parser names, and the doctor module contains no independent TOML walk. | DRD-001 |
+| DRDV-005 | An ownership-violating fixture prompt is reported through the doctor with the ownership code, and the finding originates from `ownership::audit_ownership`. | DRD-004 |
+| DRDV-006 | `rtm doctor <path>` validates a runbook outside the project's `.arca/`, writes nothing, and argument-free `rtm doctor` still reports Engine identity, runbook validity, and state per ORS-002. | DRD-005 |
+
+## Integrated authoring-loop verification
+
+| ID | Check | Requirement |
+|---|---|---|
+| AALV-001 | `rtm scaffold <path>` output passes `rtm doctor <path>` with exit `0` and zero findings; scaffolding onto an existing path refuses and leaves that file byte-identical. | AAL-002 |
+| AALV-002 | A seeded-defect runbook is driven to doctor-clean by a scripted stand-in that reads only `rtm doctor --json` codes and the repair table in `.arca/runbook-authoring.md`. | AAL-003, AAL-004 |
+| AALV-003 | The repair table in `.arca/runbook-authoring.md` covers exactly the Engine's diagnostic codes — no code missing, none invented. | AAL-003 |
+| AALV-004 | `.arca/runbook-authoring.md` defines no schema itself: it names no guard kind or runbook key except inside a link into `.arca/runbook-spec.md`, and it is routed from `.arca/index.md`. | AAL-001, AAL-004 |

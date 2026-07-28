@@ -15,11 +15,11 @@
 
 | Goal/Test File | Status | Reverse Issue Refs |
 | :--- | :--- | :--- |
-| `.arca/goal/index.md` | unaffected | — (pending P1) |
-| `.arca/goal/ubi-lang.md` | unaffected | — (pending P1) |
-| `.arca/goal/spec.md` | unaffected | — (pending P1) |
-| `.arca/goal/design.md` | unaffected | — (pending P1) |
-| `.arca/goal/test-list.md` | unaffected | — (pending P1) |
+| `.arca/goal/index.md` | updated | Reverse link to `i-012-typed-runbook-parser` under "Integrated Machine Class as first-class data". |
+| `.arca/goal/ubi-lang.md` | updated | This issue's terms folded in; the `Exit Guard` entry now routes to the runbook specification instead of enumerating kinds. |
+| `.arca/goal/spec.md` | updated | This issue's accepted requirement records, each linking back here. |
+| `.arca/goal/design.md` | updated | Accepted mechanics recorded under "Machine Class made first-class". |
+| `.arca/goal/test-list.md` | updated | This issue's verification checks. |
 
 ## Contributor Authority/Schema Traces
 

@@ -50,3 +50,12 @@ Caller-policy, bootstrap/doctor, and behavioral-evidence requirements are integr
 ## Integrated trial-worktree lifecycle
 
 Trial lifecycle requirements are integrated from [i-010-trial-worktree-lifecycle](../issue/archive/i-010-trial-worktree-lifecycle/index.md): `TWL-001` through `TWL-010`.
+
+## Integrated Machine Class as first-class data
+
+The Machine Class stops being an implicit shape known only to code. Requirements are integrated from four issues that must land in route order:
+
+- [i-011-runbook-spec](../issue/archive/i-011-runbook-spec/index.md): `RBS-001` through `RBS-005` — the runbook specification at `.arca/runbook-spec.md` is the single written authority for the format, the guard-kind vocabulary, ownership, and the diagnostic-code table.
+- [i-012-typed-runbook-parser](../issue/archive/i-012-typed-runbook-parser/index.md): `TRP-001` through `TRP-006` — one typed parse, guards retained, unknown kinds and wrong-for-kind fields refused at parse time, a missing runbook refused by name.
+- [i-013-deep-rtm-doctor](../issue/archive/i-013-deep-rtm-doctor/index.md): `DRD-001` through `DRD-007` — the doctor validates through that parser, adds graph and guard lint plus the ownership audit, accepts an arbitrary path, and emits stable codes with `--json` and differentiated exit codes.
+- [i-014-agent-authoring-loop](../issue/archive/i-014-agent-authoring-loop/index.md): `AAL-001` through `AAL-004` — `rtm scaffold` plus `.arca/runbook-authoring.md` make write → doctor → repair an agent-runnable loop keyed to those codes.
