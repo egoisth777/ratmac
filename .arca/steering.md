@@ -50,22 +50,36 @@ one is a direction change and starts here.
 - Not an agent framework: it calls no models; it gates whatever does.
 - Not multi-tenant: one repository, one Run at a time, local disk.
 
-## Current thrust
+## Current sprint
 
-Era: make the Machine Class truly first-class.
+A sprint starts when enough issues have collected to be worth integrating
+into the goal, and runs the cycle - plan, then build - until the gap check
+comes back clean.
 
-1. One typed parser - serde schema with a guard-kind enum, guards retained in
-   the class model, missing runbook refuses by name.
+This sprint: make the Machine Class truly first-class.
+
+Route - order is dependency, not preference. A route says what depends on
+what, never when; that is what keeps it from being a plan.
+
+0. Runbook spec - write down what a runbook IS (schema, guard-kind
+   vocabulary, ownership rules) as prose before code embodies it.
+   Everything below implements this spec, not the other way round.
+1. One typed parser - serde schema with a guard-kind enum, guards retained
+   in the class model, missing runbook refuses by name. Before 2 and 3:
+   both consume it.
 2. Deep `rtm doctor` - real parser, graph and guard lint, ownership audit
    wired in, arbitrary-path validation, stable diagnostic codes, `--json`.
+   Parallel with 3 once 1 lands; neither needs the other.
 3. Authoring loop - schema instructions and scaffold so an agent can
    write -> doctor -> repair a runbook without reading Rust source.
+   Parallel with 2.
+
+Endpoint: with the route complete, the P1-P5 cycle itself becomes the real
+runbook at `.arca/ratmac.toml`, and `rtm status` - never a narrated file -
+becomes the machine-owned answer to "where are we".
 
 Deferred: a git-state guard kind; extracting the hard-coded
 `.arca/issue|ticket|residual|goal` paths from the Engine (R-016 debt).
-(The `.arca/current/` -> `.arca/goal/` rename landed ahead of that
-extraction, 2026-07-27: the bundle is the goal in force, and a name that
-read as system state invited the drift the freeze exists to stop.)
 
 ## How direction flows
 

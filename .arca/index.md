@@ -11,6 +11,13 @@ Consult this file first, every time: the map below orients you; the routes
 table locates every file; then read the file itself. The map is orientation
 only, **never evidence** - a residual may not cite it.
 
+**Where are we?** Derived from the tree, never declared - check in order:
+open tickets in `.arca/ticket/` -> P4/P5 (building); `missing|partial`
+residuals without tickets -> P3; goal frozen but residuals stale -> P2;
+`pending` issues -> P1; none of the above -> Idle. (`.arca/state.toml`
+answers only for a live `rtm` Run; until the P-cycle is the real runbook -
+see steering.md, Current sprint endpoint - the tree is the oracle.)
+
 ## Map - how ratmac hangs together
 
 Stamped cache - describes `debace8`, surveyed 2026-07-27 from a read-only
@@ -85,7 +92,7 @@ schema rules) are asserted against `.arca/schema.md` and `AGENTS.md`. Hidden
 lane in `.arca-private/`, listed per ticket. Opt-in release lane:
 `RATMAC_RELEASE_ACCEPTANCE=1`.
 
-### Debts (the current thrust targets these - steering.md)
+### Debts (the current sprint targets these - steering.md)
 
 - Two parsers over one file: `MachineClass` discards guards; the scheduler
   re-parses raw TOML for guard evaluation and prompt rendering.
@@ -114,6 +121,7 @@ All agent routing and documentation must use these paths.
 | :--- | :--- |
 | `.arca/steering.md` | Direction and guardrails: thesis, invariants, non-goals; first re-aligned on a pivot. |
 | `.arca/schema.md` | The working rules - binding for every contributor. |
+| `.arca/dict.md` | Glossary - plain-word definitions; consult before coining a term, add an entry when introducing one. |
 | `.arca/goal/` | The goal bundle now in force (`spec.md` > `design.md` > `test-list.md`, plus `ubi-lang.md`, `index.md`). Frozen per Run. |
 | `.arca/issue/<issue-id>/` | One incoming issue, exactly five files (shape: schema.md, "The issue folder"). |
 | `.arca/residual/` | Gap records, one per requirement - proven yet? |
