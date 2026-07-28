@@ -170,9 +170,43 @@ impl GuardKind {
     }
 }
 
+/// A refusal to parse, carrying the stable diagnostic code that names the
+/// defect class (`RB*`, tabled in `.arca/runbook-spec.md`).
+///
+/// The code travels with the refusal so `rtm doctor` can report the defect
+/// without re-classifying prose: the parser is the runbook's only reader, so
+/// it is also the only namer.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MachineClassParseError {
+    code: &'static str,
+    location: String,
     message: String,
+}
+
+impl MachineClassParseError {
+    fn at(code: &'static str, location: String, message: String) -> Self {
+        Self {
+            code,
+            location,
+            message,
+        }
+    }
+
+    /// Where the defect lives: `top-level`, `phases`, `phase "build"`,
+    /// `phase "build" guard 0`, or the transition that carries it.
+    pub fn location(&self) -> &str {
+        &self.location
+    }
+
+    /// The `RB*` code for this defect class.
+    pub fn code(&self) -> &'static str {
+        self.code
+    }
+
+    /// The refusal text, without the code.
+    pub fn message(&self) -> &str {
+        &self.message
+    }
 }
 
 impl fmt::Display for MachineClassParseError {
@@ -192,8 +226,12 @@ impl MachineClass {
         project_root: impl AsRef<Path>,
     ) -> Result<Self, MachineClassParseError> {
         let path = project_root.as_ref().join(".arca").join("ratmac.toml");
-        let source = std::fs::read_to_string(&path).map_err(|error| MachineClassParseError {
-            message: format!("failed to read {}: {error}", path.display()),
+        let source = std::fs::read_to_string(&path).map_err(|error| {
+            MachineClassParseError::at(
+                "RB101",
+                path.display().to_string(),
+                format!("failed to read {}: {error}", path.display()),
+            )
         })?;
         Self::from_toml(&source)
     }
@@ -202,11 +240,19 @@ impl MachineClass {
     /// Other unknown-key diagnostics are intentionally left to the strict
     /// schema boundary owned by t-005.
     pub fn from_toml(source: &str) -> Result<Self, MachineClassParseError> {
-        let document: toml::Value = source.parse().map_err(|error| MachineClassParseError {
-            message: format!("invalid ratmac.toml: {error}"),
+        let document: toml::Value = source.parse().map_err(|error| {
+            MachineClassParseError::at(
+                "RB102",
+                "top-level".to_owned(),
+                format!("invalid ratmac.toml: {error}"),
+            )
         })?;
-        let root = document.as_table().ok_or_else(|| MachineClassParseError {
-            message: "invalid ratmac.toml: expected a table".to_owned(),
+        let root = document.as_table().ok_or_else(|| {
+            MachineClassParseError::at(
+                "RB110",
+                "top-level".to_owned(),
+                "invalid ratmac.toml: expected a table".to_owned(),
+            )
         })?;
 
         if root.contains_key("status") {
@@ -214,30 +260,44 @@ impl MachineClass {
         }
         Self::reject_unknown_keys(root, &["phases", "transitions"], "top-level")?;
 
-        let phases_value = root.get("phases").ok_or_else(|| MachineClassParseError {
-            message: "invalid ratmac.toml: missing phases table".to_owned(),
+        let phases_value = root.get("phases").ok_or_else(|| {
+            MachineClassParseError::at(
+                "RB201",
+                "phases".to_owned(),
+                "invalid ratmac.toml: missing phases table".to_owned(),
+            )
         })?;
-        let phases_table = phases_value
-            .as_table()
-            .ok_or_else(|| MachineClassParseError {
-                message: "invalid ratmac.toml: phases must be a table".to_owned(),
-            })?;
+        let phases_table = phases_value.as_table().ok_or_else(|| {
+            MachineClassParseError::at(
+                "RB110",
+                "phases".to_owned(),
+                "invalid ratmac.toml: phases must be a table".to_owned(),
+            )
+        })?;
 
         if phases_table.is_empty() {
-            return Err(MachineClassParseError {
-                message: "invalid ratmac.toml: phases declares no phase".to_owned(),
-            });
+            return Err(MachineClassParseError::at(
+                "RB201",
+                "phases".to_owned(),
+                "invalid ratmac.toml: phases declares no phase".to_owned(),
+            ));
         }
 
         let mut phases = BTreeMap::new();
         for (name, value) in phases_table {
             if name.trim().is_empty() {
-                return Err(MachineClassParseError {
-                    message: "invalid ratmac.toml: phase name must not be empty".to_owned(),
-                });
+                return Err(MachineClassParseError::at(
+                    "RB105",
+                    "phases".to_owned(),
+                    "invalid ratmac.toml: phase name must not be empty".to_owned(),
+                ));
             }
-            let definition = value.as_table().ok_or_else(|| MachineClassParseError {
-                message: format!("invalid phase {name:?}: expected a table"),
+            let definition = value.as_table().ok_or_else(|| {
+                MachineClassParseError::at(
+                    "RB110",
+                    format!("phase {name:?}"),
+                    format!("invalid phase {name:?}: expected a table"),
+                )
             })?;
             if definition.contains_key("status") {
                 return Err(Self::status_error(&format!(
@@ -251,25 +311,41 @@ impl MachineClass {
             )?;
             let mut guards = Vec::new();
             if let Some(declared) = definition.get("guards") {
-                let declared = declared.as_array().ok_or_else(|| MachineClassParseError {
-                    message: format!("invalid phase {name:?} guards: expected an array"),
+                let declared = declared.as_array().ok_or_else(|| {
+                    MachineClassParseError::at(
+                        "RB110",
+                        format!("phase {name:?}"),
+                        format!("invalid phase {name:?} guards: expected an array"),
+                    )
                 })?;
                 for (index, guard) in declared.iter().enumerate() {
                     let location = format!("phase {name:?} guard {index}");
-                    let guard = guard.as_table().ok_or_else(|| MachineClassParseError {
-                        message: format!("invalid {location}: expected a table"),
+                    let guard = guard.as_table().ok_or_else(|| {
+                        MachineClassParseError::at(
+                            "RB110",
+                            location.clone(),
+                            format!("invalid {location}: expected a table"),
+                        )
                     })?;
                     guards.push(Self::parse_guard(guard, &location)?);
                 }
             }
             let prompt = definition
                 .get("prompt")
-                .ok_or_else(|| MachineClassParseError {
-                    message: format!("invalid phase {name:?}: missing required prompt"),
+                .ok_or_else(|| {
+                    MachineClassParseError::at(
+                        "RB105",
+                        format!("phase {name:?}"),
+                        format!("invalid phase {name:?}: missing required prompt"),
+                    )
                 })?
                 .as_str()
-                .ok_or_else(|| MachineClassParseError {
-                    message: format!("invalid phase {name:?}: prompt must be a string"),
+                .ok_or_else(|| {
+                    MachineClassParseError::at(
+                        "RB110",
+                        format!("phase {name:?}"),
+                        format!("invalid phase {name:?}: prompt must be a string"),
+                    )
                 })?
                 .to_owned();
             phases.insert(
@@ -286,15 +362,11 @@ impl MachineClass {
             None => Vec::new(),
             Some(value) => value
                 .as_array()
-                .ok_or_else(|| MachineClassParseError {
-                    message: "invalid ratmac.toml: transitions must be an array".to_owned(),
-                })?
+                .ok_or_else(|| MachineClassParseError::at("RB110", "transitions".to_owned(), "invalid ratmac.toml: transitions must be an array".to_owned()))?
                 .iter()
                 .enumerate()
                 .map(|(index, value)| {
-                    let table = value.as_table().ok_or_else(|| MachineClassParseError {
-                        message: format!("invalid transition {index}: expected a table"),
-                    })?;
+                    let table = value.as_table().ok_or_else(|| MachineClassParseError::at("RB110", format!("transition {index}"), format!("invalid transition {index}: expected a table")))?;
                     if table.contains_key("status") {
                         return Err(Self::status_error("transition status dimension"));
                     }
@@ -307,15 +379,11 @@ impl MachineClass {
                         table
                             .get("from")
                             .and_then(toml::Value::as_str)
-                            .ok_or_else(|| MachineClassParseError {
-                                message: "invalid transition: missing from phase".to_owned(),
-                            })?;
+                            .ok_or_else(|| MachineClassParseError::at("RB105", format!("transition {index}"), "invalid transition: missing from phase".to_owned()))?;
                     let to = table
                         .get("to")
                         .and_then(toml::Value::as_str)
-                        .ok_or_else(|| MachineClassParseError {
-                            message: "invalid transition: missing to phase".to_owned(),
-                        })?;
+                        .ok_or_else(|| MachineClassParseError::at("RB105", format!("transition {index}"), "invalid transition: missing to phase".to_owned()))?;
                     let mut transition = Transition::new(from, to);
                     // PGE-006: an escape a human confirms, never an edge the
                     // Scheduler may take on its own.
@@ -329,11 +397,9 @@ impl MachineClass {
                     match table.get("freeze").and_then(toml::Value::as_str) {
                         None => Ok(transition),
                         Some("goal") => Ok(transition.freezing_goal()),
-                        Some(other) => Err(MachineClassParseError {
-                            message: format!(
+                        Some(other) => Err(MachineClassParseError::at("RB109", format!("transition {index}"), format!(
                                 "invalid ratmac.toml: transition {index} freeze {other:?} is unknown; the only freeze is \"goal\""
-                            ),
-                        }),
+                            ))),
                     }
                 })
                 .collect::<Result<Vec<_>, MachineClassParseError>>()?,
@@ -341,26 +407,43 @@ impl MachineClass {
 
         for transition in &transitions {
             if transition.from().as_str().is_empty() || transition.to().as_str().is_empty() {
-                return Err(MachineClassParseError {
-                    message: "invalid ratmac.toml: transition endpoints must not be empty"
-                        .to_owned(),
-                });
+                return Err(MachineClassParseError::at(
+                    "RB105",
+                    format!(
+                        "transition {:?} -> {:?}",
+                        transition.from().as_str(),
+                        transition.to().as_str()
+                    ),
+                    "invalid ratmac.toml: transition endpoints must not be empty".to_owned(),
+                ));
             }
             if !phases.contains_key(transition.from().as_str()) {
-                return Err(MachineClassParseError {
-                    message: format!(
+                return Err(MachineClassParseError::at(
+                    "RB108",
+                    format!(
+                        "transition {:?} -> {:?}",
+                        transition.from().as_str(),
+                        transition.to().as_str()
+                    ),
+                    format!(
                         "invalid ratmac.toml: transition source {:?} is undeclared",
                         transition.from().as_str()
                     ),
-                });
+                ));
             }
             if !phases.contains_key(transition.to().as_str()) {
-                return Err(MachineClassParseError {
-                    message: format!(
+                return Err(MachineClassParseError::at(
+                    "RB108",
+                    format!(
+                        "transition {:?} -> {:?}",
+                        transition.from().as_str(),
+                        transition.to().as_str()
+                    ),
+                    format!(
                         "invalid ratmac.toml: transition target {:?} is undeclared",
                         transition.to().as_str()
                     ),
-                });
+                ));
             }
         }
         Ok(Self {
@@ -378,9 +461,11 @@ impl MachineClass {
             .keys()
             .find(|key| !allowed.iter().any(|allowed| allowed == key))
         {
-            return Err(MachineClassParseError {
-                message: format!("invalid ratmac.toml: unknown key {key:?} in {location}"),
-            });
+            return Err(MachineClassParseError::at(
+                "RB103",
+                location.to_owned(),
+                format!("invalid ratmac.toml: unknown key {key:?} in {location}"),
+            ));
         }
         Ok(())
     }
@@ -396,22 +481,28 @@ impl MachineClass {
             return Err(Self::status_error(&format!("{location} status dimension")));
         }
         let Some(kind_value) = guard.get("kind") else {
-            return Err(MachineClassParseError {
-                message: format!("invalid {location}: missing required field \"kind\""),
-            });
+            return Err(MachineClassParseError::at(
+                "RB105",
+                location.to_owned(),
+                format!("invalid {location}: missing required field \"kind\""),
+            ));
         };
         let Some(kind) = kind_value.as_str() else {
-            return Err(MachineClassParseError {
-                message: format!("invalid {location}: field \"kind\" must be a string"),
-            });
+            return Err(MachineClassParseError::at(
+                "RB110",
+                location.to_owned(),
+                format!("invalid {location}: field \"kind\" must be a string"),
+            ));
         };
         let Some(accepted) = GuardKind::accepted_fields(kind) else {
-            return Err(MachineClassParseError {
-                message: format!(
+            return Err(MachineClassParseError::at(
+                "RB106",
+                location.to_owned(),
+                format!(
                     "invalid {location}: unknown guard kind {kind:?}; the vocabulary is {:?}",
                     GuardKind::VOCABULARY
                 ),
-            });
+            ));
         };
         let field = Field {
             guard,
@@ -422,11 +513,9 @@ impl MachineClass {
             .keys()
             .find(|key| key.as_str() != "kind" && !accepted.contains(&key.as_str()))
         {
-            return Err(MachineClassParseError {
-                message: format!(
+            return Err(MachineClassParseError::at("RB107", location.to_owned(), format!(
                     "invalid {location}: guard kind {kind:?} does not accept field {unknown:?}; it accepts {accepted:?}"
-                ),
-            });
+                )));
         }
 
         Ok(match kind {
@@ -454,17 +543,22 @@ impl MachineClass {
             "intake_contract" => GuardKind::IntakeContract,
             "record_contract" => GuardKind::RecordContract,
             other => {
-                return Err(MachineClassParseError {
-                    message: format!("invalid {location}: unknown guard kind {other:?}"),
-                })
+                return Err(MachineClassParseError::at(
+                    "RB106",
+                    location.to_owned(),
+                    format!("invalid {location}: unknown guard kind {other:?}"),
+                ))
             }
         })
     }
 
     fn status_error(location: &str) -> MachineClassParseError {
-        MachineClassParseError {
-            message: format!("invalid ratmac.toml: {location} is forbidden; status is not a Machine Class dimension"),
-        }
+        MachineClassParseError::at(
+            "RB104", location.to_owned(),
+            format!(
+                "invalid ratmac.toml: {location} is forbidden; status is not a Machine Class dimension"
+            ),
+        )
     }
 
     pub fn phases(&self) -> &BTreeMap<String, PhaseDefinition> {
@@ -501,21 +595,25 @@ struct Field<'a> {
 
 impl Field<'_> {
     fn missing(&self, key: &str) -> MachineClassParseError {
-        MachineClassParseError {
-            message: format!(
+        MachineClassParseError::at(
+            "RB105",
+            self.location.to_owned(),
+            format!(
                 "invalid {}: guard kind {:?} is missing required field {key:?}",
                 self.location, self.kind
             ),
-        }
+        )
     }
 
     fn wrong_type(&self, key: &str, expected: &str) -> MachineClassParseError {
-        MachineClassParseError {
-            message: format!(
+        MachineClassParseError::at(
+            "RB110",
+            self.location.to_owned(),
+            format!(
                 "invalid {}: guard kind {:?} field {key:?} must be {expected}",
                 self.location, self.kind
             ),
-        }
+        )
     }
 
     fn string(&self, key: &str) -> Result<String, MachineClassParseError> {

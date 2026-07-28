@@ -383,7 +383,13 @@ fn doctor_is_actionable_and_write_free() {
     );
 }
 
-/// HT-053-02: the diagnosis takes no arguments, so nothing can be smuggled in.
+/// HT-053-02: nothing can be smuggled into the diagnosis.
+///
+/// t-053 read this as "no arguments at all". DRD-005 (t-056) is the later
+/// accepted decision: `rtm doctor <path>` diagnoses a named runbook. The
+/// contract that survives is the one that mattered - an argument the interface
+/// does not offer, or a path that is not a readable runbook, refuses by name,
+/// prints no diagnosis, and writes nothing.
 #[test]
 fn doctor_rejects_extra_arguments() {
     let boot = Boot::new("arguments");
@@ -393,6 +399,7 @@ fn doctor_rejects_extra_arguments() {
         vec!["doctor", "extra"],
         vec!["doctor", "--verbose"],
         vec!["doctor", "--fix"],
+        vec!["doctor", ".arca/ratmac.toml", ".arca/ratmac.toml"],
     ] {
         let output = boot.rtm(&args);
         let report = text(&output);
@@ -401,7 +408,7 @@ fn doctor_rejects_extra_arguments() {
             "{args:?} refuses deterministically: {report}"
         );
         assert!(
-            report.contains("doctor accepts no extra arguments"),
+            report.contains("doctor accepts --json and one runbook path"),
             "{args:?} refuses with a named reason: {report}"
         );
         assert!(

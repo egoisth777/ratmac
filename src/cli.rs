@@ -7,13 +7,29 @@ use crate::{Scheduler, StepOutcome, StepRequest};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CliError {
     message: String,
+    exit_code: i32,
 }
 
 impl CliError {
     fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
+            exit_code: 1,
         }
+    }
+
+    /// A usage refusal: the caller asked for something the interface does not
+    /// offer. DRD-004 reserves `2` for "this cannot be diagnosed as asked".
+    fn refusal(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            exit_code: 2,
+        }
+    }
+
+    /// The process exit code this failure deserves.
+    pub fn exit_code(&self) -> i32 {
+        self.exit_code
     }
 }
 
@@ -48,7 +64,7 @@ pub fn help(command: impl AsRef<str>) -> &'static str {
             "Usage: rtm abandon --confirm \"abandon <project directory name>\"\n\nA human retires a broken Run: rtm records a terminal abandoned event, then retires the admission state, the Run evidence, and the lock so a fresh Run can start. The confirmation phrase is typed at invocation; it is never read from a file. No bypass flag exists - a stale lock is retired through this path.\n"
         }
         "doctor" => {
-            "Usage: rtm doctor\n\nRead-only diagnosis: reports the resolved Engine identity, Runbook validity, and runtime state, and names the next legitimate action. Writes nothing.\n"
+            "Usage: rtm doctor [--json] [runbook path]\n\nRead-only diagnosis: reports the resolved Engine identity, Runbook validity, and runtime state, and names the next legitimate action. Given a path, diagnoses that runbook instead, inside or outside a project. --json emits the findings as data. Exit code: 0 clean, 1 warnings, 2 errors. Writes nothing.\n"
         }
         _ => "Usage: rtm <command> [options]\n\nCommands: start, status, step, hold, abandon, doctor\n",
     }
@@ -72,7 +88,7 @@ pub fn run_from<I, S, W>(
     args: I,
     project_root: impl AsRef<Path>,
     writer: &mut W,
-) -> Result<(), CliError>
+) -> Result<i32, CliError>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
@@ -86,28 +102,27 @@ where
     let command_index = command_index(&args);
     let Some(command) = args.get(command_index) else {
         writer.write_all(help("").as_bytes())?;
-        return Ok(());
+        return Ok(0);
     };
     let command_args = &args[command_index + 1..];
 
     if is_help(&args) {
         writer.write_all(help(command).as_bytes())?;
-        return Ok(());
+        return Ok(0);
     }
 
     if command == "doctor" {
-        if !command_args.is_empty() {
-            return Err(CliError::new("doctor accepts no extra arguments"));
-        }
-        return doctor(&project_root, writer);
+        return doctor(command_args, &project_root, writer);
     }
 
     if command == "hold" {
-        return hold(command_args, &project_root, writer);
+        hold(command_args, &project_root, writer)?;
+        return Ok(0);
     }
 
     if command == "abandon" {
-        return abandon(command_args, &project_root, writer);
+        abandon(command_args, &project_root, writer)?;
+        return Ok(0);
     }
 
     if matches!(command.as_str(), "start" | "status" | "step") {
@@ -123,7 +138,7 @@ where
             scheduler
                 .start()
                 .map_err(|error| CliError::new(format!("start: {error}")))?;
-            return Ok(());
+            return Ok(0);
         }
         match command.as_str() {
             "status" => {
@@ -150,7 +165,7 @@ where
             }
             _ => unreachable!(),
         }
-        return Ok(());
+        return Ok(0);
     }
 
     Err(CliError::new(format!(
@@ -265,7 +280,77 @@ fn abandon<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Re
 
 /// ORS-002: read-only diagnosis. Reports the resolved Engine identity,
 /// Runbook presence/validity, and runtime state. Writes nothing.
-fn doctor<W: Write>(project_root: &Path, writer: &mut W) -> Result<(), CliError> {
+/// DRD-005: diagnose the project, or any runbook path the caller names.
+///
+/// The argument-free form keeps its ORS-002 environment report and appends the
+/// findings; a path diagnoses that file alone. Either way the command writes
+/// nothing and its exit code carries the verdict.
+fn doctor<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Result<i32, CliError> {
+    const USAGE: &str = "doctor accepts --json and one runbook path";
+    let mut json = false;
+    let mut target: Option<&str> = None;
+    for arg in args {
+        if arg == "--json" {
+            if json {
+                return Err(CliError::refusal(format!(
+                    "doctor: --json given twice; {USAGE}"
+                )));
+            }
+            json = true;
+        } else if arg.starts_with('-') {
+            return Err(CliError::refusal(format!(
+                "doctor: unknown option {arg:?}; {USAGE}"
+            )));
+        } else if target.is_some() {
+            return Err(CliError::refusal(format!(
+                "doctor: one runbook path at a time; {USAGE}"
+            )));
+        } else {
+            target = Some(arg);
+        }
+    }
+
+    if let Some(target) = target {
+        let path = Path::new(target);
+        if !path.is_file() {
+            return Err(CliError::refusal(format!(
+                "doctor: {target:?} is not a readable runbook file; {USAGE}"
+            )));
+        }
+        let findings = crate::doctor::diagnose(path);
+        write_findings(&findings, json, writer)?;
+        return Ok(crate::doctor::exit_code(&findings));
+    }
+
+    let runbook_path = project_root.join(".arca").join("ratmac.toml");
+    if json {
+        let findings = crate::doctor::diagnose(&runbook_path);
+        write_findings(&findings, true, writer)?;
+        return Ok(crate::doctor::exit_code(&findings));
+    }
+
+    environment_report(project_root, writer)?;
+    let findings = crate::doctor::diagnose(&runbook_path);
+    write_findings(&findings, false, writer)?;
+    Ok(crate::doctor::exit_code(&findings))
+}
+
+fn write_findings<W: Write>(
+    findings: &[crate::doctor::Finding],
+    json: bool,
+    writer: &mut W,
+) -> Result<(), CliError> {
+    if json {
+        writer.write_all(crate::doctor::render_json(findings).as_bytes())?;
+    } else {
+        writer.write_all(crate::doctor::render_report(findings).as_bytes())?;
+    }
+    Ok(())
+}
+
+/// ORS-002: the environment report - Engine identity, Runbook, State, and the
+/// next legitimate action.
+fn environment_report<W: Write>(project_root: &Path, writer: &mut W) -> Result<(), CliError> {
     let engine_path = std::env::current_exe()
         .map_err(|error| CliError::new(format!("resolve Engine binary: {error}")))?;
     let engine_hash = sha256_file(&engine_path)

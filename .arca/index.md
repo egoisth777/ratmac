@@ -20,8 +20,9 @@ see steering.md, Current sprint endpoint - the tree is the oracle.)
 
 ## Map - how ratmac hangs together
 
-Stamped cache - describes `079b4fc` plus t-055, surveyed 2026-07-28 from a
-read-only pass of src/ and test/. Refresh at each cycle close (gap check green).
+Stamped cache - describes `079b4fc` plus t-055 and t-056, surveyed 2026-07-28
+from a read-only pass of src/ and test/. Refresh at each cycle close (gap
+check green).
 
 ### Architecture
 
@@ -46,8 +47,10 @@ flowchart LR
 ### Binary
 
 `rtm` - hand-rolled CLI (`src/cli.rs`, no clap): `start`, `status`, `step`,
-`hold`, `abandon`, `doctor`. `doctor` is read-only and currently shallow
-(valid/INVALID through the real parser, no graph or guard lint - see Debts).
+`hold`, `abandon`, `doctor`. `doctor` is read-only and deep: parse, graph,
+guard lint, and ownership passes over `MachineClass`, one `RB*` finding per
+defect, `--json` for the finding list, and exit `0`/`1`/`2` for clean, warnings,
+errors. `rtm doctor <path>` diagnoses any runbook file.
 
 ### Modules (src/)
 
@@ -62,7 +65,8 @@ flowchart LR
 | `contract.rs` | Intake/record contract gates; hard-codes `.arca/issue`, `.arca/residual`, `.arca/ticket` (R-016 debt). |
 | `goal.rs` | Goal freeze and drift check (content hash of `.arca/goal/`). |
 | `blocked.rs` | Blocked-route handling; hard-codes `.arca` paths (R-016 debt). |
-| `ownership.rs` | PGE-004 ownership lint - written, library-only, wired to no CLI command. |
+| `ownership.rs` | PGE-004 ownership lint over prompts and guard contracts; the doctor's fourth pass. |
+| `doctor.rs` | DRD-001..007: findings as data. Diagnoses through `machine.rs` and never walks runbook TOML itself; owns the graph and guard-lint passes, the JSON rendering, and the exit-code mapping. |
 
 ### Runbook shape (`.arca/ratmac.toml`)
 
@@ -77,17 +81,15 @@ state.
 
 ### Tests
 
-`test/qa/` cargo crate, suites t011-t056. Wording surfaces (caller policy,
+`test/qa/` cargo crate, suites t011-t057. Wording surfaces (caller policy,
 schema rules) are asserted against `.arca/schema.md` and `AGENTS.md`. Hidden
 lane in `.arca-private/`, listed per ticket. Opt-in release lane:
 `RATMAC_RELEASE_ACCEPTANCE=1`.
 
 ### Debts (the current sprint targets these - steering.md)
 
-- `rtm doctor` validates the schema but not the graph; no reachability or
-  guard lint, no `--json`, no differentiated exit codes.
-- Errors are prose strings (no code, line, or span) - agents cannot repair
-  from them. `.arca/runbook-spec.md` fixes the `RB*` codes; nothing emits them.
+- Findings carry a location (`phase "build" guard 0`), never a line or span:
+  an agent repairs by name, not by cursor position.
 - No scaffold and no agent-facing authoring instructions: runbooks are still
   written by imitation.
 - R-016: `contract.rs`/`blocked.rs`/`goal.rs` bake in `.arca/*` paths.

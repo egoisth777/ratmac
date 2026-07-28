@@ -68,7 +68,7 @@ impl Project {
     fn rtm(&self, command: &str) -> String {
         let mut output = Vec::new();
         match cli::run_from(["rtm", command], &self.root, &mut output) {
-            Ok(()) => String::from_utf8_lossy(&output).into_owned(),
+            Ok(_) => String::from_utf8_lossy(&output).into_owned(),
             Err(error) => error.to_string(),
         }
     }

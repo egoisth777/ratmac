@@ -16,8 +16,16 @@ fn main() {
         let _ = writeln!(stderr, "rtm: unsupported command; invoke rtm");
         std::process::exit(1);
     }
-    if let Err(error) = ratmac::cli::run_from(args, project_root, &mut stdout) {
-        let _ = writeln!(stderr, "rtm: {error}");
-        std::process::exit(1);
+    match ratmac::cli::run_from(args, project_root, &mut stdout) {
+        Ok(0) => {}
+        // DRD-004: the diagnosis carries its verdict in the exit code.
+        Ok(code) => {
+            let _ = stdout.flush();
+            std::process::exit(code);
+        }
+        Err(error) => {
+            let _ = writeln!(stderr, "rtm: {error}");
+            std::process::exit(error.exit_code());
+        }
     }
 }

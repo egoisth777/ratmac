@@ -5,6 +5,7 @@ pub mod blocked;
 pub mod cli;
 pub mod completion;
 pub mod contract;
+pub mod doctor;
 pub mod goal;
 pub mod graph;
 pub mod machine;

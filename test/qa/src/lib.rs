@@ -5,6 +5,7 @@
 //! no fixture sharing.
 
 pub mod archive;
+pub mod json;
 pub mod policy;
 pub mod role;
 pub mod snapshot;

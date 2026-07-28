@@ -99,6 +99,7 @@ when any finding is an error.
 | `RB107` | error | A guard carries a field the selected kind does not accept. |
 | `RB108` | error | A transition endpoint names a Phase the runbook does not declare. |
 | `RB109` | error | `freeze` carries a value other than `"goal"`. |
+| `RB110` | error | A key carries a value of the wrong type. |
 | `RB201` | error | The runbook declares no Phases. |
 | `RB202` | error | No initial Phase: every Phase has an inbound ordinary transition. |
 | `RB203` | error | Several initial Phases: more than one Phase has no inbound ordinary transition. |
