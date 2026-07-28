@@ -68,3 +68,13 @@ Plain-word definitions for terms used in work with Billy. Consult this file befo
 - **Landing**: One committed change plus its log.md line — one commit = one landing = one log line. The smallest provable step. Inside a ticket, the red commit (tests exist, fail) and the green commit (all tests pass) are its two required landings. Lives in schema.md, "Units and git".
 - **Program lane**: Changes to what the program does (`src/`, tests, the runbook). Must enter the loop: issue → goal → residual → ticket. No program commit without a ticket. Lives in schema.md, "Units and git".
 - **Shop lane**: Changes to `.arca` docs (steering, schema, index, dict, tpl, vis). Lands directly — steering first on pivots — one log line per landing; issue creation is the stated exception. Lives in schema.md, "Units and git".
+- **Wish**: An idea parked with zero commitment; lives in wishlist.md. Cheap to write, allowed to rot — capture must cost less than forgetting.
+- **Wishlist**: The unordered pool of wishes; the capture side of planning. Write-cheap by design — opposite discipline from steering, which is write-expensive because everything on it must be chosen.
+- **Promotion**: The human act of choosing a wish onto steering's route. Never automated — this is where human judgment enters the pipeline.
+- **Demotion**: Explicitly returning a route item to wish status. Legal and healthy; keeps steering from accumulating unchosen "zombie" items that make the map lie.
+- **Hardening gradient**: The pipeline wish → route item → issue → goal → gap → ticket → landing. Each step hardens intent: maybe → chosen → specified → decided → measured → committed → done.
+- **Delta**: The change an issue states — authored intent, system-independent. The same issue reads identically against any codebase.
+- **Gap (residual)**: Derived measurement, goal minus current HEAD per requirement — system-relative, recomputed each planning pass, never archived as truth. Strictly contains the delta plus accommodation and contradiction-removal.
+- **Accommodation**: Work the current system needs so a delta can land without breaking invariants (seams, refactors, migrations, test infra). Visible only in the gap, never stated by the issue — why tickets are cut from gaps, not issues.
+- **Contradiction**: Existing behavior the target state forbids. Issues are written additively, so only the goal-vs-current diff surfaces the "stop doing Y" work.
+- **Drift**: The gap changing while issues sit still, as the system moves toward or away from the goal. Why gaps must be re-measured every planning pass.
