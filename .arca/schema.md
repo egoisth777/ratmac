@@ -63,6 +63,27 @@ An unanswered question pauses only the piece that needs it, never the whole.
 | `fixture_setup`              | Copies of test data in a temp folder, kept separate per test; none when not needed.            |
 | `private_artifact_root` (hidden tests) | `.arca-private/` (kept out of git), created when first needed.                       |
 
+## Units and git
+
+One commit = one landing = one log.md line. A landing is the smallest provable step; its log line cites the
+short hash. Larger units line up with git like this:
+
+| Unit        | Git shape                                              | Link                                                                                 |
+| :---------- | :----------------------------------------------------- | :----------------------------------------------------------------------------------- |
+| Landing     | one commit                                             | one log.md line citing the short hash                                                |
+| Ticket      | a contiguous run of commits ending green               | commits prefixed `t-<id>:`; the ticket file records its final hash. The red commit (tests exist, fail) and the green commit (all pass) are its two required landings |
+| Goal freeze | a recorded HEAD hash of `.arca/goal/`                  | the freeze note (see Defaults) — writing it IS the freeze                            |
+| Residual    | none — a judgment about a frozen HEAD                  | cites commit hashes as evidence                                                      |
+| Sprint      | trunk from the freeze HEAD to the clean-gap-check commit | —                                                                                  |
+| Issue       | none — issues precede code                             | folded in at the next planning pass                                                  |
+
+Two lanes decide what must enter the loop:
+
+- **Program lane** — anything changing what the program does (`src/`, tests, the runbook): no commit without
+  a ticket. Work enters as issue → goal → residual → ticket.
+- **Shop lane** — `.arca` docs (steering, schema, index, dict, tpl, vis): lands directly, steering first on
+  pivots, one log line per landing (issue creation excepted — see "The issue folder").
+
 # The work — one straight pass, then a loop
 
 The work has two parts with different shapes:
