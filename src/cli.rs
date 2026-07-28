@@ -283,7 +283,9 @@ fn doctor<W: Write>(project_root: &Path, writer: &mut W) -> Result<(), CliError>
 
     if runbook_path.is_file() {
         match std::fs::read_to_string(&runbook_path) {
-            Ok(source) => match source.parse::<toml::Value>() {
+            // TRP-001: the doctor judges the runbook with the parser that runs
+            // it, never with a looser second reader.
+            Ok(source) => match crate::machine::MachineClass::from_toml(&source) {
                 Ok(_) => writeln!(writer, "Runbook: .arca/ratmac.toml (valid)")?,
                 Err(error) => writeln!(writer, "Runbook: .arca/ratmac.toml (INVALID: {error})")?,
             },

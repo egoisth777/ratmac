@@ -20,17 +20,16 @@ see steering.md, Current sprint endpoint - the tree is the oracle.)
 
 ## Map - how ratmac hangs together
 
-Stamped cache - describes `debace8`, surveyed 2026-07-27 from a read-only
-pass of src/ and test/. Refresh at each cycle close (gap check green).
+Stamped cache - describes `079b4fc` plus t-055, surveyed 2026-07-28 from a
+read-only pass of src/ and test/. Refresh at each cycle close (gap check green).
 
 ### Architecture
 
 ```mermaid
 flowchart LR
     CLI["rtm CLI<br/>cli.rs"] --> SCH["scheduler.rs<br/>run lifecycle + guard dispatch"]
-    RB[".arca/ratmac.toml<br/>runbook - plain TOML data"] --> MC["machine.rs<br/>MachineClass::from_toml<br/>schema boundary"]
+    RB[".arca/ratmac.toml<br/>runbook - plain TOML data"] --> MC["machine.rs<br/>MachineClass::from_toml<br/>the one reader - typed GuardKind"]
     MC --> SCH
-    RB -. "re-parsed raw for guards + prompts<br/>(two-parser debt)" .-> SCH
     SCH <--> ST["model.rs<br/>.arca/state.toml"]
     SCH --> G{{guard dispatch}}
     G --> PIN["pin.rs<br/>command_exit - pinned, ETB-001"]
@@ -48,14 +47,14 @@ flowchart LR
 
 `rtm` - hand-rolled CLI (`src/cli.rs`, no clap): `start`, `status`, `step`,
 `hold`, `abandon`, `doctor`. `doctor` is read-only and currently shallow
-(bare TOML syntax check, not the real parser - see Debts).
+(valid/INVALID through the real parser, no graph or guard lint - see Debts).
 
 ### Modules (src/)
 
 | Module | Role |
 | :--- | :--- |
-| `machine.rs` | `MachineClass::from_toml` - the whole runbook schema boundary; hand-rolled over `toml::Value`, no serde. Rejects unknown keys (R-011) and `status` anywhere (R-002/R-003). Discards guards (see Debts). |
-| `scheduler.rs` | Run lifecycle. Re-reads `.arca/ratmac.toml` on every open/start/step/status and rebuilds the graph - fully data-driven, no phase names in src/. Guard dispatch lives here. |
+| `machine.rs` | `MachineClass::from_toml` - the whole runbook schema boundary and its only reader; hand-rolled over `toml::Value`, no serde. Rejects unknown keys (R-011), `status` anywhere (R-002/R-003), unknown guard kinds and wrong-field-for-kind (TRP-002/TRP-003). Retains every guard as a typed `GuardKind`. |
+| `scheduler.rs` | Run lifecycle. Loads the typed class on every open/start/step/status and rebuilds the graph - fully data-driven, no phase names in src/. Guard dispatch matches on `GuardKind`. |
 | `model.rs` | serde structs for `RunState`/`Status` (`.arca/state.toml`). |
 | `pin.rs` | ETB-001: command guards run pinned code unless `exempt = true`. |
 | `receipt.rs` | Sensitivity receipts; digests re-derived, self-verifying. |
@@ -78,22 +77,19 @@ state.
 
 ### Tests
 
-`test/qa/` cargo crate, suites t011-t054. Wording surfaces (caller policy,
+`test/qa/` cargo crate, suites t011-t056. Wording surfaces (caller policy,
 schema rules) are asserted against `.arca/schema.md` and `AGENTS.md`. Hidden
 lane in `.arca-private/`, listed per ticket. Opt-in release lane:
 `RATMAC_RELEASE_ACCEPTANCE=1`.
 
 ### Debts (the current sprint targets these - steering.md)
 
-- Two parsers over one file: `MachineClass` discards guards; the scheduler
-  re-parses raw TOML for guard evaluation and prompt rendering.
-- `rtm doctor` validates syntax, not schema; no graph checks, no guard lint,
-  no `--json`, no differentiated exit codes.
-- Missing runbook yields a silent empty graph instead of a named refusal.
-- Guard keys are one flat allowlist across all kinds - wrong-field-for-kind
-  parses cleanly and fails only at step time.
+- `rtm doctor` validates the schema but not the graph; no reachability or
+  guard lint, no `--json`, no differentiated exit codes.
 - Errors are prose strings (no code, line, or span) - agents cannot repair
-  from them.
+  from them. `.arca/runbook-spec.md` fixes the `RB*` codes; nothing emits them.
+- No scaffold and no agent-facing authoring instructions: runbooks are still
+  written by imitation.
 - R-016: `contract.rs`/`blocked.rs`/`goal.rs` bake in `.arca/*` paths.
 
 ## Read next

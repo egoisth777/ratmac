@@ -89,32 +89,25 @@ pub fn runbook_instructions(class_path: &Path) -> Vec<Instruction> {
     let Ok(source) = fs::read_to_string(class_path) else {
         return Vec::new();
     };
-    let Ok(document) = source.parse::<toml::Value>() else {
+    // TRP-001: one reader. The audit sees the guards the Scheduler will
+    // evaluate, not a looser re-reading of the same file.
+    let Ok(class) = crate::machine::MachineClass::from_toml(&source) else {
         return Vec::new();
     };
     let mut instructions = Vec::new();
-    let Some(phases) = document.get("phases").and_then(toml::Value::as_table) else {
-        return instructions;
-    };
-    for (name, phase) in phases {
-        if let Some(prompt) = phase.get("prompt").and_then(toml::Value::as_str) {
-            instructions.push(Instruction {
-                source: format!("{shown} [phases.{name}] prompt"),
-                text: prompt.to_owned(),
-            });
-        }
-        let guards = phase
-            .get("guards")
-            .and_then(toml::Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        for (index, guard) in guards.iter().enumerate() {
+    for (name, phase) in class.phases() {
+        instructions.push(Instruction {
+            source: format!("{shown} [phases.{name}] prompt"),
+            text: phase.prompt().to_owned(),
+        });
+        for (index, guard) in phase.guards().iter().enumerate() {
             // A gate contract that points at a Scheduler-owned path makes the
             // agent responsible for it just as surely as a prompt sentence.
-            let target = guard
-                .get("path")
-                .and_then(toml::Value::as_str)
-                .unwrap_or_default();
+            let target = match guard {
+                crate::machine::GuardKind::FilesExact { path, .. }
+                | crate::machine::GuardKind::FileContains { path, .. } => path.as_str(),
+                _ => "",
+            };
             if !target.is_empty() {
                 instructions.push(Instruction {
                     source: format!("{shown} [phases.{name}] guard {index} path"),

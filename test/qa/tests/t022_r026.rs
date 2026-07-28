@@ -282,8 +282,10 @@ fn status_on_missing_arca_does_not_create_metadata() {
         nonce
     ));
     fs::create_dir_all(&project).expect("create project without .arca");
-    let scheduler = Scheduler::open(&project).expect("open project without metadata");
-    assert!(scheduler.status().is_err());
+    // TRP-005: a project with no runbook refuses where the runbook is read;
+    // R-026 still holds - the refusal creates no metadata.
+    let error = Scheduler::open(&project).expect_err("a project without metadata has no machine");
+    assert!(error.to_string().contains("ratmac.toml"));
     assert!(!project.join(".arca").exists());
     fs::remove_dir_all(project).expect("clean missing-metadata project");
 }

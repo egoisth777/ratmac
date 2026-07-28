@@ -14,6 +14,7 @@
 //! document may not invent a kind, and no other live `.arca/` document may
 //! define one.
 
+use ratmac::machine::GuardKind;
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -73,37 +74,33 @@ fn backticked(cell: &str) -> BTreeSet<String> {
     found
 }
 
-/// The kinds the Engine actually dispatches, read from the guard dispatch in
-/// `src/scheduler.rs`. Source-derived on purpose: the specification must agree
-/// with the code, not with a copy of itself kept in the test.
+/// The guard kinds the Engine accepts, taken from the Engine itself. Since
+/// t-055 the vocabulary is a closed type, so the list is that type's - and the
+/// parser must build every name on it, or the scrape below says so.
 fn engine_guard_kinds() -> BTreeSet<String> {
-    let source =
-        fs::read_to_string(repo_root().join("src/scheduler.rs")).expect("read src/scheduler.rs");
-    let marker = "let result = match kind {";
-    let start = source
-        .find(marker)
-        .expect("the scheduler must dispatch guards by kind");
-    let rest = &source[start + marker.len()..];
-    let end = rest
-        .find("unsupported => Err(")
-        .expect("the dispatch must end with the unsupported arm");
-    let mut kinds = BTreeSet::new();
-    for line in rest[..end].lines() {
-        let line = line.trim();
-        let Some(quoted) = line.strip_prefix('"') else {
-            continue;
-        };
-        let Some(close) = quoted.find('"') else {
-            continue;
-        };
-        if quoted[close + 1..].trim_start().starts_with("=>") {
-            kinds.insert(quoted[..close].to_owned());
-        }
-    }
+    let kinds = GuardKind::VOCABULARY
+        .iter()
+        .map(|kind| (*kind).to_owned())
+        .collect::<BTreeSet<_>>();
     assert!(
         kinds.len() >= 5,
-        "the dispatch scrape found only {kinds:?}; the scrape, not the guard set, is broken"
+        "the Engine must declare a guard vocabulary, found {kinds:?}"
     );
+    let parser = fs::read_to_string(repo_root().join("src/machine.rs")).expect("read machine.rs");
+    let built = parser
+        .split("fn parse_guard(")
+        .nth(1)
+        .expect("machine.rs must parse guards into the closed type");
+    for kind in &kinds {
+        assert!(
+            built.contains(&format!("\"{kind}\" =>")) || built.contains(&format!("\"{kind}\" |")),
+            "RBS-002: the parser must build every kind in the vocabulary; {kind:?} is unbuilt"
+        );
+        assert!(
+            GuardKind::accepted_fields(kind).is_some(),
+            "RBS-002: every kind in the vocabulary must declare its fields; {kind:?} does not"
+        );
+    }
     kinds
 }
 

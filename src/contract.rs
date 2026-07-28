@@ -382,29 +382,16 @@ pub fn unproven_mechanization(root: &Path) -> Vec<ContractDefect> {
 
 /// Every guard kind the project's Runbook declares.
 fn declared_gate_kinds(root: &Path) -> BTreeSet<String> {
-    let mut kinds = BTreeSet::new();
-    let Ok(source) = fs::read_to_string(root.join(".arca/ratmac.toml")) else {
-        return kinds;
+    // TRP-001: the contract gate asks the parser what the runbook declares.
+    let Ok(class) = crate::machine::MachineClass::load_from_project_root(root) else {
+        return BTreeSet::new();
     };
-    let Ok(document) = source.parse::<toml::Value>() else {
-        return kinds;
-    };
-    let Some(phases) = document.get("phases").and_then(toml::Value::as_table) else {
-        return kinds;
-    };
-    for phase in phases.values() {
-        let guards = phase
-            .get("guards")
-            .and_then(toml::Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        for guard in guards {
-            if let Some(kind) = guard.get("kind").and_then(toml::Value::as_str) {
-                kinds.insert(kind.to_owned());
-            }
-        }
-    }
-    kinds
+    class
+        .phases()
+        .values()
+        .flat_map(|phase| phase.guards())
+        .map(|guard| guard.name().to_owned())
+        .collect()
 }
 
 /// Direct (non-archived) issue folders.

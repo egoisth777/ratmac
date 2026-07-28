@@ -443,6 +443,8 @@ mod t007_state_file {
     fn test_state_file_records_blocked_and_blocker_fields() {
         let project = IsolatedProject::new();
         fs::create_dir_all(project.root().join(".arca")).expect("create state directory");
+        // TRP-005: a Scheduler opens against a declared Machine Class or not at all.
+        install_machine_class(&project);
         let mut scheduler = scheduler(&project);
         let expected = fixture_state(BLOCKED_STATE);
 
@@ -527,7 +529,7 @@ mod t007_state_file {
         assert!(output.contains("Blocker:"));
         assert!(output.contains("input_revision"));
         assert!(output.contains("pending guard: files_exact"));
-        assert!(output.contains("pending guard: cmd"));
+        assert!(output.contains("pending guard: command_exit"));
     }
 }
 
@@ -905,18 +907,17 @@ to = "missing"
             "phase = \"prepare\"\nstatus = \"executing\"\ngoal_revision = \"\"\ninput_revision = \"\"\noutput_revision = \"\"\nactive_refs = []\nblocker = \"\"\n",
         )
         .unwrap();
-        let scheduler = Scheduler::open(&root).unwrap();
-        assert!(scheduler.status().is_err());
+        // TRP-005: the refusal now happens where the runbook is read - at open -
+        // instead of yielding an empty machine that fails later.
+        let error = Scheduler::open(&root).expect_err("status must reject a missing class");
+        assert!(error.to_string().contains("ratmac.toml"));
         let _ = fs::remove_dir_all(root);
     }
     #[test]
     fn test_start_with_missing_class_is_actionable_error() {
         let root = revalidation_project();
         fs::remove_file(root.join(".arca/ratmac.toml")).unwrap();
-        let mut scheduler = Scheduler::open(&root).unwrap();
-        let error = scheduler
-            .start()
-            .expect_err("start must reject missing ratmac");
+        let error = Scheduler::open(&root).expect_err("start must reject missing ratmac");
         assert!(error.to_string().to_ascii_lowercase().contains("ratmac"));
         let _ = fs::remove_dir_all(root);
     }

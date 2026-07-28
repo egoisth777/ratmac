@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::thread;
 
 use crate::graph::{MachineGraph, Phase};
-use crate::machine::MachineClass;
+use crate::machine::{GuardKind, MachineClass};
 use crate::model::{Run, RunState, Status};
 use crate::state::{PhasePrompt, StateError, StateStore, StatusReport};
 
@@ -189,7 +189,7 @@ impl Scheduler {
     /// Open a project without creating or modifying any scheduler-owned file.
     pub fn open(root: impl AsRef<Path>) -> Result<Self, StateError> {
         let root = root.as_ref().to_path_buf();
-        let machine = Self::load_machine(&root)?;
+        let machine = Self::graph_of(&Self::load_class(&root)?);
         Ok(Self {
             machine,
             store: Some(StateStore::new(&root)),
@@ -197,27 +197,23 @@ impl Scheduler {
         })
     }
 
-    fn read_machine_source(root: &Path) -> Result<String, StateError> {
-        fs::read_to_string(root.join(".arca/ratmac.toml"))
-            .map_err(|error| StateError::new(format!("read ratmac.toml: {error}")))
+    /// TRP-001, TRP-005: the one reader. An absent or unreadable runbook is a
+    /// refusal that names the path, never an empty machine.
+    fn load_class(root: &Path) -> Result<MachineClass, StateError> {
+        let path = root.join(".arca/ratmac.toml");
+        let source = fs::read_to_string(&path).map_err(|error| {
+            StateError::new(format!(
+                "read .arca/ratmac.toml: {error} ({})",
+                path.display()
+            ))
+        })?;
+        MachineClass::from_toml(&source)
+            .map_err(|error| StateError::new(format!("parse .arca/ratmac.toml: {error}")))
     }
 
-    fn machine_from_source(source: &str) -> Result<MachineGraph, StateError> {
-        let class = MachineClass::from_toml(source)
-            .map_err(|error| StateError::new(format!("parse ratmac.toml: {error}")))?;
+    fn graph_of(class: &MachineClass) -> MachineGraph {
         let phases = class.phases().keys().map(Phase::new).collect::<Vec<_>>();
-        Ok(MachineGraph::new(phases, class.transitions().to_vec()))
-    }
-
-    fn load_machine(root: &Path) -> Result<MachineGraph, StateError> {
-        let class_path = root.join(".arca/ratmac.toml");
-        match fs::read_to_string(class_path) {
-            Ok(source) => Self::machine_from_source(&source),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                Ok(MachineGraph::default())
-            }
-            Err(error) => Err(StateError::new(format!("read ratmac.toml: {error}"))),
-        }
+        MachineGraph::new(phases, class.transitions().to_vec())
     }
 
     pub fn machine(&self) -> &MachineGraph {
@@ -234,8 +230,7 @@ impl Scheduler {
             .as_ref()
             .ok_or_else(|| StateError::new("start requires Scheduler::open"))?
             .clone();
-        let source = Self::read_machine_source(&root)?;
-        self.machine = Self::machine_from_source(&source)?;
+        self.machine = Self::graph_of(&Self::load_class(&root)?);
         let phase = self.initial_phase()?;
         let arca = root.join(".arca");
         fs::create_dir_all(&arca)
@@ -314,8 +309,8 @@ impl Scheduler {
             .clone();
         let lock_path = root.join(".arca/rtm.lock");
         let _lock = InvocationLock::acquire_with_retry(&lock_path)?;
-        let source = Self::read_machine_source(&root)?;
-        self.machine = Self::machine_from_source(&source)?;
+        let class = Self::load_class(&root)?;
+        self.machine = Self::graph_of(&class);
         let state = self.load_state_unlocked()?;
         let state_phase = state.phase.clone();
         if !self
@@ -327,7 +322,7 @@ impl Scheduler {
                 "State File phase {state_phase:?} is undeclared in ratmac.toml"
             )));
         }
-        let mut failures = self.files_exact_failures(&state.phase, &source)?;
+        let mut failures = self.guard_failures(&class, &state.phase)?;
         // ETB-003: between the freeze and batch closure, the goal is fixed.
         // The drift check is appended rather than short-circuited so a guard
         // refusal and a drift refusal are reported in the same reply.
@@ -441,10 +436,12 @@ impl Scheduler {
         Ok(StepOutcome::Advanced { from, to })
     }
 
-    fn files_exact_failures(
+    /// TRP-001, TRP-004: evaluate the Phase's retained guards, in declaration
+    /// order, from the typed class - no second walk over runbook TOML.
+    fn guard_failures(
         &self,
+        class: &MachineClass,
         phase: &str,
-        source: &str,
     ) -> Result<Vec<GuardFailure>, StateError> {
         let root = match self.root.as_ref() {
             Some(root) => root,
@@ -457,26 +454,7 @@ impl Scheduler {
                 )])
             }
         };
-        let document: toml::Value = match source.parse() {
-            Ok(document) => document,
-            Err(error) => {
-                return Ok(vec![guard_failure(
-                    "ratmac",
-                    ".arca/ratmac.toml",
-                    error.to_string(),
-                    "valid TOML",
-                )])
-            }
-        };
-        let Some(phases) = document.get("phases").and_then(toml::Value::as_table) else {
-            return Ok(vec![guard_failure(
-                "ratmac",
-                "phases",
-                "missing phases table",
-                "phase guard declarations",
-            )]);
-        };
-        let Some(definition) = phases.get(phase).and_then(toml::Value::as_table) else {
+        let Some(definition) = class.phases().get(phase) else {
             return Ok(vec![guard_failure(
                 "ratmac",
                 phase,
@@ -484,63 +462,38 @@ impl Scheduler {
                 "current Phase definition",
             )]);
         };
-        let Some(guards) = definition.get("guards") else {
-            return Ok(Vec::new());
-        };
-        let Some(guards) = guards.as_array() else {
-            return Ok(vec![guard_failure(
-                "malformed",
-                phase,
-                "guards is not an array",
-                "array of guard tables",
-            )]);
-        };
 
         let mut failures = Vec::new();
-        for guard in guards {
-            let Some(table) = guard.as_table() else {
-                failures.push(guard_failure(
-                    "malformed",
-                    phase,
-                    "guard is not a table",
-                    "guard table with kind",
-                ));
-                continue;
-            };
-            let Some(kind) = table.get("kind").and_then(toml::Value::as_str) else {
-                failures.push(guard_failure(
-                    "malformed",
-                    phase,
-                    "missing guard kind",
-                    "files_exact, file_contains, command_exit, sensitivity_receipts, completion_gate, intake_contract, or record_contract",
-                ));
-                continue;
-            };
-            let result = match kind {
-                "files_exact" => self.evaluate_files_exact(root, table),
-                "file_contains" => self.evaluate_file_contains(root, table),
-                "command_exit" => self.evaluate_command_exit(root, table),
-                "sensitivity_receipts" => self.evaluate_sensitivity_receipts(root, table),
-                "completion_gate" => self.evaluate_completion_gate(root, table),
-                "intake_contract" => self.evaluate_contract(
+        for guard in definition.guards() {
+            let result = match guard {
+                GuardKind::FilesExact {
+                    path,
+                    entries,
+                    files,
+                } => self.evaluate_files_exact(root, path, entries.as_deref(), files.as_deref()),
+                GuardKind::FileContains { path, contains } => {
+                    self.evaluate_file_contains(root, path, contains)
+                }
+                GuardKind::CommandExit {
+                    program,
+                    args,
+                    expected,
+                    exempt,
+                } => self.evaluate_command_exit(root, program, args, *expected, *exempt),
+                GuardKind::SensitivityReceipts { ticket } => {
+                    self.evaluate_sensitivity_receipts(root, ticket)
+                }
+                GuardKind::CompletionGate { ticket } => self.evaluate_completion_gate(root, ticket),
+                GuardKind::IntakeContract => self.evaluate_contract(
                     "intake_contract",
                     crate::contract::gate_intake(root),
                     "every issue integrated or rejected, five-file shape intact, requirement IDs in the goal, links resolving",
                 ),
-                "record_contract" => self.evaluate_contract(
+                GuardKind::RecordContract => self.evaluate_contract(
                     "record_contract",
                     crate::contract::gate_records(root),
                     "one residual per requirement citing the frozen revision, evidence behind every satisfied, one owning ticket per gap, acyclic dependencies, complete tickets",
                 ),
-                unsupported => Err(guard_failure(
-                    unsupported,
-                    table
-                        .get("path")
-                        .and_then(toml::Value::as_str)
-                        .unwrap_or(phase),
-                    "unsupported guard kind",
-                    "files_exact, file_contains, command_exit, sensitivity_receipts, completion_gate, intake_contract, or record_contract",
-                )),
             };
             if let Err(failure) = result {
                 failures.push(failure);
@@ -554,22 +507,7 @@ impl Scheduler {
     /// filenames, and status fields satisfy nothing. The predicate runs
     /// in-process, inside the pinned gate boundary, so no external program is
     /// trusted to decide whether the work was done.
-    fn evaluate_sensitivity_receipts(
-        &self,
-        root: &Path,
-        table: &toml::map::Map<String, toml::Value>,
-    ) -> Result<(), GuardFailure> {
-        let ticket = table
-            .get("ticket")
-            .and_then(toml::Value::as_str)
-            .ok_or_else(|| {
-                guard_failure(
-                    "sensitivity_receipts",
-                    "ticket",
-                    "missing ticket path",
-                    "ticket = \"<path to the ticket file>\"",
-                )
-            })?;
+    fn evaluate_sensitivity_receipts(&self, root: &Path, ticket: &str) -> Result<(), GuardFailure> {
         crate::receipt::gate_sensitivity(root, ticket).map_err(|defects| {
             let observed = defects
                 .iter()
@@ -589,22 +527,7 @@ impl Scheduler {
     /// carry a green, fresh, self-consistent completion receipt. The gate
     /// verifies receipts rather than running the checks, because ETB-001
     /// forbids rebuilding project source at evaluation time.
-    fn evaluate_completion_gate(
-        &self,
-        root: &Path,
-        table: &toml::map::Map<String, toml::Value>,
-    ) -> Result<(), GuardFailure> {
-        let ticket = table
-            .get("ticket")
-            .and_then(toml::Value::as_str)
-            .ok_or_else(|| {
-                guard_failure(
-                    "completion_gate",
-                    "ticket",
-                    "missing ticket path",
-                    "ticket = \"<path to the ticket file>\"",
-                )
-            })?;
+    fn evaluate_completion_gate(&self, root: &Path, ticket: &str) -> Result<(), GuardFailure> {
         crate::completion::gate_completion(root, ticket).map_err(|defects| {
             let observed = defects
                 .iter()
@@ -641,13 +564,11 @@ impl Scheduler {
     fn evaluate_files_exact(
         &self,
         root: &Path,
-        table: &toml::map::Map<String, toml::Value>,
+        path: &str,
+        entries: Option<&[String]>,
+        files: Option<&[String]>,
     ) -> Result<(), GuardFailure> {
-        let path = required_string(table, "path", "files_exact")?;
-        reject_guard_keys(table, &["kind", "path", "entries", "files"], path)?;
-        let entries_value = table.get("entries");
-        let files_value = table.get("files");
-        let entries = match (entries_value, files_value) {
+        let entries = match (entries, files) {
             (Some(entries), Some(files)) if entries != files => {
                 return Err(guard_failure(
                     "files_exact",
@@ -667,26 +588,9 @@ impl Scheduler {
                 Err(guard_failure("files_exact", path, "missing", "path exists"))
             };
         };
-        let Some(entries) = entries.as_array() else {
-            return Err(guard_failure(
-                "files_exact",
-                path,
-                "entries/files is not an array",
-                "array of string entry names",
-            ));
-        };
-        if entries.iter().any(|entry| !entry.is_str()) {
-            return Err(guard_failure(
-                "files_exact",
-                path,
-                "entries/files contains a non-string",
-                "array of string entry names",
-            ));
-        }
         let expected = entries
             .iter()
-            .filter_map(toml::Value::as_str)
-            .map(str::to_owned)
+            .cloned()
             .collect::<std::collections::BTreeSet<_>>();
         if !target.is_dir() {
             return Err(guard_failure(
@@ -727,21 +631,9 @@ impl Scheduler {
     fn evaluate_file_contains(
         &self,
         root: &Path,
-        table: &toml::map::Map<String, toml::Value>,
+        path: &str,
+        contains: &str,
     ) -> Result<(), GuardFailure> {
-        let path = required_string(table, "path", "file_contains")?;
-        reject_guard_keys(table, &["kind", "path", "contains"], path)?;
-        let contains = table
-            .get("contains")
-            .and_then(toml::Value::as_str)
-            .ok_or_else(|| {
-                guard_failure(
-                    "file_contains",
-                    path,
-                    "missing or non-string contains",
-                    "string content",
-                )
-            })?;
         let target = guarded_target(root, path, "file_contains")?;
         let source = fs::read_to_string(&target).map_err(|error| {
             guard_failure("file_contains", path, error.to_string(), "readable file")
@@ -761,54 +653,12 @@ impl Scheduler {
     fn evaluate_command_exit(
         &self,
         root: &Path,
-        table: &toml::map::Map<String, toml::Value>,
+        program: &str,
+        args: &[String],
+        expected: i64,
+        exempt: bool,
     ) -> Result<(), GuardFailure> {
-        let program = required_string(table, "program", "command_exit")?;
-        reject_guard_keys(
-            table,
-            &["kind", "program", "args", "expected", "exempt"],
-            program,
-        )?;
-        let args = match table.get("args") {
-            Some(value) => {
-                let Some(args) = value.as_array() else {
-                    return Err(guard_failure(
-                        "command_exit",
-                        program,
-                        "args is not an array",
-                        "array of strings",
-                    ));
-                };
-                let Some(args) = args
-                    .iter()
-                    .map(toml::Value::as_str)
-                    .collect::<Option<Vec<_>>>()
-                else {
-                    return Err(guard_failure(
-                        "command_exit",
-                        program,
-                        "args contains a non-string",
-                        "array of strings",
-                    ));
-                };
-                args
-            }
-            None => Vec::new(),
-        };
-        let Some(expected) = table.get("expected").and_then(toml::Value::as_integer) else {
-            return Err(guard_failure(
-                "command_exit",
-                program,
-                "missing or non-integer expected",
-                "integer exit code",
-            ));
-        };
-        // ETB-001: a probe that reads no project state must say so; every
-        // other command guard runs a pinned gate artifact.
-        let exempt = table
-            .get("exempt")
-            .and_then(toml::Value::as_bool)
-            .unwrap_or(false);
+        let args = args.iter().map(String::as_str).collect::<Vec<_>>();
         if let Some(reason) = crate::pin::build_invocation_reason(program, &args) {
             return Err(guard_failure(
                 "command_exit",
@@ -991,8 +841,8 @@ impl Scheduler {
             .root
             .as_ref()
             .ok_or_else(|| StateError::new("status requires Scheduler::open"))?;
-        let source = Self::read_machine_source(root)?;
-        let machine = Self::machine_from_source(&source)?;
+        let class = Self::load_class(root)?;
+        let machine = Self::graph_of(&class);
         let state = self.load_state_unlocked()?;
         if !machine.phases().any(|phase| phase.as_str() == state.phase) {
             return Err(StateError::new(format!(
@@ -1000,8 +850,8 @@ impl Scheduler {
                 state.phase
             )));
         }
-        let pending_guards = self.pending_guard_labels(&state.phase, &source)?;
-        let phase_prompt = self.render_phase_prompt(&state.phase, &source)?;
+        let pending_guards = Self::pending_guard_labels(&class, &state.phase);
+        let phase_prompt = Self::render_phase_prompt(&class, &state.phase)?;
         Ok(StatusReport {
             state,
             pending_guards,
@@ -1009,43 +859,26 @@ impl Scheduler {
         })
     }
 
-    fn render_phase_prompt(&self, phase: &str, source: &str) -> Result<PhasePrompt, StateError> {
-        let document: toml::Value = source
-            .parse()
-            .map_err(|error| StateError::new(format!("invalid ratmac.toml: {error}")))?;
-        let definition = document
-            .get("phases")
-            .and_then(toml::Value::as_table)
-            .and_then(|phases| phases.get(phase))
-            .and_then(toml::Value::as_table)
+    /// R-028: the Phase Prompt is the authored prose plus the generated list of
+    /// this Phase's Exit Guards - rendered from the typed guards, so what the
+    /// agent reads is what the Scheduler will evaluate.
+    fn render_phase_prompt(class: &MachineClass, phase: &str) -> Result<PhasePrompt, StateError> {
+        let definition = class
+            .phases()
+            .get(phase)
             .ok_or_else(|| StateError::new(format!("missing phase definition: {phase}")))?;
-        let prose = definition
-            .get("prompt")
-            .and_then(toml::Value::as_str)
-            .ok_or_else(|| StateError::new(format!("missing string prompt for phase: {phase}")))?;
-        let guards = definition.get("guards").and_then(toml::Value::as_array);
-        let mut rendered = prose.to_owned();
-        if let Some(guards) = guards.filter(|guards| !guards.is_empty()) {
+        let mut rendered = definition.prompt().to_owned();
+        let guards = definition.guards();
+        if !guards.is_empty() {
             rendered.push_str("\n\nExit Guards:\n");
             for guard in guards {
-                let table = guard.as_table().ok_or_else(|| {
-                    StateError::new(format!("invalid guard for phase {phase}: expected a table"))
-                })?;
-                let kind = table
-                    .get("kind")
-                    .and_then(toml::Value::as_str)
-                    .unwrap_or("unknown");
                 rendered.push_str("- ");
-                rendered.push_str(kind);
-                for key in [
-                    "path", "entries", "files", "contains", "program", "args", "expected",
-                ] {
-                    if let Some(value) = table.get(key) {
-                        rendered.push(' ');
-                        rendered.push_str(key);
-                        rendered.push('=');
-                        rendered.push_str(&value.to_string());
-                    }
+                rendered.push_str(guard.name());
+                for (key, value) in guard.rendered_fields() {
+                    rendered.push(' ');
+                    rendered.push_str(key);
+                    rendered.push('=');
+                    rendered.push_str(&value);
                 }
                 rendered.push('\n');
             }
@@ -1054,24 +887,17 @@ impl Scheduler {
         Ok(PhasePrompt::new(rendered))
     }
 
-    fn pending_guard_labels(&self, phase: &str, source: &str) -> Result<Vec<String>, StateError> {
-        let document: toml::Value = source
-            .parse()
-            .map_err(|error| StateError::new(format!("invalid ratmac.toml: {error}")))?;
-        let guards = document
-            .get("phases")
-            .and_then(toml::Value::as_table)
-            .and_then(|phases| phases.get(phase))
-            .and_then(toml::Value::as_table)
-            .and_then(|definition| definition.get("guards"))
-            .and_then(toml::Value::as_array);
-
-        Ok(guards
-            .into_iter()
-            .flatten()
-            .filter_map(|guard| guard.get("kind").and_then(toml::Value::as_str))
-            .map(str::to_owned)
-            .collect())
+    fn pending_guard_labels(class: &MachineClass, phase: &str) -> Vec<String> {
+        class
+            .phases()
+            .get(phase)
+            .map_or_else(Vec::new, |definition| {
+                definition
+                    .guards()
+                    .iter()
+                    .map(|guard| guard.name().to_owned())
+                    .collect()
+            })
     }
 }
 
@@ -1168,37 +994,4 @@ fn guard_failure(
         expected,
         name,
     }
-}
-
-fn required_string<'a>(
-    table: &'a toml::map::Map<String, toml::Value>,
-    key: &str,
-    kind: &str,
-) -> Result<&'a str, GuardFailure> {
-    table
-        .get(key)
-        .and_then(toml::Value::as_str)
-        .ok_or_else(|| guard_failure(kind, key, format!("missing or non-string {key}"), "string"))
-}
-
-fn reject_guard_keys(
-    table: &toml::map::Map<String, toml::Value>,
-    allowed: &[&str],
-    path: &str,
-) -> Result<(), GuardFailure> {
-    if let Some(unknown) = table
-        .keys()
-        .find(|key| !allowed.iter().any(|allowed| allowed == key))
-    {
-        return Err(guard_failure(
-            table
-                .get("kind")
-                .and_then(toml::Value::as_str)
-                .unwrap_or("malformed"),
-            path,
-            format!("unsupported guard key {unknown}"),
-            format!("keys {allowed:?}"),
-        ));
-    }
-    Ok(())
 }
