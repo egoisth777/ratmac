@@ -102,6 +102,28 @@ loop knows when it is finished.
 touch the goal. Write a **new issue** into `.arca/issue/`. It gets folded in on the next planning pass. From
 the moment the goal is frozen until the last ticket is done, the goal does not move.
 
+## Steering layers
+
+`.arca/steering.md` binds by three layers, hardness strictly increasing top to bottom; each carries its own
+update clock:
+
+- **Authored identity** — What we are building, Thesis, Invariants, Non-goals. Changes only on a pivot and
+  lands **first**, before any dependent change in `.arca/goal/`, `.arca/issue/`, `.arca/ticket/` (see Units
+  and git, shop lane).
+- **Horizon** (forecast) — an authored ordering of directions beyond the current sprint, in direction/wish/
+  issue terms only: no ticket terms, nothing executable. Binds nothing; nothing in it is chosen; no work is
+  ever cut straight from it — an item is chosen only by going through P1 like any other issue, never by
+  promoting a horizon item in place. Revised freely at any time; its natural moment is right after each P1
+  close, once landings have re-priced the pool.
+- **Current sprint** (derived) — written at exactly one moment: P1 close, after human dispositions sign the
+  batch and the goal absorbs it. Regenerated wholesale from the accepted issue set; incremental hand-edits
+  are forbidden (a hand-patched derived record is authored narration in costume). Carries a freeze stamp —
+  goal git HEAD + the P1 date — so staleness is self-declaring; no clearing at sprint end, the next P1
+  replaces it. Never written during P4–P5; progress or status is never recorded here (stage derivation reads
+  the tree: open tickets, gap records, log lines). Route content is an ordered dependency list of the signed
+  sprint only — what depends on what, one why per edge, never dates or task breakdowns; every route entry
+  must trace to an issue accepted at the stamped P1.
+
 ## The issue folder
 
 - Each direct child of `.arca/issue/` is a folder holding exactly five files created from `.arca/tpl/issue/`:
