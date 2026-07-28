@@ -67,23 +67,14 @@ flowchart LR
 
 ### Runbook shape (`.arca/ratmac.toml`)
 
-Top level: `phases`, `transitions` - nothing else. Per phase: `prompt`
-(required string), `guards` (array of tables). Per transition: `from`, `to`,
-`freeze = "goal"`, `blocked-route` (bool).
+Defined once, in [runbook-spec.md](runbook-spec.md): top level, Phase and
+transition fields, the closed guard-kind vocabulary with each kind's required
+and optional fields, the ownership rules, and the `RB*` diagnostic codes. This
+map deliberately keeps no copy - a second copy would be a second schema.
 
-### Guard kinds
-
-| kind | judges | trust |
-| :--- | :--- | :--- |
-| `files_exact` | directory listing equals `entries` | agent-controlled markers |
-| `file_contains` | substring present in a file | agent-controlled content |
-| `command_exit` | spawned program exit code; stderr bounded (ETB-002) | real; pinned via `pin.rs` unless `exempt` |
-| `sensitivity_receipts` | evidence receipts, digest re-derived | self-verifying |
-| `completion_gate` | completion receipts, green + fresh | tree-hash-anchored |
-| `intake_contract` / `record_contract` | issue/residual/ticket shape, links, acyclic deps | structural |
-
-Plus one implicit guard: goal drift against the frozen revision hash. No
-git-state guard kind exists; only `command_exit` could reach tree state.
+Two guards are not runbook kinds: goal drift against the frozen revision hash
+is implicit, and no git-state kind exists - only `command_exit` reaches tree
+state.
 
 ### Tests
 
@@ -121,6 +112,7 @@ All agent routing and documentation must use these paths.
 | :--- | :--- |
 | `.arca/steering.md` | Direction and guardrails: thesis, invariants, non-goals; first re-aligned on a pivot. |
 | `.arca/schema.md` | The working rules - binding for every contributor. |
+| `.arca/runbook-spec.md` | What a runbook **is** - the one definition of the Machine Class format, guard kinds, ownership, and `RB*` diagnostics. |
 | `.arca/dict.md` | Glossary - plain-word definitions; consult before coining a term, add an entry when introducing one. |
 | `.arca/goal/` | The goal bundle now in force (`spec.md` > `design.md` > `test-list.md`, plus `ubi-lang.md`, `index.md`). Frozen per Run. |
 | `.arca/issue/<issue-id>/` | One incoming issue, exactly five files (shape: schema.md, "The issue folder"). |
