@@ -386,20 +386,31 @@ fn doctor_is_actionable_and_write_free() {
 /// HT-053-02: nothing can be smuggled into the diagnosis.
 ///
 /// t-053 read this as "no arguments at all". DRD-005 (t-056) is the later
-/// accepted decision: `rtm doctor <path>` diagnoses a named runbook. The
-/// contract that survives is the one that mattered - an argument the interface
-/// does not offer, or a path that is not a readable runbook, refuses by name,
-/// prints no diagnosis, and writes nothing.
+/// accepted decision: `rtm doctor <path>` diagnoses a named runbook, and a path
+/// that cannot be read is diagnosed as `RB101` rather than refused, because an
+/// authoring loop asks about paths that do not exist yet. What survives is the
+/// guarantee that mattered: an argument the interface does not offer refuses by
+/// name, nothing prints the project diagnosis it was not asked for, every exit
+/// is non-zero, and nothing is written.
 #[test]
 fn doctor_rejects_extra_arguments() {
     let boot = Boot::new("arguments");
     let before = boot.whole_snapshot();
 
-    for args in [
-        vec!["doctor", "extra"],
-        vec!["doctor", "--verbose"],
-        vec!["doctor", "--fix"],
-        vec!["doctor", ".arca/ratmac.toml", ".arca/ratmac.toml"],
+    for (args, expected) in [
+        (
+            vec!["doctor", "--verbose"],
+            "doctor accepts --json and one runbook path",
+        ),
+        (
+            vec!["doctor", "--fix"],
+            "doctor accepts --json and one runbook path",
+        ),
+        (
+            vec!["doctor", ".arca/ratmac.toml", ".arca/ratmac.toml"],
+            "doctor accepts --json and one runbook path",
+        ),
+        (vec!["doctor", "extra"], "RB101"),
     ] {
         let output = boot.rtm(&args);
         let report = text(&output);
@@ -408,8 +419,8 @@ fn doctor_rejects_extra_arguments() {
             "{args:?} refuses deterministically: {report}"
         );
         assert!(
-            report.contains("doctor accepts --json and one runbook path"),
-            "{args:?} refuses with a named reason: {report}"
+            report.contains(expected),
+            "{args:?} names {expected:?}: {report}"
         );
         assert!(
             !report.contains("Engine: "),

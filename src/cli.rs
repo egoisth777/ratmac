@@ -66,7 +66,10 @@ pub fn help(command: impl AsRef<str>) -> &'static str {
         "doctor" => {
             "Usage: rtm doctor [--json] [runbook path]\n\nRead-only diagnosis: reports the resolved Engine identity, Runbook validity, and runtime state, and names the next legitimate action. Given a path, diagnoses that runbook instead, inside or outside a project. --json emits the findings as data. Exit code: 0 clean, 1 warnings, 2 errors. Writes nothing.\n"
         }
-        _ => "Usage: rtm <command> [options]\n\nCommands: start, status, step, hold, abandon, doctor\n",
+        "scaffold" => {
+            "Usage: rtm scaffold <path>\n\nWrite the smallest doctor-clean runbook at a path that does not exist yet. Scaffolding creates exactly one file, never overwrites, and creates no directories. Edit from there and repair with rtm doctor --json <path>; the loop is written down in .arca/runbook-authoring.md.\n"
+        }
+        _ => "Usage: rtm <command> [options]\n\nCommands: start, status, step, hold, abandon, doctor, scaffold\n",
     }
 }
 
@@ -113,6 +116,10 @@ where
 
     if command == "doctor" {
         return doctor(command_args, &project_root, writer);
+    }
+
+    if command == "scaffold" {
+        return scaffold(command_args, writer);
     }
 
     if command == "hold" {
@@ -311,13 +318,10 @@ fn doctor<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Res
     }
 
     if let Some(target) = target {
-        let path = Path::new(target);
-        if !path.is_file() {
-            return Err(CliError::refusal(format!(
-                "doctor: {target:?} is not a readable runbook file; {USAGE}"
-            )));
-        }
-        let findings = crate::doctor::diagnose(path);
+        // A path that cannot be read is a diagnosis (`RB101`), not a usage
+        // error: an authoring loop asks about paths that do not exist yet, and
+        // it reads codes, not refusals.
+        let findings = crate::doctor::diagnose(Path::new(target));
         write_findings(&findings, json, writer)?;
         return Ok(crate::doctor::exit_code(&findings));
     }
@@ -333,6 +337,40 @@ fn doctor<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Res
     let findings = crate::doctor::diagnose(&runbook_path);
     write_findings(&findings, false, writer)?;
     Ok(crate::doctor::exit_code(&findings))
+}
+
+/// AAL-002: write one runbook at a path that does not exist yet.
+fn scaffold<W: Write>(args: &[String], writer: &mut W) -> Result<i32, CliError> {
+    const USAGE: &str = "scaffold takes exactly one path";
+    let mut target: Option<&str> = None;
+    for arg in args {
+        if arg.starts_with('-') {
+            return Err(CliError::refusal(format!(
+                "scaffold: unknown option {arg:?}; {USAGE}"
+            )));
+        }
+        if target.is_some() {
+            return Err(CliError::refusal(format!(
+                "scaffold: one path at a time; {USAGE}"
+            )));
+        }
+        target = Some(arg);
+    }
+    let Some(target) = target else {
+        return Err(CliError::refusal(format!(
+            "scaffold: no path given; {USAGE}"
+        )));
+    };
+    let path = Path::new(target);
+    crate::scaffold::write_scaffold(path)
+        .map_err(|refusal| CliError::refusal(refusal.to_string()))?;
+    writeln!(
+        writer,
+        "Wrote {}. Diagnose it with `rtm doctor --json {}`.",
+        path.to_string_lossy().replace('\\', "/"),
+        path.to_string_lossy().replace('\\', "/")
+    )?;
+    Ok(0)
 }
 
 fn write_findings<W: Write>(

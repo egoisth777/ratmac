@@ -391,15 +391,11 @@ fn apply(
         },
         "drop-transition" => match spot {
             Spot::Edge(from, to) => {
-                if let Some(block) = draft
-                    .transition_blocks()
-                    .into_iter()
-                    .filter(|block| {
-                        draft.field(*block, "from").as_deref() == Some(from.as_str())
-                            && draft.field(*block, "to").as_deref() == Some(to.as_str())
-                    })
-                    .next_back()
-                {
+                let doomed = draft.transition_blocks().into_iter().rev().find(|block| {
+                    draft.field(*block, "from").as_deref() == Some(from.as_str())
+                        && draft.field(*block, "to").as_deref() == Some(to.as_str())
+                });
+                if let Some(block) = doomed {
                     draft.remove(block);
                 }
             }
@@ -720,25 +716,27 @@ fn instructions_define_no_schema() {
         "the specification must name the schema terms it owns: {terms:?}"
     );
 
-    // Spans of link labels that point into the specification.
+    // Spans of link labels that point into the specification. A `[` that is
+    // not a link start closes the span at its own `]`, so an unlinked term can
+    // never hide inside a runaway span.
     let mut cited = Vec::new();
-    let bytes = text.as_bytes();
     let mut at = 0;
     while let Some(open) = text[at..].find('[') {
         let open = at + open;
-        let Some(close) = text[open..].find("](") else {
+        at = open + 1;
+        let Some(close) = text[open..].find(']') else {
             break;
         };
         let close = open + close;
+        if !text[close..].starts_with("](") {
+            continue;
+        }
         let Some(end) = text[close..].find(')') else {
             break;
         };
-        let end = close + end;
-        if text[close..end].contains("runbook-spec.md") {
+        if text[close..close + end].contains("runbook-spec.md") {
             cited.push((open, close));
         }
-        at = open + 1;
-        let _ = bytes;
     }
 
     for term in &terms {
@@ -777,9 +775,11 @@ fn the_command_surface_survives_the_new_subcommand() {
         general.contains("scaffold"),
         "AAL-002: the command list names scaffold: {general}"
     );
-    for retired in ["schd", "bogus"] {
-        let (code, _) = rtm(&root, &[retired]);
-        assert_ne!(code, 0, "{retired} is still refused");
+    // A near miss is not the command: the surface names what it offers and
+    // nothing that merely resembles it.
+    for unknown in ["bogus", "scaffolding", "scaffol"] {
+        let (code, _) = rtm(&root, &[unknown]);
+        assert_ne!(code, 0, "{unknown} is refused");
     }
 }
 

@@ -20,9 +20,9 @@ see steering.md, Current sprint endpoint - the tree is the oracle.)
 
 ## Map - how ratmac hangs together
 
-Stamped cache - describes `079b4fc` plus t-055 and t-056, surveyed 2026-07-28
-from a read-only pass of src/ and test/. Refresh at each cycle close (gap
-check green).
+Stamped cache - describes `18c8fe8` plus t-057, surveyed 2026-07-28 from a
+read-only pass of src/ and test/. Refresh at each cycle close (gap check
+green).
 
 ### Architecture
 
@@ -40,17 +40,21 @@ flowchart LR
     G --> GOL["goal.rs<br/>goal freeze + drift"]
     G --> BLK["blocked.rs<br/>blocked-route"]
     GOL --- GB[".arca/goal/<br/>frozen goal bundle"]
-    OWN["ownership.rs<br/>PGE-004 lint - unwired"]
-    style OWN stroke-dasharray: 5 5
+    CLI --> DOC["doctor.rs<br/>RB* findings as data"]
+    CLI --> SCA["scaffold.rs<br/>one clean runbook to start from"]
+    DOC --> MC
+    DOC --> OWN["ownership.rs<br/>PGE-004 lint"]
 ```
 
 ### Binary
 
 `rtm` - hand-rolled CLI (`src/cli.rs`, no clap): `start`, `status`, `step`,
-`hold`, `abandon`, `doctor`. `doctor` is read-only and deep: parse, graph,
-guard lint, and ownership passes over `MachineClass`, one `RB*` finding per
-defect, `--json` for the finding list, and exit `0`/`1`/`2` for clean, warnings,
-errors. `rtm doctor <path>` diagnoses any runbook file.
+`hold`, `abandon`, `doctor`, `scaffold`. `doctor` is read-only and deep: parse,
+graph, guard lint, and ownership passes over `MachineClass`, one `RB*` finding
+per defect, `--json` for the finding list, and exit `0`/`1`/`2` for clean,
+warnings, errors. `rtm doctor <path>` diagnoses any runbook file - an
+unreadable path is the finding `RB101`, not a usage error. `rtm scaffold
+<path>` writes the one runbook that starts clean.
 
 ### Modules (src/)
 
@@ -67,6 +71,7 @@ errors. `rtm doctor <path>` diagnoses any runbook file.
 | `blocked.rs` | Blocked-route handling; hard-codes `.arca` paths (R-016 debt). |
 | `ownership.rs` | PGE-004 ownership lint over prompts and guard contracts; the doctor's fourth pass. |
 | `doctor.rs` | DRD-001..007: findings as data. Diagnoses through `machine.rs` and never walks runbook TOML itself; owns the graph and guard-lint passes, the JSON rendering, and the exit-code mapping. |
+| `scaffold.rs` | AAL-002: the smallest doctor-clean runbook, written at a path that does not exist yet. One file, no options, never overwrites. |
 
 ### Runbook shape (`.arca/ratmac.toml`)
 
@@ -81,7 +86,7 @@ state.
 
 ### Tests
 
-`test/qa/` cargo crate, suites t011-t057. Wording surfaces (caller policy,
+`test/qa/` cargo crate, suites t011-t058. Wording surfaces (caller policy,
 schema rules) are asserted against `.arca/schema.md` and `AGENTS.md`. Hidden
 lane in `.arca-private/`, listed per ticket. Opt-in release lane:
 `RATMAC_RELEASE_ACCEPTANCE=1`.
@@ -90,8 +95,6 @@ lane in `.arca-private/`, listed per ticket. Opt-in release lane:
 
 - Findings carry a location (`phase "build" guard 0`), never a line or span:
   an agent repairs by name, not by cursor position.
-- No scaffold and no agent-facing authoring instructions: runbooks are still
-  written by imitation.
 - R-016: `contract.rs`/`blocked.rs`/`goal.rs` bake in `.arca/*` paths.
 
 ## Read next
@@ -111,6 +114,7 @@ All agent routing and documentation must use these paths.
 | `.arca/steering.md` | Direction and guardrails: thesis, invariants, non-goals; first re-aligned on a pivot. |
 | `.arca/schema.md` | The working rules - binding for every contributor. |
 | `.arca/runbook-spec.md` | What a runbook **is** - the one definition of the Machine Class format, guard kinds, ownership, and `RB*` diagnostics. |
+| `.arca/runbook-authoring.md` | How to write one - scaffold, edit, `rtm doctor --json`, repair by code. Procedure only; every schema fact is a link into the specification. |
 | `.arca/dict.md` | Glossary - plain-word definitions; consult before coining a term, add an entry when introducing one. |
 | `.arca/goal/` | The goal bundle now in force (`spec.md` > `design.md` > `test-list.md`, plus `ubi-lang.md`, `index.md`). Frozen per Run. |
 | `.arca/issue/<issue-id>/` | One incoming issue, exactly five files (shape: schema.md, "The issue folder"). |
