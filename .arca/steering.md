@@ -52,27 +52,31 @@ one is a direction change and starts here.
 
 ## Current sprint
 
+Derived record. Regenerated wholesale at P1 close from the signed issue set;
+never hand-edited, never a progress report. Stage lives in the tree.
+
+Freeze stamp: goal git HEAD `094b366` - P1 closed 2026-07-28.
+
 A sprint starts when enough issues have collected to be worth integrating
 into the goal, and runs the cycle - plan, then build - until the gap check
 comes back clean.
 
 This sprint: make the Machine Class truly first-class.
 
-Route - order is dependency, not preference. A route says what depends on
-what, never when; that is what keeps it from being a plan.
+Signed issue set: i-011-runbook-spec, i-012-typed-runbook-parser,
+i-013-deep-rtm-doctor, i-014-agent-authoring-loop.
 
-0. Runbook spec - write down what a runbook IS (schema, guard-kind
-   vocabulary, ownership rules) as prose before code embodies it.
-   Everything below implements this spec, not the other way round.
-1. One typed parser - serde schema with a guard-kind enum, guards retained
-   in the class model, missing runbook refuses by name. Before 2 and 3:
-   both consume it.
-2. Deep `rtm doctor` - real parser, graph and guard lint, ownership audit
-   wired in, arbitrary-path validation, stable diagnostic codes, `--json`.
-   Parallel with 3 once 1 lands; neither needs the other.
-3. Authoring loop - schema instructions and scaffold so an agent can
-   write -> doctor -> repair a runbook without reading Rust source.
-   Parallel with 2.
+Route - an ordered dependency list, one why per edge. It says what depends on
+what, never when.
+
+0. i-011 Runbook spec (`RBS-001`-`RBS-005`) - the written authority for the
+   format, the guard-kind vocabulary, ownership, and the diagnostic codes.
+1. i-012 Typed parser (`TRP-001`-`TRP-006`) - depends on 0: per-kind field
+   validation has to check against a written table, not an invented one.
+2. i-013 Deep doctor (`DRD-001`-`DRD-007`) - depends on 1: the doctor
+   diagnoses through the parser rather than a reader of its own.
+3. i-014 Authoring loop (`AAL-001`-`AAL-004`) - depends on 2: the loop repairs
+   against the doctor's stable codes, and on 0 for every schema fact it links.
 
 Endpoint: with the route complete, the P1-P5 cycle itself becomes the real
 runbook at `.arca/ratmac.toml`, and `rtm status` - never a narrated file -
