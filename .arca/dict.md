@@ -59,6 +59,8 @@ Plain-word definitions for terms used in work with Billy. Consult this file befo
 - **Guard lint**: A doctor check that every exit guard reads an agent-uncontrolled source (exit code, git state) — flags fake-able guards.
 - **Property-based testing**: Testing by generating many random inputs and asserting a property always holds, instead of hand-picked cases.
 - **Lean**: A theorem prover: you write mathematical statements and machine-checked proofs. Heavy; proves only properties you explicitly state.
+- **Active refs** (`active_refs`): One of the seven State File fields (R-025) — the Scheduler-written list of what a Run is currently working on, ticket and requirement ids. In the format and in the fixtures since the start; nothing populates it yet.
+- **Per-ticket gate**: An exit guard whose verdict is about one named ticket — `sensitivity_receipts` (its planned tests each have a red-before-green receipt) and `completion_gate` (its declared checks each have a green, fresh receipt). Both need a ticket id, which a read-only runbook cannot supply per loop turn.
 
 ## Shop process (.arca)
 
@@ -78,3 +80,4 @@ Plain-word definitions for terms used in work with Billy. Consult this file befo
 - **Accommodation**: Work the current system needs so a delta can land without breaking invariants (seams, refactors, migrations, test infra). Visible only in the gap, never stated by the issue — why tickets are cut from gaps, not issues.
 - **Contradiction**: Existing behavior the target state forbids. Issues are written additively, so only the goal-vs-current diff surfaces the "stop doing Y" work.
 - **Drift**: The gap changing while issues sit still, as the system moves toward or away from the goal. Why gaps must be re-measured every planning pass.
+- **Requirement ID**: `XXX-NNN` — three letters naming the issue that authored the requirement, three digits numbering it (`RBS-001` runbook spec, `TRP` typed runbook parser, `DRD` deep rtm doctor, `AAL` agent authoring loop, `PCR` P-cycle runbook). One prefix per issue, chosen from the issue title; the expansion is defined in that issue's `ubi-lang.md`, so no abbreviation reaches a response undefined. Requirements keep their id forever — through the goal, the residual that measures them, and the ticket that lands them.
