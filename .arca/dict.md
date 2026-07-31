@@ -61,8 +61,8 @@ Plain-word definitions for terms used in work with Billy. Consult this file befo
 - **Lean**: A theorem prover: you write mathematical statements and machine-checked proofs. Heavy; proves only properties you explicitly state.
 - **Active refs** (`active_refs`): One of the seven State File fields (R-025) — the Scheduler-written list of what a Run is currently working on, ticket and requirement ids. In the format and in the fixtures since the start; nothing populates it yet.
 - **Per-ticket gate**: An exit guard whose verdict is about one named ticket — `sensitivity_receipts` (its planned tests each have a red-before-green receipt) and `completion_gate` (its declared checks each have a green, fresh receipt). Both need a ticket id, which a read-only runbook cannot supply per loop turn.
-- **Verdict format**: The one file layout every `verdict.toml` uses, everywhere: the chosen value, who judged, when, and pointers to the evidence. Universal and engine-level — the engine parses one format only, and routing reads only the value field; the rest is audit material.
-- **Input list**: The verdict values a given phase accepts — exactly the labels of that phase's verdict-routed out-edges, declared in the runbook. Per phase; a verdict naming a value off the list is refused, not routed. It doubles as the judge's menu at that phase.
+- **Verdict format**: The strict live `verdict.toml` record has exactly three non-empty string fields: current `phase`, one legal transition `input`, and the external reviewer's `rationale`. The Engine stores no reviewer identity and adds no value; atomic archival preserves the original bytes.
+- **Input list**: The closed transition-input values a branching Phase accepts, declared in the runbook and mapped one-to-one to its ordinary outgoing edges. A verdict input outside the list is refused, not routed; the list is also the reviewer's menu for that Phase.
 
 ## Shop process (.arca)
 
