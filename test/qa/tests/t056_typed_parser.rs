@@ -6,6 +6,7 @@
 //! PT-055-04 `every_authored_guard_survives_the_parse`
 //! PT-055-05 `absent_runbook_refuses_by_name`
 //! PT-055-06 `decided_refusals_are_unchanged`
+//! PT-055-07 `doctor_ownership_audit_reuses_the_typed_class`
 //! HT-055-01 `the_projects_own_runbook_parses_typed`
 //! HT-055-02 `hostile_runbooks_refuse_without_panic`
 //! HT-055-03 `a_retained_guard_still_refuses_a_real_step`
@@ -305,6 +306,65 @@ fn the_runbook_has_exactly_one_reader() {
             "TRP-001: the Scheduler must consume the typed class ({typed})"
         );
     }
+}
+
+/// PT-055-07 / TRPV-003: doctor gives ownership auditing the class it already
+/// parsed. The ownership collector accepts typed data plus a display label,
+/// never a path whose bytes it could read and deserialize a second time.
+#[test]
+fn doctor_ownership_audit_reuses_the_typed_class() {
+    let project = Project::with_runbook(
+        "doctor-ownership-typed",
+        "[phases.build]\nprompt = \"Write .arca/log.md before leaving.\"\n",
+    );
+    let runbook = project.path(".arca/ratmac.toml");
+    let findings = ratmac::doctor::diagnose(&runbook);
+    let violation = findings
+        .iter()
+        .find(|finding| finding.code() == "RB401")
+        .expect("ownership violation must still be diagnosed");
+    assert!(
+        violation.location().contains(".arca/ratmac.toml")
+            && violation.location().contains("[phases.build] prompt"),
+        "the typed path must preserve the ownership diagnostic location: {violation:?}"
+    );
+    assert!(
+        violation.message().contains("Scheduler-owned")
+            && violation.message().contains(".arca/log.md"),
+        "the typed path must preserve the ownership diagnostic message: {violation:?}"
+    );
+
+    let ownership =
+        fs::read_to_string(repo_root().join("src/ownership.rs")).expect("read ownership.rs");
+    let collector = ownership
+        .split("pub fn runbook_instructions")
+        .nth(1)
+        .and_then(|tail| tail.split("pub fn template_instructions").next())
+        .expect("runbook instruction collector");
+    assert!(
+        collector.contains("class: &MachineClass"),
+        "TRPV-003: ownership instruction collection must accept the parsed MachineClass"
+    );
+    for second_read in [
+        "fs::read_to_string",
+        "MachineClass::from_toml",
+        "class_path: &Path",
+    ] {
+        assert!(
+            !collector.contains(second_read),
+            "TRPV-003: ownership instruction collection must not contain {second_read}"
+        );
+    }
+
+    let doctor = fs::read_to_string(repo_root().join("src/doctor.rs")).expect("read doctor.rs");
+    let pass = doctor
+        .split("fn audit_ownership")
+        .nth(1)
+        .expect("doctor ownership pass");
+    assert!(
+        pass.contains("class: &MachineClass") && pass.contains("runbook_instructions(class"),
+        "TRPV-003: doctor must pass its parsed MachineClass into ownership collection"
+    );
 }
 
 /// PT-055-04 / TRP-004: every authored guard is on the typed class, in
