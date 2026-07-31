@@ -124,6 +124,7 @@ release lane: `RATMAC_RELEASE_ACCEPTANCE=1`.
 | Where we are heading; the lines no work may cross | [steering.md](steering.md) |
 | How to contribute: loop, tickets, evidence - **binding** | [schema.md](schema.md) |
 | What happened lately | [log.md](log.md) tail |
+| Unchosen ideas parked with zero commitment | [Wishlist](../wishlist.md) |
 
 ## Where things live
 
@@ -136,6 +137,7 @@ All agent routing and documentation must use these paths.
 | `.arca/runbook-spec.md` | What a runbook **is** - the one definition of the Machine Class format, guard kinds, ownership, and `RB*` diagnostics. |
 | `.arca/runbook-authoring.md` | How to write one - scaffold, edit, `rtm doctor --json`, repair by code. Procedure only; every schema fact is a link into the specification. |
 | `.arca/dict.md` | Glossary - plain-word definitions; consult before coining a term, add an entry when introducing one. |
+| `wishlist.md` | Unordered wishes with zero commitment; only a human promotes one into planning. |
 | `.arca/goal/` | The goal bundle now in force (`spec.md` > `design.md` > `test-list.md`, plus `ubi-lang.md`, `index.md`). Frozen per Run. |
 | `.arca/issue/<issue-id>/` | One incoming issue, exactly five files (shape: schema.md, "The issue folder"). |
 | `.arca/residual/` | Gap records, one per requirement - proven yet? |
