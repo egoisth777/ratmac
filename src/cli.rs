@@ -53,15 +53,17 @@ pub fn help(command: impl AsRef<str>) -> &'static str {
         "start" => {
             "Usage: rtm start\n\nA human may invoke rtm start directly. The Main-Agent may invoke it only after explicit human Run-start sign-off for the current target project. A Subagent never invokes any rtm command and only reads state.\n"
         }
-        "status" => "Usage: rtm status\n\nReport the active Run without changing it.\n",
+        "status" => {
+            "Usage: rtm status --run <id>\n\nReport the named Run without changing it. Run addressing is always required; a missing --run refuses and prints the roster (the listing of .arca/runs/).\n"
+        }
         "step" => {
-            "Usage: rtm step [--help]\n\nOnly the Main-Agent or a human invokes rtm step. Subagents only read state and never invoke rtm.\n"
+            "Usage: rtm step --run <id> [--help]\n\nAdvance exactly the named Run. Run addressing is always required; a missing --run refuses and prints the roster. Only the Main-Agent or a human invokes rtm step. Subagents only read state and never invoke rtm.\n"
         }
         "hold" => {
-            "Usage: rtm hold <ticket-id> --blocker <issue folder or residual> --confirm \"hold <ticket-id>\"\n\nA human confirms holding an executing ticket that is blocked for an out-of-scope reason. The Run then routes along the Runbook's blocked route while the ticket stays not-passed and its residuals unproven. The confirmation phrase is typed at invocation; it is never read from a file.\n"
+            "Usage: rtm hold <ticket-id> --run <id> --blocker <issue folder or residual> --confirm \"hold <ticket-id>\"\n\nA human confirms holding an executing ticket that is blocked for an out-of-scope reason. The named Run then routes along the Runbook's blocked route while the ticket stays not-passed and its residuals unproven. The confirmation phrase is typed at invocation; it is never read from a file.\n"
         }
         "abandon" => {
-            "Usage: rtm abandon --confirm \"abandon <project directory name>\"\n\nA human retires a broken Run: rtm records a terminal abandoned event, then retires the admission state, the Run evidence, and the lock so a fresh Run can start. The confirmation phrase is typed at invocation; it is never read from a file. No bypass flag exists - a stale lock is retired through this path.\n"
+            "Usage: rtm abandon --run <id> --confirm \"abandon <project directory name>\"\n\nA human retires a broken Run: rtm records a terminal abandoned event, then retires the admission state, the Run evidence, and the lock so a fresh Run can start. The confirmation phrase is typed at invocation; it is never read from a file. No bypass flag exists - a stale lock is retired through this path.\n"
         }
         "doctor" => {
             "Usage: rtm doctor [--json] [runbook path]\n\nRead-only diagnosis: reports the resolved Engine identity, Runbook validity, and runtime state, and names the next legitimate action. Given a path, diagnoses that runbook instead, inside or outside a project. --json emits the findings as data. Exit code: 0 clean, 1 warnings, 2 errors. Writes nothing.\n"
@@ -81,12 +83,69 @@ fn is_help(args: &[String]) -> bool {
     args.iter().any(|arg| arg == "--help" || arg == "-h")
 }
 
+/// The roster line printed by every run-addressing refusal: the listing of
+/// `.arca/runs/`, read off artifacts.
+fn roster_line(project_root: &Path) -> String {
+    let roster = Scheduler::run_roster(project_root);
+    if roster.is_empty() {
+        "runs: none (.arca/runs/ lists no run; rtm start mints one)".to_owned()
+    } else {
+        format!("runs: {}", roster.join(", "))
+    }
+}
+
+/// FDC-004: resolve the `--run <id>` a command must carry. A missing,
+/// empty, duplicated, or unknown value refuses and prints the roster; the
+/// refusal changes nothing.
+fn addressed_run(command: &str, args: &[String], project_root: &Path) -> Result<String, CliError> {
+    let mut run: Option<String> = None;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--run" => {
+                if run.is_some() {
+                    return Err(CliError::refusal(format!(
+                        "{command}: --run given twice; address exactly one run; {}",
+                        roster_line(project_root)
+                    )));
+                }
+                let Some(value) = args.get(index + 1) else {
+                    return Err(CliError::refusal(format!(
+                        "{command}: --run needs a run id; {}",
+                        roster_line(project_root)
+                    )));
+                };
+                run = Some(value.clone());
+                index += 2;
+            }
+            other => {
+                return Err(CliError::refusal(format!(
+                    "{command}: unexpected argument {other:?}; usage: rtm {command} --run <id>"
+                )));
+            }
+        }
+    }
+    let Some(id) = run.filter(|id| !id.trim().is_empty()) else {
+        return Err(CliError::refusal(format!(
+            "{command}: run addressing is always required — pass --run <id>; {}",
+            roster_line(project_root)
+        )));
+    };
+    if !Scheduler::runs_dir(project_root).join(&id).is_dir() {
+        return Err(CliError::refusal(format!(
+            "{command}: no run {id:?} on the roster; {}",
+            roster_line(project_root)
+        )));
+    }
+    Ok(id)
+}
+
 /// Run the CLI from supplied arguments without spawning a process.
 ///
-/// `status` and `step` deliberately accept no run-id: both operate on the
-/// active Run selected by `Scheduler::open`. Extra positional or flagged
-/// arguments are rejected before opening the Scheduler, so they cannot
-/// retarget or mutate any Run.
+/// FDC-004: `status` and `step` act on an existing Run, so `--run <id>` is
+/// always required; a missing value refuses and prints the roster (the
+/// listing of `.arca/runs/`) without touching any Run. `start` takes no
+/// run-id: it mints one.
 pub fn run_from<I, S, W>(
     args: I,
     project_root: impl AsRef<Path>,
@@ -132,21 +191,27 @@ where
         return Ok(0);
     }
 
-    if matches!(command.as_str(), "start" | "status" | "step") {
+    if command == "start" {
         if !command_args.is_empty() {
-            return Err(CliError::new(format!(
-                "{command} accepts no run-id or extra arguments"
-            )));
+            return Err(CliError::new(
+                "start accepts no run-id or extra arguments".to_owned(),
+            ));
         }
-
         let mut scheduler = Scheduler::open(&project_root)
-            .map_err(|error| CliError::new(format!("{command}: {error}")))?;
-        if command == "start" {
-            scheduler
-                .start()
-                .map_err(|error| CliError::new(format!("start: {error}")))?;
-            return Ok(0);
+            .map_err(|error| CliError::new(format!("start: {error}")))?;
+        let run = scheduler
+            .start()
+            .map_err(|error| CliError::new(format!("start: {error}")))?;
+        if let Some(id) = run.id() {
+            writeln!(writer, "rtm: started run {id} at .arca/runs/{id}/")?;
         }
+        return Ok(0);
+    }
+
+    if matches!(command.as_str(), "status" | "step") {
+        let id = addressed_run(command, command_args, &project_root)?;
+        let mut scheduler = Scheduler::open_run(&project_root, &id)
+            .map_err(|error| CliError::new(format!("{command}: {error}")))?;
         match command.as_str() {
             "status" => {
                 let report = scheduler
@@ -189,9 +254,19 @@ fn hold<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Resul
     let mut ticket = String::new();
     let mut blocker: Option<String> = None;
     let mut confirmation: Option<String> = None;
+    let mut run: Option<String> = None;
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
+            "--run" => {
+                run = Some(args.get(index + 1).cloned().ok_or_else(|| {
+                    CliError::refusal(format!(
+                        "hold: --run needs a run id; {}",
+                        roster_line(project_root)
+                    ))
+                })?);
+                index += 2;
+            }
             "--blocker" => {
                 blocker = Some(args.get(index + 1).cloned().ok_or_else(|| {
                     CliError::new("hold: --blocker needs an issue folder or residual record")
@@ -223,6 +298,7 @@ fn hold<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Resul
         ticket,
         blocker,
         confirmation,
+        run,
     };
     let plan = crate::blocked::plan_hold(project_root, &request)
         .map_err(|refusal| CliError::new(format!("hold refused; {refusal}")))?;
@@ -246,9 +322,19 @@ fn hold<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Resul
 /// itself is all-or-nothing.
 fn abandon<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Result<(), CliError> {
     let mut confirmation: Option<String> = None;
+    let mut run: Option<String> = None;
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
+            "--run" => {
+                run = Some(args.get(index + 1).cloned().ok_or_else(|| {
+                    CliError::refusal(format!(
+                        "abandon: --run needs a run id; {}",
+                        roster_line(project_root)
+                    ))
+                })?);
+                index += 2;
+            }
             "--confirm" => {
                 confirmation = Some(args.get(index + 1).cloned().ok_or_else(|| {
                     CliError::new(format!(
@@ -267,7 +353,7 @@ fn abandon<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Re
         }
     }
 
-    let request = crate::abandon::AbandonRequest { confirmation };
+    let request = crate::abandon::AbandonRequest { confirmation, run };
     let plan = crate::abandon::plan_abandon(project_root, &request)
         .map_err(|refusal| CliError::new(format!("abandon refused; {refusal}")))?;
     crate::abandon::apply_abandon(project_root, &plan)
@@ -402,7 +488,6 @@ fn environment_report<W: Write>(project_root: &Path, writer: &mut W) -> Result<(
 
     let arca = project_root.join(".arca");
     let runbook_path = arca.join("ratmac.toml");
-    let state_path = arca.join("state.toml");
 
     if runbook_path.is_file() {
         match std::fs::read_to_string(&runbook_path) {
@@ -421,31 +506,45 @@ fn environment_report<W: Write>(project_root: &Path, writer: &mut W) -> Result<(
         )?;
     }
 
-    if state_path.is_file() {
-        match std::fs::read_to_string(&state_path) {
-            Ok(source) => {
-                if let Ok(table) = source.parse::<toml::Value>() {
-                    let phase = table
-                        .get("phase")
-                        .and_then(toml::Value::as_str)
-                        .unwrap_or("unknown");
-                    writeln!(writer, "State: .arca/state.toml (phase: {phase})")?;
-                } else {
-                    writeln!(writer, "State: .arca/state.toml (present, unreadable)")?;
-                }
-            }
-            Err(_) => {
-                writeln!(writer, "State: .arca/state.toml (present, unreadable)")?;
-            }
-        }
-    } else {
-        writeln!(writer, "State: .arca/state.toml (absent — no active Run)")?;
+    // FDC-004: listing .arca/runs/ IS the roster; each run's State File lives
+    // in its own directory.
+    let roster = crate::Scheduler::run_roster(project_root);
+    if roster.is_empty() {
+        writeln!(writer, "State: .arca/runs/ (empty — no Run on the roster)")?;
         writeln!(
             writer,
             "Next: .arca/ratmac.toml is the human-authored Machine Class; \
-             .arca/state.toml is Scheduler-owned runtime state created only by \
-             `rtm start`. To begin a Run, invoke `rtm start`."
+             .arca/runs/<id>/state.toml is Scheduler-owned runtime state created only by \
+             `rtm start`, which mints the run id. To begin a Run, invoke `rtm start`; \
+             address it afterwards with --run <id>."
         )?;
+    } else {
+        for id in roster {
+            let state_path = crate::Scheduler::runs_dir(project_root)
+                .join(&id)
+                .join("state.toml");
+            let shown = format!(".arca/runs/{id}/state.toml");
+            if state_path.is_file() {
+                match std::fs::read_to_string(&state_path) {
+                    Ok(source) => {
+                        if let Ok(table) = source.parse::<toml::Value>() {
+                            let phase = table
+                                .get("phase")
+                                .and_then(toml::Value::as_str)
+                                .unwrap_or("unknown");
+                            writeln!(writer, "State: {shown} (phase: {phase})")?;
+                        } else {
+                            writeln!(writer, "State: {shown} (present, unreadable)")?;
+                        }
+                    }
+                    Err(_) => {
+                        writeln!(writer, "State: {shown} (present, unreadable)")?;
+                    }
+                }
+            } else {
+                writeln!(writer, "State: {shown} (absent — run {id} is retired)")?;
+            }
+        }
     }
 
     Ok(())

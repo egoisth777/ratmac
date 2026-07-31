@@ -19,14 +19,16 @@ fn fixture_project() -> PathBuf {
     }
     fs::create_dir_all(root.join(".arca")).expect("create R-028 fixture project");
     fs::write(root.join(".arca/ratmac.toml"), RATMAC).expect("write R-028 class");
-    fs::write(root.join(".arca/state.toml"), STATE).expect("write R-028 state");
+    // FDC-004: the State File resides in the addressed run's directory.
+    fs::create_dir_all(root.join(".arca/runs/run-001")).expect("create run directory");
+    fs::write(root.join(".arca/runs/run-001/state.toml"), STATE).expect("write R-028 state");
     root
 }
 
 #[test]
 fn phase_prompt_renders_inline_prose_then_generated_guards() {
     let project = fixture_project();
-    let scheduler = Scheduler::open(&project).expect("open R-028 fixture project");
+    let scheduler = Scheduler::open_run(&project, "run-001").expect("open R-028 fixture project");
     let status = scheduler.status().expect("read current status");
     let prompt = status.phase_prompt();
     let rendered = prompt.as_str();

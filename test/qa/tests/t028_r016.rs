@@ -73,7 +73,13 @@ fn non_wishwillow_machine_class_runs_identically() {
     assert!(!prompt.contains("P5"));
     assert!(!prompt.to_ascii_lowercase().contains("wishwillow"));
 
-    let state = fs::read(project.join(".arca/state.toml")).expect("read generic State File");
+    // FDC-004: the State File resides in the started run's directory.
+    let run_dir = fs::read_dir(project.join(".arca/runs"))
+        .expect("list the runs roster")
+        .map(|entry| entry.expect("roster entry is readable").path())
+        .find(|path| path.is_dir())
+        .expect("the started run appears on the roster");
+    let state = fs::read(run_dir.join("state.toml")).expect("read generic State File");
     let log =
         fs::read_to_string(project.join(".arca/log.md")).expect("read generic Transition Log");
     assert!(!state.is_empty());

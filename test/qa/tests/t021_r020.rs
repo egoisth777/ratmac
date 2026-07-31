@@ -18,15 +18,23 @@ fn isolated_project() -> PathBuf {
     let arca = root.join(".arca");
     fs::create_dir_all(root.join("artifacts")).expect("create failing artifact directory");
     fs::create_dir_all(&arca).expect("create Scheduler directory");
-    for file in ["ratmac.toml", "state.toml", "log.md"] {
+    for file in ["ratmac.toml", "log.md"] {
         fs::copy(fixture_root().join(file), arca.join(file)).expect("copy refusal fixture");
     }
+    // FDC-004: the State File resides in the addressed run's directory.
+    let run_dir = arca.join("runs/run-001");
+    fs::create_dir_all(&run_dir).expect("create run directory");
+    fs::copy(
+        fixture_root().join("state.toml"),
+        run_dir.join("state.toml"),
+    )
+    .expect("copy refusal fixture");
     root
 }
 
 fn state_and_log(root: &Path) -> (Vec<u8>, Vec<u8>) {
     (
-        fs::read(root.join(".arca/state.toml")).expect("read State File"),
+        fs::read(root.join(".arca/runs/run-001/state.toml")).expect("read State File"),
         fs::read(root.join(".arca/log.md")).expect("read Transition Log"),
     )
 }
@@ -38,7 +46,7 @@ fn request() -> StepRequest {
 #[test]
 fn failure_step_is_idempotent() {
     let root = isolated_project();
-    let mut scheduler = Scheduler::open(&root).expect("open isolated Scheduler");
+    let mut scheduler = Scheduler::open_run(&root, "run-001").expect("open isolated Scheduler");
     let before = state_and_log(&root);
 
     let first = scheduler

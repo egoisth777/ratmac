@@ -1,4 +1,9 @@
-//! PT-014-01 / R-024: Scheduler-owned Run files stay flat under `.arca`.
+//! PT-014-01 / R-024: Scheduler-owned Run files stay under `.arca`.
+//!
+//! FDC-004 supersedes the flat State File: it resides in the minted run's
+//! `.arca/runs/<id>/` directory. The preserved intent: every scheduler-owned
+//! artifact lives under `.arca`, never below `.arca/goal`, and start touches
+//! nothing human-authored.
 
 use ratmac::Scheduler;
 use std::fs;
@@ -48,15 +53,21 @@ fn scheduler_files_are_flat_under_arca() {
         .artifacts()
         .expect("successful start must return RunArtifacts");
 
-    assert_eq!(artifacts.state_path(), arca.join("state.toml").as_path());
+    let run_id = run.id().expect("start must mint a run id");
+    let run_dir = arca.join("runs").join(run_id);
+    assert_eq!(artifacts.state_path(), run_dir.join("state.toml").as_path());
     assert_eq!(artifacts.log_path(), arca.join("log.md").as_path());
     assert_eq!(artifacts.lock_path(), arca.join("rtm.lock").as_path());
-    assert_eq!(artifacts.state_path().parent(), Some(arca.as_path()));
+    assert_eq!(artifacts.state_path().parent(), Some(run_dir.as_path()));
     assert_eq!(artifacts.log_path().parent(), Some(arca.as_path()));
     assert_eq!(artifacts.lock_path().parent(), Some(arca.as_path()));
     assert!(
         artifacts.state_path().is_file(),
-        "state.toml must be flat under .arca"
+        "state.toml must reside in the run's directory under .arca/runs/"
+    );
+    assert!(
+        !arca.join("state.toml").exists(),
+        "no flat .arca/state.toml may be written"
     );
     assert!(
         artifacts.log_path().is_file(),

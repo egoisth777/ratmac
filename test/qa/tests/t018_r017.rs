@@ -28,13 +28,21 @@ fn isolated_project() -> (TempProject, PathBuf, PathBuf) {
     let root = env::temp_dir().join(format!("ratmac-pt-018-{}-{}", std::process::id(), nonce));
     let arca = root.join(".arca");
     fs::create_dir_all(&arca).expect("create isolated .arca directory");
-    for name in ["ratmac.toml", "state.toml", "log.md"] {
+    for name in ["ratmac.toml", "log.md"] {
         fs::copy(fixture_root().join(".arca").join(name), arca.join(name))
             .expect("copy failed-guard fixture file");
     }
+    // FDC-004: the State File resides in the addressed run's directory.
+    let run_dir = arca.join("runs/run-001");
+    fs::create_dir_all(&run_dir).expect("create run directory");
+    fs::copy(
+        fixture_root().join(".arca/state.toml"),
+        run_dir.join("state.toml"),
+    )
+    .expect("copy failed-guard fixture file");
     (
         TempProject(root),
-        arca.join("state.toml"),
+        run_dir.join("state.toml"),
         arca.join("log.md"),
     )
 }
@@ -71,7 +79,8 @@ fn assert_no_retry_counter(arca: &Path) {
 }
 
 fn run_failed_step(project_root: &Path) {
-    let mut scheduler = Scheduler::open(project_root).expect("open failed-guard fixture");
+    let mut scheduler =
+        Scheduler::open_run(project_root, "run-001").expect("open failed-guard fixture");
     let request = StepRequest::new("agent claims completion");
     let outcome = scheduler
         .step(request)

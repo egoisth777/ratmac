@@ -128,7 +128,16 @@ impl Fixture {
     }
 
     fn step_text(&self) -> String {
-        let step = self.rtm(&["step"]);
+        // FDC-004: run addressing is always required.
+        let id = fs::read_dir(self.root.join(".arca/runs"))
+            .expect("list the runs roster")
+            .map(|entry| entry.expect("roster entry is readable"))
+            .find(|entry| entry.path().is_dir())
+            .expect("the started run appears on the roster")
+            .file_name()
+            .to_string_lossy()
+            .into_owned();
+        let step = self.rtm(&["step", "--run", &id]);
         format!(
             "{}{}",
             String::from_utf8_lossy(&step.stdout),

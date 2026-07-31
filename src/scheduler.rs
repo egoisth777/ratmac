@@ -95,10 +95,16 @@ impl fmt::Display for StepOutcome {
 }
 
 /// Scheduler-owned machine, lifecycle, and optional project state access.
+///
+/// Runs reside under the plural `.arca/runs/<id>/` path (FDC-004). Commands
+/// that act on an existing Run address it explicitly: the Scheduler binds to
+/// one run via [`Scheduler::open_run`] or by minting one in
+/// [`Scheduler::start`].
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Scheduler {
     machine: MachineGraph,
     root: Option<PathBuf>,
+    run_id: Option<String>,
     store: Option<StateStore>,
 }
 
@@ -182,19 +188,155 @@ impl Scheduler {
         Self {
             machine,
             root: None,
+            run_id: None,
             store: None,
         }
     }
 
     /// Open a project without creating or modifying any scheduler-owned file.
+    ///
+    /// No run is addressed yet: `start` mints one, and `open_run` binds to an
+    /// existing one. State operations refuse until a run is addressed.
     pub fn open(root: impl AsRef<Path>) -> Result<Self, StateError> {
         let root = root.as_ref().to_path_buf();
         let machine = Self::graph_of(&Self::load_class(&root)?);
+        Self::refuse_flat_residue(&root)?;
         Ok(Self {
             machine,
-            store: Some(StateStore::new(&root)),
+            run_id: None,
+            store: None,
             root: Some(root),
         })
+    }
+
+    /// Open a project addressed at one run under `.arca/runs/<run_id>/`.
+    pub fn open_run(root: impl AsRef<Path>, run_id: impl AsRef<str>) -> Result<Self, StateError> {
+        let run_id = run_id.as_ref();
+        if run_id.trim().is_empty() {
+            return Err(StateError::new("run addressing requires a non-empty id"));
+        }
+        let root = root.as_ref().to_path_buf();
+        let machine = Self::graph_of(&Self::load_class(&root)?);
+        Self::refuse_flat_residue(&root)?;
+        let run_dir = Self::runs_dir(&root).join(run_id);
+        // FDC-006: a roster entry without a State File is a retired run —
+        // terminal, never resurrected. The refusal names the run as terminal,
+        // distinct from an unknown id (refused with the roster listing).
+        if run_dir.is_dir() && !run_dir.join("state.toml").is_file() {
+            return Err(StateError::new(format!(
+                "run {run_id} is terminal: its admission state is retired and no \
+                 transition may proceed on it; address a live run or mint a fresh \
+                 one with rtm start"
+            )));
+        }
+        Self::verify_runbook_pin(&root, &run_dir)?;
+        Ok(Self {
+            machine,
+            run_id: Some(run_id.to_owned()),
+            store: Some(StateStore::for_run(&root, run_id)),
+            root: Some(root),
+        })
+    }
+
+    /// FDC-005: a pre-plural flat `.arca/state.toml` is residue, never
+    /// adopted. Meeting one refuses, names the observed fact and the repair,
+    /// and modifies nothing — the legacy-lock precedent, never an
+    /// auto-migration. The check runs at open and again at the top of
+    /// `start`, before any run is minted: `start` on a residue-carrying
+    /// project names the residue and mints nothing.
+    fn refuse_flat_residue(root: &Path) -> Result<(), StateError> {
+        let flat = root.join(".arca").join("state.toml");
+        if fs::symlink_metadata(&flat).is_ok() {
+            return Err(StateError::new(format!(
+                "refusing to run: flat-layout residue {} exists; runs reside under \
+                 .arca/runs/<id>/ — explicitly migrate that file into its run's directory \
+                 or remove it, then retry; it was not modified",
+                flat.display()
+            )));
+        }
+        Ok(())
+    }
+
+    /// FDC-005: SHA-256 of the canonical runbook, lowercase hex. The runbook
+    /// pin is this hash and nothing more; no code path copies the runbook.
+    fn runbook_sha256(root: &Path) -> Result<String, StateError> {
+        let path = root.join(".arca/ratmac.toml");
+        crate::pin::sha256_file(&path).map_err(|error| {
+            StateError::new(format!(
+                "hash .arca/ratmac.toml: {error} ({})",
+                path.display()
+            ))
+        })
+    }
+
+    /// FDC-005: every Scheduler read of the class compares the on-disk
+    /// runbook against the run's recorded pin; a mismatch refuses naming
+    /// observed and expected identity, and writes nothing. A run whose
+    /// evidence records no runbook pin predates the pin and is not checked.
+    fn verify_runbook_pin(root: &Path, run_dir: &Path) -> Result<(), StateError> {
+        let Some(expected) = crate::pin::Evidence::load(run_dir).runbook_sha256 else {
+            return Ok(());
+        };
+        let observed = Self::runbook_sha256(root)?;
+        if observed != expected {
+            return Err(StateError::new(format!(
+                "runbook pin mismatch: .arca/ratmac.toml drifted since rtm start — \
+                 observed sha256={observed}; expected sha256={expected}; restore the \
+                 pinned runbook bytes or retire the run (rtm abandon); nothing was modified"
+            )));
+        }
+        Ok(())
+    }
+
+    /// The addressed run's id, present after `open_run` or a successful `start`.
+    pub fn run_id(&self) -> Option<&str> {
+        self.run_id.as_deref()
+    }
+
+    /// The plural runs directory for a project root.
+    pub fn runs_dir(root: impl AsRef<Path>) -> PathBuf {
+        root.as_ref().join(".arca").join("runs")
+    }
+
+    /// Listing `.arca/runs/` IS the roster: run ids read off artifacts, sorted.
+    pub fn run_roster(root: impl AsRef<Path>) -> Vec<String> {
+        let Ok(entries) = fs::read_dir(Self::runs_dir(root)) else {
+            return Vec::new();
+        };
+        let mut ids: Vec<String> = entries
+            .filter_map(Result::ok)
+            .filter(|entry| entry.path().is_dir())
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect();
+        ids.sort();
+        ids
+    }
+
+    /// Mint the next run id in the single id namespace: one more than the
+    /// highest ordinal on the unfiltered roster — live or retired — so an
+    /// abandoned run's id is never reissued (FDC-006).
+    fn mint_run_id(root: &Path) -> String {
+        let next = Self::run_roster(root)
+            .iter()
+            .filter_map(|id| id.strip_prefix("run-"))
+            .filter_map(|ordinal| ordinal.parse::<u64>().ok())
+            .max()
+            .unwrap_or(0)
+            + 1;
+        format!("run-{next:03}")
+    }
+
+    fn run_dir(&self) -> Result<PathBuf, StateError> {
+        let root = self
+            .root
+            .as_ref()
+            .ok_or_else(|| StateError::new("run addressing requires Scheduler::open"))?;
+        let run_id = self.run_id.as_deref().ok_or_else(|| {
+            StateError::new(
+                "no run addressed: open one with Scheduler::open_run or mint one with start",
+            )
+        })?;
+        Ok(Self::runs_dir(root).join(run_id))
     }
 
     /// TRP-001, TRP-005: the one reader. An absent or unreadable runbook is a
@@ -222,8 +364,16 @@ impl Scheduler {
 
     /// Instantiate a Run from the canonical, human-authored Machine Class.
     ///
+    /// FDC-004: start mints a run id in the single id namespace and creates
+    /// `.arca/runs/<id>/` holding the run's Scheduler-owned files — the
+    /// durable State File and the Run evidence — plus the `verdict.toml` and
+    /// `spawn-ledger` paths reserved by name only (their contracts belong to
+    /// the machine-composition issue). No flat `.arca/state.toml` is written.
+    ///
     /// State and log persist after return. The lock is held only for this
     /// invocation and is released by the RAII guard before the Run is observed.
+    /// An interrupted start removes the half-made run directory, so the roster
+    /// never lists a run that was not fully created.
     pub fn start(&mut self) -> Result<Run, StateError> {
         let root = self
             .root
@@ -237,14 +387,22 @@ impl Scheduler {
             .map_err(|error| StateError::new(format!("create .arca: {error}")))?;
         let lock_path = arca.join("rtm.lock");
         let _lock = InvocationLock::acquire_with_retry(&lock_path)?;
-        // A canonical State File is the durable marker for an active v1 Run.
-        // The invocation lock above is transient and is not used for admission.
-        if arca.join("state.toml").exists() {
-            self.store()?.load()?;
-            return Err(StateError::new(
-                "cannot start: an active Run already exists for this project",
-            ));
-        }
+        // FDC-005: flat-layout residue refuses before any run id is minted,
+        // so the refusal names the residue and no run directory is created.
+        Self::refuse_flat_residue(&root)?;
+        // FDC-005: the runbook pin recorded in the run's evidence is the
+        // SHA-256 of the canonical runbook — a hash and nothing more.
+        let runbook_pin = Self::runbook_sha256(&root)?;
+        // FDC-006: no active-Run cap. Any number of runs coexist under
+        // .arca/runs/, each addressed by its own id; start only mints the
+        // next id over the unfiltered roster — live or retired.
+        let run_id = Self::mint_run_id(&root);
+        let runs_dir = Self::runs_dir(&root);
+        fs::create_dir_all(&runs_dir)
+            .map_err(|error| StateError::new(format!("create .arca/runs: {error}")))?;
+        let run_dir = runs_dir.join(&run_id);
+        fs::create_dir(&run_dir)
+            .map_err(|error| StateError::new(format!("create run directory {run_id}: {error}")))?;
 
         let state = RunState {
             phase: phase.to_string(),
@@ -257,45 +415,71 @@ impl Scheduler {
         };
         let log_path = arca.join("log.md");
         let log_existed = log_path.exists();
-        let log = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .read(true)
-            .open(&log_path)
-            .map_err(|error| StateError::new(format!("open log.md: {error}")))?;
-        let old_log_len = log
-            .metadata()
-            .map_err(|error| StateError::new(format!("stat log.md: {error}")))?
-            .len();
-        if let Err(state_error) = self.store()?.write(&state) {
-            drop(log);
-            if !log_existed {
-                let _ = fs::remove_file(&log_path);
-            } else {
-                let _ = OpenOptions::new()
-                    .write(true)
-                    .open(&log_path)
-                    .and_then(|file| file.set_len(old_log_len));
+        let store = StateStore::for_run(&root, &run_id);
+        let create_run = || -> Result<(), StateError> {
+            let log = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .read(true)
+                .open(&log_path)
+                .map_err(|error| StateError::new(format!("open log.md: {error}")))?;
+            let old_log_len = log
+                .metadata()
+                .map_err(|error| StateError::new(format!("stat log.md: {error}")))?
+                .len();
+            if let Err(state_error) = store.write(&state) {
+                drop(log);
+                if !log_existed {
+                    let _ = fs::remove_file(&log_path);
+                } else {
+                    let _ = OpenOptions::new()
+                        .write(true)
+                        .open(&log_path)
+                        .and_then(|file| file.set_len(old_log_len));
+                }
+                return Err(state_error);
             }
-            return Err(state_error);
-        }
-        drop(log);
+            drop(log);
 
-        // ETB-001: Run evidence carries the Stable Engine pin from Run start,
-        // so every later gate pin is recorded beside a known Engine identity.
-        let mut evidence = crate::pin::Evidence::load(&root);
-        if let Some(identity) = crate::pin::engine_identity() {
-            evidence.set_engine(identity);
-        }
-        // ETB-003: Run start records the baseline goal revision. The freeze
-        // happens later, at the intake-completion boundary.
-        evidence.goal_baseline = crate::goal::revision(&root);
-        evidence.goal_frozen = None;
-        evidence
-            .write(&root)
-            .map_err(|error| StateError::new(format!("write evidence.toml: {error}")))?;
+            // ETB-001: Run evidence carries the Stable Engine pin from Run
+            // start, so every later gate pin is recorded beside a known Engine
+            // identity.
+            let mut evidence = crate::pin::Evidence::load(&run_dir);
+            if let Some(identity) = crate::pin::engine_identity() {
+                evidence.set_engine(identity);
+            }
+            // ETB-003: Run start records the baseline goal revision. The
+            // freeze happens later, at the intake-completion boundary.
+            evidence.goal_baseline = crate::goal::revision(&root);
+            evidence.goal_frozen = None;
+            // FDC-005: record the runbook pin — hash only, never a copy.
+            evidence.runbook_sha256 = Some(runbook_pin.clone());
+            evidence
+                .write(&run_dir)
+                .map_err(|error| StateError::new(format!("write evidence.toml: {error}")))?;
 
-        Ok(Run::new(phase, Status::Planned).with_artifact_root(&root))
+            // FDC-004: the verdict slot and the per-run spawn-ledger path are
+            // reserved by name only; their contents mean nothing yet.
+            for reserved in ["verdict.toml", "spawn-ledger"] {
+                OpenOptions::new()
+                    .create_new(true)
+                    .write(true)
+                    .open(run_dir.join(reserved))
+                    .map_err(|error| {
+                        StateError::new(format!("reserve {reserved} under {run_id}: {error}"))
+                    })?;
+            }
+            Ok(())
+        };
+        if let Err(error) = create_run() {
+            // No half-made run directory may remain on the roster.
+            let _ = fs::remove_dir_all(&run_dir);
+            return Err(error);
+        }
+        self.store = Some(store);
+        self.run_id = Some(run_id.clone());
+
+        Ok(Run::new(phase, Status::Planned).with_artifacts(&root, &run_id))
     }
 
     /// Evaluate the supported `files_exact` guards and apply a transition only
@@ -307,9 +491,13 @@ impl Scheduler {
             .as_ref()
             .ok_or_else(|| StateError::new("step requires Scheduler::open"))?
             .clone();
+        let run_dir = self.run_dir()?;
         let lock_path = root.join(".arca/rtm.lock");
         let _lock = InvocationLock::acquire_with_retry(&lock_path)?;
         let class = Self::load_class(&root)?;
+        // FDC-005: no transition may proceed on a drifted class — the pin
+        // check refuses before any guard of the drifted class is evaluated.
+        Self::verify_runbook_pin(&root, &run_dir)?;
         self.machine = Self::graph_of(&class);
         let state = self.load_state_unlocked()?;
         let state_phase = state.phase.clone();
@@ -326,7 +514,7 @@ impl Scheduler {
         // ETB-003: between the freeze and batch closure, the goal is fixed.
         // The drift check is appended rather than short-circuited so a guard
         // refusal and a drift refusal are reported in the same reply.
-        let evidence = crate::pin::Evidence::load(&root);
+        let evidence = crate::pin::Evidence::load(&run_dir);
         if let Some(frozen) = evidence.goal_frozen.as_deref() {
             let observed = crate::goal::revision(&root).unwrap_or_else(|| "absent".to_owned());
             if observed != frozen {
@@ -388,9 +576,9 @@ impl Scheduler {
             // the Run unchanged rather than half-frozen.
             let frozen = crate::goal::revision(&root)
                 .ok_or_else(|| StateError::new("cannot freeze goal: .arca/goal/ is absent"))?;
-            let mut frozen_evidence = crate::pin::Evidence::load(&root);
+            let mut frozen_evidence = crate::pin::Evidence::load(&run_dir);
             frozen_evidence.goal_frozen = Some(frozen.clone());
-            if let Err(error) = frozen_evidence.write(&root) {
+            if let Err(error) = frozen_evidence.write(&run_dir) {
                 drop(log);
                 return Err(StateError::new(format!(
                     "freeze goal revision: write evidence.toml: {error}"
@@ -491,7 +679,7 @@ impl Scheduler {
                 ),
                 GuardKind::RecordContract => self.evaluate_contract(
                     "record_contract",
-                    crate::contract::gate_records(root),
+                    crate::contract::gate_records(root, self.run_id.as_deref().unwrap_or_default()),
                     "one residual per requirement citing the frozen revision, evidence behind every satisfied, one owning ticket per gap, acyclic dependencies, complete tickets",
                 ),
             };
@@ -728,7 +916,15 @@ impl Scheduler {
             sha256,
         };
 
-        let mut evidence = crate::pin::Evidence::load(root);
+        let run_dir = self.run_dir().map_err(|error| {
+            guard_failure(
+                "command_exit",
+                program,
+                error.to_string(),
+                "an addressed run carrying Run evidence",
+            )
+        })?;
+        let mut evidence = crate::pin::Evidence::load(&run_dir);
         match evidence.gate(program) {
             Some(pinned) if *pinned == observed => Ok(()),
             Some(pinned) => Err(guard_failure(
@@ -739,7 +935,7 @@ impl Scheduler {
             )),
             None => {
                 evidence.record_gate(program, observed);
-                evidence.write(root).map_err(|error| {
+                evidence.write(&run_dir).map_err(|error| {
                     guard_failure(
                         "command_exit",
                         program,
@@ -801,9 +997,11 @@ impl Scheduler {
     }
 
     fn store(&self) -> Result<&StateStore, StateError> {
-        self.store
-            .as_ref()
-            .ok_or_else(|| StateError::new("state operations require Scheduler::open"))
+        self.store.as_ref().ok_or_else(|| {
+            StateError::new(
+                "state operations require an addressed run: Scheduler::open_run or start",
+            )
+        })
     }
 
     /// Scheduler-owned initialization of a complete State File.
@@ -842,6 +1040,11 @@ impl Scheduler {
             .as_ref()
             .ok_or_else(|| StateError::new("status requires Scheduler::open"))?;
         let class = Self::load_class(root)?;
+        // FDC-005: status reads the class too; an addressed run's recorded
+        // pin is compared on every such read.
+        if self.run_id.is_some() {
+            Self::verify_runbook_pin(root, &self.run_dir()?)?;
+        }
         let machine = Self::graph_of(&class);
         let state = self.load_state_unlocked()?;
         if !machine.phases().any(|phase| phase.as_str() == state.phase) {

@@ -15,11 +15,18 @@ impl Drop for Project {
 }
 
 fn setup_project() -> Project {
+    // A process-wide counter keeps parallel tests apart even when the clock
+    // hands two threads the same nanosecond stamp.
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let unique = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("system clock is after the Unix epoch")
         .as_nanos();
-    let root = std::env::temp_dir().join(format!("ratmac-t029-{}-{stamp}", std::process::id()));
+    let root = std::env::temp_dir().join(format!(
+        "ratmac-t029-{}-{unique}-{stamp}",
+        std::process::id()
+    ));
     let arca = root.join(".arca");
     fs::create_dir_all(&arca).expect("create isolated help project");
     let fixture =
@@ -34,6 +41,23 @@ fn run_rtm(project: &Project, args: &[&str]) -> Output {
         .current_dir(&project.root)
         .output()
         .expect("invoke built rtm binary")
+}
+
+/// FDC-004: the run ids read off the plural roster.
+fn roster(project: &Project) -> Vec<String> {
+    let runs = project.root.join(".arca/runs");
+    let mut ids: Vec<String> = fs::read_dir(&runs)
+        .expect("list the runs roster")
+        .map(|entry| entry.expect("roster entry is readable"))
+        .filter(|entry| entry.path().is_dir())
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    ids.sort();
+    ids
+}
+
+fn run_state_path(project: &Project, id: &str) -> PathBuf {
+    project.root.join(".arca/runs").join(id).join("state.toml")
 }
 
 #[test]
@@ -80,7 +104,8 @@ fn start_help_states_the_one_caller_policy() {
         "help must not rewrite the Machine Class"
     );
     assert!(
-        !project.root.join(".arca/state.toml").exists(),
+        !project.root.join(".arca/state.toml").exists()
+            && !project.root.join(".arca/runs").exists(),
         "help must not instantiate a Run"
     );
 }
@@ -96,7 +121,12 @@ fn binary_start_creates_owned_artifacts_and_releases_lock() {
         "start failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(project.root.join(".arca/state.toml").is_file());
+    // FDC-004: start mints a run whose State File resides in its directory;
+    // the flat path is never written.
+    let ids = roster(&project);
+    assert_eq!(ids.len(), 1, "start must mint exactly one run");
+    assert!(run_state_path(&project, &ids[0]).is_file());
+    assert!(!project.root.join(".arca/state.toml").exists());
     assert!(project.root.join(".arca/log.md").is_file());
     assert!(!project.root.join(".arca/rtm.lock").exists());
     assert_eq!(
@@ -105,20 +135,39 @@ fn binary_start_creates_owned_artifacts_and_releases_lock() {
     );
 }
 
+/// FDC-006 (supersedes R-022/T-08): no active-Run cap — a second start
+/// succeeds, mints exactly one distinct sibling, and mutates nothing that
+/// already exists.
 #[test]
-fn binary_second_start_fails_without_mutating_run() {
+fn binary_second_start_mints_sibling_without_mutating_run() {
     let project = setup_project();
     let first = run_rtm(&project, &["start"]);
     assert!(first.status.success());
-    let state = fs::read(project.root.join(".arca/state.toml")).expect("read initial state");
+    let ids = roster(&project);
+    let state_path = run_state_path(&project, &ids[0]);
+    let state = fs::read(&state_path).expect("read initial state");
     let log = fs::read(project.root.join(".arca/log.md")).expect("read initial log");
     let class = fs::read(project.root.join(".arca/ratmac.toml")).expect("read initial class");
 
     let second = run_rtm(&project, &["start"]);
-    assert!(!second.status.success(), "second active start must fail");
+    assert!(
+        second.status.success(),
+        "a second start succeeds — FDC-006 enforces no active-Run cap"
+    );
+    let after = roster(&project);
+    assert_eq!(
+        after.len(),
+        ids.len() + 1,
+        "the second start mints exactly one new run"
+    );
+    assert!(
+        after.iter().filter(|id| !ids.contains(id)).count() == 1,
+        "the minted sibling carries a fresh id: {after:?}"
+    );
     assert_eq!(
         state,
-        fs::read(project.root.join(".arca/state.toml")).unwrap()
+        fs::read(&state_path).unwrap(),
+        "the sibling start leaves the first run byte-identical"
     );
     assert_eq!(log, fs::read(project.root.join(".arca/log.md")).unwrap());
     assert_eq!(
@@ -131,7 +180,9 @@ fn binary_second_start_fails_without_mutating_run() {
 fn binary_status_prints_report_and_phase_prompt() {
     let project = setup_project();
     assert!(run_rtm(&project, &["start"]).status.success());
-    let output = run_rtm(&project, &["status"]);
+    // FDC-004: run addressing is always required.
+    let ids = roster(&project);
+    let output = run_rtm(&project, &["status", "--run", &ids[0]]);
     assert!(
         output.status.success(),
         "status failed: {}",

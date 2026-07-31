@@ -10,13 +10,18 @@ fn fixture_root() -> PathBuf {
     let root = std::env::temp_dir().join(format!("ratmac-r015-{}", std::process::id()));
     let _ = fs::remove_dir_all(&root);
     fs::create_dir_all(root.join(".arca")).expect("create isolated project root");
-    for name in ["ratmac.toml", "state.toml", "log.md"] {
+    for name in ["ratmac.toml", "log.md"] {
         fs::copy(
             fixture.join(".arca").join(name),
             root.join(".arca").join(name),
         )
         .expect("copy concurrent-run fixture");
     }
+    // FDC-004: the State File resides in the addressed run's directory.
+    let run_dir = root.join(".arca/runs/run-001");
+    fs::create_dir_all(&run_dir).expect("create run directory");
+    fs::copy(fixture.join(".arca/state.toml"), run_dir.join("state.toml"))
+        .expect("copy concurrent-run fixture");
     root
 }
 
@@ -30,7 +35,7 @@ fn concurrent_steps_are_arbitrated_by_lockfile() {
     let root_a = root.clone();
     let barrier_a = Arc::clone(&barrier);
     let first = thread::spawn(move || {
-        let mut scheduler = Scheduler::open(&root_a).expect("open first scheduler");
+        let mut scheduler = Scheduler::open_run(&root_a, "run-001").expect("open first scheduler");
         barrier_a.wait();
         scheduler
             .step(StepRequest::new("complete prepare"))
@@ -39,7 +44,7 @@ fn concurrent_steps_are_arbitrated_by_lockfile() {
     let root_b = root.clone();
     let barrier_b = Arc::clone(&barrier);
     let second = thread::spawn(move || {
-        let mut scheduler = Scheduler::open(&root_b).expect("open second scheduler");
+        let mut scheduler = Scheduler::open_run(&root_b, "run-001").expect("open second scheduler");
         barrier_b.wait();
         scheduler
             .step(StepRequest::new("complete prepare"))
@@ -63,7 +68,7 @@ fn concurrent_steps_are_arbitrated_by_lockfile() {
         "transient lock is removed after both invocations"
     );
 
-    let state: toml::Value = fs::read_to_string(root.join(".arca/state.toml"))
+    let state: toml::Value = fs::read_to_string(root.join(".arca/runs/run-001/state.toml"))
         .expect("state remains readable")
         .parse()
         .expect("state remains parseable");

@@ -72,8 +72,28 @@ impl Fixture {
             .expect("invoke rtm")
     }
 
+    /// FDC-004: the live run's id — the newest roster entry carrying a State File.
+    fn run_id(&self) -> String {
+        let mut ids: Vec<String> = fs::read_dir(self.root.join(".arca/runs"))
+            .expect("list the runs roster")
+            .map(|entry| entry.expect("roster entry is readable"))
+            .filter(|entry| entry.path().join("state.toml").is_file())
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect();
+        ids.sort();
+        ids.pop().expect("a live run appears on the roster")
+    }
+
+    fn state_path(&self) -> PathBuf {
+        self.root
+            .join(".arca/runs")
+            .join(self.run_id())
+            .join("state.toml")
+    }
+
     fn step_text(&self) -> String {
-        let step = self.rtm(&["step"]);
+        let id = self.run_id();
+        let step = self.rtm(&["step", "--run", &id]);
         format!(
             "{}{}",
             String::from_utf8_lossy(&step.stdout),
@@ -81,12 +101,26 @@ impl Fixture {
         )
     }
 
+    /// FDC-004: Run evidence resides beside the run's State File.
     fn evidence(&self) -> String {
-        fs::read_to_string(self.root.join(".arca/evidence.toml")).unwrap_or_default()
+        let mut ids: Vec<String> = fs::read_dir(self.root.join(".arca/runs"))
+            .into_iter()
+            .flatten()
+            .map(|entry| entry.expect("roster entry is readable"))
+            .filter(|entry| entry.path().join("evidence.toml").is_file())
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect();
+        ids.sort();
+        ids.pop()
+            .map(|id| {
+                fs::read_to_string(self.root.join(".arca/runs").join(id).join("evidence.toml"))
+                    .unwrap_or_default()
+            })
+            .unwrap_or_default()
     }
 
     fn state(&self) -> Vec<u8> {
-        fs::read(self.root.join(".arca/state.toml")).unwrap_or_default()
+        fs::read(self.state_path()).unwrap_or_default()
     }
 
     fn log(&self) -> Vec<u8> {
@@ -162,7 +196,8 @@ fn tamper_refuses_and_restore_proceeds() {
 
     assert!(fixture.rtm(&["start"]).status.success(), "start succeeds");
     // First use records the pin without refusing.
-    let first = fixture.rtm(&["status"]);
+    let id = fixture.run_id();
+    let first = fixture.rtm(&["status", "--run", &id]);
     assert!(first.status.success(), "status works");
     let text = fixture.step_text();
     assert!(
@@ -170,9 +205,14 @@ fn tamper_refuses_and_restore_proceeds() {
         "pristine gate passes: {text}"
     );
 
-    // Re-arm: a fresh Run over the same recorded evidence.
-    fs::remove_file(fixture.root.join(".arca/state.toml")).expect("retire run");
-    assert!(fixture.rtm(&["start"]).status.success(), "restart succeeds");
+    // Re-arm: rewind the same Run to the guarded Phase over its recorded
+    // evidence. FDC-004 makes evidence run-scoped, so a fresh Run would
+    // record a fresh pin; the recorded pin under test lives with this run.
+    let state_path = fixture.state_path();
+    let rewound = fs::read_to_string(&state_path)
+        .expect("read advanced state")
+        .replace("phase = \"done\"", "phase = \"prepare\"");
+    fs::write(&state_path, rewound).expect("rewind run to the guarded phase");
 
     let mut tampered = pristine.clone();
     tampered.extend_from_slice(b"tampered");
@@ -329,7 +369,12 @@ fn recorded_pin_survives_a_crashed_run() {
     assert!(fixture.rtm(&["start"]).status.success(), "start succeeds");
 
     // Simulate the crash: evidence written, no transition taken.
-    let evidence_path = fixture.root.join(".arca/evidence.toml");
+    // FDC-004: Run evidence resides beside the run's State File.
+    let evidence_path = fixture
+        .root
+        .join(".arca/runs")
+        .join(fixture.run_id())
+        .join("evidence.toml");
     let engine_pin = fs::read_to_string(&evidence_path).expect("read evidence");
     let stale = format!(
         "{engine_pin}\n[[gate]]\nprogram = \"{}\"\nresolved = \"{}\"\nsha256 = \"{}\"\n",
@@ -367,8 +412,13 @@ fn pin_refusal_carries_identity_and_diagnostic_framing() {
         "pin recorded"
     );
 
-    fs::remove_file(fixture.root.join(".arca/state.toml")).expect("retire run");
-    assert!(fixture.rtm(&["start"]).status.success(), "restart succeeds");
+    // FDC-004: evidence is run-scoped — rewind this run to the guarded Phase
+    // so the recorded pin stays the authority under test.
+    let state_path = fixture.state_path();
+    let rewound = fs::read_to_string(&state_path)
+        .expect("read advanced state")
+        .replace("phase = \"done\"", "phase = \"prepare\"");
+    fs::write(&state_path, rewound).expect("rewind run to the guarded phase");
     let mut bytes = fs::read(&gate).expect("read gate");
     bytes.extend_from_slice(b"x");
     fs::write(&gate, bytes).expect("tamper");

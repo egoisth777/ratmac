@@ -469,9 +469,11 @@ fn the_environment_report_survives_the_deepening() {
         "idle doctor is actionable: {report}"
     );
 
+    // FDC-004: the State File resides in the run's directory.
     let active = bench.project("active", runbook);
+    fs::create_dir_all(active.join(".arca/runs/run-001")).expect("create run directory");
     fs::write(
-        active.join(".arca/state.toml"),
+        active.join(".arca/runs/run-001/state.toml"),
         "phase = \"a\"\nstatus = \"executing\"\ngoal_revision = \"\"\ninput_revision = \"\"\noutput_revision = \"\"\nactive_refs = []\nblocker = \"\"\n",
     )
     .expect("write state");
@@ -482,7 +484,12 @@ fn the_environment_report_survives_the_deepening() {
     );
 
     let corrupt = bench.project("corrupt", runbook);
-    fs::write(corrupt.join(".arca/state.toml"), "not = = toml\n").expect("write corrupt state");
+    fs::create_dir_all(corrupt.join(".arca/runs/run-001")).expect("create run directory");
+    fs::write(
+        corrupt.join(".arca/runs/run-001/state.toml"),
+        "not = = toml\n",
+    )
+    .expect("write corrupt state");
     let (_, report) = rtm(&corrupt, &["doctor"]);
     assert!(
         report.contains("unreadable"),

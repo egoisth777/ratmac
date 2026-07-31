@@ -223,21 +223,32 @@ fn completion_requires_receipts() {
     let engine = Fixture::new("engine");
     engine.write_runbook();
     engine.rtm(&["start"]);
-    let refusal = engine.rtm(&["step"]);
+    // FDC-004: run addressing is always required.
+    let live = std::fs::read_dir(engine.root.join(".arca/runs"))
+        .expect("list the runs roster")
+        .map(|entry| entry.expect("roster entry is readable"))
+        .find(|entry| entry.path().join("state.toml").is_file())
+        .expect("the started run appears on the roster")
+        .file_name()
+        .to_string_lossy()
+        .into_owned();
+    let refusal = engine.rtm(&["step", "--run", &live]);
     assert!(
         refusal.contains("PT-900-01"),
         "the engine refuses the step naming the missing receipt: {refusal}"
     );
     assert!(
-        engine.rtm(&["status"]).contains("implement"),
+        engine
+            .rtm(&["status", "--run", &live])
+            .contains("implement"),
         "a refused completion leaves the Phase where it was"
     );
     engine.record_all();
-    engine.rtm(&["step"]);
+    engine.rtm(&["step", "--run", &live]);
     assert!(
-        engine.rtm(&["status"]).contains("done"),
+        engine.rtm(&["status", "--run", &live]).contains("done"),
         "recorded work advances the Phase: {}",
-        engine.rtm(&["status"])
+        engine.rtm(&["status", "--run", &live])
     );
 
     // A receipt for work the ticket never declared is not completion either.

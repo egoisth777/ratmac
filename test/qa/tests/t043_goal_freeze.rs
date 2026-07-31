@@ -84,20 +84,38 @@ impl Fixture {
         )
     }
 
+    /// FDC-004: the live run's id, read off the plural roster.
+    fn run_id(&self) -> String {
+        let mut ids: Vec<String> = fs::read_dir(self.root.join(".arca/runs"))
+            .expect("list the runs roster")
+            .map(|entry| entry.expect("roster entry is readable"))
+            .filter(|entry| entry.path().is_dir())
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect();
+        ids.sort();
+        ids.pop().expect("a run appears on the roster")
+    }
+
+    fn run_dir(&self) -> PathBuf {
+        self.root.join(".arca/runs").join(self.run_id())
+    }
+
     fn step_text(&self) -> String {
-        Self::text_of(&self.rtm(&["step"]))
+        let id = self.run_id();
+        Self::text_of(&self.rtm(&["step", "--run", &id]))
     }
 
     fn status_text(&self) -> String {
-        Self::text_of(&self.rtm(&["status"]))
+        let id = self.run_id();
+        Self::text_of(&self.rtm(&["status", "--run", &id]))
     }
 
     fn evidence(&self) -> String {
-        fs::read_to_string(self.root.join(".arca/evidence.toml")).unwrap_or_default()
+        fs::read_to_string(self.run_dir().join("evidence.toml")).unwrap_or_default()
     }
 
     fn state(&self) -> Vec<u8> {
-        fs::read(self.root.join(".arca/state.toml")).unwrap_or_default()
+        fs::read(self.run_dir().join("state.toml")).unwrap_or_default()
     }
 
     fn log(&self) -> Vec<u8> {
@@ -298,7 +316,8 @@ fn interrupted_freeze_leaves_readable_state() {
 
     // Interrupt the freeze deterministically: no platform can write a file
     // over a directory, so the evidence write at the boundary must fail.
-    let evidence_path = fixture.root.join(".arca/evidence.toml");
+    // FDC-004: Run evidence resides beside the run's State File.
+    let evidence_path = fixture.run_dir().join("evidence.toml");
     let saved = fs::read_to_string(&evidence_path).expect("evidence exists after start");
     fs::remove_file(&evidence_path).expect("remove evidence file");
     fs::create_dir(&evidence_path).expect("block the evidence path");
@@ -377,7 +396,7 @@ fn drift_and_pin_tamper_are_both_reported() {
 
     // A stale pin (as if the artifact were rebuilt) and an edited goal, in the
     // same transition request.
-    let evidence_path = fixture.root.join(".arca/evidence.toml");
+    let evidence_path = fixture.run_dir().join("evidence.toml");
     let evidence = fs::read_to_string(&evidence_path).expect("read evidence");
     fs::write(
         &evidence_path,

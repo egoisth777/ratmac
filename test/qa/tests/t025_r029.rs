@@ -10,10 +10,16 @@ fn fixture_root() -> PathBuf {
 fn copy_fixture(project: &Path) {
     fs::create_dir_all(project.join(".arca")).expect("temporary project should be creatable");
     let fixture = fixture_root().join(".arca");
-    for name in ["ratmac.toml", "state.toml"] {
-        fs::copy(fixture.join(name), project.join(".arca").join(name))
-            .expect("phase-scope fixture should be copied");
-    }
+    fs::copy(
+        fixture.join("ratmac.toml"),
+        project.join(".arca/ratmac.toml"),
+    )
+    .expect("phase-scope fixture should be copied");
+    // FDC-004: the State File resides in the addressed run's directory.
+    let run_dir = project.join(".arca/runs/run-001");
+    fs::create_dir_all(&run_dir).expect("create run directory");
+    fs::copy(fixture.join("state.toml"), run_dir.join("state.toml"))
+        .expect("phase-scope fixture should be copied");
 }
 
 #[test]
@@ -24,7 +30,8 @@ fn phase_prompt_excludes_other_phases_and_graph() {
     }
     copy_fixture(&project);
 
-    let scheduler = Scheduler::open(&project).expect("phase-scope fixture should open");
+    let scheduler =
+        Scheduler::open_run(&project, "run-001").expect("phase-scope fixture should open");
     let report = scheduler
         .status()
         .expect("active state should be reportable");

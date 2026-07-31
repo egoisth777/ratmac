@@ -44,17 +44,22 @@ impl fmt::Display for StateError {
 
 impl std::error::Error for StateError {}
 
-/// Read access to the canonical flat State File and Scheduler-mediated writes.
+/// Read access to an addressed run's State File and Scheduler-mediated writes.
+///
+/// The State File resides inside the run's directory under the plural
+/// `.arca/runs/<id>/` path (FDC-004); no flat `.arca/state.toml` is written.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StateStore {
     path: PathBuf,
 }
 
 impl StateStore {
-    pub(crate) fn new(root: &Path) -> Self {
-        Self {
-            path: root.join(".arca/state.toml"),
-        }
+    pub(crate) fn for_run(root: &Path, run_id: &str) -> Self {
+        Self::at(root.join(".arca/runs").join(run_id).join("state.toml"))
+    }
+
+    pub(crate) fn at(path: PathBuf) -> Self {
+        Self { path }
     }
 
     /// Parse a State File strictly, requiring exactly the seven R-025 fields.

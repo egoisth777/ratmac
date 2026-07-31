@@ -66,8 +66,15 @@ impl Project {
     }
 
     fn rtm(&self, command: &str) -> String {
+        self.rtm_with(&[command])
+    }
+
+    /// FDC-004: commands that act on a run carry `--run <id>`.
+    fn rtm_with(&self, args: &[&str]) -> String {
+        let mut full = vec!["rtm"];
+        full.extend_from_slice(args);
         let mut output = Vec::new();
-        match cli::run_from(["rtm", command], &self.root, &mut output) {
+        match cli::run_from(full, &self.root, &mut output) {
             Ok(_) => String::from_utf8_lossy(&output).into_owned(),
             Err(error) => error.to_string(),
         }
@@ -393,15 +400,27 @@ to = \"review\"
 #[test]
 fn absent_runbook_refuses_by_name() {
     let project = Project::new("absent");
-    for command in ["start", "status", "step"] {
+    // `start` reads the runbook first and names it. FDC-004 makes run
+    // addressing precede everything for status/step: with no run to address
+    // the refusal names the empty roster and the way to mint a run — still a
+    // named refusal, never an empty machine.
+    let report = project.rtm("start");
+    assert!(
+        report.contains("ratmac.toml"),
+        "TRP-005: start must refuse naming the missing runbook: {report}"
+    );
+    for command in ["status", "step"] {
         let report = project.rtm(command);
         assert!(
-            report.contains("ratmac.toml"),
-            "TRP-005: {command} must refuse naming the missing runbook: {report}"
+            report.contains("runs: none") && report.contains("rtm start"),
+            "TRP-005/FDC-004: {command} must refuse naming the empty roster: {report}"
         );
+    }
+    for command in ["start", "status", "step"] {
+        let _ = command;
         assert!(
-            !project.path(".arca/state.toml").exists(),
-            "TRP-005: {command} must build no Run from an absent runbook"
+            !project.path(".arca/state.toml").exists() && !project.path(".arca/runs").exists(),
+            "TRP-005: no command may build a Run from an absent runbook"
         );
     }
 
@@ -580,9 +599,15 @@ fn refusal_under_a_live_run_mutates_nothing() {
         "[phases.build]\nprompt = \"Build it.\"\n[phases.done]\nprompt = \"Done.\"\n[[transitions]]\nfrom = \"build\"\nto = \"done\"\n",
     );
     let mut scheduler = Scheduler::open(project.path("")).expect("open the project");
-    scheduler.start().expect("start the Run");
+    let run = scheduler.start().expect("start the Run");
+    let run_id = run.id().expect("start mints a run id").to_owned();
 
-    let owned = [".arca/state.toml", ".arca/log.md", ".arca/evidence.toml"];
+    // FDC-004: state and evidence reside in the run's directory.
+    let owned = [
+        format!(".arca/runs/{run_id}/state.toml"),
+        ".arca/log.md".to_owned(),
+        format!(".arca/runs/{run_id}/evidence.toml"),
+    ];
     let before = owned
         .iter()
         .map(|name| fs::read(project.path(name)).unwrap_or_default())
@@ -590,7 +615,12 @@ fn refusal_under_a_live_run_mutates_nothing() {
 
     fs::remove_file(project.path(".arca/ratmac.toml")).expect("delete the runbook");
     for command in ["status", "step", "start"] {
-        let report = project.rtm(command);
+        // FDC-004: status/step address the run; start takes no --run.
+        let report = if command == "start" {
+            project.rtm(command)
+        } else {
+            project.rtm_with(&[command, "--run", &run_id])
+        };
         assert!(
             report.contains("ratmac.toml"),
             "TRP-005: {command} must refuse naming the runbook: {report}"

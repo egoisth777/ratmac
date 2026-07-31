@@ -17,17 +17,25 @@ fn copy_fixture_to_temp() -> PathBuf {
     let root = std::env::temp_dir().join(format!("ratmac-t027-{nonce}"));
     let arca = root.join(".arca");
     fs::create_dir_all(&arca).expect("create isolated .arca directory");
-    for file in ["ratmac.toml", "state.toml", "log.md"] {
+    for file in ["ratmac.toml", "log.md"] {
         fs::copy(fixture_root().join(".arca").join(file), arca.join(file))
             .expect("copy comment fixture");
     }
+    // FDC-004: the State File resides in the addressed run's directory.
+    let run_dir = arca.join("runs/run-001");
+    fs::create_dir_all(&run_dir).expect("create run directory");
+    fs::copy(
+        fixture_root().join(".arca/state.toml"),
+        run_dir.join("state.toml"),
+    )
+    .expect("copy comment fixture");
     root
 }
 
 #[test]
 fn ratmac_comments_are_absent_from_phase_prompt() -> Result<(), Box<dyn Error>> {
     let root = copy_fixture_to_temp();
-    let scheduler = Scheduler::open(&root)?;
+    let scheduler = Scheduler::open_run(&root, "run-001")?;
     let status = scheduler.status()?;
     let prompt = status.phase_prompt();
     let rendered = prompt.as_str();

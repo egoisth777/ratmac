@@ -73,12 +73,25 @@ fn rtm(fixture: &Fixture, args: &[&str]) -> Output {
         .expect("invoke rtm")
 }
 
+/// FDC-004: the started run's id, read off the plural roster.
+fn run_id(fixture: &Fixture) -> String {
+    fs::read_dir(fixture.root.join(".arca/runs"))
+        .expect("list the runs roster")
+        .map(|entry| entry.expect("roster entry is readable"))
+        .find(|entry| entry.path().is_dir())
+        .expect("the started run appears on the roster")
+        .file_name()
+        .to_string_lossy()
+        .into_owned()
+}
+
 fn refusal_text(fixture: &Fixture) -> String {
     assert!(
         rtm(fixture, &["start"]).status.success(),
         "start must succeed"
     );
-    let step = rtm(fixture, &["step"]);
+    let id = run_id(fixture);
+    let step = rtm(fixture, &["step", "--run", &id]);
     let text = format!(
         "{}{}",
         String::from_utf8_lossy(&step.stdout),
@@ -165,11 +178,12 @@ fn repeated_refusal_is_identical() {
         rtm(&fixture, &["start"]).status.success(),
         "start must succeed"
     );
-    let state_path = fixture.root.join(".arca/state.toml");
+    let id = run_id(&fixture);
+    let state_path = fixture.root.join(".arca/runs").join(&id).join("state.toml");
     let mut outputs = Vec::new();
     let mut states = Vec::new();
     for _ in 0..5 {
-        let step = rtm(&fixture, &["step"]);
+        let step = rtm(&fixture, &["step", "--run", &id]);
         outputs.push(String::from_utf8_lossy(&step.stdout).to_string());
         states.push(fs::read(&state_path).expect("read state"));
     }
@@ -202,7 +216,8 @@ fn guard_death_reports_partial_and_releases_lock() {
         "the lock must be released after a refusal"
     );
     // A second invocation must still work, proving nothing is stuck.
-    let again = rtm(&fixture, &["status"]);
+    let id = run_id(&fixture);
+    let again = rtm(&fixture, &["status", "--run", &id]);
     assert!(again.status.success(), "status after refusal must succeed");
 }
 

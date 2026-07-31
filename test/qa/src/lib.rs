@@ -412,7 +412,9 @@ mod t007_state_file {
         }
 
         fn state_bytes(&self) -> Vec<u8> {
-            fs::read(self.0.join(".arca/state.toml")).expect("read Scheduler-owned state")
+            // FDC-004: the State File resides in the addressed run's directory.
+            fs::read(self.0.join(".arca/runs/run-001/state.toml"))
+                .expect("read Scheduler-owned state")
         }
     }
 
@@ -427,7 +429,8 @@ mod t007_state_file {
     }
 
     fn scheduler(project: &IsolatedProject) -> Scheduler {
-        Scheduler::open(project.root()).expect("open isolated Scheduler project")
+        // FDC-004: state operations act on an addressed run.
+        Scheduler::open_run(project.root(), "run-001").expect("open isolated Scheduler project")
     }
 
     fn install_machine_class(project: &IsolatedProject) {
@@ -573,7 +576,10 @@ mod t008_state_writer_tests {
     fn setup_project(root: &Path, sentinel: &[u8]) -> PathBuf {
         let arca = root.join(".arca");
         fs::write(arca.join("ratmac.toml"), RATMAC).expect("write isolated Machine Class");
-        let state = arca.join("state.toml");
+        // FDC-004: the State File resides in the addressed run's directory.
+        let run_dir = arca.join("runs/run-001");
+        fs::create_dir_all(&run_dir).expect("create run directory");
+        let state = run_dir.join("state.toml");
         fs::write(&state, sentinel).expect("install sentinel state in isolated project");
         state
     }
@@ -593,7 +599,8 @@ mod t008_state_writer_tests {
 
         // The Scheduler exposes status as a read-only operation. This test intentionally
         // uses no StateStore/raw writer; that writer must remain private to Scheduler code.
-        let scheduler = Scheduler::open(&read_project).expect("open isolated Scheduler");
+        let scheduler =
+            Scheduler::open_run(&read_project, "run-001").expect("open isolated Scheduler");
         scheduler.status().expect("read Scheduler status");
 
         let after_status = fs::read(&read_state).expect("read sentinel after status");
@@ -608,7 +615,8 @@ mod t008_state_writer_tests {
         let write_state = setup_project(&write_project, &sentinel);
         let before_write = fs::read(&write_state).expect("read sentinel before Scheduler mutation");
         let before_write_hash = bytes_hash(&before_write);
-        let mut scheduler = Scheduler::open(&write_project).expect("open isolated Scheduler");
+        let mut scheduler =
+            Scheduler::open_run(&write_project, "run-001").expect("open isolated Scheduler");
         let state = scheduler.load_state().expect("load complete State File");
         scheduler
             .record_missing_prerequisite(state, "sentinel-prerequisite")
@@ -670,12 +678,21 @@ mod t010 {
             arca.join("rtm.lock"),
             "Run must own the flat lock path"
         );
-        for artifact in ["state.toml", "log.md"] {
-            assert!(
-                arca.join(artifact).is_file(),
-                "start must create flat .arca/{artifact}"
-            );
-        }
+        // FDC-004: the State File resides in the minted run's directory; the
+        // history log stays project-level.
+        let run_id = run.id().expect("start mints a run id");
+        assert!(
+            arca.join("runs").join(run_id).join("state.toml").is_file(),
+            "start must create .arca/runs/{run_id}/state.toml"
+        );
+        assert!(
+            !arca.join("state.toml").exists(),
+            "start must not write the flat .arca/state.toml"
+        );
+        assert!(
+            arca.join("log.md").is_file(),
+            "start must create the project-level .arca/log.md"
+        );
         assert!(
             !arca.join("rtm.lock").exists(),
             "start must release the invocation lock before returning"
@@ -882,15 +899,21 @@ to = "missing"
         assert!(failures[0].observed().contains("escapes"));
         assert!(!failures[0].observed().contains("SECRET"));
 
+        // FDC-005 pins the runbook at start, so the absolute-path probe
+        // authors its guard before start in a project of its own instead of
+        // rewriting the first project's runbook mid-run.
+        let absolute_root = revalidation_project();
         let absolute_path = format!("{outside:?}");
         fs::write(
-            root.join(".arca/ratmac.toml"),
+            absolute_root.join(".arca/ratmac.toml"),
             format!(
                 "[phases.prepare]\nprompt = \"Prepare\"\nguards = [{{ kind = \"file_contains\", path = {absolute_path}, contains = \"SECRET\" }}]\n"
             ),
         )
         .unwrap();
-        let absolute_outcome = scheduler.step(StepRequest::new("claim")).unwrap();
+        let mut absolute_scheduler = Scheduler::open(&absolute_root).unwrap();
+        absolute_scheduler.start().unwrap();
+        let absolute_outcome = absolute_scheduler.step(StepRequest::new("claim")).unwrap();
         let StepOutcome::Refused { failures } = absolute_outcome else {
             panic!("absolute guard path must be refused")
         };
@@ -898,6 +921,7 @@ to = "missing"
         assert!(!failures[0].observed().contains("SECRET"));
         let _ = fs::remove_file(outside);
         let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_dir_all(absolute_root);
     }
     #[test]
     fn test_status_with_active_state_but_missing_class_is_hard_error() {

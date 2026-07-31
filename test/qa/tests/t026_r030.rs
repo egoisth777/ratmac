@@ -41,7 +41,10 @@ fn temporary_project(ratmac: &str, state: &str, log: &str) -> PathBuf {
     fs::create_dir(project.join("artifacts")).expect("artifact directory must be creatable");
     fs::write(project.join(".arca/ratmac.toml"), ratmac)
         .expect("fixture ratmac.toml must be writable");
-    fs::write(project.join(".arca/state.toml"), state)
+    // FDC-004: the State File resides in the addressed run's directory.
+    fs::create_dir_all(project.join(".arca/runs/run-001"))
+        .expect("run directory must be creatable");
+    fs::write(project.join(".arca/runs/run-001/state.toml"), state)
         .expect("fixture state.toml must be writable");
     fs::write(project.join(".arca/log.md"), log).expect("fixture log.md must be writable");
     fs::write(project.join("artifacts/proof.txt"), "proof\n")
@@ -55,12 +58,17 @@ fn status_prints_current_phase_prompt() {
     let arca = project.join(".arca");
     let before = [
         fs::read(arca.join("ratmac.toml")).unwrap(),
-        fs::read(arca.join("state.toml")).unwrap(),
+        fs::read(arca.join("runs/run-001/state.toml")).unwrap(),
         fs::read(arca.join("log.md")).unwrap(),
     ];
     let mut stdout = Vec::new();
     run_from(
-        vec!["rtm".to_owned(), "status".to_owned()],
+        vec![
+            "rtm".to_owned(),
+            "status".to_owned(),
+            "--run".to_owned(),
+            "run-001".to_owned(),
+        ],
         &project,
         &mut stdout,
     )
@@ -84,7 +92,10 @@ fn status_prints_current_phase_prompt() {
         "status must not print another Phase: {output}"
     );
     assert_eq!(fs::read(arca.join("ratmac.toml")).unwrap(), before[0]);
-    assert_eq!(fs::read(arca.join("state.toml")).unwrap(), before[1]);
+    assert_eq!(
+        fs::read(arca.join("runs/run-001/state.toml")).unwrap(),
+        before[1]
+    );
     assert_eq!(fs::read(arca.join("log.md")).unwrap(), before[2]);
 
     let _ = fs::remove_dir_all(project);
@@ -95,7 +106,12 @@ fn successful_step_prints_prompt_without_spawning() {
     let project = temporary_project(STEP_RATMAC, STEP_STATE, STEP_LOG);
     let arca = project.join(".arca");
     let mut stdout = Vec::new();
-    let args = vec!["rtm".to_owned(), "step".to_owned()];
+    let args = vec![
+        "rtm".to_owned(),
+        "step".to_owned(),
+        "--run".to_owned(),
+        "run-001".to_owned(),
+    ];
     run_from(args, &project, &mut stdout).expect("successful step must return normally");
     let output = String::from_utf8(stdout).expect("step output must be UTF-8");
 

@@ -277,12 +277,16 @@ fn bootstrap_refuses_pin_mismatch() {
     let binary = boot.prebuild();
     let pinned = sha256_file(&binary);
 
-    let mut evidence = Evidence::load(&boot.root);
+    // The bootstrap reads the project-level `.arca/evidence.toml` pin;
+    // Evidence::load/write take the directory holding `evidence.toml`.
+    let mut evidence = Evidence::load(&boot.root.join(".arca"));
     evidence.set_engine(Identity {
         resolved: binary.to_string_lossy().into_owned(),
         sha256: pinned.clone(),
     });
-    evidence.write(&boot.root).expect("record the Engine pin");
+    evidence
+        .write(&boot.root.join(".arca"))
+        .expect("record the Engine pin");
 
     let mut bytes = fs::read(&binary).expect("read the pinned Engine");
     bytes.push(0);
@@ -340,8 +344,9 @@ fn doctor_is_actionable_and_write_free() {
     let idle = boot.rtm(&["doctor"]);
     let report = text(&idle);
     assert!(idle.status.success(), "doctor runs read-only: {report}");
+    // FDC-004: the Scheduler-owned State File is named by its run-directory path.
     assert!(
-        report.contains(".arca/ratmac.toml") && report.contains(".arca/state.toml"),
+        report.contains(".arca/ratmac.toml") && report.contains(".arca/runs/<id>/state.toml"),
         "the report distinguishes the two files by name: {report}"
     );
     assert!(
@@ -349,7 +354,7 @@ fn doctor_is_actionable_and_write_free() {
         "the report distinguishes them by role: {report}"
     );
     assert!(
-        report.contains("no active Run") && report.contains("rtm start"),
+        report.contains("no Run") && report.contains("rtm start"),
         "with no Run it names the next legitimate action: {report}"
     );
     assert_eq!(
@@ -358,7 +363,7 @@ fn doctor_is_actionable_and_write_free() {
         "the idle doctor writes nothing at all"
     );
     assert!(
-        !boot.root.join(".arca/state.toml").exists(),
+        !boot.root.join(".arca/state.toml").exists() && !boot.root.join(".arca/runs").exists(),
         "the doctor creates no Run"
     );
 
@@ -373,7 +378,7 @@ fn doctor_is_actionable_and_write_free() {
         "with a Run it reports the phase: {active}"
     );
     assert!(
-        !active.contains("no active Run"),
+        !active.contains("no Run on the roster"),
         "it does not still claim the Run is absent: {active}"
     );
     assert_eq!(
@@ -436,8 +441,10 @@ fn doctor_rejects_extra_arguments() {
 #[test]
 fn doctor_survives_corrupt_state_and_held_lock() {
     let boot = Boot::new("corrupt");
+    // FDC-004: the State File resides in the run's directory.
+    fs::create_dir_all(boot.root.join(".arca/runs/run-001")).expect("create run directory");
     fs::write(
-        boot.root.join(".arca/state.toml"),
+        boot.root.join(".arca/runs/run-001/state.toml"),
         "phase = \"build\nnot toml",
     )
     .expect("write a corrupt state file");
@@ -454,7 +461,7 @@ fn doctor_survives_corrupt_state_and_held_lock() {
     let report = text(&output);
 
     assert!(
-        report.contains(".arca/state.toml") && report.contains("unreadable"),
+        report.contains(".arca/runs/run-001/state.toml") && report.contains("unreadable"),
         "the defect is reported: {report}"
     );
     assert!(

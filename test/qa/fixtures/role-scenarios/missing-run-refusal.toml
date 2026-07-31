@@ -1,0 +1,28 @@
+scenario = "missing-run-refusal"
+caller = "human"
+run_start_signoff = true
+description = "A human invokes status and step without --run after a valid start: each is refused (exit 2) and the refusal prints the roster read off .arca/runs/; nothing changes."
+
+[[event]]
+kind = "command"
+command = "rtm start"
+outcome = "invoked"
+reason = "start succeeds on the valid project and mints run-001 under .arca/runs/"
+
+[[event]]
+kind = "command"
+command = "rtm status"
+outcome = "invoked"
+reason = "refused with exit 2: 'rtm: status: run addressing is always required — pass --run <id>; runs: run-001' — the roster is printed, the run's State File is untouched"
+
+[[event]]
+kind = "command"
+command = "rtm step"
+outcome = "invoked"
+reason = "refused with exit 2: 'rtm: step: run addressing is always required — pass --run <id>; runs: run-001' — the roster is printed, no run advances"
+
+[[event]]
+kind = "command"
+command = "rtm status --run run-001"
+outcome = "invoked"
+reason = "with the run addressed, status reads exactly the named run and writes nothing"

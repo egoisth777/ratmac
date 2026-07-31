@@ -74,22 +74,32 @@ impl FromStr for Status {
     }
 }
 
-/// Paths owned by a started Run's flat scheduler artifacts.
+/// Paths owned by a started Run under its `.arca/runs/<id>/` directory.
+///
+/// The State File and Run evidence reside in the run directory (FDC-004); the
+/// history log and the transient invocation lock stay project-level.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RunArtifacts {
+    run_dir: PathBuf,
     state_path: PathBuf,
     log_path: PathBuf,
     lock_path: PathBuf,
 }
 
 impl RunArtifacts {
-    fn for_root(root: &Path) -> Self {
+    fn for_run(root: &Path, run_id: &str) -> Self {
         let arca = root.join(".arca");
+        let run_dir = arca.join("runs").join(run_id);
         Self {
-            state_path: arca.join("state.toml"),
+            state_path: run_dir.join("state.toml"),
+            run_dir,
             log_path: arca.join("log.md"),
             lock_path: arca.join("rtm.lock"),
         }
+    }
+
+    pub fn run_dir(&self) -> &Path {
+        &self.run_dir
     }
 
     pub fn state_path(&self) -> &Path {
@@ -111,6 +121,7 @@ pub struct Run {
     phase: Phase,
     status: Status,
     blocker: Option<String>,
+    id: Option<String>,
     artifacts: Option<RunArtifacts>,
 }
 
@@ -120,8 +131,14 @@ impl Run {
             phase: phase.into(),
             status,
             blocker: None,
+            id: None,
             artifacts: None,
         }
+    }
+
+    /// The minted run id, present once the Run resides on the roster.
+    pub fn id(&self) -> Option<&str> {
+        self.id.as_deref()
     }
 
     pub fn phase(&self) -> &Phase {
@@ -152,8 +169,9 @@ impl Run {
         self.artifacts.as_ref().map(RunArtifacts::lock_path)
     }
 
-    pub(crate) fn with_artifact_root(mut self, root: &Path) -> Self {
-        self.artifacts = Some(RunArtifacts::for_root(root));
+    pub(crate) fn with_artifacts(mut self, root: &Path, run_id: &str) -> Self {
+        self.artifacts = Some(RunArtifacts::for_run(root, run_id));
+        self.id = Some(run_id.to_owned());
         self
     }
 

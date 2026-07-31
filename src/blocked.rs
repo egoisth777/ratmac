@@ -58,6 +58,8 @@ pub struct HoldRequest {
     pub ticket: String,
     pub blocker: Option<String>,
     pub confirmation: Option<String>,
+    /// The addressed run (FDC-004: `--run <id>`, always required).
+    pub run: Option<String>,
 }
 
 /// A verified hold, ready to apply.
@@ -66,6 +68,7 @@ pub struct HoldPlan {
     pub ticket: String,
     pub ticket_path: PathBuf,
     pub blocker: String,
+    pub run_id: String,
     pub from_phase: String,
     pub to_phase: String,
 }
@@ -125,6 +128,31 @@ pub fn plan_hold(root: &Path, request: &HoldRequest) -> Result<HoldPlan, HoldRef
 
     verify_blocker(root, blocker)?;
 
+    // FDC-004: hold acts on an existing Run, so run addressing is always
+    // required; a missing value refuses and prints the roster.
+    let roster = crate::Scheduler::run_roster(root);
+    let roster_line = if roster.is_empty() {
+        "none".to_owned()
+    } else {
+        roster.join(", ")
+    };
+    let Some(run_id) = request
+        .run
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+    else {
+        return Err(refusal(format!(
+            "hold requires --run <id>; runs: {roster_line}"
+        )));
+    };
+    let run_dir = crate::Scheduler::runs_dir(root).join(run_id);
+    if !run_dir.is_dir() {
+        return Err(refusal(format!(
+            "hold names no run: {run_id:?} is not on the roster; runs: {roster_line}"
+        )));
+    }
+
     let source = fs::read_to_string(root.join(".arca/ratmac.toml"))
         .map_err(|error| refusal(format!("hold cannot read the Runbook: {error}")))?;
     let machine = crate::machine::MachineClass::from_toml(&source)
@@ -134,7 +162,7 @@ pub fn plan_hold(root: &Path, request: &HoldRequest) -> Result<HoldPlan, HoldRef
         machine.transitions().to_vec(),
     );
 
-    let state = crate::state::StateStore::new(root)
+    let state = crate::state::StateStore::for_run(root, run_id)
         .load()
         .map_err(|error| refusal(format!("hold requires an active Run: {error}")))?;
     let from_phase = state.phase.clone();
@@ -148,6 +176,7 @@ pub fn plan_hold(root: &Path, request: &HoldRequest) -> Result<HoldPlan, HoldRef
         ticket: ticket.to_owned(),
         ticket_path,
         blocker: blocker.to_owned(),
+        run_id: run_id.to_owned(),
         from_phase,
         to_phase: route.to().as_str().to_owned(),
     })
@@ -193,7 +222,9 @@ fn verify_blocker(root: &Path, blocker: &str) -> Result<(), HoldRefusal> {
 /// All or nothing. Every file touched is snapshotted first and restored if any
 /// write fails, so an interrupted hold leaves the Run pre-route.
 pub fn apply_hold(root: &Path, plan: &HoldPlan) -> Result<(), HoldRefusal> {
-    let state_path = root.join(".arca/state.toml");
+    let state_path = crate::Scheduler::runs_dir(root)
+        .join(&plan.run_id)
+        .join("state.toml");
     let log_path = root.join(".arca/log.md");
     let touched = [
         state_path.clone(),
@@ -243,7 +274,7 @@ pub fn apply_hold(root: &Path, plan: &HoldPlan) -> Result<(), HoldRefusal> {
         }
     };
 
-    let store = crate::state::StateStore::new(root);
+    let store = crate::state::StateStore::for_run(root, &plan.run_id);
     let mut state = match store.load() {
         Ok(state) => state,
         Err(error) => return Err(restore(refusal(format!("hold cannot read state: {error}")))),

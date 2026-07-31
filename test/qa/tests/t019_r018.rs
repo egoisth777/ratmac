@@ -30,7 +30,14 @@ fn setup_project() -> Project {
 }
 
 fn read_status_and_blocker(project: &Project) -> StatusAndBlocker {
-    let state: toml::Value = fs::read_to_string(project.root.join(".arca/state.toml"))
+    // FDC-004: the State File resides in the started run's directory.
+    let runs = project.root.join(".arca/runs");
+    let run_dir = fs::read_dir(&runs)
+        .expect("list the runs roster")
+        .map(|entry| entry.expect("roster entry is readable").path())
+        .find(|path| path.is_dir())
+        .expect("the started run appears on the roster");
+    let state: toml::Value = fs::read_to_string(run_dir.join("state.toml"))
         .expect("read scheduler state")
         .parse()
         .expect("state file is valid TOML");

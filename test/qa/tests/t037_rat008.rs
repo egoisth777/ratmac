@@ -205,17 +205,32 @@ fn full_rebrand_acceptance() {
 
     let start = run(&project, &["start"]);
     assert!(start.status.success(), "rtm start failed: {start:?}");
+    // FDC-004: the started run's State File resides under the plural path.
+    let run_id = fs::read_dir(arca.join("runs"))
+        .expect("list the runs roster")
+        .map(|entry| entry.expect("roster entry is readable"))
+        .find(|entry| entry.path().is_dir())
+        .expect("the started run appears on the roster")
+        .file_name()
+        .to_string_lossy()
+        .into_owned();
+    let state_path = arca.join("runs").join(&run_id).join("state.toml");
     let class_before = fs::read(arca.join("ratmac.toml")).expect("read Machine Class");
-    let state_before = fs::read(arca.join("state.toml")).expect("read state");
+    let state_before = fs::read(&state_path).expect("read state");
     let log_before = fs::read(arca.join("log.md")).expect("read transition log");
-    let status = run(&project, &["status"]);
+    let status = run(&project, &["status", "--run", &run_id]);
     assert!(status.status.success(), "rtm status failed: {status:?}");
     assert!(String::from_utf8_lossy(&status.stdout).contains("Phase: prepare"));
 
     let legacy_lock = arca.join("schd.lock");
     fs::write(&legacy_lock, b"operator-held legacy lock\n").expect("write legacy-lock fixture");
-    for args in [["status"], ["step"], ["start"]] {
-        let refused = run(&project, &args);
+    let commands: [&[&str]; 3] = [
+        &["status", "--run", run_id.as_str()],
+        &["step", "--run", run_id.as_str()],
+        &["start"],
+    ];
+    for args in commands {
+        let refused = run(&project, args);
         assert!(
             !refused.status.success(),
             "legacy lock must refuse {args:?}"
@@ -228,7 +243,7 @@ fn full_rebrand_acceptance() {
     assert!(legacy_lock.is_file());
     assert!(!arca.join("rtm.lock").exists());
     assert_eq!(class_before, fs::read(arca.join("ratmac.toml")).unwrap());
-    assert_eq!(state_before, fs::read(arca.join("state.toml")).unwrap());
+    assert_eq!(state_before, fs::read(&state_path).unwrap());
     assert_eq!(log_before, fs::read(arca.join("log.md")).unwrap());
     fs::remove_file(&legacy_lock).expect("remove isolated legacy-lock fixture");
 
@@ -237,7 +252,7 @@ fn full_rebrand_acceptance() {
     assert!(String::from_utf8_lossy(&legacy.stderr).starts_with("rtm: "));
     assert!(!String::from_utf8_lossy(&legacy.stderr).contains(LEGACY_COMMAND));
 
-    let refused = run(&project, &["step"]);
+    let refused = run(&project, &["step", "--run", &run_id]);
     assert!(
         refused.status.success(),
         "guard refusal is a reported result"
@@ -245,9 +260,9 @@ fn full_rebrand_acceptance() {
     assert!(String::from_utf8_lossy(&refused.stdout).contains("rtm: step refused"));
     fs::create_dir(project.join("artifacts")).expect("create guard directory");
     fs::write(project.join("artifacts/required.txt"), b"ready\n").expect("write guard artifact");
-    let stepped = run(&project, &["step"]);
+    let stepped = run(&project, &["step", "--run", &run_id]);
     assert!(stepped.status.success(), "passing step failed: {stepped:?}");
-    let final_state = fs::read_to_string(arca.join("state.toml")).expect("read final state");
+    let final_state = fs::read_to_string(&state_path).expect("read final state");
     assert!(final_state.contains("phase = \"review\""));
     let final_log = fs::read_to_string(arca.join("log.md")).expect("read final log");
     assert_eq!(

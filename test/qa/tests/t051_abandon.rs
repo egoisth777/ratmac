@@ -19,6 +19,8 @@ use std::process::{Command, Output};
 
 struct Fixture {
     root: PathBuf,
+    /// FDC-004: the started run's id, read off the plural roster.
+    run_id: String,
 }
 
 impl Drop for Fixture {
@@ -29,8 +31,15 @@ impl Drop for Fixture {
 }
 
 fn restore_writable(root: &std::path::Path) {
-    for relative in [".arca/log.md", ".arca/state.toml", ".arca/rtm.lock"] {
-        let path = root.join(relative);
+    let mut paths = vec![root.join(".arca/log.md"), root.join(".arca/rtm.lock")];
+    // FDC-004: each run carries its own State File and evidence.
+    if let Ok(entries) = fs::read_dir(root.join(".arca/runs")) {
+        for entry in entries.flatten() {
+            paths.push(entry.path().join("state.toml"));
+            paths.push(entry.path().join("evidence.toml"));
+        }
+    }
+    for path in paths {
         if let Ok(metadata) = fs::metadata(&path) {
             let mut permissions = metadata.permissions();
             #[allow(clippy::permissions_set_readonly_false)]
@@ -66,16 +75,39 @@ impl Fixture {
         )
         .expect("write runbook");
 
-        let fixture = Fixture { root };
+        let mut fixture = Fixture {
+            root,
+            run_id: String::new(),
+        };
         assert!(
             fixture.rtm(&["start"]).status.success(),
             "the fixture Run starts"
         );
+        // FDC-004: read the minted id off the roster and address it.
+        fixture.run_id = fs::read_dir(fixture.root.join(".arca/runs"))
+            .expect("list the runs roster")
+            .map(|entry| entry.expect("roster entry is readable"))
+            .find(|entry| entry.path().is_dir())
+            .expect("the started run appears on the roster")
+            .file_name()
+            .to_string_lossy()
+            .into_owned();
+        let id = fixture.run_id.clone();
         assert!(
-            fixture.rtm(&["step"]).status.success(),
+            fixture.rtm(&["step", "--run", &id]).status.success(),
             "the fixture Run reaches build"
         );
         fixture
+    }
+
+    /// The addressed run's State File, relative to the project root.
+    fn state_rel(&self) -> String {
+        format!(".arca/runs/{}/state.toml", self.run_id)
+    }
+
+    /// The addressed run's evidence record, relative to the project root.
+    fn evidence_rel(&self) -> String {
+        format!(".arca/runs/{}/evidence.toml", self.run_id)
     }
 
     fn rtm(&self, args: &[&str]) -> Output {
@@ -107,8 +139,11 @@ impl Fixture {
     }
 
     fn abandon(&self, args: &[&str]) -> Output {
+        // FDC-004: abandon retires an existing Run — always addressed.
         let mut all = vec!["abandon"];
         all.extend_from_slice(args);
+        all.push("--run");
+        all.push(&self.run_id);
         self.rtm(&all)
     }
 
@@ -127,10 +162,14 @@ impl Fixture {
     /// The bytes of every Scheduler-owned file, so a refusal can be proven to
     /// have written nothing at all.
     fn owned_bytes(&self) -> Vec<(String, Option<Vec<u8>>)> {
-        [".arca/state.toml", ".arca/log.md", ".arca/rtm.lock"]
-            .iter()
-            .map(|relative| ((*relative).to_owned(), fs::read(self.path(relative)).ok()))
-            .collect()
+        [
+            self.state_rel(),
+            ".arca/log.md".to_owned(),
+            ".arca/rtm.lock".to_owned(),
+        ]
+        .iter()
+        .map(|relative| (relative.clone(), fs::read(self.path(relative)).ok()))
+        .collect()
     }
 }
 
@@ -139,7 +178,7 @@ impl Fixture {
 fn authorized_abandon_retires_run() {
     let fixture = Fixture::new("retires");
     let log_before = fixture.read(".arca/log.md");
-    assert!(fixture.exists(".arca/state.toml"), "the Run is admitted");
+    assert!(fixture.exists(&fixture.state_rel()), "the Run is admitted");
 
     let output = fixture.abandon(&["--confirm", &fixture.phrase()]);
     assert!(
@@ -166,7 +205,7 @@ fn authorized_abandon_retires_run() {
     );
 
     assert!(
-        !fixture.exists(".arca/state.toml"),
+        !fixture.exists(&fixture.state_rel()),
         "the admission state is retired"
     );
     assert!(!fixture.exists(".arca/rtm.lock"), "the lock is retired");
@@ -177,8 +216,19 @@ fn authorized_abandon_retires_run() {
         "a fresh Run starts in the same project: {}",
         String::from_utf8_lossy(&restart.stderr)
     );
+    // FDC-004: the fresh Run mints a new id on the roster.
+    let fresh = fs::read_dir(fixture.path(".arca/runs"))
+        .expect("list the runs roster")
+        .map(|entry| entry.expect("roster entry is readable"))
+        .find(|entry| entry.path().join("state.toml").is_file())
+        .expect("the fresh run appears on the roster")
+        .file_name()
+        .to_string_lossy()
+        .into_owned();
     assert!(
-        fixture.read(".arca/state.toml").contains("intake"),
+        fixture
+            .read(&format!(".arca/runs/{fresh}/state.toml"))
+            .contains("intake"),
         "the fresh Run begins at the initial Phase"
     );
     assert!(
@@ -220,8 +270,9 @@ fn unauthorized_abandon_refuses_atomically() {
         );
     }
 
+    let id = fixture.run_id.clone();
     assert!(
-        fixture.rtm(&["step"]).status.success(),
+        fixture.rtm(&["step", "--run", &id]).status.success(),
         "the Run is untouched and still steps"
     );
 }
@@ -232,16 +283,17 @@ fn stale_lock_retired_not_bypassed() {
     let fixture = Fixture::new("stale-lock");
     fs::write(fixture.path(".arca/rtm.lock"), b"stale\n").expect("seed a stale lock");
 
-    let blocked = fixture.rtm(&["step"]);
+    let id = fixture.run_id.clone();
+    let blocked = fixture.rtm(&["step", "--run", &id]);
     assert!(
         !blocked.status.success(),
         "an ordinary command cannot proceed past a stale lock"
     );
 
     for bypass in [
-        vec!["step", "--force"],
-        vec!["step", "--no-lock"],
-        vec!["abandon", "--force"],
+        vec!["step", "--run", id.as_str(), "--force"],
+        vec!["step", "--run", id.as_str(), "--no-lock"],
+        vec!["abandon", "--run", id.as_str(), "--force"],
     ] {
         let output = fixture.rtm(&bypass);
         assert!(
@@ -325,7 +377,7 @@ fn interrupted_retirement_completes_idempotently() {
 
     // An unreadable Run file is refused before the first write, never
     // snapshotted as "absent" and then deleted by its own rollback.
-    let evidence_path = fixture.path(".arca/evidence.toml");
+    let evidence_path = fixture.path(&fixture.evidence_rel());
     let evidence_bytes = fs::read(&evidence_path).expect("read Run evidence");
     fs::remove_file(&evidence_path).expect("clear Run evidence");
     fs::create_dir(&evidence_path).expect("make Run evidence unreadable");
@@ -366,7 +418,7 @@ fn interrupted_retirement_completes_idempotently() {
     let _ = fs::remove_file(&lock_path);
     fs::create_dir(&lock_path).expect("obstruct lock retirement");
     let before_lock_failure = fixture.owned_bytes();
-    let evidence_before = fixture.read(".arca/evidence.toml");
+    let evidence_before = fixture.read(&fixture.evidence_rel());
     let log_before = fixture.read(".arca/log.md");
 
     let half = fixture.abandon(&["--confirm", &fixture.phrase()]);
@@ -380,7 +432,7 @@ fn interrupted_retirement_completes_idempotently() {
         "the admission state and history are restored, not half retired"
     );
     assert_eq!(
-        fixture.read(".arca/evidence.toml"),
+        fixture.read(&fixture.evidence_rel()),
         evidence_before,
         "Run evidence is restored when the retirement cannot finish"
     );
@@ -390,8 +442,9 @@ fn interrupted_retirement_completes_idempotently() {
         "no terminal event survives a retirement that did not happen"
     );
     fs::remove_dir(&lock_path).expect("clear the obstruction");
+    let id = fixture.run_id.clone();
     assert!(
-        fixture.rtm(&["status"]).status.success(),
+        fixture.rtm(&["status", "--run", &id]).status.success(),
         "the Run is still active after the failed retirement"
     );
 
@@ -402,7 +455,10 @@ fn interrupted_retirement_completes_idempotently() {
         "the confirmed command completes after the obstruction clears: {}",
         String::from_utf8_lossy(&retried.stderr)
     );
-    assert!(!fixture.exists(".arca/state.toml"), "admission is retired");
+    assert!(
+        !fixture.exists(&fixture.state_rel()),
+        "admission is retired"
+    );
 
     // A tree interrupted between the terminal event and lock retirement:
     // re-running finishes it rather than refusing.
@@ -437,7 +493,7 @@ fn interrupted_retirement_completes_idempotently() {
         String::from_utf8_lossy(&nothing.stderr)
     );
     assert!(
-        text.to_ascii_lowercase().contains("no active run"),
+        text.to_ascii_lowercase().contains("nothing to retire"),
         "the refusal says there is nothing to retire: {text:?}"
     );
     assert_eq!(
@@ -451,14 +507,14 @@ fn interrupted_retirement_completes_idempotently() {
 #[test]
 fn fresh_run_after_abandonment_records_its_own_pin() {
     let fixture = Fixture::new("fresh-pin");
-    let stale_evidence = fixture.read(".arca/evidence.toml");
+    let stale_evidence = fixture.read(&fixture.evidence_rel());
     assert!(
         stale_evidence.contains("[engine]"),
         "the abandoned Run recorded an Engine pin: {stale_evidence:?}"
     );
     // The abandoned Run also carried a gate pin and a frozen goal.
     fs::write(
-        fixture.path(".arca/evidence.toml"),
+        fixture.path(&fixture.evidence_rel()),
         format!("{stale_evidence}\n[[gates]]\nprogram = \"ghost\"\nresolved = \"E:/ghost.exe\"\nsha256 = \"{}\"\n\n[goal]\nfrozen = \"stale-frozen-revision\"\n", "0".repeat(64)),
     )
     .expect("seed stale Run evidence");
@@ -471,7 +527,7 @@ fn fresh_run_after_abandonment_records_its_own_pin() {
         "the Run is abandoned"
     );
     assert!(
-        !fixture.exists(".arca/evidence.toml"),
+        !fixture.exists(&fixture.evidence_rel()),
         "Run evidence is retired with the Run"
     );
 
@@ -479,7 +535,16 @@ fn fresh_run_after_abandonment_records_its_own_pin() {
         fixture.rtm(&["start"]).status.success(),
         "a fresh Run starts"
     );
-    let evidence = fixture.read(".arca/evidence.toml");
+    // FDC-004: the fresh Run's evidence lives in its own run directory.
+    let fresh = fs::read_dir(fixture.path(".arca/runs"))
+        .expect("list the runs roster")
+        .map(|entry| entry.expect("roster entry is readable"))
+        .find(|entry| entry.path().join("state.toml").is_file())
+        .expect("the fresh run appears on the roster")
+        .file_name()
+        .to_string_lossy()
+        .into_owned();
+    let evidence = fixture.read(&format!(".arca/runs/{fresh}/evidence.toml"));
     assert!(
         evidence.contains("[engine]"),
         "the fresh Run records its own Engine pin: {evidence:?}"
@@ -493,7 +558,9 @@ fn fresh_run_after_abandonment_records_its_own_pin() {
         "no freeze is inherited from the abandoned Run: {evidence:?}"
     );
     assert!(
-        fixture.text(&["status"]).contains("intake"),
+        fixture
+            .text(&["status", "--run", &fresh])
+            .contains("intake"),
         "the fresh Run reports its own baseline position"
     );
 }

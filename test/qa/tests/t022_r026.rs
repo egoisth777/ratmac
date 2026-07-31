@@ -31,10 +31,15 @@ fn isolated_project(fixture: &str) -> (TempProject, PathBuf, PathBuf) {
     let arca = root.join(".arca");
     fs::create_dir_all(&arca).expect("create isolated .arca directory");
     let source = fixture_root(fixture);
-    for name in ["ratmac.toml", "state.toml", "log.md"] {
+    for name in ["ratmac.toml", "log.md"] {
         fs::copy(source.join(".arca").join(name), arca.join(name))
             .expect("copy transition-log fixture file");
     }
+    // FDC-004: the State File resides in the addressed run's directory.
+    let run_dir = arca.join("runs/run-001");
+    fs::create_dir_all(&run_dir).expect("create run directory");
+    fs::copy(source.join(".arca/state.toml"), run_dir.join("state.toml"))
+        .expect("copy transition-log fixture file");
     fs::create_dir_all(root.join("required")).expect("create passing guard directory");
     fs::copy(
         source.join("required").join("output.txt"),
@@ -43,7 +48,7 @@ fn isolated_project(fixture: &str) -> (TempProject, PathBuf, PathBuf) {
     .expect("copy passing guard artifact");
     (
         TempProject(root),
-        arca.join("state.toml"),
+        run_dir.join("state.toml"),
         arca.join("log.md"),
     )
 }
@@ -69,7 +74,8 @@ fn start_project() -> TempProject {
 }
 
 fn successful_step(project_root: &Path) {
-    let mut scheduler = Scheduler::open(project_root).expect("open transition-log fixture");
+    let mut scheduler =
+        Scheduler::open_run(project_root, "run-001").expect("open transition-log fixture");
     let request = StepRequest::new("agent claims the required output is complete");
     let outcome = scheduler
         .step(request)
@@ -81,7 +87,8 @@ fn successful_step(project_root: &Path) {
 }
 
 fn refused_step(project_root: &Path) {
-    let mut scheduler = Scheduler::open(project_root).expect("open transition-log fixture");
+    let mut scheduler =
+        Scheduler::open_run(project_root, "run-001").expect("open transition-log fixture");
     let outcome = scheduler
         .step(StepRequest::new("agent claims completion"))
         .expect("guard refusal should be reported as an outcome");
@@ -188,7 +195,8 @@ fn log_open_failure_leaves_state_unchanged() {
     fs::remove_file(&log_path).expect("remove log file to induce open failure");
     fs::create_dir(&log_path).expect("replace log file with directory");
     let state_before = fs::read(&state_path).expect("read state before log failure");
-    let mut scheduler = Scheduler::open(&project.0).expect("open transition-log fixture");
+    let mut scheduler =
+        Scheduler::open_run(&project.0, "run-001").expect("open transition-log fixture");
 
     let result = scheduler.step(StepRequest::new("agent claims completion"));
 
@@ -207,7 +215,15 @@ fn start_log_open_failure_leaves_no_state_and_lock() {
     let mut scheduler = Scheduler::open(&project.0).expect("open start fixture");
 
     assert!(scheduler.start().is_err());
+    // FDC-004: a failed start leaves neither a flat State File nor a run-owned one.
     assert!(!arca.join("state.toml").exists());
+    let no_run_state = match fs::read_dir(arca.join("runs")) {
+        Ok(entries) => entries
+            .map(|entry| entry.expect("roster entry is readable").path())
+            .all(|path| !path.join("state.toml").exists()),
+        Err(_) => true,
+    };
+    assert!(no_run_state, "failed start must leave no run-owned state");
     assert!(!arca.join("rtm.lock").exists());
 }
 
@@ -216,7 +232,8 @@ fn missing_transition_log_is_hard_error_without_state_change() {
     let (project, state_path, log_path) = isolated_project("r026-transition-log");
     fs::remove_file(&log_path).expect("remove transition log");
     let state_before = fs::read(&state_path).expect("read state before missing-log step");
-    let mut scheduler = Scheduler::open(&project.0).expect("open transition-log fixture");
+    let mut scheduler =
+        Scheduler::open_run(&project.0, "run-001").expect("open transition-log fixture");
 
     assert!(scheduler
         .step(StepRequest::new("agent claims completion"))
@@ -247,7 +264,8 @@ fn state_mutators_and_status_honor_existing_lock() {
     let lock = project.0.join(".arca/rtm.lock");
     fs::write(&lock, b"held").expect("create held invocation lock");
     let state_before = fs::read(&state_path).expect("read state before lock checks");
-    let mut scheduler = Scheduler::open(&project.0).expect("open transition-log fixture");
+    let mut scheduler =
+        Scheduler::open_run(&project.0, "run-001").expect("open transition-log fixture");
     assert!(scheduler.status().is_err());
     assert!(scheduler.load_state().is_err());
 

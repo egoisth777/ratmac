@@ -48,15 +48,31 @@ fn lock_and_compatibility_policy() {
     assert!(started.status.success(), "rtm start failed: {started:?}");
 
     let arca = project.root.join(".arca");
+    // FDC-004: the started run's State File resides under the plural path.
+    let run_id = fs::read_dir(arca.join("runs"))
+        .expect("list the runs roster")
+        .map(|entry| entry.expect("roster entry is readable"))
+        .find(|entry| entry.path().is_dir())
+        .expect("the started run appears on the roster")
+        .file_name()
+        .to_string_lossy()
+        .into_owned();
+    let state_path = arca.join("runs").join(&run_id).join("state.toml");
     let class_before = fs::read(arca.join("ratmac.toml")).expect("read class before refusal");
-    let state_before = fs::read(arca.join("state.toml")).expect("read state before refusal");
+    let state_before = fs::read(&state_path).expect("read state before refusal");
     let log_before = fs::read(arca.join("log.md")).expect("read log before refusal");
 
     // HT-036-02/04/05: legacy state is never deleted, bypassed, or mutated.
     let legacy_lock = arca.join("schd.lock");
     fs::write(&legacy_lock, b"operator-held legacy lock\n").expect("create legacy lock");
-    for command in [["status"], ["step"], ["start"]] {
-        let refused = rtm(&project.root, &command);
+    // FDC-004: status/step address the run; start still takes no --run.
+    let commands: [&[&str]; 3] = [
+        &["status", "--run", run_id.as_str()],
+        &["step", "--run", run_id.as_str()],
+        &["start"],
+    ];
+    for command in commands {
+        let refused = rtm(&project.root, command);
         assert!(
             !refused.status.success(),
             "legacy lock must refuse {command:?}"
@@ -77,7 +93,7 @@ fn lock_and_compatibility_policy() {
         assert!(legacy_lock.is_file(), "legacy lock must remain untouched");
     }
     assert_eq!(class_before, fs::read(arca.join("ratmac.toml")).unwrap());
-    assert_eq!(state_before, fs::read(arca.join("state.toml")).unwrap());
+    assert_eq!(state_before, fs::read(&state_path).unwrap());
     assert_eq!(log_before, fs::read(arca.join("log.md")).unwrap());
     assert!(
         !arca.join("rtm.lock").exists(),
@@ -101,9 +117,11 @@ fn lock_and_compatibility_policy() {
     fs::write(project.root.join("artifacts/required.txt"), b"ready\n")
         .expect("write guard artifact");
     let first_root = Arc::clone(&project);
-    let first = thread::spawn(move || rtm(&first_root.root, &["step"]));
+    let first_id = run_id.clone();
+    let first = thread::spawn(move || rtm(&first_root.root, &["step", "--run", &first_id]));
     let second_root = Arc::clone(&project);
-    let second = thread::spawn(move || rtm(&second_root.root, &["step"]));
+    let second_id = run_id.clone();
+    let second = thread::spawn(move || rtm(&second_root.root, &["step", "--run", &second_id]));
     let outputs = [
         first.join().expect("first invocation must finish"),
         second.join().expect("second invocation must finish"),
@@ -112,7 +130,7 @@ fn lock_and_compatibility_policy() {
         outputs.iter().all(|output| output.status.success()),
         "lock arbitration should produce deterministic CLI outcomes: {outputs:?}"
     );
-    let state = fs::read_to_string(arca.join("state.toml")).expect("read final state");
+    let state = fs::read_to_string(&state_path).expect("read final state");
     assert!(
         state.contains("phase = \"review\""),
         "exactly one transition must advance the Run: {state}"

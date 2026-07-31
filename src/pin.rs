@@ -3,7 +3,7 @@
 //! Guard evaluation must not compile, fetch, or rebuild project source. A
 //! guard command that runs project-derived logic runs a *pinned gate
 //! artifact*: its resolved path and SHA-256 are recorded in Run evidence
-//! (`.arca/evidence.toml`) no later than first guard use, and re-verified at
+//! (`.arca/runs/<id>/evidence.toml`) no later than first guard use, and re-verified at
 //! every later evaluation. A command that reads no project state (a toolchain
 //! probe) is exempt, but only if the Runbook marks it `exempt = true`.
 
@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
-/// Run-evidence file name, relative to `.arca/`.
+/// Run-evidence file name, relative to the run's `.arca/runs/<id>/` directory.
 pub const EVIDENCE_FILE: &str = "evidence.toml";
 
 /// The recorded identity of one executable: where it resolved and what it is.
@@ -50,12 +50,16 @@ pub struct Evidence {
     pub goal_baseline: Option<String>,
     /// Goal revision frozen at the intake-completion boundary (ETB-003).
     pub goal_frozen: Option<String>,
+    /// FDC-005: SHA-256 of the canonical `.arca/ratmac.toml` recorded at Run
+    /// start — the runbook pin is this hash and nothing more, never a copy.
+    pub runbook_sha256: Option<String>,
 }
 
 impl Evidence {
-    /// Read Run evidence, or an empty record when none exists yet.
-    pub fn load(root: &Path) -> Self {
-        let path = evidence_path(root);
+    /// Read a run's evidence from its directory, or an empty record when none
+    /// exists yet.
+    pub fn load(run_dir: &Path) -> Self {
+        let path = evidence_path(run_dir);
         let Ok(source) = fs::read_to_string(path) else {
             return Self::default();
         };
@@ -87,11 +91,18 @@ impl Evidence {
                 .filter(|text| !text.is_empty())
                 .map(str::to_owned)
         };
+        let runbook_sha256 = value
+            .get("runbook")
+            .and_then(|table| table.get("sha256"))
+            .and_then(toml::Value::as_str)
+            .filter(|text| !text.is_empty())
+            .map(str::to_owned);
         Self {
             engine,
             gates,
             goal_baseline: goal_field("baseline"),
             goal_frozen: goal_field("frozen"),
+            runbook_sha256,
         }
     }
 
@@ -138,6 +149,10 @@ impl Evidence {
                 quote(self.goal_frozen.as_deref().unwrap_or_default())
             ));
         }
+        if let Some(runbook) = &self.runbook_sha256 {
+            text.push_str("\n[runbook]\n");
+            text.push_str(&format!("sha256 = {}\n", quote(runbook)));
+        }
         for pin in &self.gates {
             text.push_str("\n[[gate]]\n");
             text.push_str(&format!("program = {}\n", quote(&pin.program)));
@@ -147,9 +162,9 @@ impl Evidence {
         text
     }
 
-    /// Persist Run evidence beside the State File.
-    pub fn write(&self, root: &Path) -> std::io::Result<()> {
-        let path = evidence_path(root);
+    /// Persist Run evidence beside the State File, inside the run directory.
+    pub fn write(&self, run_dir: &Path) -> std::io::Result<()> {
+        let path = evidence_path(run_dir);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -157,9 +172,9 @@ impl Evidence {
     }
 }
 
-/// Absolute path of the Run-evidence file for `root`.
-pub fn evidence_path(root: &Path) -> PathBuf {
-    root.join(".arca").join(EVIDENCE_FILE)
+/// Path of the Run-evidence file inside a run's directory.
+pub fn evidence_path(run_dir: &Path) -> PathBuf {
+    run_dir.join(EVIDENCE_FILE)
 }
 
 /// SHA-256 of a file's bytes, lowercase hex.

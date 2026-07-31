@@ -1,7 +1,0 @@
-phase = "prepare"
-status = "executing"
-goal_revision = "goal-r1"
-input_revision = "input-r1"
-output_revision = "output-r0"
-active_refs = []
-blocker = ""

@@ -20,6 +20,8 @@ const BLOCKER: &str = ".arca/issue/i-777-blocker";
 
 struct Fixture {
     root: PathBuf,
+    /// FDC-004: the started run's id, read off the plural roster.
+    run_id: String,
 }
 
 impl Drop for Fixture {
@@ -83,13 +85,26 @@ impl Fixture {
         )
         .expect("write residual");
 
-        let fixture = Fixture { root };
+        let mut fixture = Fixture {
+            root,
+            run_id: String::new(),
+        };
         assert!(
             fixture.rtm(&["start"]).status.success(),
             "the fixture Run starts"
         );
+        // FDC-004: read the minted id off the roster and address it.
+        fixture.run_id = fs::read_dir(fixture.root.join(".arca/runs"))
+            .expect("list the runs roster")
+            .map(|entry| entry.expect("roster entry is readable"))
+            .find(|entry| entry.path().is_dir())
+            .expect("the started run appears on the roster")
+            .file_name()
+            .to_string_lossy()
+            .into_owned();
+        let id = fixture.run_id.clone();
         assert!(
-            fixture.rtm(&["step"]).status.success(),
+            fixture.rtm(&["step", "--run", &id]).status.success(),
             "the Run reaches build"
         );
         assert_eq!(fixture.phase(), "build", "the Run is executing a ticket");
@@ -113,8 +128,15 @@ impl Fixture {
         )
     }
 
+    fn state_path(&self) -> PathBuf {
+        self.root
+            .join(".arca/runs")
+            .join(&self.run_id)
+            .join("state.toml")
+    }
+
     fn phase(&self) -> String {
-        let state = fs::read_to_string(self.root.join(".arca/state.toml")).expect("read state");
+        let state = fs::read_to_string(self.state_path()).expect("read state");
         state
             .lines()
             .find_map(|line| line.trim().strip_prefix("phase = "))
@@ -133,20 +155,29 @@ impl Fixture {
     /// The bytes of every Scheduler-owned file, so a refusal can be proven
     /// to have written nothing.
     fn owned_bytes(&self) -> Vec<(String, Vec<u8>)> {
-        [".arca/state.toml", ".arca/log.md", ".arca/evidence.toml"]
-            .iter()
-            .map(|relative| {
-                (
-                    (*relative).to_owned(),
-                    fs::read(self.root.join(relative)).unwrap_or_default(),
-                )
-            })
-            .collect()
+        // FDC-004: state and evidence reside in the run's directory.
+        let run = format!(".arca/runs/{}", self.run_id);
+        [
+            format!("{run}/state.toml"),
+            ".arca/log.md".to_owned(),
+            format!("{run}/evidence.toml"),
+        ]
+        .iter()
+        .map(|relative| {
+            (
+                relative.clone(),
+                fs::read(self.root.join(relative)).unwrap_or_default(),
+            )
+        })
+        .collect()
     }
 
     fn hold(&self, args: &[&str]) -> Output {
+        // FDC-004: hold acts on an existing Run — always addressed.
         let mut all = vec!["hold"];
         all.extend_from_slice(args);
+        all.push("--run");
+        all.push(&self.run_id);
         self.rtm(&all)
     }
 
@@ -161,8 +192,17 @@ impl Fixture {
 }
 
 fn restore_writable(root: &Path) -> std::io::Result<()> {
-    for relative in [".arca/ticket/t-900.md", ".arca/log.md", ".arca/state.toml"] {
-        let path = root.join(relative);
+    let mut paths = vec![
+        root.join(".arca/ticket/t-900.md"),
+        root.join(".arca/log.md"),
+    ];
+    // FDC-004: each run carries its own State File.
+    if let Ok(entries) = fs::read_dir(root.join(".arca/runs")) {
+        for entry in entries.flatten() {
+            paths.push(entry.path().join("state.toml"));
+        }
+    }
+    for path in paths {
         if let Ok(metadata) = fs::metadata(&path) {
             let mut permissions = metadata.permissions();
             #[allow(clippy::permissions_set_readonly_false)]
@@ -227,7 +267,9 @@ fn held_with_blocker_routes_onward() {
 
     // The Run really is at intake: its prompt is the intake prompt.
     assert!(
-        fixture.text(&["status"]).contains("Integrate the issues."),
+        fixture
+            .text(&["status", "--run", &fixture.run_id])
+            .contains("Integrate the issues."),
         "the routed Run prompts for intake"
     );
 }
@@ -343,7 +385,14 @@ fn held_ticket_cannot_be_passed() {
     // Ordinary routing never takes the escape, even though the Runbook
     // declares it first: a blocked route is human-authorized or nothing.
     let ordinary = Fixture::new("ordinary-routing");
-    assert!(ordinary.rtm(&["step"]).status.success(), "the Run steps on");
+    let ordinary_id = ordinary.run_id.clone();
+    assert!(
+        ordinary
+            .rtm(&["step", "--run", &ordinary_id])
+            .status
+            .success(),
+        "the Run steps on"
+    );
     assert_eq!(
         ordinary.phase(),
         "build-review",
@@ -357,7 +406,7 @@ fn held_ticket_cannot_be_passed() {
         .success());
 
     // The Machine state is a Phase; `held` never appears there.
-    let state = fs::read_to_string(fixture.root.join(".arca/state.toml")).expect("read state");
+    let state = fs::read_to_string(fixture.state_path()).expect("read state");
     assert!(
         !state.contains("held"),
         "held is a ticket state, never a Machine state: {state}"

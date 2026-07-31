@@ -133,20 +133,24 @@ fn engine_gains_no_caller_state() {
         );
     }
 
-    // 3. Behavior is unchanged: a second start on an active Run still refuses.
+    // 3. Behavior carries no caller identity: a second start on the same
+    //    project behaves the same for any caller — it succeeds (FDC-006
+    //    lifted the cap) and leaves the existing run byte-identical.
     let project = fixture_project("t044-policy");
     let first = run_rtm(&project, &["start"]);
     assert!(first.status.success(), "first start succeeds");
-    let state_before = fs::read(project.join(".arca/state.toml")).expect("state after first start");
+    // FDC-004: the State File resides in the minted run's directory.
+    let state_path = run_state_path(&project);
+    let state_before = fs::read(&state_path).expect("state after first start");
     let second = run_rtm(&project, &["start"]);
     assert!(
-        !second.status.success(),
-        "a second start while a Run is active must refuse"
+        second.status.success(),
+        "a second start succeeds — FDC-006 enforces no active-Run cap"
     );
     assert_eq!(
         state_before,
-        fs::read(project.join(".arca/state.toml")).expect("state after refusal"),
-        "the refused start mutates nothing"
+        fs::read(&state_path).expect("state after the sibling start"),
+        "the sibling start mutates nothing that already exists"
     );
     let _ = fs::remove_dir_all(&project);
 }
@@ -185,6 +189,28 @@ fn run_rtm(project: &Path, args: &[&str]) -> std::process::Output {
         .expect("invoke built rtm binary")
 }
 
+/// FDC-004: the started run's State File path, read off the plural roster.
+fn run_state_path(project: &Path) -> PathBuf {
+    let run_dir = fs::read_dir(project.join(".arca/runs"))
+        .expect("list the runs roster")
+        .map(|entry| entry.expect("roster entry is readable").path())
+        .find(|path| path.is_dir())
+        .expect("the started run appears on the roster");
+    run_dir.join("state.toml")
+}
+
+/// FDC-004: the started run's id.
+fn started_run_id(project: &Path) -> String {
+    fs::read_dir(project.join(".arca/runs"))
+        .expect("list the runs roster")
+        .map(|entry| entry.expect("roster entry is readable"))
+        .find(|entry| entry.path().is_dir())
+        .expect("the started run appears on the roster")
+        .file_name()
+        .to_string_lossy()
+        .into_owned()
+}
+
 /// HT-043-01 (Regression): wording changes must not touch behavior. A step
 /// whose Exit Guard fails still refuses, reports, and leaves state unchanged.
 #[test]
@@ -194,11 +220,13 @@ fn step_refusal_behavior_is_unchanged() {
         run_rtm(&project, &["start"]).status.success(),
         "start succeeds"
     );
-    let state_path = project.join(".arca/state.toml");
+    // FDC-004: the State File resides in the minted run's directory.
+    let state_path = run_state_path(&project);
     let before = fs::read(&state_path).expect("state after start");
 
     // A refused step reports and exits zero (R-017); only the report changes.
-    let step = run_rtm(&project, &["step"]);
+    let id = started_run_id(&project);
+    let step = run_rtm(&project, &["step", "--run", &id]);
     let report = String::from_utf8_lossy(&step.stdout).to_ascii_lowercase()
         + &String::from_utf8_lossy(&step.stderr).to_ascii_lowercase();
     assert!(

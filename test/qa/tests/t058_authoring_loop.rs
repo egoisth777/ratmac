@@ -832,9 +832,18 @@ fn the_scaffold_is_a_runnable_machine() {
 
     let (code, report) = rtm(&project, &["start"]);
     assert_eq!(code, 0, "AAL-002: the scaffold starts: {report}");
-    let (code, first) = rtm(&project, &["status"]);
+    // FDC-004: address the minted run, read off the plural roster.
+    let run_id = fs::read_dir(project.join(".arca/runs"))
+        .expect("list the runs roster")
+        .map(|entry| entry.expect("roster entry is readable"))
+        .find(|entry| entry.path().is_dir())
+        .expect("the started run appears on the roster")
+        .file_name()
+        .to_string_lossy()
+        .into_owned();
+    let (code, first) = rtm(&project, &["status", "--run", &run_id]);
     assert_eq!(code, 0, "status after start: {first}");
-    let (code, stepped) = rtm(&project, &["step"]);
+    let (code, stepped) = rtm(&project, &["step", "--run", &run_id]);
     assert_eq!(code, 0, "AAL-002: the scaffold steps: {stepped}");
     assert_ne!(
         first, stepped,

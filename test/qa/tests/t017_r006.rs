@@ -39,7 +39,10 @@ fn isolated_project() -> PathBuf {
         root.join("artifacts/result.yaml"),
     )
     .expect("copy content fixture");
-    fs::write(arca.join("state.toml"), STATE).expect("write isolated State File");
+    // FDC-004: the State File resides in the addressed run's directory.
+    let run_dir = arca.join("runs/run-001");
+    fs::create_dir_all(&run_dir).expect("create run directory");
+    fs::write(run_dir.join("state.toml"), STATE).expect("write isolated State File");
     fs::write(arca.join("log.md"), "").expect("write isolated Transition Log");
     root
 }
@@ -49,7 +52,7 @@ fn request() -> StepRequest {
 }
 
 fn state_bytes(root: &Path) -> Vec<u8> {
-    fs::read(root.join(".arca/state.toml")).expect("read isolated State File")
+    fs::read(root.join(".arca/runs/run-001/state.toml")).expect("read isolated State File")
 }
 
 fn assert_stayed(root: &Path, before: &[u8], reason: &str) {
@@ -84,7 +87,7 @@ fn assert_refused(outcome: StepOutcome, kind: &str) {
 #[test]
 fn guards_use_artifacts_not_agent_claims() {
     let root = isolated_project();
-    let mut scheduler = Scheduler::open(&root).expect("open isolated Scheduler");
+    let mut scheduler = Scheduler::open_run(&root, "run-001").expect("open isolated Scheduler");
     // Every request below carries the identical completion claim.
 
     // Missing filesystem entry: the claim is unchanged, but the observable artifact fails.

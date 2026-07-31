@@ -57,15 +57,29 @@ fn rtm_cli_surface() {
 
     let start = rtm(&project.root, &["start"]);
     assert!(start.status.success(), "rtm start failed: {start:?}");
-    assert!(project.root.join(".arca/state.toml").exists());
+    // FDC-004: start mints a run under the plural path; commands address it.
+    let run_id = std::fs::read_dir(project.root.join(".arca/runs"))
+        .expect("list the runs roster")
+        .map(|entry| entry.expect("roster entry is readable"))
+        .find(|entry| entry.path().is_dir())
+        .expect("the started run appears on the roster")
+        .file_name()
+        .to_string_lossy()
+        .into_owned();
+    assert!(project
+        .root
+        .join(".arca/runs")
+        .join(&run_id)
+        .join("state.toml")
+        .exists());
 
-    let status = rtm(&project.root, &["status"]);
+    let status = rtm(&project.root, &["status", "--run", &run_id]);
     assert!(status.status.success(), "rtm status failed: {status:?}");
     let status_stdout = String::from_utf8_lossy(&status.stdout);
     assert!(status_stdout.contains("Phase: prepare"));
     assert!(status_stdout.contains("Prepare the run."));
 
-    let refused = rtm(&project.root, &["step"]);
+    let refused = rtm(&project.root, &["step", "--run", &run_id]);
     assert!(
         refused.status.success(),
         "guard refusal should be reported: {refused:?}"

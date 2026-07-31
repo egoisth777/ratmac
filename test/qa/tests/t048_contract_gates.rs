@@ -28,6 +28,9 @@ impl Drop for Tree {
 
 const FROZEN: &str = "1111111111111111111111111111111111111111111111111111111111111111";
 
+/// The addressed run whose evidence carries the frozen revision (FDC-004).
+const RUN: &str = "run-001";
+
 impl Tree {
     /// A correct batch: one integrated issue, one residual, one ticket.
     fn new(label: &str) -> Self {
@@ -162,8 +165,12 @@ impl Tree {
     }
 
     fn write_evidence(&self, frozen: &str) {
+        // FDC-004: Run evidence resides in the run's own directory under the
+        // plural runs path.
+        let run_dir = self.root.join(".arca/runs").join(RUN);
+        fs::create_dir_all(&run_dir).expect("create run directory");
         fs::write(
-            self.root.join(".arca/evidence.toml"),
+            run_dir.join("evidence.toml"),
             format!("[goal]\nbaseline = \"{frozen}\"\nfrozen = \"{frozen}\"\n"),
         )
         .expect("write evidence");
@@ -274,12 +281,21 @@ fn intake_contract_verified() {
     // The same predicate must run inside the pinned boundary: the Engine's own
     // gate refuses the step and leaves the Phase where it was.
     tree.rtm(&["start"]);
-    let refusal = tree.rtm(&["step"]);
+    // FDC-004: address the live run — the roster entry carrying a State File.
+    let live = fs::read_dir(tree.root.join(".arca/runs"))
+        .expect("list the runs roster")
+        .map(|entry| entry.expect("roster entry is readable"))
+        .find(|entry| entry.path().join("state.toml").is_file())
+        .expect("the started run appears on the roster")
+        .file_name()
+        .to_string_lossy()
+        .into_owned();
+    let refusal = tree.rtm(&["step", "--run", &live]);
     assert!(
         refusal.contains("i-100-demo") && refusal.contains("pending"),
         "the engine's refusal names the offending artifact: {refusal}"
     );
-    let status = tree.rtm(&["status"]);
+    let status = tree.rtm(&["status", "--run", &live]);
     assert!(
         status.contains("intake"),
         "a refused gate leaves the Phase unchanged: {status}"
@@ -290,13 +306,14 @@ fn intake_contract_verified() {
 #[test]
 fn record_contract_verified() {
     let tree = Tree::new("records");
-    gate_records(&tree.root)
+    gate_records(&tree.root, RUN)
         .unwrap_or_else(|defects| panic!("complete records must pass: {}", reasons(&defects)));
 
     // `satisfied` with no concrete evidence references.
     let tree = Tree::new("evidence-free");
     tree.write_residual("res-100", "DEMO-001", "satisfied", FROZEN, &[]);
-    let defects = gate_records(&tree.root).expect_err("satisfied without evidence must refuse");
+    let defects =
+        gate_records(&tree.root, RUN).expect_err("satisfied without evidence must refuse");
     let text = reasons(&defects);
     assert!(
         text.contains("res-100") && text.contains("evidence"),
@@ -306,7 +323,7 @@ fn record_contract_verified() {
     // A gap owned by no ticket.
     let tree = Tree::new("unowned");
     fs::remove_file(tree.root.join(".arca/ticket/t-100.md")).expect("remove the owning ticket");
-    let defects = gate_records(&tree.root).expect_err("an unowned gap must refuse");
+    let defects = gate_records(&tree.root, RUN).expect_err("an unowned gap must refuse");
     assert!(
         reasons(&defects).contains("res-100"),
         "the refusal names the unowned residual: {}",
@@ -316,7 +333,7 @@ fn record_contract_verified() {
     // A gap owned by two tickets.
     let tree = Tree::new("double-owned");
     tree.write_ticket("t-101", &["res-100"], &[]);
-    let defects = gate_records(&tree.root).expect_err("a doubly owned gap must refuse");
+    let defects = gate_records(&tree.root, RUN).expect_err("a doubly owned gap must refuse");
     let text = reasons(&defects);
     assert!(
         text.contains("res-100") && text.contains("t-100") && text.contains("t-101"),
@@ -333,7 +350,7 @@ fn record_contract_verified() {
         .expect("ticket has a P5 section")
         .to_owned();
     fs::write(&path, trimmed).expect("truncate the ticket");
-    let defects = gate_records(&tree.root).expect_err("an incomplete ticket must refuse");
+    let defects = gate_records(&tree.root, RUN).expect_err("an incomplete ticket must refuse");
     let text = reasons(&defects);
     assert!(
         text.contains("t-100") && text.to_ascii_lowercase().contains("hidden"),
@@ -386,7 +403,7 @@ fn no_vacuous_satisfaction() {
 
     // And the record gate refuses a satisfied claim that rests on that absence.
     let defects =
-        gate_records(&tree.root).expect_err("satisfied cannot rest on an unmechanized loop");
+        gate_records(&tree.root, RUN).expect_err("satisfied cannot rest on an unmechanized loop");
     assert!(
         reasons(&defects).contains("res-100"),
         "the refusal names the record making the claim: {}",
@@ -411,7 +428,7 @@ fn dependency_cycle_is_named() {
     tree.write_ticket("t-101", &["res-101"], &["t-100"]);
     tree.write_ticket("t-102", &["res-102"], &["t-101"]);
 
-    let defects = gate_records(&tree.root).expect_err("a dependency cycle must refuse");
+    let defects = gate_records(&tree.root, RUN).expect_err("a dependency cycle must refuse");
     let text = reasons(&defects);
     assert!(
         text.to_ascii_lowercase().contains("cycle"),
@@ -431,7 +448,7 @@ fn dependency_cycle_is_named() {
         "# Residual Record\n\n```yaml\nresidual-id \"res-100\"\nstatus:\n```\n",
     )
     .expect("write malformed residual");
-    let defects = gate_records(&tree.root).expect_err("a malformed record must refuse");
+    let defects = gate_records(&tree.root, RUN).expect_err("a malformed record must refuse");
     assert!(
         reasons(&defects).contains("res-100"),
         "the refusal names the unreadable record: {}",
@@ -473,7 +490,7 @@ fn stale_frozen_revision_refuses() {
     let tree = Tree::new("stale");
     tree.write_residual("res-100", "DEMO-001", "missing", stale, &[]);
 
-    let defects = gate_records(&tree.root).expect_err("a stale frozen revision must refuse");
+    let defects = gate_records(&tree.root, RUN).expect_err("a stale frozen revision must refuse");
     let text = reasons(&defects);
     assert!(
         text.contains("res-100") && text.contains(stale) && text.contains(FROZEN),
@@ -482,8 +499,10 @@ fn stale_frozen_revision_refuses() {
 
     // With no freeze at all there is nothing to cite: the gate says so.
     let tree = Tree::new("unfrozen");
-    fs::remove_file(tree.root.join(".arca/evidence.toml")).expect("remove evidence");
-    let defects = gate_records(&tree.root).expect_err("an unfrozen goal must refuse");
+    // FDC-004: Run evidence resides in the run's directory.
+    fs::remove_file(tree.root.join(".arca/runs").join(RUN).join("evidence.toml"))
+        .expect("remove evidence");
+    let defects = gate_records(&tree.root, RUN).expect_err("an unfrozen goal must refuse");
     assert!(
         reasons(&defects).to_ascii_lowercase().contains("frozen"),
         "the refusal says the goal is not frozen: {}",

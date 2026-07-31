@@ -201,12 +201,16 @@ pub fn gate_intake(root: &Path) -> Result<(), Vec<ContractDefect>> {
 }
 
 /// PGE-002: verify residual and ticket record contracts.
-pub fn gate_records(root: &Path) -> Result<(), Vec<ContractDefect>> {
+///
+/// `run_id` addresses the run whose evidence carries the frozen goal revision
+/// (FDC-004: Run evidence resides under `.arca/runs/<id>/`).
+pub fn gate_records(root: &Path, run_id: &str) -> Result<(), Vec<ContractDefect>> {
     let mut defects = Vec::new();
-    let frozen = crate::pin::Evidence::load(root).goal_frozen;
+    let run_dir = root.join(".arca/runs").join(run_id);
+    let frozen = crate::pin::Evidence::load(&run_dir).goal_frozen;
     if frozen.is_none() {
         defects.push(defect(
-            ".arca/evidence.toml",
+            format!(".arca/runs/{run_id}/evidence.toml"),
             "the goal is not frozen, so no residual can cite a frozen revision",
         ));
     }

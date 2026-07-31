@@ -5,7 +5,7 @@
 //! human running
 //!
 //! ```text
-//! rtm abandon --confirm "abandon <project directory name>"
+//! rtm abandon --run <id> --confirm "abandon <project directory name>"
 //! ```
 //!
 //! The Engine keeps no caller identity (ORS-001); it checks only that the
@@ -14,10 +14,11 @@
 //!
 //! 1. records a terminal abandoned event in the append-only history, naming
 //!    the retired Run's Phase, status, and revisions;
-//! 2. retires the admission state (`.arca/state.toml`) so a fresh Run can
-//!    start;
-//! 3. retires the Run-scoped evidence (`.arca/evidence.toml`) so the next Run
-//!    records its own baseline and pins rather than inheriting them;
+//! 2. retires the admission state (`.arca/runs/<id>/state.toml`) so a fresh
+//!    Run can start;
+//! 3. retires the Run-scoped evidence (`.arca/runs/<id>/evidence.toml`) so
+//!    the next Run records its own baseline and pins rather than inheriting
+//!    them;
 //! 4. retires the invocation lock (`.arca/rtm.lock`) - retired through this
 //!    path, never bypassed by a flag.
 //!
@@ -74,6 +75,10 @@ fn project_name(root: &Path) -> String {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AbandonRequest {
     pub confirmation: Option<String>,
+    /// The addressed run (FDC-004: `--run <id>`). Required whenever a live
+    /// run is being retired; the leftover-lock-only retirement acts on no
+    /// existing Run and needs no address.
+    pub run: Option<String>,
 }
 
 /// The retirement `rtm` will perform, decided before anything is written.
@@ -105,23 +110,79 @@ pub fn plan_abandon(root: &Path, request: &AbandonRequest) -> Result<AbandonPlan
     }
 
     let arca = root.join(".arca");
-    let state_path = arca.join("state.toml");
-    let evidence_path = arca.join(crate::pin::EVIDENCE_FILE);
     let lock_path = arca.join("rtm.lock");
 
-    let admitted = state_path.exists();
+    // FDC-004: abandon acts on an existing Run through `--run <id>`. Only the
+    // leftover-lock retirement — no live run anywhere on the roster — may
+    // proceed unaddressed, because it retires transient invocation machinery,
+    // not a Run.
+    let roster = crate::Scheduler::run_roster(root);
+    let roster_line = if roster.is_empty() {
+        "none".to_owned()
+    } else {
+        roster.join(", ")
+    };
+    let live: Vec<&String> = roster
+        .iter()
+        .filter(|id| {
+            crate::Scheduler::runs_dir(root)
+                .join(id.as_str())
+                .join("state.toml")
+                .is_file()
+        })
+        .collect();
+    let run_id = match request
+        .run
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+    {
+        Some(id) => {
+            if !roster.iter().any(|entry| entry == id) {
+                return Err(refusal(format!(
+                    "abandon names no run: {id:?} is not on the roster; runs: {roster_line}"
+                )));
+            }
+            Some(id.to_owned())
+        }
+        None if !live.is_empty() => {
+            return Err(refusal(format!(
+                "abandon requires --run <id>; runs: {roster_line}"
+            )));
+        }
+        None => None,
+    };
+
+    let run_dir = run_id
+        .as_deref()
+        .map(|id| crate::Scheduler::runs_dir(root).join(id));
+    let state_path = run_dir.as_ref().map(|dir| dir.join("state.toml"));
+    let evidence_path = run_dir
+        .as_ref()
+        .map(|dir| dir.join(crate::pin::EVIDENCE_FILE));
+
+    let admitted = state_path.as_ref().is_some_and(|path| path.exists());
     if !admitted && !lock_path.exists() {
-        return Err(refusal(format!(
-            "no active Run to abandon in {}: nothing to retire",
-            project_name(root)
-        )));
+        // FDC-006: runs are plural, so the refusal speaks about the addressed
+        // run — or the empty project — never about "the" project-wide Run.
+        return Err(match run_id.as_deref() {
+            Some(id) => refusal(format!(
+                "run {id} is already terminal: its admission state is retired; nothing to retire"
+            )),
+            None => refusal(format!(
+                "nothing to retire in {}: no live run and no leftover lock",
+                project_name(root)
+            )),
+        });
     }
 
     let mut retire = Vec::new();
     let mut phase = None;
     let mut event = None;
     if admitted {
-        let state = crate::state::StateStore::new(root)
+        let state_path = state_path.expect("admitted implies an addressed run");
+        let evidence_path = evidence_path.expect("admitted implies an addressed run");
+        let state = crate::state::StateStore::at(state_path.clone())
             .load()
             .map_err(|error| refusal(format!("abandon cannot read the State File: {error}")))?;
         phase = Some(state.phase.clone());
