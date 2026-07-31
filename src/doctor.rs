@@ -141,7 +141,7 @@ pub fn diagnose(path: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
     inspect_graph(&class, &mut findings);
     lint_guards(&class, &mut findings);
-    audit_ownership(path, &mut findings);
+    audit_ownership(&class, &shown, &mut findings);
     findings.sort();
     findings
 }
@@ -375,10 +375,7 @@ fn lint_guards(class: &MachineClass, findings: &mut Vec<Finding>) {
                     }
                 }
                 GuardKind::FilesExact { path, .. } | GuardKind::FileContains { path, .. } => {
-                    if !crate::ownership::SCHEDULER_OWNED
-                        .iter()
-                        .any(|owned| path.replace('\\', "/").ends_with(owned))
-                    {
+                    if !crate::ownership::is_scheduler_owned_path(path) {
                         findings.push(Finding::warning(
                             "RB302",
                             location,
@@ -398,8 +395,8 @@ fn lint_guards(class: &MachineClass, findings: &mut Vec<Finding>) {
 }
 
 /// DRD-003: the PGE-004 audit, reported like any other pass.
-fn audit_ownership(path: &Path, findings: &mut Vec<Finding>) {
-    let instructions = crate::ownership::runbook_instructions(path);
+fn audit_ownership(class: &MachineClass, shown: &str, findings: &mut Vec<Finding>) {
+    let instructions = crate::ownership::runbook_instructions(class, shown);
     if let Err(violations) = crate::ownership::audit_ownership(&instructions) {
         for violation in violations {
             findings.push(Finding::error(

@@ -22,6 +22,7 @@ use std::path::{Path, PathBuf};
 
 use ratmac::cli;
 use ratmac::doctor::{self, Severity};
+use ratmac::machine::MachineClass;
 use ratmac_qa::json::Json;
 
 fn repo_root() -> PathBuf {
@@ -435,7 +436,7 @@ fn ownership_violations_surface_through_the_doctor() {
     let bench = Bench::new("ownership");
     let path = bench.runbook(
         "owned",
-        "[phases.a]\nprompt = \"Record your progress in .arca/state.toml before you finish.\"\n",
+        "[phases.a]\nprompt = \"Record your progress in .arca/runs/run-1/state.toml before you finish.\"\n",
     );
     let finding = doctor::diagnose(&path)
         .into_iter()
@@ -448,9 +449,13 @@ fn ownership_violations_surface_through_the_doctor() {
         finding.message()
     );
 
-    let violations =
-        ratmac::ownership::audit_ownership(&ratmac::ownership::runbook_instructions(&path))
-            .expect_err("the audit refuses this prompt");
+    let source = fs::read_to_string(&path).expect("read ownership fixture");
+    let class = MachineClass::from_toml(&source).expect("parse ownership fixture");
+    let shown = path.to_string_lossy().replace('\\', "/");
+    let violations = ratmac::ownership::audit_ownership(&ratmac::ownership::runbook_instructions(
+        &class, &shown,
+    ))
+    .expect_err("the audit refuses this prompt");
     assert!(
         violations
             .iter()

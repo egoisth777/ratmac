@@ -11,6 +11,7 @@
 //! executed check. The P4 gate reads receipts, never prose; prompts and gate
 //! contracts never hand an agent a Scheduler-owned file.
 
+use ratmac::machine::MachineClass;
 use ratmac::ownership::{
     audit_ownership, runbook_instructions, template_instructions, Instruction, SCHEDULER_OWNED,
 };
@@ -153,6 +154,13 @@ fn repo_root() -> PathBuf {
         .expect("repository root resolves")
 }
 
+fn typed_runbook_instructions(path: &Path) -> Vec<Instruction> {
+    let source = fs::read_to_string(path).expect("read Runbook");
+    let class = MachineClass::from_toml(&source).expect("parse Runbook");
+    let shown = path.to_string_lossy().replace('\\', "/");
+    runbook_instructions(&class, &shown)
+}
+
 const BASELINE_OUTPUT: &str = "test planned_behavior_is_checked ... FAILED\n\
                                test result: FAILED. 0 passed; 1 failed\n";
 
@@ -252,7 +260,7 @@ fn digest_binds_receipt_to_output() {
 #[test]
 fn ownership_audit_is_sensitive() {
     let root = repo_root();
-    let mut instructions = runbook_instructions(&root.join(".arca/ratmac.toml"));
+    let mut instructions = typed_runbook_instructions(&root.join(".arca/ratmac.toml"));
     instructions.extend(template_instructions(&root.join(".arca/tpl")));
     assert!(
         !instructions.is_empty(),
@@ -283,7 +291,7 @@ fn ownership_audit_is_sensitive() {
         fixture.root.join(".arca/ratmac.toml"),
         "[phases.build]\n\
          prompt = \"Do the work.\"\n\
-         guards = [{ kind = \"file_contains\", path = \".arca/state.toml\", contains = \"passed\" }]\n\
+         guards = [{ kind = \"file_contains\", path = \".arca/runs/run-1/state.toml\", contains = \"passed\" }]\n\
          \n\
          [phases.review]\n\
          prompt = \"Review.\"\n\
@@ -293,15 +301,15 @@ fn ownership_audit_is_sensitive() {
          to = \"review\"\n",
     )
     .expect("write violating class");
-    let violations = audit_ownership(&runbook_instructions(
+    let violations = audit_ownership(&typed_runbook_instructions(
         &fixture.root.join(".arca/ratmac.toml"),
     ))
-    .expect_err("a guard contract on a Scheduler-owned path must fail the audit");
+    .expect_err("a guard contract on an Engine-owned path must fail the audit");
     assert!(
         violations
             .iter()
-            .any(|violation| violation.path == ".arca/state.toml"),
-        "the audit names the guarded Scheduler-owned path: {violations:?}"
+            .any(|violation| violation.path == ".arca/runs/<id>/state.toml"),
+        "the audit names the canonical Engine-owned path: {violations:?}"
     );
 
     // Prose that merely mentions the file is not an instruction to write it.
@@ -368,7 +376,7 @@ fn no_scheduler_owned_path_in_any_instruction() {
                     continue;
                 }
                 runbooks += 1;
-                let from_runbook = runbook_instructions(&path);
+                let from_runbook = typed_runbook_instructions(&path);
                 assert!(
                     !from_runbook.is_empty(),
                     "Runbook {} contributes no auditable prompt: it is unparseable or empty \

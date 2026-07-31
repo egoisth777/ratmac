@@ -1,20 +1,27 @@
-//! PGE-004: Scheduler-owned artifacts are never an agent's job.
+//! PGE-004: Engine-owned artifacts are never an agent's job.
 //!
-//! A Phase Prompt or gate contract may not instruct an agent to write a
-//! Scheduler-owned file. Agent-authored evidence goes to an agent-writable
-//! evidence artifact (`.arca/evidence/`) or through an `rtm` command that
-//! performs the Scheduler-owned append itself.
+//! A Phase Prompt or gate contract may not instruct an agent to write an
+//! Engine-owned file. Per-Run state and evidence live under
+//! `.arca/runs/<id>/`; project history and the invocation lock remain directly
+//! under `.arca/`. Agent-authored receipts stay in `.arca/evidence/`.
 //!
-//! The audit is executable so the property cannot quietly regress: it reads
-//! the active Runbook's prompts and guard contracts and refuses any
-//! instruction that pairs a writing verb with a Scheduler-owned path.
+//! The audit is executable so the property cannot quietly regress: it takes
+//! the already parsed Machine Class and refuses any instruction that pairs a
+//! writing verb with an Engine-owned path.
 
 use std::fmt;
 use std::fs;
 use std::path::Path;
 
-/// Files only the Scheduler writes (ADR-0003, R-009).
-pub const SCHEDULER_OWNED: [&str; 3] = [".arca/state.toml", ".arca/log.md", ".arca/rtm.lock"];
+use crate::machine::{GuardKind, MachineClass};
+
+/// Files only the Engine writes (ADR-0003, R-009).
+pub const SCHEDULER_OWNED: [&str; 4] = [
+    ".arca/runs/<id>/state.toml",
+    ".arca/runs/<id>/evidence.toml",
+    ".arca/log.md",
+    ".arca/rtm.lock",
+];
 
 /// Verbs that turn a mention into an instruction to write.
 const WRITE_VERBS: [&str; 10] = [
@@ -56,7 +63,11 @@ pub fn audit_ownership(instructions: &[Instruction]) -> Result<(), Vec<Ownership
             let lowered = sentence.to_ascii_lowercase();
             for owned in SCHEDULER_OWNED {
                 let bare = owned.trim_start_matches(".arca/");
-                if !lowered.contains(owned) && !lowered.contains(bare) {
+                let basename = owned.rsplit('/').next().unwrap_or(owned);
+                if !lowered.contains(owned)
+                    && !lowered.contains(bare)
+                    && !lowered.contains(basename)
+                {
                     continue;
                 }
                 if let Some(verb) = WRITE_VERBS
@@ -82,18 +93,9 @@ pub fn audit_ownership(instructions: &[Instruction]) -> Result<(), Vec<Ownership
     }
 }
 
-/// Collect the agent-facing instructions of one Runbook: every phase prompt
-/// and every guard contract path.
-pub fn runbook_instructions(class_path: &Path) -> Vec<Instruction> {
-    let shown = class_path.to_string_lossy().replace('\\', "/");
-    let Ok(source) = fs::read_to_string(class_path) else {
-        return Vec::new();
-    };
-    // TRP-001: one reader. The audit sees the guards the Scheduler will
-    // evaluate, not a looser re-reading of the same file.
-    let Ok(class) = crate::machine::MachineClass::from_toml(&source) else {
-        return Vec::new();
-    };
+/// Collect the agent-facing instructions of one already parsed Machine Class:
+/// every phase prompt and every guard contract path.
+pub fn runbook_instructions(class: &MachineClass, shown: &str) -> Vec<Instruction> {
     let mut instructions = Vec::new();
     for (name, phase) in class.phases() {
         instructions.push(Instruction {
@@ -101,11 +103,12 @@ pub fn runbook_instructions(class_path: &Path) -> Vec<Instruction> {
             text: phase.prompt().to_owned(),
         });
         for (index, guard) in phase.guards().iter().enumerate() {
-            // A gate contract that points at a Scheduler-owned path makes the
+            // A gate contract that points at an Engine-owned path makes the
             // agent responsible for it just as surely as a prompt sentence.
             let target = match guard {
-                crate::machine::GuardKind::FilesExact { path, .. }
-                | crate::machine::GuardKind::FileContains { path, .. } => path.as_str(),
+                GuardKind::FilesExact { path, .. } | GuardKind::FileContains { path, .. } => {
+                    path.as_str()
+                }
                 _ => "",
             };
             if !target.is_empty() {
@@ -117,6 +120,22 @@ pub fn runbook_instructions(class_path: &Path) -> Vec<Instruction> {
         }
     }
     instructions
+}
+
+/// Whether a concrete path names an Engine-owned project or per-Run artifact.
+pub fn is_scheduler_owned_path(path: &str) -> bool {
+    let normalized = path.replace('\\', "/");
+    if normalized.ends_with(".arca/log.md") || normalized.ends_with(".arca/rtm.lock") {
+        return true;
+    }
+    let Some((_, run_relative)) = normalized.rsplit_once(".arca/runs/") else {
+        return false;
+    };
+    let mut segments = run_relative.split('/');
+    matches!(
+        (segments.next(), segments.next(), segments.next()),
+        (Some(id), Some("state.toml" | "evidence.toml"), None) if !id.is_empty()
+    )
 }
 
 /// Every `.md` template under a directory tree, as instructions. Templates
