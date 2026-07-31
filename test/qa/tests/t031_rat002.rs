@@ -46,7 +46,12 @@ fn canonical_package_and_binary_metadata() {
     assert!(qa_manifest.contains("name = \"ratmac-qa\""));
     assert!(qa_manifest.contains("name = \"rtm\""));
     assert!(qa_manifest.contains("path = \"../../src/bin/rtm.rs\""));
-    assert!(qa_manifest.contains("ratmac = { path = \"../..\" }"));
     assert!(!qa_manifest.contains("arca-scheduler"));
     assert!(!qa_manifest.contains("schd"));
+    let parsed: toml::Value = qa_manifest.parse().expect("QA manifest must be valid TOML");
+    assert_eq!(
+        parsed["dependencies"]["ratmac"]["path"].as_str(),
+        Some("../.."),
+        "the QA crate must depend on the canonical root package"
+    );
 }

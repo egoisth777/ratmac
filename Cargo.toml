@@ -11,6 +11,9 @@ path = "src/lib.rs"
 members = ["test/qa"]
 resolver = "2"
 
+[features]
+test-fault-injection = []
+
 [dependencies]
 toml = "0.8"
 serde = { version = "1", features = ["derive"] }

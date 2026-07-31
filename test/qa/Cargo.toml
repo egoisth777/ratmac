@@ -19,6 +19,6 @@ name = "rtm"
 path = "../../src/bin/rtm.rs"
 
 [dependencies]
-ratmac = { path = "../.." }
+ratmac = { path = "../..", features = ["test-fault-injection"] }
 toml = "0.8"
 sha2 = "0.10"

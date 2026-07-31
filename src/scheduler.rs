@@ -40,6 +40,21 @@ impl StepRequest {
     }
 }
 
+#[cfg(feature = "test-fault-injection")]
+fn inject_step_fault(boundary: &str) -> Result<(), StateError> {
+    if std::env::var("RATMAC_TEST_STEP_FAULT").ok().as_deref() == Some(boundary) {
+        return Err(StateError::new(format!(
+            "injected step fault at {boundary}"
+        )));
+    }
+    Ok(())
+}
+
+#[cfg(not(feature = "test-fault-injection"))]
+fn inject_step_fault(_boundary: &str) -> Result<(), StateError> {
+    Ok(())
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GuardFailure {
     pub kind: String,
@@ -408,11 +423,11 @@ impl Scheduler {
 
     /// Instantiate a Run from the canonical, human-authored Machine Class.
     ///
-    /// FDC-004: start mints a run id in the single id namespace and creates
-    /// `.arca/runs/<id>/` holding the run's Scheduler-owned files — the
-    /// durable State File and the Run evidence — plus the `verdict.toml` and
-    /// `spawn-ledger` paths reserved by name only (their contracts belong to
-    /// the machine-composition issue). No flat `.arca/state.toml` is written.
+    /// FDC-004: start mints a run id in the single namespace and creates
+    /// `.arca/runs/<id>/` with its durable State File and Run evidence.
+    /// FDC-003: the `verdict.toml` live slot is absent when empty; the
+    /// `spawn-ledger` path remains reserved by name only for machine
+    /// composition. No flat `.arca/state.toml` is written.
     ///
     /// State and log persist after return. The lock is held only for this
     /// invocation and is released by the RAII guard before the Run is observed.
@@ -502,17 +517,15 @@ impl Scheduler {
                 .write(&run_dir)
                 .map_err(|error| StateError::new(format!("write evidence.toml: {error}")))?;
 
-            // FDC-004: the verdict slot and the per-run spawn-ledger path are
-            // reserved by name only; their contents mean nothing yet.
-            for reserved in ["verdict.toml", "spawn-ledger"] {
-                OpenOptions::new()
-                    .create_new(true)
-                    .write(true)
-                    .open(run_dir.join(reserved))
-                    .map_err(|error| {
-                        StateError::new(format!("reserve {reserved} under {run_id}: {error}"))
-                    })?;
-            }
+            // FDC-003/FDC-004: an empty Verdict slot is absence. Only the
+            // per-run spawn-ledger path remains reserved by name here.
+            OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(run_dir.join("spawn-ledger"))
+                .map_err(|error| {
+                    StateError::new(format!("reserve spawn-ledger under {run_id}: {error}"))
+                })?;
             Ok(())
         };
         if let Err(error) = create_run() {
@@ -575,9 +588,42 @@ impl Scheduler {
         }
 
         let from = Phase::new(state.phase.clone());
-        // FDC-001: route selection is one lookup over Phase plus input. t-062
-        // supplies the durable branch input; straight lines select with None.
-        let Some(transition) = Self::route_for(&self.machine, &from, None) else {
+        let definition = class
+            .phases()
+            .get(&state.phase)
+            .ok_or_else(|| StateError::new("current Phase definition disappeared"))?;
+        // FDC-003/FDC-001: every readiness guard above finishes before the
+        // live slot is inspected. Branches validate one external record;
+        // straight lines read no record and reject any occupied slot.
+        let transition_input = if let Some(inputs) = definition.inputs() {
+            match crate::verdict::load_live(&run_dir, &state.phase, inputs) {
+                Ok(record) => Some(record.input().to_owned()),
+                Err(refusal) => {
+                    return Ok(StepOutcome::Refused {
+                        failures: vec![guard_failure(
+                            "verdict",
+                            "verdict.toml",
+                            refusal.observed(),
+                            refusal.expected(),
+                        )],
+                    })
+                }
+            }
+        } else {
+            if crate::verdict::live_slot_is_occupied(&run_dir)? {
+                return Ok(StepOutcome::Refused {
+                    failures: vec![guard_failure(
+                        "verdict",
+                        "verdict.toml",
+                        "live record presented to a straight-line Phase",
+                        "absent live verdict slot",
+                    )],
+                });
+            }
+            None
+        };
+        let Some(transition) = Self::route_for(&self.machine, &from, transition_input.as_deref())
+        else {
             return Ok(StepOutcome::Refused {
                 failures: vec![guard_failure(
                     "transition",
@@ -587,6 +633,7 @@ impl Scheduler {
                 )],
             });
         };
+        let consumes_verdict = transition_input.is_some();
         let freezes_goal = transition.freezes_goal();
         let to = transition.to().clone();
         let prior = state.clone();
@@ -611,15 +658,29 @@ impl Scheduler {
             last[0] != b'\n'
         };
 
+        // Resolve every ordinary fallible prerequisite before the irreversible
+        // Verdict rename. Freeze evidence is still written only after
+        // consumption and before the successor State File.
+        let frozen_revision = if freezes_goal {
+            Some(
+                crate::goal::revision(&root)
+                    .ok_or_else(|| StateError::new("cannot freeze goal: .arca/goal/ is absent"))?,
+            )
+        } else {
+            None
+        };
+        if consumes_verdict {
+            inject_step_fault("before-verdict-archive")?;
+            crate::verdict::archive_live(&run_dir)?;
+            inject_step_fault("before-state-replace")?;
+        }
+
         let mut next = state;
         next.phase = to.to_string();
-        if freezes_goal {
-            // The frozen revision is the post-integration content: it is
-            // computed here, at the boundary that closes intake. Evidence is
-            // written before the State File, so an interrupted freeze leaves
-            // the Run unchanged rather than half-frozen.
-            let frozen = crate::goal::revision(&root)
-                .ok_or_else(|| StateError::new("cannot freeze goal: .arca/goal/ is absent"))?;
+        if let Some(frozen) = frozen_revision {
+            // ETB-003 and FDC-003: freeze evidence follows Verdict consumption
+            // but still precedes the successor State File. Failure leaves the
+            // old Phase with an archived, non-replayable verdict.
             let mut frozen_evidence = crate::pin::Evidence::load(&run_dir);
             frozen_evidence.goal_frozen = Some(frozen.clone());
             if let Err(error) = frozen_evidence.write(&run_dir) {
@@ -633,6 +694,9 @@ impl Scheduler {
         if let Err(state_error) = self.store()?.write(&next) {
             drop(log);
             return Err(state_error);
+        }
+        if consumes_verdict {
+            inject_step_fault("after-state-replace")?;
         }
 
         let append_result = (|| {
@@ -652,10 +716,29 @@ impl Scheduler {
                 rollback_errors.push(format!("sync log.md rollback: {error}"));
             }
             drop(log);
-            if let Err(error) = self.store()?.write(&prior) {
-                rollback_errors.push(format!("restore state.toml: {error}"));
+            // FDC-003: after Verdict consumption and successor replacement,
+            // advancing is durable even when the later history append fails.
+            // Restoring the old Phase here would make the archived judgment
+            // look replayable while its live slot is already gone.
+            if !consumes_verdict {
+                if let Err(error) = self.store()?.write(&prior) {
+                    rollback_errors.push(format!("restore state.toml: {error}"));
+                }
             }
-            let message = if rollback_errors.is_empty() {
+            let message = if consumes_verdict {
+                let durable = format!(
+                    "the verdict was consumed and the Run advanced {from} -> {to}; \
+                     the transition history line is missing and must be appended after restoring log.md"
+                );
+                if rollback_errors.is_empty() {
+                    format!("append log.md failed: {append_error}; {durable}")
+                } else {
+                    format!(
+                        "append log.md failed: {append_error}; {durable}; log cleanup failed: {}",
+                        rollback_errors.join("; ")
+                    )
+                }
+            } else if rollback_errors.is_empty() {
                 format!("append log.md failed: {append_error}")
             } else {
                 format!(

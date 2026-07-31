@@ -16,6 +16,7 @@ pub mod receipt;
 pub mod scaffold;
 pub mod scheduler;
 pub mod state;
+pub mod verdict;
 
 pub use scheduler::{GuardFailure, Scheduler, StepOutcome, StepRequest};
 pub use state::{PhasePrompt, StateError, StateStore, StatusReport};
