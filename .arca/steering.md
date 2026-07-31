@@ -84,34 +84,21 @@ An authored ordering of directions beyond the current sprint, in direction
 and issue terms only. Binds nothing; nothing here is chosen; an item enters
 work only by going through P1 like any other issue.
 
-1. **Input-routed transitions** - the input-routed-transition issue
-   (`i-016-fsm-doctrine-convergence`): each branching state declares a closed
-   legal input list, each ordinary outgoing edge maps one value, and the
-   Engine selects by state plus input while the doctor checks complete,
-   unique coverage. First because runs are plural and addressed but each
-   still walks first-edge-wins; every day that survives, agents route by
-   convention the Engine cannot check.
-2. **Input delivery and durability** - the input-delivery issue
-   (`i-019-input-delivery-durability`): one external judgment supplies one
-   transition input to the addressed Run and state; the Engine atomically
-   consumes it into immutable evidence before advancing. After selection
-   because delivery has no meaning until the class declares the legal values
-   and their destinations.
-3. **Run completion** - the Run-completion issue
+1. **Run completion** - the Run-completion issue
    (`i-020-run-completion`): `passed` on entering a terminal state, durable
    abandonment before active-state retirement, and guard refusal kept
    non-terminal. Independent of routing, but before composition because joins
    need an Engine-written terminal fact they can read.
-4. **The `failed`-outcome contract** - a later, separate issue must name the
+2. **The `failed`-outcome contract** - a later, separate issue must name the
    concrete Engine-observable failure event that grants the third terminal.
    It does not fold back into input routing or Run completion: neither a
    judgment value nor a guard refusal is failure.
-5. **Machine composition** - the machine-composition issue
+3. **Machine composition** - the machine-composition issue
    (`i-018-machine-composition`): spawn and join semantics, the spawn-ledger
    content contract, recursion depth. After routing, delivery, and completion
    because spawned children must return durable facts that route and
    terminate the parent.
-6. **The cycle as the real runbook** - the cycle-as-runbook issue
+4. **The cycle as the real runbook** - the cycle-as-runbook issue
    (`i-015-cycle-as-runbook`): self-hosting this repository's P1-P5 loop as
    a ratmac runbook. Last because it consumes selection, delivery,
    completion, and composition; hosting it earlier would encode
@@ -157,39 +144,46 @@ wrote down is drift.
 Derived record. Regenerated wholesale at P1 close from the signed issue set;
 never hand-edited, never a progress report. Stage lives in the tree.
 
-Freeze stamp: goal git HEAD `89071f1` — planning step 1 closed 2026-07-29; the
-goal integration landing was authorized and recorded on 2026-07-30.
+Freeze stamp: pending the goal-integration landing for planning step 1,
+2026-07-30. The next shop-only stamp records its commit and goal SHA-256.
 
 A sprint starts when enough issues have collected to be worth integrating
 into the goal, and runs the cycle - plan, then build - until the gap check
 comes back clean.
 
-This sprint: give every Run a durable address of its own.
+This sprint: make every branch choice checked and every consumed choice
+single-use.
 
-Signed issue set: i-017-run-residency.
+Signed issue set: i-016-fsm-doctrine-convergence,
+i-019-input-delivery-durability, and the duplicate-only goal correction
+i-021-state-file-path-correction.
 
 Route - an ordered dependency list, one why per edge. It says what depends on
 what, never when.
 
-0. i-017 Run residency (`FDC-004`-`FDC-006`) - the plural `runs` path, one id
-   namespace with `--run <id>` always required, a hash-only runbook pin, a
-   flat-layout residue that refuses instead of migrating, and run ids never
-   reused after abandon. No edges: it is the whole of this sprint, and it
-   depends on nothing else signed here.
+0. i-021 State File path correction (`SPC-001`, duplicate of `FDC-004`) -
+   reconcile the inherited flat clauses with canonical per-Run residency. It
+   changes the goal only and mints no residual or program ticket.
+1. i-016 Input-routed transitions (`FDC-001`) - branching Phases declare
+   closed `inputs`, ordinary transitions map one `input`, the doctor proves
+   complete unique coverage, and runtime selects independently of declaration
+   order. It builds on integrated Run residency.
+2. i-019 Input delivery and durability (`FDC-003`) - one strict verdict record
+   supplies one transition input to one addressed Run and current Phase, then
+   is archived before successor state. It depends on `FDC-001` because
+   delivery has no meaning until the Machine Class declares legal values and
+   their mappings.
 
-Endpoint: with the route complete, two Runs of the same project work side by
-side without either one reaching the other's files, and a finished Run's
-record cannot be overwritten by whoever works next.
+Endpoint: a review result can choose a declared branch without convention;
+the Engine rejects malformed or stale input, consumes a valid choice once,
+and preserves it as immutable Run evidence before advancing.
 
-Deferred, each awaiting an earlier stratum of the 2026-07-29 split rather than
-a decision: the verdict-routed execution core (`i-016-fsm-doctrine-convergence`,
-stated in terms of the per-Run verdict slot residency defines), machine
-composition (`i-018-machine-composition`, which gives a contract to the
-spawn-ledger location residency only reserves), and the cycle as the real
-runbook (`i-015-cycle-as-runbook`, which needs all three under it). Also still
-deferred from the previous pass: a git-state guard kind; extracting the
-hard-coded `.arca/issue|ticket|residual|goal` paths from the Engine (R-016
-debt).
+Deferred: Run completion (`i-020-run-completion`) is the next independent
+stratum; machine composition (`i-018-machine-composition`) then consumes
+routing, delivery, and terminal facts; the real cycle runbook
+(`i-015-cycle-as-runbook`) follows all of them. Also still deferred: a
+git-state guard kind and extraction of hard-coded
+`.arca/issue|ticket|residual|goal` paths from the Engine (R-016 debt).
 
 ## How direction flows
 

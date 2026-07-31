@@ -3,7 +3,7 @@
 ```yaml
 issue-id: "i-015-cycle-as-runbook"
 provenance: "Discovered while closing the i-011..i-014 sprint, 2026-07-28 - steering.md Current sprint endpoint is unmet and the frozen goal carries no requirement for it; schema.md, The only road back"
-status: "pending"
+status: "integrated"
 ```
 
 ## Summary
@@ -37,3 +37,4 @@ yet. They are recorded here as requirements, not as intentions.
   composition (`i-018-machine-composition`). The additions record Billy's 2026-07-30 atomic cut;
   requirement identifiers stayed unchanged. The ordering among the new concerns is an assumed
   dependency forecast, revocable at planning step 1.
+- 2026-07-30: all six asks were dispositioned `deferred`; the issue closes this batch as `integrated` with zero accepted goal rows, satisfying the planning-step terminal status without pretending the asks landed. Steering retains the direction in Horizon; a later planning issue may carry the deferred asks when their dependencies land.

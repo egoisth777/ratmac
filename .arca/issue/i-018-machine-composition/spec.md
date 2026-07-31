@@ -17,10 +17,10 @@ defined in [ubi-lang.md](ubi-lang.md); IDs stay stable and are never renumbered.
 
 | Requirement ID | Requirement | Disposition | Rationale | Accepted Forward Authority Refs |
 | :--- | :--- | :--- | :--- | :--- |
-| `FDC-007` | Authorization splits by motion kind: `spawn` is ordinary motion with no confirmation phrase; `respawn` and abandon-with-run-id require confirmation phrases naming the run id. | proposed | Exceptional motion needs a human; ordinary motion needs neither. Provenance: adopted default (`08` §4 item 15; revocable). | — (pending P1) |
-| `FDC-008` | Termination is checked by guard-kind membership: every phase on a cycle carries at least one out-edge guarded by receipt- or contract-class guards only. | proposed | Monotonicity is not a property the guard vocabulary exposes; kind membership is, so the check is mechanical. Provenance: adopted default (`08` §4 item 13; revocable). | — (pending P1) |
-| `FDC-009` | The runbook format is explicitly extended to carry the class and spawn tables `05` §1 introduces, superseding the format-spec restriction (`RBS-004`) the review cites; the canonical spelling is `blocked-route` (hyphen). | proposed | Without the claimed supersession the self-hosting runbook would refuse today; the hyphen spelling matches the parser, the specification, and the working rules. Provenance: human ruling (`AR-10`, 2026-07-29). | — (pending P1) |
-| `FDC-010` | Judge independence lands in sequence: child-as-reviewer first; the witnessed verdict verb is deferred. | proposed | The witnessed verb needs signer identity, which `ORS-001` deliberately keeps out of the Engine. Provenance: adopted default (`08` §4 item 17; revocable). | — (pending P1) |
+| `FDC-007` | Authorization splits by motion kind: `spawn` is ordinary motion with no confirmation phrase; `respawn` and abandon-with-run-id require confirmation phrases naming the run id. | deferred | Composition still awaits durable Run completion after routing and delivery. | — (deferred 2026-07-30) |
+| `FDC-008` | Every Phase on a cycle carries at least one outgoing edge guarded by receipt- or contract-class guards. | deferred | The cycle and join contract belongs to the later composition stratum. | — (deferred 2026-07-30) |
+| `FDC-009` | The runbook format carries class and spawn tables, with `blocked-route` as the canonical spelling. | deferred | Format expansion follows the routing/delivery and completion contracts it consumes. | — (deferred 2026-07-30) |
+| `FDC-010` | Judge independence lands child-as-reviewer first; the witnessed verdict verb remains deferred. | deferred | Child judgment requires spawn/join mechanics; signer identity remains outside the Engine. | — (deferred 2026-07-30) |
 
 ## Open question (not an ask)
 

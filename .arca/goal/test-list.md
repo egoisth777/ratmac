@@ -163,6 +163,31 @@ Behavior checks derived from [spec.md](spec.md). Each is a testable one-liner.
 | ID | Check | Requirement |
 |---|---|---|
 | RRV-001 | Every run-residency requirement traces to its adopted-default record in the split seed's design ([i-016-fsm-doctrine-convergence](../issue/i-016-fsm-doctrine-convergence/design.md), Adopted defaults, batch human sign-off 2026-07-29) and to the research sections it condenses — run identity, the invocation join, and migration cost under `.arca/research/re-ratmac-FSM/`. | FDC-004, FDC-005, FDC-006 |
-| RRV-002 | Runs list under the plural `runs` path in one id namespace; a verdict slot nests under its own run's directory and the per-run spawn-ledger path exists there by name only — no ledger contract is exercised, that is machine composition's to test; `--run <id>` is always required and a missing value refuses with the roster, the refusal recorded as behavioral evidence. | FDC-004 |
-| RRV-003 | The runbook pin is hash-only — no per-run runbook copy exists; a planted flat-layout residue produces a refusal that instructs and modifies nothing on disk. | FDC-005 |
+| RRV-002 | Runs list under the plural `runs` path in one id namespace; a Verdict slot address nests under its own Run even while the live file is absent, and the per-run spawn-ledger path is reserved there by name only — no ledger contract is exercised, that is machine composition's to test. `--run <id>` is always required; empty, non-canonical, separator-bearing, absolute, traversing, and unknown values refuse with the roster before any path outside the exact roster child is read or written. | FDC-004 |
+| RRV-003 | The runbook pin is hash-only — no per-run runbook copy exists. Every existing-Run operation that loads the Machine Class, including `hold`, refuses on pin drift; every existing-Run operation refuses on a planted flat-layout residue, instructs, and modifies nothing. | FDC-005 |
 | RRV-004 | No active-Run cap is enforced; within the one run-id namespace an abandoned run's id is never reissued, and a respawn mints a new id — no ledger-entry content is exercised, that is machine composition's to test. | FDC-006 |
+
+## Integrated input-routed-transition verification
+
+| ID | Check | Requirement |
+|---|---|---|
+| FDCV-004 | For every value in a branching Phase's closed `inputs` list, `rtm step` selects exactly the ordinary transition carrying that `input`, regardless of transition declaration order. All retained guards run first and a guard refusal leaves Run state and live verdict byte-identical. | FDC-001 |
+| FDCV-005 | A live transition input outside the current Phase's closed list refuses without selecting an edge or changing Run state. | FDC-001 |
+| FDCV-006 | A Machine Class whose ordinary outgoing transitions cover one declared input more than once is refused before execution with the documented duplicate-coverage diagnostic. | FDC-001 |
+| FDCV-007 | A Machine Class whose closed list contains a value with no ordinary outgoing transition is refused before execution with the documented missing-coverage diagnostic. | FDC-001 |
+| FDCV-008 | Empty or duplicate list values, a branch without `inputs`, a foreign edge value, a labelled straight-line edge, and mixed labelled/unlabelled ordinary branches each refuse with their documented diagnostics. | FDC-001 |
+| FDCV-009 | A Phase with one ordinary outgoing transition has no `inputs`, its edge has no `input`, and `rtm step` selects it without reading a verdict. | FDC-001 |
+| FDCV-010 | Blocked routes never participate in input coverage or selection; adding `input` to one refuses with the documented blocked-route diagnostic. | FDC-001 |
+
+## Integrated input-delivery-and-durability verification
+
+| ID | Check | Requirement |
+|---|---|---|
+| FDCV-015 | A fault injected before archive rename leaves the old State File and complete live verdict intact. | FDC-003 |
+| FDCV-016 | A fault injected after archive rename but before successor State File replacement leaves the old Phase, no live verdict, and one archived verdict; retry cannot replay it and requires a fresh record. | FDC-003 |
+| FDCV-017 | A fault injected after successor State File replacement leaves the Run correctly advanced, with the verdict already archived and the live slot clear. | FDC-003 |
+| FDCV-018 | The Engine extracts one transition input from the external reviewer's record and never authors or substitutes it. Malformed TOML, an unknown/missing/empty field, a Phase mismatch, or an illegal value refuses without changing Run state or consuming the record. | FDC-003 |
+| FDCV-019 | Repeated visits to one Phase archive verdicts under distinct monotonic `verdicts/<nnnnnn>.toml` names; no visit overwrites or replays earlier evidence, and each archive preserves `phase`, `input`, and `rationale`. | FDC-003 |
+| FDCV-020 | `rtm start` leaves `.arca/runs/<id>/verdict.toml` absent. A branching step with no live record refuses after readiness guards and leaves State File and Run evidence byte-identical. | FDC-003 |
+| FDCV-021 | Runtime recording proves every retained readiness guard runs before the verdict is read or consumed, and archive rename precedes successor State File replacement. | FDC-003 |
+| FDCV-022 | A live verdict presented to a straight-line Phase refuses without consumption or transition; straight-line movement with an empty slot does not read a verdict. | FDC-003 |

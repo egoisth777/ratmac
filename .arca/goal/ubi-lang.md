@@ -82,3 +82,9 @@ Glossary of ubiquitous language. One term, one meaning. Terms not listed here mu
 | Verdict slot | The per-run location where a typed verdict lands, nested under its own Run's directory. |
 | Spawn-ledger path | The per-run path reserved by name under a Run's directory for that Run's spawn ledger. Location only: what the ledger records, when it is written, and what an entry means are the machine-composition issue's contract, not this goal's. |
 | Flat-layout residue | A leftover pre-plural run directory found on disk. Meeting one, the Engine refuses and instructs; it never auto-migrates and modifies nothing. |
+| Legal transition input list | The closed set of exact values a branching Phase declares under `inputs`; complete unique coverage means each value labels one ordinary outgoing transition and every such transition carries one listed value. |
+| Transition input | The single value selected by external evidence review for one addressed Run at one current Phase. It selects an ordinary transition but never bypasses readiness guards. |
+| Input-only selection | Ordinary guards decide whether movement is ready; the transition input alone decides which ordinary outgoing transition is selected. |
+| Straight-line Phase | A Phase with exactly one ordinary outgoing transition. It declares no legal input list, its edge has no input label, and movement needs no verdict. |
+| Live verdict record | The strict `verdict.toml` currently published in one Run's Verdict slot: `phase`, `input`, and `rationale`. It is absent when the slot is empty. |
+| Archived verdict | A consumed live verdict renamed into that Run's immutable `verdicts/` evidence sequence before state advance. |

@@ -58,11 +58,11 @@ Moved checks retain their identifiers. `FDCV-011` through `FDCV-014` now live in
 
 | Goal/Test File | Status | Reverse Issue Refs |
 | :--- | :--- | :--- |
-| `.arca/goal/index.md` | proposed | Add the accepted input-routed-transition contract and link this issue. |
-| `.arca/goal/ubi-lang.md` | proposed | Define legal input list, transition input, input-only selection, and straight-line state. |
-| `.arca/goal/spec.md` | proposed | Accept `FDC-001` with this issue as its sole forward issue authority. |
-| `.arca/goal/design.md` | proposed | Define the accepted Machine Class spelling and state-plus-input selection mechanics. |
-| `.arca/goal/test-list.md` | proposed | Adopt `FDCV-004` through `FDCV-010` or their accepted successors. |
+| `.arca/goal/index.md` | integrated | Names the accepted input-routed-transition contract and carrying Ideal-shape property. |
+| `.arca/goal/ubi-lang.md` | integrated | Defines legal transition input list, transition input, input-only selection, and straight-line Phase. |
+| `.arca/goal/spec.md` | integrated | Accepts `FDC-001` with this issue as forward authority. |
+| `.arca/goal/design.md` | integrated | Defines `inputs`, `input`, static diagnostics, prompt disclosure, and state-plus-input selection. |
+| `.arca/goal/test-list.md` | integrated | Adopts `FDCV-004` through `FDCV-010` without renumbering. |
 
 ## Contributor Authority/Schema Traces
 
@@ -70,5 +70,5 @@ Moved checks retain their identifiers. `FDCV-011` through `FDCV-014` now live in
 | :--- | :--- | :--- |
 | `AGENTS.md` | unaffected | No contributor-authority change. |
 | `.arca/schema.md` | unaffected | Authorization and judge-independence work remains outside this issue. |
-| `.arca/runbook-spec.md` | proposed | Define the closed legal input list, labelled-edge fields, completeness rules, and diagnostic codes in the runbook-format single source of truth; `FDCV-004` through `FDCV-010` verify them. |
-| `.arca/runbook-authoring.md` | proposed | Add one repair row per accepted diagnostic code and link every schema fact back to `.arca/runbook-spec.md`. |
+| `.arca/runbook-spec.md` | deferred to build | The input-routing ticket updates the closed list, labels, checks, and codes together with the Engine so the documented and executable code sets remain equal. |
+| `.arca/runbook-authoring.md` | deferred to build | The same ticket adds one repair per new code and links format facts back to `.arca/runbook-spec.md`. |

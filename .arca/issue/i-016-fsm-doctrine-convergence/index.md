@@ -3,14 +3,15 @@
 ```yaml
 issue-id: "i-016-fsm-doctrine-convergence"
 provenance: "User request, 2026-07-29 - converge the wave-2 FSM/composition research; atomically cut by Billy on 2026-07-30"
-status: "pending"
+ideal-shape-property: "Every boundary machine-checked"
+status: "integrated"
 ```
 
 ## Summary
 
-This issue is the evidence seed of the 2026-07-29 doctrine-convergence work and the current pending home of one atomic concern: input-routed transitions (`FDC-001`). A branching state declares a closed legal input list, every ordinary outgoing edge maps exactly one unique value from that list, and the Engine selects the matching edge. Ordinary guards remain readiness checks, never destination selectors. Straight-line states may retain one unlabelled ordinary edge; blocked routes remain outside selection and completeness checks.
+This issue is the evidence seed of the 2026-07-29 doctrine-convergence work and the integrated home of one atomic concern: input-routed transitions (`FDC-001`). A branching Phase declares a closed legal input list, every ordinary outgoing transition maps exactly one unique value from that list, and the Engine selects the matching transition. Ordinary guards remain readiness checks, never destination selectors. Straight-line Phases retain one unlabelled ordinary transition; blocked routes remain outside selection and completeness checks.
 
-The current Engine still routes first-edge-wins and cannot branch on a typed input. This issue therefore owns the Machine Class declaration, parser representation, static doctor checks, and deterministic state-plus-input transition semantics as one vertical contract. Exact TOML spelling is not decided here; planning step 1 must place it in the runbook-format single source of truth ([runbook-spec.md](../../runbook-spec.md)).
+The landed goal chooses `inputs` on each branching Phase and `input` on each ordinary outgoing transition. The goal design fixes validation and diagnostic semantics; the implementation ticket updates the runbook-format source, parser, graph, doctor, scaffold, and repair table together.
 
 The adversarial-review ledger in [test-plan.md](test-plan.md), its rulings in [design.md](design.md), and the research corrections remain here as shared evidence history. Split issues cite them and never copy them.
 
@@ -39,3 +40,4 @@ Earlier split, identifiers unchanged: Run residency (`FDC-004` through `FDC-006`
 
 - 2026-07-29: deferred at the planning pass because input-routed transitions awaited integrated Run residency; status stayed `pending`.
 - 2026-07-30: Billy cut the pending issue into atomic concerns. This seed retained `FDC-001`; `FDC-003` moved to the input-delivery issue and `FDC-002` moved to the Run-completion issue, both under unchanged identifiers.
+- 2026-07-30: integrated `FDC-001` at planning step 1 after Run residency landed. The goal adopts input-only branch selection and `FDCV-004` through `FDCV-010`; **Every boundary machine-checked** is the carrying Ideal-shape property.

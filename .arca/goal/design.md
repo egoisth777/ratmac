@@ -60,18 +60,19 @@ Accepted with layout details pending; both open points were later settled (see b
 
 **Consequences.** Zero CLI ambiguity for agents — the exact footgun of "default run when unambiguous" is avoided. Lifting the limit is additive: allow `start` to create a second Run, grow an optional run-id argument; no breaking change. The Run identity scheme is deferred until the limit lifts (YAGNI). The on-disk layout must not preclude N Runs (settled in ADR-0008).
 
-## State layout — flat `.arca/state.toml` + `.arca/log.md` (ADR-0008)
+## State layout — project-level plus per-Run files (ADR-0008, superseded in part by FDC-004)
 
-**Context.** An inherited `.arca/goal/` folder (`current.md` YAML, `log.md`) predated the Scheduler. The session owner removed the folder in favor of a general-purpose state file; the format then settled on TOML for rigor (consistent with ADR-0004).
+**Context.** An inherited `.arca/goal/` folder (`current.md` YAML, `log.md`) predated the Scheduler. The session owner removed the folder in favor of a general-purpose state file; the format then settled on TOML for rigor (consistent with ADR-0004). The original one-Run projection placed every runtime file directly under `.arca/`; `FDC-004` later lifted that cap and superseded the flat Run-file paths.
 
-**Decision.** Scheduler-owned files, all directly under `.arca/`, no folder:
+**Decision.** Project-level files remain directly under `.arca/`:
 
 - `.arca/ratmac.toml` — Machine Class (human-written, ADR-0004).
-- `.arca/state.toml` — State File: `phase`, `status`, `goal_revision`, `input_revision`, `output_revision`, `active_refs`, `blocker`. Written ONLY by the Scheduler.
-- `.arca/log.md` — Transition Log, append-only, human-readable.
-- `.arca/rtm.lock` — lockfile while an `rtm` invocation runs (one active Run in v1, ADR-0007).
+- `.arca/log.md` — Transition Log, append-only and human-readable.
+- `.arca/rtm.lock` — one invocation lock for the local repository.
 
-**Consequences.** The inherited `.arca/goal/` layout is retired. N-Run extension path: when ADR-0007's limit lifts, per-Run files move under a runs directory; the v1 flat layout is the one-active-Run projection of that — additive migration, deferred. State parse errors are hard errors: a corrupt `rtm` invocation halts with a report, never a guess.
+Each Run owns `.arca/runs/<id>/state.toml` as its State File and `.arca/runs/<id>/evidence.toml` as its Run evidence. Verdict and spawn-ledger locations also nest under that same addressed Run. The State File retains `phase`, `status`, `goal_revision`, `input_revision`, `output_revision`, `active_refs`, and `blocker`, and only the Scheduler writes it.
+
+**Consequences.** Listing `.arca/runs/` is the registry; no flat `.arca/state.toml` or `.arca/evidence.toml` is live state. State parse errors remain hard errors: a corrupt addressed State File halts the invocation with a report, never a guess. This correction was integrated from [i-021-state-file-path-correction](../issue/i-021-state-file-path-correction/design.md); it changes the stale goal wording, not the already-landed residency behavior.
 
 ## Phase Prompt — inline prose in `ratmac.toml`, guard list generated (ADR-0009)
 
@@ -124,7 +125,7 @@ From the reopened checkout, run API and `gh repo view` checks, exact remote/path
 **Decision.**
 
 - *Pinning.* Gate predicates that need project knowledge are folded into the pinned `rtm` binary itself (`rtm gate <predicate>`), so the Stable Engine pin covers all routing logic and there is a single trust surface. Where an external gate program is unavoidable, its resolved path and SHA-256 are recorded in Run evidence no later than first guard use and re-hashed at every evaluation; a mismatch refuses naming observed and expected identity. A guard command that would compile the workspace at evaluation time is rejected at Runbook validation or pin time, not silently executed.
-- *Run evidence file.* Run evidence is the Scheduler-owned `.arca/evidence.toml`: an `[engine]` table with the running Engine's resolved path and SHA-256, written at Run start, plus one `[[gate]]` entry per pinned gate artifact (declared program, resolved path, SHA-256) written no later than first guard use. It is deliberately separate from `.arca/state.toml`, whose seven fields (R-025) stay unchanged.
+- *Run evidence file.* Run evidence is the Scheduler-owned `.arca/runs/<id>/evidence.toml`: an `[engine]` table with the running Engine's resolved path and SHA-256, written at Run start, plus one `[[gate]]` entry per pinned gate artifact (declared program, resolved path, SHA-256) written no later than first guard use. It is deliberately separate from that Run's `.arca/runs/<id>/state.toml`, whose seven fields (R-025) stay unchanged.
 - *Exemption.* Non-project probe commands (for example `rustc --version`) are marked `exempt = true` in the guard table so the pin rule stays enforceable without forbidding toolchain checks. An unmarked command guard is treated as project-derived and must resolve to a regular executable file: a directory or a symlink has no stable identity and is refused instead of pinned.
 - *Diagnostics.* The `command_exit` evaluator replaces null stdio with a bounded capture of the child's stderr — last 4096 bytes, deterministic — embedded in the `GuardFailure` observed text, with an explicit `…truncated` marker on overflow and the fixed text `no diagnostic emitted` when the child is silent.
 - *Freeze.* The goal content hash is computed inside the transition that closes intake integration. `baseline_revision` (Run creation) and `goal_revision` (post-integration freeze) are distinct Run-evidence fields; each later transition request re-verifies the frozen hash until batch closure and refuses on drift.
@@ -216,6 +217,34 @@ From the reopened checkout, run API and `gh repo view` checks, exact remote/path
 - *Uncapped, never reused.* There is no active-Run cap. Any cap below the fan-out width would refuse mid-spawn and leave a partial child bundle unusable. Within the one namespace an id is never reissued after abandon, so a failed Run's evidence keeps its address and no later Run can occupy it.
 - *Pin stays hash-only.* The runbook pin remains a hash, with no per-run copy of the runbook until a drift case is demonstrated: two files that can disagree is a defect source, and the hash already names the mismatch.
 - *Residue refuses.* Meeting a flat-layout residue — a pre-plural run directory on disk — the Engine refuses and instructs, and migrates nothing. This follows the existing lock-refusal precedent: name the observed fact and the repair, modify nothing.
-- *Supersession.* `FDC-004` and `FDC-006` supersede the two v1 clauses ADR-0007 itself marked liftable: `R-022` (at most one active Run) and `R-023` (no run-id argument), and with them the checks `T-08` and `T-09`. ADR-0007's data model — Runs plural, nothing in formats or engine assuming a singleton — is unchanged, which is what makes the lift additive rather than a rewrite.
+- *Supersession.* `FDC-004` and `FDC-006` supersede the v1 clauses ADR-0007 marked liftable: `R-022` (at most one active Run) and `R-023` (no run-id argument), and with them checks `T-08` and `T-09`. `FDC-004` also supersedes `R-024`/`R-025` only where their one-Run projection puts State and evidence files flat under `.arca/`; [i-021-state-file-path-correction](../issue/i-021-state-file-path-correction/design.md) records that reconciliation. ADR-0007's plural data model is unchanged.
 
 **Consequences.** Run identity becomes durable: an address, once minted, names one Run forever, and the record of a finished or abandoned Run cannot be overwritten by whoever works next. The residency layout is stated before anything is built on it, so verdict routing and machine composition can be written in terms of a defined address instead of coining one each. One authority clash surfaced at the 2026-07-29 P1 close and was closed before this section was allowed to bind: steering's Non-goals read "one Run at a time", which is Authored identity and binds harder than any goal row, so that clause moved first — narrowed to "one repository, local disk" with Runs plural and uncapped inside it, on the same sign-off that accepted `FDC-006`. The tenancy non-goal itself is untouched; only the v1 concurrency cap ADR-0007 marked liftable was lifted.
+
+## Input-routed transitions (FDC-001)
+
+**Context.** `MachineGraph::transition_for` selects the first ordinary transition declared from the current Phase. Guards can refuse movement but cannot say which destination judgment selected, so a branching Machine routes by file order and convention. Integrated from [i-016-fsm-doctrine-convergence](../issue/i-016-fsm-doctrine-convergence/design.md).
+
+**Decision.**
+
+- *Accepted format.* A branching `[phases.<name>]` carries `inputs = ["<value>", ...]`. Each ordinary `[[transitions]]` row from that Phase carries `input = "<value>"`. Values are exact, non-empty strings. The list is closed and unique; every value has exactly one ordinary edge, and every ordinary edge has exactly one listed value. Two rows may share a destination when their input values differ.
+- *Straight lines and blocked routes.* A Phase with one ordinary outgoing edge declares no `inputs`, and that edge declares no `input`. A Phase with no ordinary outgoing edge is structurally terminal. A blocked route never declares `input` and is excluded from ordinary coverage and selection.
+- *Static refusals.* The format source assigns `RB208` to a malformed `inputs` declaration, `RB209` to a branching Phase with no list, `RB210` to missing coverage, `RB211` to duplicate coverage, `RB212` to a foreign, mixed, or forbidden ordinary label, and `RB213` to an input-labelled blocked route. Existing type and unknown-key failures remain `RB110` and `RB103`. The implementation ticket updates `.arca/runbook-spec.md`, the parser, doctor table, scaffold, and authoring repairs together so the executable and written code sets never diverge.
+- *Runtime order.* `rtm step` first evaluates every retained guard in declaration order. A refusal leaves the Run and any live input untouched. For a branch, the Engine then obtains one transition input through `FDC-003`, validates it against the current Phase's list, and selects the unique matching ordinary transition; declaration order has no routing effect. A straight-line step selects its sole ordinary transition without an input.
+- *Disclosure.* The generated Phase Prompt lists the current Phase's legal input values but never its destinations or any other Phase. This gives an external evidence reviewer the closed answer vocabulary without exposing the Machine graph, preserving `R-029`.
+
+**Consequences.** Readiness and selection are separate contracts. The Machine Class proves branch completeness before execution, and runtime routing becomes a pure function of current Phase plus validated transition input.
+
+## Durable transition-input delivery (FDC-003)
+
+**Context.** Selection needs one durable handoff from evidence review to the Engine. Run residency reserved `.arca/runs/<id>/verdict.toml` but deliberately gave it no contents or lifecycle, so the Engine cannot safely consume or retire an input today. Integrated from [i-019-input-delivery-durability](../issue/i-019-input-delivery-durability/design.md).
+
+**Decision.**
+
+- *One live record.* `.arca/runs/<id>/verdict.toml` is the Verdict slot. It is absent when empty, including after `rtm start`; an empty placeholder is not a verdict. A published record is strict TOML with exactly three non-empty string fields: `phase`, `input`, and `rationale`. `phase` must equal the addressed Run's current Phase, and `input` must be in that Phase's closed list.
+- *External judgment.* A designated agent or human acting as the external evidence reviewer writes and publishes the record; the Engine stores no reviewer identity, chooses no reviewer, and never authors or substitutes the input. Publication uses a temporary sibling plus rename so the Engine sees either the prior complete record or the new complete record, never a partial write.
+- *Consume before advance.* After guards and record validation, the Scheduler creates the Run-local `verdicts/` evidence directory if needed and renames the live record to the next unused `verdicts/<nnnnnn>.toml`, where the positive, zero-padded sequence is monotonic across the Run. The archived record retains all three fields, is never overwritten or deleted by the Engine, and is the decision history.
+- *Interruption boundary.* The archive rename is the consumption point and occurs before the successor State File write. Before it, any refusal leaves live record and State File byte-identical. After it, a process interruption leaves the old State File and no live record, so retry requires a fresh verdict; the archived record cannot replay. A failure to write the successor does not roll back or reuse consumed judgment.
+- *Wrong-time input.* A malformed record, a phase mismatch, a value outside the current list, a missing branch record, or a live record presented to a straight-line Phase refuses without transition. Completed or abandoned lifecycle behavior remains outside this requirement.
+
+**Consequences.** One judgment can cause at most one transition. Run evidence records every consumed input without making the Engine a judge, and repeated visits cannot overwrite earlier decisions.

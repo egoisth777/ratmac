@@ -3,7 +3,8 @@
 ```yaml
 issue-id: "i-019-input-delivery-durability"
 provenance: "Billy, 2026-07-30 - authorized the atomic cut of i-016-fsm-doctrine-convergence so input delivery and durability stand apart from transition selection and Run completion"
-status: "pending"
+ideal-shape-property: "One writer, append-only"
+status: "integrated"
 ```
 
 ## Summary
@@ -22,3 +23,7 @@ The doctrine-convergence issue remains the evidence seed: its adversarial-review
 | Requirements | [Specification](spec.md) |
 | Proposed mechanics | [Design](design.md) |
 | Verification and integration traces | [Test plan](test-plan.md) |
+
+## P1 disposition
+
+- 2026-07-30: integrated `FDC-003` after `FDC-001`. The goal fixes the strict live record, atomic archive-before-state ordering, and interruption semantics. **One writer, append-only** is the carrying Ideal-shape property; **Every boundary machine-checked** is served by validating the record against the current Phase and closed legal list.

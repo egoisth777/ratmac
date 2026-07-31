@@ -10,20 +10,28 @@
 | `FDCV-018` | `FDC-003` | The Engine extracts one transition input value from the external judge's record and never authors or substitutes that value itself. A malformed record or value outside the current state's legal list refuses without changing Run state or consuming the record. |
 | `FDCV-019` | `FDC-003` | Repeated visits to one state archive verdicts under distinct immutable evidence names; no visit overwrites or replays earlier evidence. |
 
+Accepted successor checks:
+
+| Check | Requirement Refs | Expected evidence |
+| :--- | :--- | :--- |
+| `FDCV-020` | `FDC-003` | Start leaves the live slot absent; a branch without a record refuses after guards without changing State File or evidence. |
+| `FDCV-021` | `FDC-003` | Recorded ordering proves all readiness guards precede verdict read/consume and archive rename precedes State File replacement. |
+| `FDCV-022` | `FDC-003` | A live record at a straight-line Phase refuses untouched; with an empty slot, straight-line movement reads no verdict. |
+
 ## Goal/Test File Traces
 
 | Goal/Test File | Status | Reverse Issue Refs |
 | :--- | :--- | :--- |
-| `.arca/goal/index.md` | proposed | Add the accepted input-delivery contract and link this issue at planning step 1. |
-| `.arca/goal/ubi-lang.md` | proposed | Distinguish the legal input list, transition input value, live verdict record, and archived verdict without silently renaming the accepted Verdict slot. |
-| `.arca/goal/spec.md` | proposed | Move `FDC-003`'s accepted forward authority to this issue. |
-| `.arca/goal/design.md` | proposed | Define the accepted record shape, address derivation, and atomic consume-before-advance mechanics. |
-| `.arca/goal/test-list.md` | proposed | Adopt `FDCV-015` through `FDCV-019` or their accepted successors. |
+| `.arca/goal/index.md` | integrated | Names the accepted input-delivery contract and carrying Ideal-shape property. |
+| `.arca/goal/ubi-lang.md` | integrated | Distinguishes the legal list, transition input, live verdict record, and archived verdict without renaming the Verdict slot. |
+| `.arca/goal/spec.md` | integrated | Accepts `FDC-003` with this issue as forward authority. |
+| `.arca/goal/design.md` | integrated | Defines the strict record, absent-empty slot, archive sequence, and consume-before-advance ordering. |
+| `.arca/goal/test-list.md` | integrated | Preserves `FDCV-015` through `FDCV-019` and adds accepted successor checks `FDCV-020` through `FDCV-022`. |
 
 ## Contributor Authority/Schema Traces
 
 | Authority or Schema Artifact | Status | Integration and Reverse Refs |
 | :--- | :--- | :--- |
 | `AGENTS.md` | unaffected | No contributor-authority change. |
-| `.arca/runbook-spec.md` | proposed | If the accepted live record or state input list adds Machine Class keys, define those keys and diagnostics only in the runbook-format single source of truth. |
-| `.arca/runbook-authoring.md` | proposed | Add one repair row per accepted diagnostic code; do not define schema facts here. |
+| `.arca/runbook-spec.md` | unaffected | The live verdict record is Run input, not a Machine Class key; `inputs` and `input` belong to the routing ticket's coordinated format update. |
+| `.arca/runbook-authoring.md` | unaffected | No distinct delivery diagnostic code or runbook schema fact is added here. |

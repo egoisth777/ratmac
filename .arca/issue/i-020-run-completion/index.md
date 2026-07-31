@@ -3,7 +3,7 @@
 ```yaml
 issue-id: "i-020-run-completion"
 provenance: "Billy, 2026-07-30 - authorized the atomic cut of i-016-fsm-doctrine-convergence so Run completion stands apart from transition selection and input durability"
-status: "pending"
+status: "integrated"
 ```
 
 ## Summary
@@ -20,3 +20,7 @@ It retains requirement `FDC-002` under its existing identifier and has no depend
 | Requirements | [Specification](spec.md) |
 | Proposed mechanics | [Design](design.md) |
 | Verification and integration traces | [Test plan](test-plan.md) |
+
+## P1 disposition
+
+- 2026-07-30: `FDC-002` was dispositioned `deferred`; the issue closes this batch as `integrated` with zero accepted goal rows. Steering retains Run completion as the next Horizon direction for a later planning issue.

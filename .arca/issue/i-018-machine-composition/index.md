@@ -3,7 +3,7 @@
 ```yaml
 issue-id: "i-018-machine-composition"
 provenance: "Split of the FSM doctrine convergence issue (i-016) per human direction (Billy), 2026-07-29 - dependency strata; carries FDC-007 - FDC-010 from the i-016 seed unchanged, plus the recursion-depth open question"
-status: "pending"
+status: "integrated"
 ```
 
 ## Summary
@@ -46,3 +46,4 @@ this issue's files cite them, never copy.
 - 2026-07-30: Billy's atomic cut refined the unmet dependencies to input-routed transitions,
   dependent input delivery and durability, and independent Run completion. Requirement identifiers
   stayed unchanged.
+- 2026-07-30: all four asks were dispositioned `deferred`; the issue closes this batch as `integrated` with zero accepted goal rows. Steering retains machine composition in Horizon for a later issue after Run completion lands.
