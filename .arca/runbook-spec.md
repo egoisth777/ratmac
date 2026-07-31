@@ -73,14 +73,19 @@ failing guard refuses, reports, and leaves Phase and Status untouched (R-017).
 
 Who may write what. A rule with a named enforcer is mechanically checked; a
 rule marked prose-only is a convention this file states and no code enforces.
+The Machine Class, history, and invocation lock are project-level; mutable
+state and Run evidence are scoped to one named Run.
 
 | Rule | Enforcer |
 | :--- | :--- |
-| `.arca/ratmac.toml` is human-authored and read-only at runtime; no `rtm` command writes it. | prose-only - no writer of the runbook exists in `src/`, so there is nothing to constrain yet |
-| A Phase Prompt or guard contract never directs an agent to write `.arca/state.toml`, `.arca/log.md`, or `.arca/rtm.lock` (PGE-004). | `ownership::audit_ownership` |
-| The Scheduler is the sole writer of `.arca/state.toml` and `.arca/log.md` (R-009). | `state::StateStore` |
-| Run evidence (`.arca/evidence.toml`) is Scheduler-owned; agent-authored receipts live under `.arca/evidence/<ticket>/`. | `pin::evidence_path` for the Scheduler-owned file, `receipt::ticket_evidence_dir` for the agent-writable tree |
-| A guard whose verdict rests on content the agent under test can write proves less than one that does not; declaring such a guard is allowed but reported. | prose-only until `rtm doctor` reports it as `RB302` |
+| The project Machine Class stays at `.arca/ratmac.toml`. It is human-reviewed and read-only during Run lifecycle commands; scaffolding may create a runbook only at a caller-selected path that does not exist. | prose-only for human review and runtime immutability; `scaffold::write_scaffold` is the real create-only scaffold writer |
+| A Phase Prompt or guard contract never directs an agent to write `.arca/runs/<id>/state.toml`, `.arca/runs/<id>/evidence.toml`, `.arca/log.md`, or `.arca/rtm.lock` (PGE-004). | `ownership::audit_ownership` |
+| Each Run's State File is `.arca/runs/<id>/state.toml`; it is Engine-owned and has no project-level alias. | `state::StateStore` |
+| Project history stays at `.arca/log.md` and is Engine-owned. | `scheduler::Scheduler`, `blocked::apply_hold`, and `abandon::apply_abandon` are the lifecycle write paths |
+| The transient invocation lock stays at `.arca/rtm.lock` and is Engine-owned. | `scheduler::InvocationLock`; `abandon::apply_abandon` retires a leftover lock through the confirmed retirement path |
+| Run evidence is Scheduler-owned at `.arca/runs/<id>/evidence.toml`. | `pin::Evidence::write` resolves the file through `pin::evidence_path` |
+| Agent-authored test receipts live under `.arca/evidence/<ticket>/`, separate from Run evidence. | `receipt::ticket_evidence_dir` |
+| A guard whose verdict rests on content the agent under test can write proves less than one that does not; declaring such a guard is allowed but reported as `RB302`. | `doctor::lint_guards` |
 | A runbook is reviewed by a human before it becomes the project's Machine Class. | prose-only |
 
 ## Diagnostics
