@@ -3,7 +3,7 @@
 //! PT-058-01 `requirements_trace_to_seed_and_research`
 //! PT-058-02 `runs_reside_under_the_plural_path`
 //! PT-058-03 `run_addressing_is_always_required`
-//!
+//! PT-058-04 `run_addressing_refuses_noncanonical_or_escaping_values`
 //! Runs must reside canonically under the plural `.arca/runs/<id>/` path so
 //! that listing the directory IS the roster: run identity is read off
 //! artifacts, never off a narrated index. Every command that acts on an
@@ -13,9 +13,11 @@
 //! with the machine-composition issue (i-018) and are not exercised here.
 //! This supersedes `R-023` (no run-id in v1) and its check `T-09`.
 
+use ratmac::Scheduler;
 use ratmac_qa::role::{load_scenario, Outcome};
+use std::collections::BTreeMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 fn repo_root() -> PathBuf {
@@ -120,6 +122,45 @@ fn state_phase(state: &str) -> String {
         .as_str()
         .expect("FDC-004: the run's State File must carry a phase")
         .to_owned()
+}
+
+/// Every file under `root`: relative forward-slashed path to exact bytes.
+fn tree_snapshot(root: &Path) -> BTreeMap<String, Vec<u8>> {
+    fn walk(root: &Path, dir: &Path, into: &mut BTreeMap<String, Vec<u8>>) {
+        for entry in fs::read_dir(dir).expect("snapshot directory is listable") {
+            let path = entry.expect("snapshot entry is readable").path();
+            if path.is_dir() {
+                walk(root, &path, into);
+            } else {
+                let relative = path
+                    .strip_prefix(root)
+                    .expect("snapshot paths sit under the fixture")
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                into.insert(
+                    relative,
+                    fs::read(&path).expect("snapshot file is readable"),
+                );
+            }
+        }
+    }
+
+    let mut snapshot = BTreeMap::new();
+    walk(root, root, &mut snapshot);
+    snapshot
+}
+
+fn copy_tree(source: &Path, destination: &Path) {
+    fs::create_dir_all(destination).expect("create copied candidate directory");
+    for entry in fs::read_dir(source).expect("source candidate directory is listable") {
+        let entry = entry.expect("source candidate entry is readable");
+        let target = destination.join(entry.file_name());
+        if entry.path().is_dir() {
+            copy_tree(&entry.path(), &target);
+        } else {
+            fs::copy(entry.path(), target).expect("copy candidate Run file");
+        }
+    }
 }
 
 /// PT-058-01 (RRV-001): each of `FDC-004`–`FDC-006` traces to its
@@ -354,5 +395,90 @@ fn run_addressing_is_always_required() {
             recorded.contains(word),
             "RRV-002: the transcript must record the refusal and the printed roster, missing {word:?}"
         );
+    }
+}
+
+/// PT-058-04 (RRV-002): caller-supplied run ids are accepted only when they
+/// are one canonical minted path segment and an exact roster member. Existing,
+/// valid-looking Run files behind absolute, traversing, separator-bearing, and
+/// hand-made non-canonical addresses must not make those addresses usable.
+#[test]
+fn run_addressing_refuses_noncanonical_or_escaping_values() {
+    let fixture = Fixture::new("canonical-addressing");
+    let start = fixture.rtm(&["start"]);
+    assert!(
+        start.status.success(),
+        "start must succeed on a valid project: {}",
+        combined(&start)
+    );
+
+    let minted = fixture
+        .roster()
+        .first()
+        .expect("FDC-004: the started run must appear on the roster")
+        .clone();
+    let source = fixture.path(&format!(".arca/runs/{minted}"));
+
+    let absolute_candidate = fixture.path("absolute-candidate");
+    copy_tree(&source, &absolute_candidate);
+    copy_tree(&source, &fixture.path("traversal-candidate"));
+    copy_tree(
+        &source,
+        &fixture.path(&format!(".arca/runs/nested/{minted}")),
+    );
+    copy_tree(&source, &fixture.path(".arca/runs/run-1"));
+
+    let absolute = absolute_candidate.to_string_lossy().into_owned();
+    let nested = format!("nested/{minted}");
+    let invalid = [
+        "",
+        "not-a-run",
+        "run-999",
+        "run-1",
+        nested.as_str(),
+        "run\\001",
+        "../../traversal-candidate",
+        absolute.as_str(),
+    ];
+    let roster = fixture.roster();
+    let roster_text = format!("runs: {}", roster.join(", "));
+    let before = tree_snapshot(&fixture.root);
+
+    for value in invalid {
+        let refused = Scheduler::open_run(&fixture.root, value)
+            .expect_err("FDC-004: Scheduler::open_run must reject every invalid address");
+        let text = refused.to_string();
+        assert!(
+            text.contains(&roster_text),
+            "FDC-004: Scheduler::open_run must refuse {value:?} with the exact roster line \
+             {roster_text:?}; error was: {text}"
+        );
+        assert_eq!(
+            tree_snapshot(&fixture.root),
+            before,
+            "FDC-004: Scheduler::open_run({value:?}) must not read through or mutate a candidate"
+        );
+    }
+
+    for command in ["status", "step"] {
+        for value in invalid {
+            let refused = fixture.rtm(&[command, "--run", value]);
+            assert!(
+                !refused.status.success(),
+                "FDC-004: `{command} --run {value}` must refuse before the value can influence a path: {}",
+                combined(&refused)
+            );
+            let text = combined(&refused);
+            assert!(
+                text.contains(&roster_text),
+                "FDC-004: every invalid-address refusal must print the exact roster line \
+                 {roster_text:?}; output was: {text}"
+            );
+            assert_eq!(
+                tree_snapshot(&fixture.root),
+                before,
+                "FDC-004: `{command} --run {value}` must leave every candidate tree byte-identical"
+            );
+        }
     }
 }
