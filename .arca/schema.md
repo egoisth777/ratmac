@@ -23,6 +23,28 @@ it is talking about the running program, never about your workspace (`.arca/resi
 each belongs to, add one log line (`conflict-resolved: <refs> — <one-line reason>`), and keep going. **A rule
 clash is never a reason to stop work.**
 
+# Plain words — how to write here
+
+Binds every response, file, commit message, and log line. A reader must never need a decoder.
+
+- **Name things; do not cite hashes.** A commit is "the review-corrections landing", not `2abaec4`. A hash is
+  written only *inside* a command the reader is meant to run, or in a field that requires one (a history
+  line's short hash, a goal freeze stamp). Never as a name, and never as a helpful aside — handing over a
+  hash "in case you need it" is citing it. If the reader might need to act on a commit, write the whole
+  command.
+- **No short form on first use in a response.** Write the words, then the short form once in parentheses if
+  it will repeat: "planning step 1 (P1)". A dict.md entry licenses a term inside documents, where the
+  glossary sits one click away; it never licenses a bare short form in conversation.
+- **No short form dict.md does not define.** A new one earns its dict.md entry in the same landing (see the
+  `Requirement ID` entry), or it is not used at all.
+- **An id follows its plain name in the same sentence and never stands alone** — "the authoring-loop ticket
+  (`t-057`)". An issue or a gap record is named by what it is about, never by its number: "the issue about
+  running the cycle as a runbook (`i-015`)", and the number only when the reader has to find the folder.
+- **Plain sentence first, mechanism after.** Say what is true or what changed in ordinary words; paths,
+  codes, and command names come next, as support.
+
+A sentence the reader cannot follow is a defect like any other: rewrite it, no log line needed.
+
 # Entry — no magic words
 
 Any user request that touches this work — an issue, a gap, a ticket, tests, code, a fix, a test run — **is**
@@ -107,9 +129,12 @@ the moment the goal is frozen until the last ticket is done, the goal does not m
 `.arca/steering.md` binds by three layers, hardness strictly increasing top to bottom; each carries its own
 update clock:
 
-- **Authored identity** — What we are building, Thesis, Invariants, Non-goals. Changes only on a pivot and
-  lands **first**, before any dependent change in `.arca/goal/`, `.arca/issue/`, `.arca/ticket/` (see Units
-  and git, shop lane).
+- **Authored identity** — What we are building, Ideal shape, Thesis, Invariants, Non-goals. Changes only on a
+  pivot and lands **first**, before any dependent change in `.arca/goal/`, `.arca/issue/`, `.arca/ticket/`
+  (see Units and git, shop lane). **Ideal shape** is the destination the rest of the file serves: the
+  properties the finished system has, as prose only — no requirement IDs, no dates, no ordering (that is
+  Horizon), no measurement of distance (that is the gap check). It is direction, never evidence: a residual
+  may not cite it and no ticket is ever cut from it. Its one mechanical use is the P1 admission test below.
 - **Horizon** (forecast) — an authored ordering of directions beyond the current sprint, in direction/wish/
   issue terms only: no ticket terms, nothing executable. Binds nothing; nothing in it is chosen; no work is
   ever cut straight from it — an item is chosen only by going through P1 like any other issue, never by
@@ -123,6 +148,12 @@ update clock:
   the tree: open tickets, gap records, log lines). Route content is an ordered dependency list of the signed
   sprint only — what depends on what, one why per edge, never dates or task breakdowns; every route entry
   must trace to an issue accepted at the stamped P1.
+
+Alongside the layers, **Open questions** — forks written down but not decided. Each is a choice of
+mechanism, never of destination: every Ideal-shape property must hold whichever way the fork goes. Binds
+nothing; nothing in it is chosen; no work is ever cut from it. Written the moment a fork is spotted, deleted
+the moment it is answered — the answer lands as an Ideal-shape property, a goal requirement, or a new issue.
+A fork nobody wrote down is drift.
 
 ## The issue folder
 
@@ -147,8 +178,8 @@ update clock:
 
 | Step                  | Does                                                                                                             | Finish line                                                                          |
 | :-------------------- | :--------------------------------------------------------------------------------------------------------------- | :----------------------------------------------------------------------------------- |
-| **P1** Fold in issues | Work every `pending` issue into the goal: give each ask a stable requirement ID and a decision `accepted|rejected|duplicate|deferred`, link everything both ways; shape check | Every issue ends `integrated|rejected`; all links resolve (fix them yourself, don't set them aside) |
-| **P2** Find the gaps  | Freeze the goal (note git HEAD), then compare each requirement against what actually exists; write one record in `.arca/residual/` per requirement: `missing|partial|satisfied`, with pointers to the proof and a short why | Every requirement has exactly one record; no proof ⇒ never `satisfied`               |
+| **P1** Fold in issues | Work every `pending` issue into the goal: give each ask a stable requirement ID and a decision `accepted|rejected|duplicate|deferred`, link everything both ways; name, per accepted issue, the Ideal-shape property it advances — an issue that advances none is `rejected`, or it is a pivot, and then steering changes first and the issue waits for the next pass; shape check | Every issue ends `integrated|rejected`; every accepted issue names the shape property it advances; all links resolve (fix them yourself, don't set them aside) |
+| **P2** Find the gaps  | Freeze the goal (note git HEAD), then compare each requirement against what actually exists; write one record in `.arca/residual/` per requirement: `missing|partial|satisfied`, with pointers to the proof and a short why | Every requirement has exactly one record, active and archive counted together; no proof ⇒ never `satisfied` |
 | **P3** Cut tickets    | Turn each `missing|partial` record into one small, self-contained, provable piece of work in `.arca/ticket/` (from `.arca/tpl/ticket.md`); order them so a ticket that needs another comes after it; **approved on creation** | Each such record ↔ exactly one ticket; all links resolve                             |
 
 **Building — one full turn per ticket, in order:**
@@ -213,6 +244,21 @@ These are durable working rules; the goal's `AOI-001`–`AOI-003` bind the progr
   that must gain one `../` level. Live links pointing at it are updated in the same change, and `i-<nnn>` numbers stay
   unique across active and archived issues. A complete move IS preservation: every history oracle compares content at
   the archived destination. A partial move, a content change, or archiving a non-completed issue is a failure.
+- **Authorized residual archive move.** A residual record whose status is `satisfied` may move to
+  `.arca/residual/archive/<record-name>`, keeping its name, its bytes, and its shape, except relative links
+  that must gain one `../` level; links elsewhere pointing at it are updated in the same change. The active
+  folder holds only open gaps (`missing|partial`); a reviewer reads active and archive as one namespace —
+  exactly one record per requirement across both, and no-satisfaction-by-absence is judged over both: a
+  record in archive is present, not absent. When a later gap check re-judges an archived requirement
+  `missing|partial`, the same record moves back to the active folder in the same landing as the re-judgment —
+  reopening is a visible move, never a new record minted for the same requirement; a chain of records for one
+  requirement is a failure. A record carrying a pending obligation (e.g. a commit-hash re-stamp) may archive;
+  the obligation travels with the file.
+- **Authorized ticket archive move.** A ticket whose residual(s) all read `satisfied` and whose final hash is
+  recorded may move to `.arca/ticket/archive/<ticket-file>`, on the same preservation terms: bytes, name, and
+  shape kept, relative links gaining one `../` level, links in both directions updated in the same change. An
+  archived ticket stays citable evidence, and ticket ids stay unique across active and archive. A ticket is
+  never archived while any residual it owns is still `missing|partial`, or while it is `held`.
 - **Reviewable snapshot.** Evidence may only claim what a reviewer can reconstruct. When you record acceptance or
   merge-gate evidence, every file under the declared evidence roots (`src/`, `test/`, `.arca/`) must be tracked or
   staged; anything untracked or unstaged is either committed, staged, or declared as an explicit exception in the
@@ -308,11 +354,13 @@ loop. Declare them in the Runbook phase that must not be left without them:
 - `intake_contract` — every direct issue folder ends `integrated` or
   `rejected`, keeps its five-file shape exactly, states accepted requirement
   IDs that exist in the goal, and links that resolve in both directions.
-- `record_contract` — exactly one residual per requirement, each citing the
+- `record_contract` — exactly one residual per requirement, counted over the
+  active folder and `.arca/residual/archive/` together, each citing the
   frozen goal revision; `satisfied` only with concrete evidence references;
-  every `missing`/`partial` residual owned by exactly one ticket; acyclic
-  ticket dependencies; every ticket carrying its five sections and all six
-  hidden-lane assessments.
+  every `missing`/`partial` residual living in the active folder — an
+  archived `missing`/`partial` record is a contract violation — and owned by
+  exactly one ticket; acyclic ticket dependencies; every ticket carrying its
+  five sections and all six hidden-lane assessments.
 
 A refusal names the offending artifact and what it found.
 

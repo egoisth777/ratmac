@@ -29,7 +29,55 @@ interpolation. Four candidates, recorded for P1 to choose between rather than se
   a template language and reopens `R-013`.
 
 Recommended for P1: **(c)**, with the scope question being whether setting the active ref is a new `rtm`
-verb or a field of an existing one.
+verb or a field of an existing one, and with one constraint that (c) is unsound without.
+
+**Constraint on (c) - a set active ref selects what the gates judge.** If the active ref is only ever
+*set* and never *derived*, then whatever writes `.arca/state.toml` chooses which ticket
+`sensitivity_receipts` and `completion_gate` grade. Point it at a ticket whose residuals are already
+`satisfied` and both gates pass while the real work stays unproven - and this needs no bad intent, a
+stale ref left over from the previous loop turn does it. So (c) must derive the active ticket from the
+tree and treat the stored value as a cache: on every step the Engine recomputes the derivation, and a
+stored ref that disagrees is a refusal with its own code, never a silent override. A test has to pin
+that refusal, or the mechanism is a hole with a receipt attached.
+
+**Two predicates, not one - and residual status cannot drive the build loop.** An earlier draft of this
+paragraph proposed one derivation over the tree serving part 1, part 3, and part 4 at once, with a ticket
+open while any residual it owns is unproven. That is wrong on the working rules' own timing.
+`.arca/schema.md` writes residual records at P2 and reruns the gap check only once no tickets are left, so
+residual status is a constant for the whole length of the P4/P5 loop: the ticket that just landed keeps
+every unproven residual it started with, stays the head of the ordered set, and the loop never advances.
+Recomputing "proven" earlier, before the ticket's own completion gate has run, breaks it the other way -
+the head moves off a ticket whose tests are not written yet, since a run can be green simply because the
+previous ticket's tests are the only ones that exist.
+
+So the cycle needs two predicates with different clocks and different owners:
+
+- **Ticket complete** - per ticket, recomputed now, and what advances the build loop. The gate that judges
+  it already exists and `src/completion.rs` states its own limit: "The gate writes nothing: a refusal
+  leaves the ticket executing and its residuals unproven." Its inputs are receipts under the evidence
+  directory `src/receipt.rs` calls agent-writable, so a receipt is evidence the gate *verifies* and never
+  the signal that the loop moved - reading it as the signal would put the loop's position back in the hands
+  of whatever writes the evidence, which is the hole two corrections above. The machine-owned signal is the
+  Scheduler's own successful transition: `Scheduler::step` runs the guards, writes `.arca/state.toml`, then
+  appends one history line, rolling both back together if the append fails, so the two never disagree. A
+  ticket is complete when the Engine recorded that it left the P5 Phase with that ticket active - or when
+  the ticket took an authorized archive move, the alternative `PCR-003` already offers.
+
+  **This needs one small engine change, and P1 should scope it.** The appended line is exactly
+  `- Transition: <from> -> <to>`: it names no ticket, so today's history cannot say *which* ticket
+  advanced. The transition entry has to carry the active ref it advanced before the build loop's head is
+  derivable from Engine-owned records at all.
+- **Gap remains** - per requirement, recomputed only at a gap check, and the condition on the P2/P3 edges:
+  more tickets to cut, or rest. This one is residual status, and it belongs to nothing else.
+
+Ordering inside the build loop stays the tickets' declared dependencies with the ticket number breaking
+ties - deterministic because `record_contract` already proves that graph acyclic.
+
+**A gap in the working rules, for P1 to settle.** `.arca/schema.md` never says who flips a residual to
+`satisfied` during the build loop, yet `.arca/log.md` shows landings doing exactly that. A machine cannot
+read a step nobody wrote down. Either the rules gain that step explicitly, or residual status is declared a
+gap-check-only judgment and ticket completion carries its own evidence - the second is what the two
+predicates above assume, and it is the reason they are two.
 
 **2. The landing append (`PCR-004`).** With a Run live, `.arca/log.md` belongs to `rtm`, and no Phase
 Prompt may instruct an agent to write it (`RB401`). Smallest resolution: one `rtm` command that takes the

@@ -20,9 +20,9 @@ see steering.md, Current sprint endpoint - the tree is the oracle.)
 
 ## Map - how ratmac hangs together
 
-Stamped cache - describes `18c8fe8` plus t-057, surveyed 2026-07-28 from a
-read-only pass of src/ and test/. Refresh at each cycle close (gap check
-green).
+Stamped cache - describes the tree through the authoring-loop landing
+(`t-057`), surveyed 2026-07-28 from a read-only pass of src/ and test/.
+Refresh at each cycle close (gap check green).
 
 ### Architecture
 
@@ -31,7 +31,7 @@ flowchart LR
     CLI["rtm CLI<br/>cli.rs"] --> SCH["scheduler.rs<br/>run lifecycle + guard dispatch"]
     RB[".arca/ratmac.toml<br/>runbook - plain TOML data"] --> MC["machine.rs<br/>MachineClass::from_toml<br/>the one reader - typed GuardKind"]
     MC --> SCH
-    SCH <--> ST["model.rs<br/>.arca/state.toml"]
+    SCH <--> ST["state.rs<br/>the Engine's only write path to .arca/state.toml<br/>model.rs: the seven fields"]
     SCH --> G{{guard dispatch}}
     G --> PIN["pin.rs<br/>command_exit - pinned, ETB-001"]
     G --> REC["receipt.rs<br/>sensitivity_receipts"]
@@ -60,15 +60,19 @@ unreadable path is the finding `RB101`, not a usage error. `rtm scaffold
 
 | Module | Role |
 | :--- | :--- |
+| `cli.rs` | Hand-rolled parsing of the seven verbs and the mapping from a refusal to an exit code. Carries no routing and no guard logic of its own. |
+| `graph.rs` | `Phase`, `Transition`, `MachineGraph` - a graph position with no lifecycle dimension. Routing is a straight walk: `transition_for` takes the **first** ordinary edge declared out of the current Phase and skips blocked routes, so a Phase has exactly one automatic destination and no edge can carry a condition (steering.md, Open questions). |
 | `machine.rs` | `MachineClass::from_toml` - the whole runbook schema boundary and its only reader; hand-rolled over `toml::Value`, no serde. Rejects unknown keys (R-011), `status` anywhere (R-002/R-003), unknown guard kinds and wrong-field-for-kind (TRP-002/TRP-003). Retains every guard as a typed `GuardKind`. |
 | `scheduler.rs` | Run lifecycle. Loads the typed class on every open/start/step/status and rebuilds the graph - fully data-driven, no phase names in src/. Guard dispatch matches on `GuardKind`. |
 | `model.rs` | serde structs for `RunState`/`Status` (`.arca/state.toml`). |
+| `state.rs` | Parses, loads, and writes `.arca/state.toml`. Its write path is crate-private, so every write inside the Engine funnels through one place - that centralizes the Engine, it does not defend the file: nothing stops an agent or a person editing `.arca/state.toml` directly, and whether the filesystem should stop them is undecided (steering.md, Open questions - "Catch it, or stop it?"). Invariant 1 is therefore a rule the Engine keeps, not a rule it enforces. Renders the report behind `rtm status`. |
 | `pin.rs` | ETB-001: command guards run pinned code unless `exempt = true`. |
 | `receipt.rs` | Sensitivity receipts; digests re-derived, self-verifying. |
 | `completion.rs` | Completion gate: green + fresh via tree digest. |
 | `contract.rs` | Intake/record contract gates; hard-codes `.arca/issue`, `.arca/residual`, `.arca/ticket` (R-016 debt). |
 | `goal.rs` | Goal freeze and drift check (content hash of `.arca/goal/`). |
 | `blocked.rs` | Blocked-route handling; hard-codes `.arca` paths (R-016 debt). |
+| `abandon.rs` | Retiring a Run that cannot be repaired: the typed confirmation phrase, a plan decided before anything is written, then all-or-none removal of the Scheduler-owned files plus one terminal history entry. |
 | `ownership.rs` | PGE-004 ownership lint over prompts and guard contracts; the doctor's fourth pass. |
 | `doctor.rs` | DRD-001..007: findings as data. Diagnoses through `machine.rs` and never walks runbook TOML itself; owns the graph and guard-lint passes, the JSON rendering, and the exit-code mapping. |
 | `scaffold.rs` | AAL-002: the smallest doctor-clean runbook, written at a path that does not exist yet. One file, no options, never overwrites. |

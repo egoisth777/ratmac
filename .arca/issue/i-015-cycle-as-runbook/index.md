@@ -27,3 +27,13 @@ yet. They are recorded here as requirements, not as intentions.
 | Requirements | [Specification](spec.md) |
 | Proposed mechanics | [Design](design.md) |
 | Verification and integration traces | [Test plan](test-plan.md) |
+
+## Disposition log
+
+- 2026-07-29: deferred at the 2026-07-29 planning pass (status stays `pending`) — it needs the
+  dependency strata beneath it: integrated Run residency (`i-017-run-residency`), input-routed
+  transitions (`i-016-fsm-doctrine-convergence`), input delivery and durability
+  (`i-019-input-delivery-durability`), Run completion (`i-020-run-completion`), and machine
+  composition (`i-018-machine-composition`). The additions record Billy's 2026-07-30 atomic cut;
+  requirement identifiers stayed unchanged. The ordering among the new concerns is an assumed
+  dependency forecast, revocable at planning step 1.
