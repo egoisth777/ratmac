@@ -56,6 +56,12 @@ answer, and the row says so.
 | `RB205` | The machine has more than one ending. | Route one ending into the other. If several endings are intended, keep them and accept the warning. | `connect-terminal` |
 | `RB206` | The same edge is declared twice. | Delete the duplicate; it adds no route. | `drop-transition` |
 | `RB207` | An edge leaves and enters the same Phase. | Delete it, or point it at a Phase that makes progress. | `drop-transition` |
+| `RB208` | A Phase's [`inputs`](runbook-spec.md#phases) declaration is empty, duplicated, or not a list of non-empty strings. | Replace it with the intended closed list of unique exact values. | `restore-location` |
+| `RB209` | A branching Phase has no [`inputs`](runbook-spec.md#phases) list. | Declare and label the intended closed branch manually. The safe mechanical fallback keeps its first ordinary edge as an unlabelled straight line. | `straighten-branch` |
+| `RB210` | A legal transition value has no ordinary outgoing edge. | Add the missing labelled edge or remove the unintended list value manually. The safe mechanical fallback keeps the first ordinary edge as an unlabelled straight line. | `straighten-branch` |
+| `RB211` | Two ordinary outgoing edges carry the same transition value. | Delete the duplicate edge, or relabel it with the one uncovered legal value. | `drop-transition` |
+| `RB212` | An ordinary edge label is foreign, mixed with unlabelled branch edges, or forbidden on a straight line or terminal. | Repair the exact labels manually. The safe mechanical fallback removes the transition-value contract and keeps the first ordinary edge as a straight line. | `straighten-branch` |
+| `RB213` | A blocked route carries an [`input`](runbook-spec.md#transitions) label. | Delete that field from the blocked route; blocked routes never participate in transition selection. | `drop-transition` |
 | `RB301` | A command gate names a program that cannot be pinned. | Name a program that exists, or mark the gate exempt if it deliberately runs unpinned code. | `pin-command` |
 | `RB302` | A gate's verdict rests on content the agent under test can write. | Delete the gate, or point it at something that agent cannot write. If the weaker gate is intended, keep it and accept the warning. | `drop-guard` |
 | `RB401` | A prompt or gate contract tells an agent to write a Scheduler-owned file. | Rewrite the sentence so the agent produces evidence instead - see [Ownership](runbook-spec.md#ownership). | `restore-location` |
@@ -74,6 +80,7 @@ and a human read the same table:
 | `break-cycle` | Delete the last edge, breaking the cycle that leaves no entry point. |
 | `merge-initial` | Add an edge from another entry candidate into this one, so only one remains. |
 | `connect-terminal` | Add an edge from this ending to another one, leaving a single ending. |
+| `straighten-branch` | At the named Phase, remove [`inputs`](runbook-spec.md#phases), keep its first ordinary outgoing edge, remove that edge's [`input`](runbook-spec.md#transitions), and delete its other ordinary outgoing edges. Blocked routes are unchanged. |
 | `pin-command` | Mark the named command gate exempt from pinning. |
 | `drop-guard` | Delete the guard the location names. |
 

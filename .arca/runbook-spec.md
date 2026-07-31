@@ -27,8 +27,9 @@ Each `[phases.<name>]` table declares one Phase.
 
 | Field | Type | Required | Meaning |
 | :--- | :--- | :--- | :--- |
-| `prompt` | string | yes | Short prose stating the Phase's intent. The Scheduler renders the Phase Prompt as this prose plus a generated list of the Phase's Exit Guards (R-028). It is the only machine information an agent receives (R-029). |
-| `guards` | array of tables | no | The Phase's Exit Guards, evaluated in declaration order at `rtm step`. Absent or empty means the Phase may be left unconditionally. |
+| `prompt` | string | yes | Short prose stating the Phase's intent. The Scheduler renders the Phase Prompt as this prose plus generated Exit Guards and, for a branching Phase, its legal input values (R-028, FDC-001). It is the only machine information an agent receives (R-029). |
+| `inputs` | array of strings | branching Phase only | The closed, non-empty, unique, ordered set of exact transition-input values. Required when the Phase has more than one ordinary outgoing edge; forbidden for a straight line or terminal. |
+| `guards` | array of tables | no | The Phase's Exit Guards, evaluated in declaration order at `rtm step`. Absent or empty means the Phase may be left unconditionally. Guards are readiness checks, never route selectors. |
 
 Comments in the file carry authoring intent and never reach an agent (R-012).
 
@@ -40,8 +41,9 @@ Each `[[transitions]]` table declares one directed edge.
 | :--- | :--- | :--- | :--- |
 | `from` | string | yes | Source Phase name. It must name a declared Phase, or the parse refuses (`RB108`). |
 | `to` | string | yes | Destination Phase name, likewise declared. |
+| `input` | string | branching ordinary edge only | The exact value selecting this edge. Every value in the source Phase's `inputs` list labels exactly one ordinary edge, and every ordinary edge from that Phase carries one listed value. Forbidden on straight-line and blocked routes. |
 | `freeze` | string | no | The only accepted value is `"goal"`, marking the intake-completion boundary at which the goal revision is frozen (ETB-003). Any other value is `RB109`. |
-| `blocked-route` | boolean | no | `true` marks a human-authorized escape (PGE-006). `rtm step` never takes a blocked route, and a blocked route never makes its destination reachable for initial-Phase selection. |
+| `blocked-route` | boolean | no | `true` marks a human-authorized escape (PGE-006). `rtm step` never takes a blocked route, a blocked route carries no `input`, and it does not participate in input coverage or initial-Phase reachability. |
 
 The **initial Phase** is the one Phase with no inbound ordinary transition.
 Zero such Phases is `RB202`; more than one is `RB203`.
@@ -107,6 +109,12 @@ when any finding is an error.
 | `RB205` | warning | The machine has more than one terminal Phase. One ending is the ordinary shape; several usually mean a missing edge. |
 | `RB206` | warning | Two transitions declare the same edge. |
 | `RB207` | warning | A transition leaves and enters the same Phase. |
+| `RB208` | error | A Phase's `inputs` value is not a non-empty array of unique, non-empty strings. |
+| `RB209` | error | A Phase has several ordinary outgoing edges but declares no closed `inputs` list. |
+| `RB210` | error | At least one declared legal input has no ordinary outgoing edge. |
+| `RB211` | error | More than one ordinary outgoing edge carries the same transition input. |
+| `RB212` | error | An ordinary transition input is foreign to its Phase's list, labelled and unlabelled ordinary branches are mixed, or a terminal/straight-line Phase declares an input contract. |
+| `RB213` | error | A blocked route declares `input`. |
 | `RB301` | error | A `command_exit` guard is neither `exempt` nor resolvable to a pinnable regular file. |
 | `RB302` | warning | A guard's verdict rests on agent-writable content. |
 | `RB401` | error | A prompt or guard contract directs an agent to write a Scheduler-owned artifact. |
@@ -128,3 +136,4 @@ the decision and the statement above that preserves it.
 | `PGE-003` | Guard kinds: `sensitivity_receipts` reads the ticket's planned-test receipts. |
 | `PGE-005` | Guard kinds: `completion_gate` reads the ticket's completion receipts. |
 | `PGE-006` | Transitions: `blocked-route = true` is the human-authorized escape `rtm step` never takes. |
+| `FDC-001` | Phases and Transitions: a branch declares closed `inputs`, ordinary edges carry unique covering `input` values, straight lines remain unlabelled, and blocked routes remain outside selection; `RB208`–`RB213`. |

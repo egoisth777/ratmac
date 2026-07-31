@@ -531,20 +531,20 @@ impl Scheduler {
         }
 
         let from = Phase::new(state.phase.clone());
-        let freezes_goal = self
-            .machine
-            .transition_for(from.as_str())
-            .is_some_and(crate::graph::Transition::freezes_goal);
-        let Some(to) = self.machine.next_phase(&from).cloned() else {
+        // FDC-001: route selection is one lookup over Phase plus input. t-062
+        // supplies the durable branch input; straight lines select with None.
+        let Some(transition) = Self::route_for(&self.machine, &from, None) else {
             return Ok(StepOutcome::Refused {
                 failures: vec![guard_failure(
                     "transition",
                     state.phase,
-                    "no outgoing transition",
-                    "declared next Phase",
+                    "no matching outgoing transition",
+                    "one transition selected by the current Phase and input",
                 )],
             });
         };
+        let freezes_goal = transition.freezes_goal();
+        let to = transition.to().clone();
         let prior = state.clone();
         let log_path = root.join(".arca/log.md");
         let mut log = OpenOptions::new()
@@ -1032,6 +1032,16 @@ impl Scheduler {
         self.store()?.load()
     }
 
+    /// FDC-001: the routing function depends only on current Phase and the
+    /// exact validated input. Declaration order and guards do not select.
+    fn route_for<'a>(
+        machine: &'a MachineGraph,
+        phase: &Phase,
+        input: Option<&str>,
+    ) -> Option<&'a crate::graph::Transition> {
+        machine.transition_for_input(phase, input)
+    }
+
     /// Read-only status; it loads state and reports labels from the current class.
     pub fn status(&self) -> Result<StatusReport, StateError> {
         let _lock = self.invocation_lock_with_retry()?;
@@ -1083,6 +1093,15 @@ impl Scheduler {
                     rendered.push('=');
                     rendered.push_str(&value);
                 }
+                rendered.push('\n');
+            }
+            rendered.pop();
+        }
+        if let Some(inputs) = definition.inputs() {
+            rendered.push_str("\n\nLegal transition inputs:\n");
+            for input in inputs {
+                rendered.push_str("- ");
+                rendered.push_str(input);
                 rendered.push('\n');
             }
             rendered.pop();

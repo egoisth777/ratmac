@@ -174,19 +174,61 @@ fn defect_catalogue() -> Vec<(&'static str, &'static str, &'static str)> {
         (
             "rb205",
             "RB205",
-            "[phases.a]\nprompt = \"p\"\n[phases.b]\nprompt = \"p\"\n[phases.c]\nprompt = \"p\"\n\
-             [[transitions]]\nfrom = \"a\"\nto = \"b\"\n[[transitions]]\nfrom = \"a\"\nto = \"c\"\n",
+            "[phases.a]\nprompt = \"p\"\ninputs = [\"b\", \"c\"]\n[phases.b]\nprompt = \"p\"\n[phases.c]\nprompt = \"p\"\n\
+             [[transitions]]\nfrom = \"a\"\nto = \"b\"\ninput = \"b\"\n\
+             [[transitions]]\nfrom = \"a\"\nto = \"c\"\ninput = \"c\"\n",
         ),
         (
             "rb206",
             "RB206",
             "[phases.a]\nprompt = \"p\"\n[phases.b]\nprompt = \"p\"\n\
-             [[transitions]]\nfrom = \"a\"\nto = \"b\"\n[[transitions]]\nfrom = \"a\"\nto = \"b\"\n",
+             [[transitions]]\nfrom = \"a\"\nto = \"b\"\n\
+             [[transitions]]\nfrom = \"b\"\nto = \"a\"\nblocked-route = true\n\
+             [[transitions]]\nfrom = \"b\"\nto = \"a\"\nblocked-route = true\n",
         ),
         (
             "rb207",
             "RB207",
             "[phases.a]\nprompt = \"p\"\n[[transitions]]\nfrom = \"a\"\nto = \"a\"\n",
+        ),
+        (
+            "rb208",
+            "RB208",
+            "[phases.a]\nprompt = \"p\"\ninputs = []\n",
+        ),
+        (
+            "rb209",
+            "RB209",
+            "[phases.a]\nprompt = \"p\"\n[phases.b]\nprompt = \"p\"\n[phases.c]\nprompt = \"p\"\n\
+             [[transitions]]\nfrom = \"a\"\nto = \"b\"\n\
+             [[transitions]]\nfrom = \"a\"\nto = \"c\"\n",
+        ),
+        (
+            "rb210",
+            "RB210",
+            "[phases.a]\nprompt = \"p\"\ninputs = [\"b\", \"c\", \"d\"]\n[phases.b]\nprompt = \"p\"\n[phases.c]\nprompt = \"p\"\n\
+             [[transitions]]\nfrom = \"a\"\nto = \"b\"\ninput = \"b\"\n\
+             [[transitions]]\nfrom = \"a\"\nto = \"c\"\ninput = \"c\"\n",
+        ),
+        (
+            "rb211",
+            "RB211",
+            "[phases.a]\nprompt = \"p\"\ninputs = [\"b\", \"c\"]\n[phases.b]\nprompt = \"p\"\n[phases.c]\nprompt = \"p\"\n\
+             [[transitions]]\nfrom = \"a\"\nto = \"b\"\ninput = \"b\"\n\
+             [[transitions]]\nfrom = \"a\"\nto = \"c\"\ninput = \"b\"\n",
+        ),
+        (
+            "rb212",
+            "RB212",
+            "[phases.a]\nprompt = \"p\"\n[phases.b]\nprompt = \"p\"\n\
+             [[transitions]]\nfrom = \"a\"\nto = \"b\"\ninput = \"foreign\"\n",
+        ),
+        (
+            "rb213",
+            "RB213",
+            "[phases.a]\nprompt = \"p\"\n[phases.b]\nprompt = \"p\"\n\
+             [[transitions]]\nfrom = \"a\"\nto = \"b\"\n\
+             [[transitions]]\nfrom = \"b\"\nto = \"a\"\nblocked-route = true\ninput = \"hold\"\n",
         ),
         (
             "rb301",

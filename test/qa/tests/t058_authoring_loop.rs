@@ -367,6 +367,37 @@ impl Draft {
         );
         self.lines[at] = format!("{}{}{}", &line[..span.0], patched, &line[span.1..]);
     }
+    fn remove_field(&mut self, block: (usize, usize), key: &str) {
+        if let Some(at) = self.lines[block.0..block.1].iter().position(|line| {
+            line.split_once('=')
+                .is_some_and(|(name, _)| name.trim() == key)
+        }) {
+            self.lines.remove(block.0 + at);
+        }
+    }
+
+    fn straighten_branch(&mut self, phase: &str) {
+        if let Some(block) = self.block(&format!("[phases.{phase}]")) {
+            self.remove_field(block, "inputs");
+        }
+        let ordinary = self
+            .transition_blocks()
+            .into_iter()
+            .filter(|block| {
+                self.field(*block, "from").as_deref() == Some(phase)
+                    && self.field(*block, "blocked-route").as_deref() != Some("true")
+            })
+            .collect::<Vec<_>>();
+        for block in ordinary.iter().skip(1).rev() {
+            self.remove(*block);
+        }
+        if let Some(block) = self.transition_blocks().into_iter().find(|block| {
+            self.field(*block, "from").as_deref() == Some(phase)
+                && self.field(*block, "blocked-route").as_deref() != Some("true")
+        }) {
+            self.remove_field(block, "input");
+        }
+    }
 }
 
 /// One repair, chosen by code and applied at the location the finding names.
@@ -406,6 +437,15 @@ fn apply(
             }
             _ => {}
         },
+        "straighten-branch" => {
+            let phase = match spot {
+                Spot::Phase(name) | Spot::Edge(name, _) => Some(name.as_str()),
+                _ => None,
+            };
+            if let Some(phase) = phase {
+                draft.straighten_branch(phase);
+            }
+        }
         "break-cycle" => {
             if let Some(block) = draft.transition_blocks().into_iter().next_back() {
                 draft.remove(block);
@@ -577,10 +617,79 @@ fn seeds(scaffold: &str) -> Vec<(&'static str, String)> {
         ),
         (
             "RB205",
-            plain("\n[phases.done]\nprompt = \"A second ending.\"\n\n[[transitions]]\nfrom = \"build\"\nto = \"done\"\n"),
+            format!(
+                "{}\n[phases.done]\nprompt = \"A second ending.\"\n\n\
+                 [[transitions]]\nfrom = \"build\"\nto = \"done\"\ninput = \"done\"\n",
+                scaffold
+                    .replace(
+                        "[phases.build]",
+                        "[phases.build]\ninputs = [\"review\", \"done\"]"
+                    )
+                    .replace(
+                        "from = \"build\"\nto = \"review\"",
+                        "from = \"build\"\nto = \"review\"\ninput = \"review\""
+                    )
+            ),
         ),
-        ("RB206", plain("\n[[transitions]]\nfrom = \"build\"\nto = \"review\"\n")),
+        (
+            "RB206",
+            plain(
+                "\n[[transitions]]\nfrom = \"review\"\nto = \"build\"\nblocked-route = true\n\n\
+                 [[transitions]]\nfrom = \"review\"\nto = \"build\"\nblocked-route = true\n",
+            ),
+        ),
         ("RB207", plain("\n[[transitions]]\nfrom = \"review\"\nto = \"review\"\n")),
+        (
+            "RB208",
+            scaffold.replace("[phases.build]", "[phases.build]\ninputs = []"),
+        ),
+        (
+            "RB209",
+            plain("\n[[transitions]]\nfrom = \"build\"\nto = \"review\"\n"),
+        ),
+        (
+            "RB210",
+            format!(
+                "{}\n[[transitions]]\nfrom = \"build\"\nto = \"review\"\ninput = \"two\"\n",
+                scaffold
+                    .replace(
+                        "[phases.build]",
+                        "[phases.build]\ninputs = [\"one\", \"two\", \"three\"]"
+                    )
+                    .replace(
+                        "from = \"build\"\nto = \"review\"",
+                        "from = \"build\"\nto = \"review\"\ninput = \"one\""
+                    )
+            ),
+        ),
+        (
+            "RB211",
+            format!(
+                "{}\n[[transitions]]\nfrom = \"build\"\nto = \"review\"\ninput = \"one\"\n",
+                scaffold
+                    .replace(
+                        "[phases.build]",
+                        "[phases.build]\ninputs = [\"one\", \"two\"]"
+                    )
+                    .replace(
+                        "from = \"build\"\nto = \"review\"",
+                        "from = \"build\"\nto = \"review\"\ninput = \"one\""
+                    )
+            ),
+        ),
+        (
+            "RB212",
+            scaffold.replace(
+                "from = \"build\"\nto = \"review\"",
+                "from = \"build\"\nto = \"review\"\ninput = \"foreign\"",
+            ),
+        ),
+        (
+            "RB213",
+            plain(
+                "\n[[transitions]]\nfrom = \"review\"\nto = \"build\"\nblocked-route = true\ninput = \"hold\"\n",
+            ),
+        ),
         (
             "RB301",
             scaffold.replace(

@@ -15,6 +15,9 @@ pub const SCAFFOLD: &str = r#"# A runbook: the Machine Class this project runs.
 # What may appear here is defined once, in .arca/runbook-spec.md.
 # How to grow it - edit, `rtm doctor --json <path>`, repair by code, repeat -
 # is in .arca/runbook-authoring.md.
+# A branch adds `inputs = ["approve", "rework"]` to its Phase and one matching
+# `input = "approve"` or `input = "rework"` to each ordinary transition; the
+# exact contract and repairs remain in the two documents above.
 
 [phases.build]
 prompt = "Do the work, then report what you produced."

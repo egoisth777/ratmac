@@ -244,6 +244,7 @@ fn inspect_graph(class: &MachineClass, findings: &mut Vec<Finding>) {
         let edge = (
             from.to_owned(),
             to.to_owned(),
+            transition.input().map(str::to_owned),
             transition.is_blocked_route(),
         );
         let route = format!("transition {from:?} -> {to:?}");
