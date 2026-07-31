@@ -128,45 +128,28 @@ pub fn plan_hold(root: &Path, request: &HoldRequest) -> Result<HoldPlan, HoldRef
 
     verify_blocker(root, blocker)?;
 
-    // FDC-004: hold acts on an existing Run, so run addressing is always
-    // required; a missing value refuses and prints the roster.
+    // FDC-004/FDC-005: hold is an existing-Run operation. Resolve one exact
+    // canonical roster member through Scheduler::open_run so flat residue and
+    // the recorded runbook pin are checked before this plan can permit a
+    // mutation.
     let roster = crate::Scheduler::run_roster(root);
     let roster_line = if roster.is_empty() {
         "none".to_owned()
     } else {
         roster.join(", ")
     };
-    let Some(run_id) = request
-        .run
-        .as_deref()
-        .map(str::trim)
-        .filter(|id| !id.is_empty())
-    else {
+    let Some(run_id) = request.run.as_deref().filter(|id| !id.is_empty()) else {
         return Err(refusal(format!(
             "hold requires --run <id>; runs: {roster_line}"
         )));
     };
-    let run_dir = crate::Scheduler::runs_dir(root).join(run_id);
-    if !run_dir.is_dir() {
-        return Err(refusal(format!(
-            "hold names no run: {run_id:?} is not on the roster; runs: {roster_line}"
-        )));
-    }
-
-    let source = fs::read_to_string(root.join(".arca/ratmac.toml"))
-        .map_err(|error| refusal(format!("hold cannot read the Runbook: {error}")))?;
-    let machine = crate::machine::MachineClass::from_toml(&source)
-        .map_err(|error| refusal(format!("hold cannot read the Runbook: {error}")))?;
-    let graph = crate::graph::MachineGraph::new(
-        machine.phases().keys().cloned().collect::<Vec<_>>(),
-        machine.transitions().to_vec(),
-    );
-
-    let state = crate::state::StateStore::for_run(root, run_id)
-        .load()
+    let scheduler =
+        crate::Scheduler::open_run(root, run_id).map_err(|error| refusal(error.to_string()))?;
+    let state = scheduler
+        .load_state()
         .map_err(|error| refusal(format!("hold requires an active Run: {error}")))?;
     let from_phase = state.phase.clone();
-    let Some(route) = graph.blocked_route_for(&from_phase) else {
+    let Some(route) = scheduler.machine().blocked_route_for(&from_phase) else {
         return Err(refusal(format!(
             "Phase {from_phase:?} declares no blocked route; add a transition with blocked-route = true"
         )));
