@@ -8,9 +8,9 @@
 //! that listing the directory IS the roster: run identity is read off
 //! artifacts, never off a narrated index. Every command that acts on an
 //! existing Run takes `--run <id>`, always required; a missing value refuses
-//! and prints the roster. The run's verdict slot and per-run spawn-ledger
-//! path are reserved under its directory by name only — their contracts stay
-//! with the machine-composition issue (i-018) and are not exercised here.
+//! and prints the roster. Start leaves the run's verdict slot absent under
+//! FDC-003; the per-run spawn-ledger path is reserved by name under FDC-004,
+//! while its contract stays with machine composition (i-018).
 //! This supersedes `R-023` (no run-id in v1) and its check `T-09`.
 
 use ratmac::Scheduler;
@@ -244,9 +244,9 @@ fn requirements_trace_to_seed_and_research() {
 }
 
 /// PT-058-02 (RRV-002): `rtm start` creates `.arca/runs/<id>/` carrying the
-/// run's State File; the verdict slot and the spawn-ledger path exist under
-/// that directory by name only, with no contract exercised; no flat
-/// `.arca/state.toml` is written; listing `.arca/runs/` yields the roster.
+/// run's State File and reserved spawn-ledger path. The verdict lifecycle is
+/// exercised by FDC-003; no flat `.arca/state.toml` is written; listing
+/// `.arca/runs/` yields the roster.
 #[test]
 fn runs_reside_under_the_plural_path() {
     let fixture = Fixture::new("plural-path");
@@ -276,13 +276,15 @@ fn runs_reside_under_the_plural_path() {
     let _ = state_phase(&state);
 
     // Reserved by name only: existence is asserted, contents never read —
-    // the verdict and ledger contracts belong to machine composition (i-018).
-    for name in ["verdict.toml", "spawn-ledger"] {
-        assert!(
-            run_dir.join(name).exists(),
-            "FDC-004: {name} must be reserved under the run's directory by name"
-        );
-    }
+    // the ledger contract belongs to machine composition (i-018).
+    assert!(
+        run_dir.join("spawn-ledger").exists(),
+        "FDC-004: spawn-ledger must be reserved under the run's directory by name"
+    );
+    assert!(
+        !run_dir.join("verdict.toml").exists(),
+        "FDCV-020: start must leave the live verdict slot absent"
+    );
 
     assert!(
         !fixture.path(".arca/state.toml").exists(),
