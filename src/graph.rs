@@ -50,6 +50,9 @@ impl fmt::Display for Phase {
 pub struct Transition {
     from: Phase,
     to: Phase,
+    /// FDC-001: the exact closed-list value selecting this ordinary edge.
+    /// Straight-line and blocked routes carry no input.
+    input: Option<String>,
     /// ETB-003: this transition closes intake integration and freezes the goal.
     freezes_goal: bool,
     /// PGE-006: the human-confirmed escape from a blocked ticket. `step`
@@ -63,9 +66,20 @@ impl Transition {
         Self {
             from: from.into(),
             to: to.into(),
+            input: None,
             freezes_goal: false,
             blocked_route: false,
         }
+    }
+
+    /// Label this ordinary edge with its exact transition input (FDC-001).
+    pub fn with_input(mut self, input: impl Into<String>) -> Self {
+        self.input = Some(input.into());
+        self
+    }
+
+    pub fn input(&self) -> Option<&str> {
+        self.input.as_deref()
     }
 
     /// Mark this transition as the intake-completion boundary (ETB-003).
@@ -125,14 +139,31 @@ impl MachineGraph {
         self.transitions.iter()
     }
 
-    /// Finds the first ordinary transition leaving `phase`.
+    /// Finds the sole unlabelled ordinary transition leaving `phase`.
     ///
+    /// Branching edges are selected only by [`Self::transition_for_input`].
     /// Blocked routes are skipped: only a human-confirmed hold may take one.
     pub fn transition_for<P: AsRef<str>>(&self, phase: P) -> Option<&Transition> {
+        self.transition_for_input(phase, None)
+    }
+
+    /// FDC-001: select the ordinary edge carrying exactly `input`.
+    ///
+    /// Declaration order has no routing meaning. `None` selects only an
+    /// unlabelled straight-line edge; blocked routes never participate.
+    pub fn transition_for_input<P: AsRef<str>>(
+        &self,
+        phase: P,
+        input: Option<&str>,
+    ) -> Option<&Transition> {
         let phase = phase.as_ref();
-        self.transitions
-            .iter()
-            .find(|transition| transition.from.as_str() == phase && !transition.blocked_route)
+        let mut matches = self.transitions.iter().filter(|transition| {
+            transition.from.as_str() == phase
+                && !transition.blocked_route
+                && transition.input() == input
+        });
+        let selected = matches.next()?;
+        matches.next().is_none().then_some(selected)
     }
 
     /// PGE-006: the blocked route leaving `phase`, if the Runbook declares one.

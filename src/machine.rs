@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::Path;
 
@@ -17,6 +17,7 @@ pub struct MachineClass {
 pub struct PhaseDefinition {
     phase: Phase,
     prompt: String,
+    inputs: Option<Vec<String>>,
     guards: Vec<GuardKind>,
 }
 
@@ -306,7 +307,7 @@ impl MachineClass {
             }
             Self::reject_unknown_keys(
                 definition,
-                &["prompt", "guards"],
+                &["prompt", "inputs", "guards"],
                 &format!("phase {name:?}"),
             )?;
             let mut guards = Vec::new();
@@ -330,6 +331,52 @@ impl MachineClass {
                     guards.push(Self::parse_guard(guard, &location)?);
                 }
             }
+            let inputs = match definition.get("inputs") {
+                None => None,
+                Some(value) => {
+                    let declared = value.as_array().ok_or_else(|| {
+                        MachineClassParseError::at(
+                            "RB208",
+                            format!("phase {name:?}"),
+                            format!(
+                                "invalid phase {name:?} inputs: expected a non-empty array of unique strings"
+                            ),
+                        )
+                    })?;
+                    if declared.is_empty() {
+                        return Err(MachineClassParseError::at(
+                            "RB208",
+                            format!("phase {name:?}"),
+                            format!("invalid phase {name:?} inputs: list must not be empty"),
+                        ));
+                    }
+                    let mut seen = BTreeSet::new();
+                    let mut inputs = Vec::with_capacity(declared.len());
+                    for (index, value) in declared.iter().enumerate() {
+                        let input = value.as_str().ok_or_else(|| {
+                            MachineClassParseError::at(
+                                "RB208",
+                                format!("phase {name:?}"),
+                                format!(
+                                    "invalid phase {name:?} inputs[{index}]: expected a non-empty string"
+                                ),
+                            )
+                        })?;
+                        if input.is_empty() || !seen.insert(input.to_owned()) {
+                            return Err(MachineClassParseError::at(
+                                "RB208",
+                                format!("phase {name:?}"),
+                                format!(
+                                    "invalid phase {name:?} inputs: values must be non-empty and unique; found {input:?}"
+                                ),
+                            ));
+                        }
+                        inputs.push(input.to_owned());
+                    }
+                    Some(inputs)
+                }
+            };
+
             let prompt = definition
                 .get("prompt")
                 .ok_or_else(|| {
@@ -353,6 +400,7 @@ impl MachineClass {
                 PhaseDefinition {
                     phase: Phase::new(name.clone()),
                     prompt,
+                    inputs,
                     guards,
                 },
             );
@@ -372,7 +420,7 @@ impl MachineClass {
                     }
                     Self::reject_unknown_keys(
                         table,
-                        &["from", "to", "freeze", "blocked-route"],
+                        &["from", "to", "input", "freeze", "blocked-route"],
                         &format!("transition {index}"),
                     )?;
                     let from =
@@ -385,6 +433,16 @@ impl MachineClass {
                         .and_then(toml::Value::as_str)
                         .ok_or_else(|| MachineClassParseError::at("RB105", format!("transition {index}"), "invalid transition: missing to phase".to_owned()))?;
                     let mut transition = Transition::new(from, to);
+                    if let Some(value) = table.get("input") {
+                        let input = value.as_str().ok_or_else(|| {
+                            MachineClassParseError::at(
+                                "RB110",
+                                format!("transition {index} input"),
+                                format!("invalid transition {index} input: expected a string"),
+                            )
+                        })?;
+                        transition = transition.with_input(input);
+                    }
                     // PGE-006: an escape a human confirms, never an edge the
                     // Scheduler may take on its own.
                     if table
@@ -446,6 +504,121 @@ impl MachineClass {
                 ));
             }
         }
+        if let Some(transition) = transitions
+            .iter()
+            .find(|transition| transition.is_blocked_route() && transition.input().is_some())
+        {
+            return Err(MachineClassParseError::at(
+                "RB213",
+                format!(
+                    "transition {:?} -> {:?}",
+                    transition.from().as_str(),
+                    transition.to().as_str()
+                ),
+                "invalid ratmac.toml: a blocked route must not declare input".to_owned(),
+            ));
+        }
+
+        for (name, definition) in &phases {
+            let ordinary = transitions
+                .iter()
+                .filter(|transition| {
+                    !transition.is_blocked_route() && transition.from().as_str() == name
+                })
+                .collect::<Vec<_>>();
+            match ordinary.len() {
+                0 | 1 => {
+                    if definition.inputs.is_some()
+                        || ordinary
+                            .first()
+                            .is_some_and(|transition| transition.input().is_some())
+                    {
+                        return Err(MachineClassParseError::at(
+                            "RB212",
+                            format!("phase {name:?}"),
+                            format!(
+                                "invalid phase {name:?}: a terminal or straight-line Phase must not declare inputs or an input-labelled ordinary edge"
+                            ),
+                        ));
+                    }
+                }
+                _ => {
+                    let inputs = definition.inputs.as_ref().ok_or_else(|| {
+                        MachineClassParseError::at(
+                            "RB209",
+                            format!("phase {name:?}"),
+                            format!(
+                                "invalid phase {name:?}: a branching Phase must declare its closed inputs list"
+                            ),
+                        )
+                    })?;
+                    let labelled = ordinary
+                        .iter()
+                        .filter(|transition| transition.input().is_some())
+                        .copied()
+                        .collect::<Vec<_>>();
+                    if !labelled.is_empty() && labelled.len() != ordinary.len() {
+                        return Err(MachineClassParseError::at(
+                            "RB212",
+                            format!("phase {name:?}"),
+                            format!(
+                                "invalid phase {name:?}: labelled and unlabelled ordinary edges must not be mixed"
+                            ),
+                        ));
+                    }
+                    if labelled.is_empty() {
+                        return Err(MachineClassParseError::at(
+                            "RB210",
+                            format!("phase {name:?}"),
+                            format!(
+                                "invalid phase {name:?}: no ordinary edge covers the declared inputs"
+                            ),
+                        ));
+                    }
+                    let mut covered = BTreeSet::new();
+                    for transition in labelled {
+                        let input = transition
+                            .input()
+                            .expect("labelled transitions carry an input");
+                        if !covered.insert(input) {
+                            return Err(MachineClassParseError::at(
+                                "RB211",
+                                format!(
+                                    "transition {:?} -> {:?}",
+                                    transition.from().as_str(),
+                                    transition.to().as_str()
+                                ),
+                                format!(
+                                    "invalid phase {name:?}: transition input {input:?} is covered more than once"
+                                ),
+                            ));
+                        }
+                        if !inputs.iter().any(|declared| declared == input) {
+                            return Err(MachineClassParseError::at(
+                                "RB212",
+                                format!("phase {name:?}"),
+                                format!(
+                                    "invalid phase {name:?}: transition input {input:?} is outside the closed inputs list"
+                                ),
+                            ));
+                        }
+                    }
+                    if let Some(missing) = inputs
+                        .iter()
+                        .find(|input| !covered.contains(input.as_str()))
+                    {
+                        return Err(MachineClassParseError::at(
+                            "RB210",
+                            format!("phase {name:?}"),
+                            format!(
+                                "invalid phase {name:?}: no ordinary edge covers input {missing:?}"
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
+
         Ok(Self {
             phases,
             transitions,
@@ -577,6 +750,11 @@ impl PhaseDefinition {
 
     pub fn prompt(&self) -> &str {
         &self.prompt
+    }
+
+    /// FDC-001: the closed legal values for a branching Phase.
+    pub fn inputs(&self) -> Option<&[String]> {
+        self.inputs.as_deref()
     }
 
     /// The Phase's Exit Guards, in declaration order (TRP-004).
