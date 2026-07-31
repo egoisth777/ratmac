@@ -540,11 +540,11 @@ Billy split the pending execution bundle while preserving the rulings reconstruc
 Current requirement homes are:
 
 - input-routed transitions (`FDC-001`) —
-  [i-016-fsm-doctrine-convergence](../../issue/i-016-fsm-doctrine-convergence/spec.md);
+  [i-016-fsm-doctrine-convergence](../../issue/archive/i-016-fsm-doctrine-convergence/spec.md);
 - Run completion (`FDC-002`) —
-  [i-020-run-completion](../../issue/i-020-run-completion/spec.md);
+  [i-020-run-completion](../../issue/archive/i-020-run-completion/spec.md);
 - input delivery and durability (`FDC-003`) —
-  [i-019-input-delivery-durability](../../issue/i-019-input-delivery-durability/spec.md).
+  [i-019-input-delivery-durability](../../issue/archive/i-019-input-delivery-durability/spec.md).
 
 Accordingly, earlier sentences saying `FDC-002` or `FDC-003` live in the doctrine-convergence
 issue's specification are historical and point through its split record. The class's legal input

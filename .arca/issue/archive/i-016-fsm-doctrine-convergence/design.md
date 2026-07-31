@@ -42,19 +42,19 @@ it. No AR is resolved by prose in this issue alone; the research files are where
 
 Sources under `.arca/research/re-ratmac-FSM/`:
 
-- [04-run-identity.md](../../research/re-ratmac-FSM/04-run-identity.md)
-- [05-invocation-join.md](../../research/re-ratmac-FSM/05-invocation-join.md)
-- [06-migration-cost.md](../../research/re-ratmac-FSM/06-migration-cost.md)
-- [07-conceptual-model.md](../../research/re-ratmac-FSM/07-conceptual-model.md)
-- [08-adversarial-review.md](../../research/re-ratmac-FSM/08-adversarial-review.md)
+- [04-run-identity.md](../../../research/re-ratmac-FSM/04-run-identity.md)
+- [05-invocation-join.md](../../../research/re-ratmac-FSM/05-invocation-join.md)
+- [06-migration-cost.md](../../../research/re-ratmac-FSM/06-migration-cost.md)
+- [07-conceptual-model.md](../../../research/re-ratmac-FSM/07-conceptual-model.md)
+- [08-adversarial-review.md](../../../research/re-ratmac-FSM/08-adversarial-review.md)
 
 ## Authority ordering (human ruling, 2026-07-29)
 
 Billy ruled on 2026-07-29: the conceptual model
-([07-conceptual-model.md](../../research/re-ratmac-FSM/07-conceptual-model.md)), as corrected by the
-adversarial review ([08-adversarial-review.md](../../research/re-ratmac-FSM/08-adversarial-review.md)),
+([07-conceptual-model.md](../../../research/re-ratmac-FSM/07-conceptual-model.md)), as corrected by the
+adversarial review ([08-adversarial-review.md](../../../research/re-ratmac-FSM/08-adversarial-review.md)),
 speaks for the **target** system. The migration study
-([06-migration-cost.md](../../research/re-ratmac-FSM/06-migration-cost.md)) binds only migration and
+([06-migration-cost.md](../../../research/re-ratmac-FSM/06-migration-cost.md)) binds only migration and
 sequencing facts about the current state. The current engine's source code is evidence of the present
 and raw material to transform — never authority over target design. Where a recommendation in `08` §4
 cites current code in its rationale, that citation is prior art, not a constraint.
@@ -118,7 +118,7 @@ input list; every ordinary outgoing edge carries exactly one unique value from t
 coverage, duplicate coverage, and out-of-list values are errors; mixed labelled and unlabelled
 ordinary edges are forbidden; a straight-line Phase may keep one unlabelled ordinary edge; blocked
 routes stay outside selection and exhaustiveness checks — see `FDC-001` in [spec.md](spec.md). Format,
-parser, and doctor changes for this rule trace to [.arca/runbook-spec.md](../../runbook-spec.md).*
+parser, and doctor changes for this rule trace to [.arca/runbook-spec.md](../../../runbook-spec.md).*
 
 *Superseded (2026-07-29): the two findings left open above — the terminal vocabulary (`AR-04`) and the format gap (`AR-10`) — are closed by the individual human rulings below.*
 
@@ -137,7 +137,7 @@ by an agent, and overturning one takes a new ruling.
 - **The engine writes terminal statuses (`AR-05`).** The engine itself writes them: `passed`
   on arriving at a phase with no ordinary out-edge; `abandoned` via the abandon path.
   Rationale: this states the previously unstated dependency of the join design in
-  [05-invocation-join.md](../../research/re-ratmac-FSM/05-invocation-join.md) §3/§4 — the
+  [05-invocation-join.md](../../../research/re-ratmac-FSM/05-invocation-join.md) §3/§4 — the
   join's readable stable fact now exists by ruling.
 - **One fixed terminal enum (`AR-04`).** Terminal status values are one fixed engine-level
   enum shared by all runbooks: `passed` / `failed` / `abandoned`. Rationale: richer outcome
@@ -165,7 +165,7 @@ by an agent, and overturning one takes a new ruling.
   this design states that dependency rather than assuming it.
 - **Mechanical closure of the format gap (`AR-10`).** Two parts. (a) The runbook format is
   explicitly extended by this design to carry the class and spawn tables
-  [05-invocation-join.md](../../research/re-ratmac-FSM/05-invocation-join.md) §1 introduces;
+  [05-invocation-join.md](../../../research/re-ratmac-FSM/05-invocation-join.md) §1 introduces;
   this supersedes the format-spec restriction the review cites (`RBS-004`, the
   "declares Phases and transitions and nothing else" rule whose breach is an `RB103`
   refusal). (b) The canonical spelling is `blocked-route` (hyphen), matching the parser, the
@@ -190,8 +190,8 @@ also be amended. Ten ledger rows in [test-plan.md](test-plan.md) — `AR-01` thr
 `AR-11` — cite only this design record, with no corresponding supersession block yet landed in the
 implicated research file(s); those rows reopen to `open` with reason "awaiting research supersession
 blocks; batched adversarial reread pending". `AR-10` and `AR-12` keep `resolved`: their corrections
-already landed in [05-invocation-join.md](../../research/re-ratmac-FSM/05-invocation-join.md) and
-[07-conceptual-model.md](../../research/re-ratmac-FSM/07-conceptual-model.md) respectively. `AR-13`
+already landed in [05-invocation-join.md](../../../research/re-ratmac-FSM/05-invocation-join.md) and
+[07-conceptual-model.md](../../../research/re-ratmac-FSM/07-conceptual-model.md) respectively. `AR-13`
 and `AR-14` keep `resolved`: verified sound, no correction was ever required.
 
 The adversarial reread happens once, batched over every corrected research file, after all ten

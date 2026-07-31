@@ -178,12 +178,12 @@ fn requirements_trace_to_seed_and_research() {
             .find(|line| line.starts_with(&format!("| {id} ")))
             .unwrap_or_else(|| panic!("RRV-001: the goal must carry the {id} requirement row"));
         assert!(
-            row.contains("../issue/i-017-run-residency/spec.md#requirement-records"),
+            row.contains("../issue/archive/i-017-run-residency/spec.md#requirement-records"),
             "RRV-001: {id} must cite its requirement record in the run-residency issue"
         );
     }
 
-    let issue = read_repo(".arca/issue/i-017-run-residency/spec.md");
+    let issue = read_repo(".arca/issue/archive/i-017-run-residency/spec.md");
     for id in ["FDC-004", "FDC-005", "FDC-006"] {
         assert!(
             issue.contains(&format!("`{id}`")),
@@ -195,7 +195,7 @@ fn requirements_trace_to_seed_and_research() {
         "RRV-001: the run-residency issue must point back at the split seed's design"
     );
 
-    let seed = read_repo(".arca/issue/i-016-fsm-doctrine-convergence/design.md");
+    let seed = read_repo(".arca/issue/archive/i-016-fsm-doctrine-convergence/design.md");
     let defaults = section(
         &seed,
         "## Adopted defaults (batch human sign-off, 2026-07-29)",

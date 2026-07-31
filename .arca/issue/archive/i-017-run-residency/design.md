@@ -16,14 +16,14 @@ its three asks need and cites the seed's records and the research files; it neve
   adopted defaults - `08` §4 items 6, 7, and 14, batch human sign-off, 2026-07-29 - recorded in the
   seed's Adopted defaults record
   ([design.md](../i-016-fsm-doctrine-convergence/design.md)). Research ground:
-  [04-run-identity.md](../../research/re-ratmac-FSM/04-run-identity.md) (run identity and the
+  [04-run-identity.md](../../../research/re-ratmac-FSM/04-run-identity.md) (run identity and the
   listing-is-the-registry property) and
-  [05-invocation-join.md](../../research/re-ratmac-FSM/05-invocation-join.md) (verdict slots and
+  [05-invocation-join.md](../../../research/re-ratmac-FSM/05-invocation-join.md) (verdict slots and
   the spawn ledger).
 - **Pin and residue (FDC-005).** The runbook pin stays hash-only; a flat-layout residue refuses and
   instructs, never auto-migrates. Decided as adopted defaults - `08` §4 items 8 and 9 - in the same
   record. Research ground:
-  [06-migration-cost.md](../../research/re-ratmac-FSM/06-migration-cost.md) (migration and
+  [06-migration-cost.md](../../../research/re-ratmac-FSM/06-migration-cost.md) (migration and
   sequencing facts about the current state).
 - **Uncapped runs, never-reused ids (FDC-006).** No active-Run cap; within the one run-id namespace,
   ids are never reused after abandon; respawn mints a new id, a namespace fact (scope corrected

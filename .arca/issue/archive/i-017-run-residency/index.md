@@ -56,14 +56,14 @@ Billy) and folded into the goal under their unchanged IDs — `FDC-004`, `FDC-00
 
 | Goal file | Where the fold-in landed |
 | :--- | :--- |
-| Requirements | [spec.md — Integrated run-residency requirements](../../goal/spec.md#integrated-run-residency-requirements) |
-| Mechanics | [design.md — Canonical run residency and identity](../../goal/design.md#canonical-run-residency-and-identity-fdc-004fdc-006) |
-| Checks `RRV-001`–`RRV-004` | [test-list.md — Integrated run-residency verification](../../goal/test-list.md#integrated-run-residency-verification) |
-| Front door | [index.md — Integrated canonical run residency](../../goal/index.md#integrated-canonical-run-residency) |
+| Requirements | [spec.md — Integrated run-residency requirements](../../../goal/spec.md#integrated-run-residency-requirements) |
+| Mechanics | [design.md — Canonical run residency and identity](../../../goal/design.md#canonical-run-residency-and-identity-fdc-004fdc-006) |
+| Checks `RRV-001`–`RRV-004` | [test-list.md — Integrated run-residency verification](../../../goal/test-list.md#integrated-run-residency-verification) |
+| Front door | [index.md — Integrated canonical run residency](../../../goal/index.md#integrated-canonical-run-residency) |
 
 **Ideal-shape property advanced: One writer, append-only.** In steering's own words, "Run state has
 exactly one writer and history only grows, so the record cannot be rewritten by whoever is working"
-([steering.md, Ideal shape](../../steering.md#ideal-shape)). Ids that are never reissued extend that
+([steering.md, Ideal shape](../../../steering.md#ideal-shape)). Ids that are never reissued extend that
 property from a Run's history to its address: an abandoned Run keeps its directory under the plural
 `runs` path, and no later Run can occupy that address and overwrite the evidence. The two refusals
 this issue states — a missing `--run <id>` answering with the roster, a flat-layout residue that
@@ -71,7 +71,7 @@ instructs instead of migrating — also serve *Refusals are branchable*, but the
 this fold-in is the first.
 
 **Sprint position.** This issue is the whole of the sprint regenerated at this P1 close
-([steering.md, Current sprint](../../steering.md#current-sprint)). The verdict-routed execution core
+([steering.md, Current sprint](../../../steering.md#current-sprint)). The verdict-routed execution core
 issue (`i-016-fsm-doctrine-convergence`), the machine-composition issue (`i-018-machine-composition`),
 and the cycle-as-runbook issue (`i-015-cycle-as-runbook`) were deferred to the next planning pass per
 the route ruling. In the goal, `FDC-004` and `FDC-006` supersede the v1 single-Run clauses `R-022` and

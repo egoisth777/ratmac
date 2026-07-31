@@ -269,9 +269,9 @@ CLI (proposed): `rtm start [--run <name>]` prints the minted id · `rtm status|s
 Billy split the pending doctrine-convergence execution bundle without changing this research's
 run-identity findings or the integrated residency requirements. Current pending homes are:
 input-routed transitions (`FDC-001`) in
-[i-016-fsm-doctrine-convergence](../../issue/i-016-fsm-doctrine-convergence/index.md), Run completion
-(`FDC-002`) in [i-020-run-completion](../../issue/i-020-run-completion/index.md), and input delivery
+[i-016-fsm-doctrine-convergence](../../issue/archive/i-016-fsm-doctrine-convergence/index.md), Run completion
+(`FDC-002`) in [i-020-run-completion](../../issue/archive/i-020-run-completion/index.md), and input delivery
 and durability (`FDC-003`) in
-[i-019-input-delivery-durability](../../issue/i-019-input-delivery-durability/index.md). The
+[i-019-input-delivery-durability](../../issue/archive/i-019-input-delivery-durability/index.md). The
 accepted `Verdict slot` and current `verdict.toml` reservation remain unchanged; any physical rename
 needs an explicit accepted-goal, source, test, and migration change.
