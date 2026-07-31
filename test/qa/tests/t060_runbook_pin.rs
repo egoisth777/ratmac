@@ -2,7 +2,7 @@
 //!
 //! PT-059-01 `pin_is_hash_only_with_no_per_run_copy`
 //! PT-059-02 `flat_layout_residue_refuses_and_instructs`
-//!
+//! PT-059-03 `hold_applies_residue_and_runbook_pin_preflight`
 //! The runbook pin is a recorded hash and nothing more: `rtm start` records
 //! the SHA-256 of the canonical `.arca/ratmac.toml` in the run's evidence,
 //! every later Scheduler read of the class compares against it, and a
@@ -298,4 +298,159 @@ fn flat_layout_residue_refuses_and_instructs() {
             ),
         );
     }
+}
+
+/// PT-059-03 (RRV-003): a confirmed blocked-route hold is an existing-Run
+/// operation that loads the Machine Class. It must apply the flat-residue and
+/// runbook-pin preflight before changing the State File, log, or ticket; after
+/// both observed defects are repaired, the same hold request can proceed.
+#[test]
+fn hold_applies_residue_and_runbook_pin_preflight() {
+    const TICKET: &str = "t-900";
+    const BLOCKER: &str = ".arca/issue/i-900-blocker";
+
+    let fixture = Fixture::new("hold-preflight");
+    for directory in [".arca/ticket", ".arca/residual", BLOCKER] {
+        fs::create_dir_all(fixture.path(directory)).expect("create hold fixture directory");
+    }
+    for name in [
+        "index.md",
+        "spec.md",
+        "design.md",
+        "test-plan.md",
+        "ubi-lang.md",
+    ] {
+        fs::write(
+            fixture.path(&format!("{BLOCKER}/{name}")),
+            format!("# {name}\n"),
+        )
+        .expect("write complete blocker issue");
+    }
+    fs::write(
+        fixture.path(".arca/ticket/t-900.md"),
+        "---\nticket-id: t-900\nresidual-ids:\n  - \"res-900\"\n\
+         planned-test-refs:\n  - \"PT-900-01\"\nstatus: \"executing\"\n---\n\n\
+         # Ticket: t-900\n",
+    )
+    .expect("write executing ticket");
+    fs::write(
+        fixture.path(".arca/residual/res-900.md"),
+        "# Residual Record\n\n```yaml\nresidual-id: \"res-900\"\nstatus: \"missing\"\n```\n",
+    )
+    .expect("write unproven residual");
+    fs::write(
+        fixture.path(".arca/ratmac.toml"),
+        "[phases.intake]\nprompt = \"Integrate the issues.\"\n\n\
+         [phases.build]\nprompt = \"Build the ticket.\"\n\n\
+         [phases.review]\nprompt = \"Review the ticket.\"\n\n\
+         [[transitions]]\nfrom = \"intake\"\nto = \"build\"\n\n\
+         [[transitions]]\nfrom = \"build\"\nto = \"intake\"\nblocked-route = true\n\n\
+         [[transitions]]\nfrom = \"build\"\nto = \"review\"\n",
+    )
+    .expect("write blocked-route runbook");
+    let runbook = fs::read(fixture.path(".arca/ratmac.toml")).expect("read canonical runbook");
+    let expected_hash = sha256_hex(&runbook);
+
+    let start = fixture.rtm(&["start"]);
+    assert!(
+        start.status.success(),
+        "the blocked-route fixture must start: {}",
+        combined(&start)
+    );
+    let id = fixture
+        .roster()
+        .first()
+        .expect("the started Run appears on the roster")
+        .clone();
+    let step = fixture.rtm(&["step", "--run", &id]);
+    assert!(
+        step.status.success(),
+        "the fixture Run must reach build: {}",
+        combined(&step)
+    );
+
+    let hold_args = [
+        "hold",
+        TICKET,
+        "--run",
+        id.as_str(),
+        "--blocker",
+        BLOCKER,
+        "--confirm",
+        "hold t-900",
+    ];
+
+    let mut drifted = runbook.clone();
+    drifted.extend_from_slice(b"\n# drift before hold\n");
+    fs::write(fixture.path(".arca/ratmac.toml"), &drifted).expect("drift runbook");
+    let observed_hash = sha256_hex(&drifted);
+    let before_drift_hold = tree_snapshot(&fixture.root);
+    let drift_refusal = fixture.rtm(&hold_args);
+    assert!(
+        !drift_refusal.status.success(),
+        "FDC-005: hold must refuse a drifted runbook: {}",
+        combined(&drift_refusal)
+    );
+    let drift_text = combined(&drift_refusal);
+    for (role, hash) in [("expected", &expected_hash), ("observed", &observed_hash)] {
+        assert!(
+            drift_text.contains(hash),
+            "FDC-005: hold's pin refusal must name the {role} hash {hash}; output was: {drift_text}"
+        );
+    }
+    assert_trees_equal(
+        &before_drift_hold,
+        &tree_snapshot(&fixture.root),
+        "FDC-005: a runbook-pin hold refusal must precede every mutation",
+    );
+
+    fs::write(fixture.path(".arca/ratmac.toml"), &runbook).expect("restore pinned runbook");
+    fs::write(
+        fixture.path(".arca/state.toml"),
+        "phase = \"build\"\nstatus = \"executing\"\n",
+    )
+    .expect("plant flat-layout residue");
+    let before_residue_hold = tree_snapshot(&fixture.root);
+    let residue_refusal = fixture.rtm(&hold_args);
+    assert!(
+        !residue_refusal.status.success(),
+        "FDC-005: hold must refuse flat-layout residue: {}",
+        combined(&residue_refusal)
+    );
+    let residue_text = combined(&residue_refusal).replace('\\', "/").to_lowercase();
+    assert!(
+        residue_text.contains(".arca/state.toml"),
+        "FDC-005: hold's residue refusal must name .arca/state.toml: {residue_text}"
+    );
+    assert!(
+        ["remove", "delete", "migrate", "move"]
+            .iter()
+            .any(|verb| residue_text.contains(verb)),
+        "FDC-005: hold's residue refusal must instruct the repair: {residue_text}"
+    );
+    assert_trees_equal(
+        &before_residue_hold,
+        &tree_snapshot(&fixture.root),
+        "FDC-005: a flat-residue hold refusal must precede every mutation",
+    );
+
+    fs::remove_file(fixture.path(".arca/state.toml")).expect("remove flat-layout residue");
+    let held = fixture.rtm(&hold_args);
+    assert!(
+        held.status.success(),
+        "FDC-005: after both repairs, the same hold request must proceed: {}",
+        combined(&held)
+    );
+    let state = fs::read_to_string(fixture.path(&format!(".arca/runs/{id}/state.toml")))
+        .expect("read routed State File");
+    assert!(
+        state.contains("phase = \"intake\""),
+        "the repaired hold must take the declared blocked route: {state}"
+    );
+    let ticket =
+        fs::read_to_string(fixture.path(".arca/ticket/t-900.md")).expect("read held ticket");
+    assert!(
+        ticket.contains("status: \"held\""),
+        "the repaired hold must mark the ticket held: {ticket}"
+    );
 }
