@@ -3,6 +3,7 @@
 //! PT-046-01 `intake_contract_verified`
 //! PT-046-02 `record_contract_verified`
 //! PT-046-03 `no_vacuous_satisfaction`
+//! PT-046-04 `active_and_archived_residuals_form_one_namespace`
 //! HT-046-01 `dependency_cycle_is_named`
 //! HT-046-02 `broken_five_file_shape_refuses`
 //! HT-046-03 `stale_frozen_revision_refuses`
@@ -355,6 +356,60 @@ fn record_contract_verified() {
     assert!(
         text.contains("t-100") && text.to_ascii_lowercase().contains("hidden"),
         "the refusal names the ticket and the missing section: {text}"
+    );
+}
+/// PT-046-04: active and archived residuals form one complete namespace.
+#[test]
+fn active_and_archived_residuals_form_one_namespace() {
+    let tree = Tree::new("archived-only");
+    tree.write_residual("res-100", "DEMO-001", "satisfied", FROZEN, &["src/demo.rs"]);
+    let archive = tree.root.join(".arca/residual/archive");
+    fs::create_dir_all(&archive).expect("create residual archive");
+    fs::rename(
+        tree.root.join(".arca/residual/res-100.md"),
+        archive.join("res-100.md"),
+    )
+    .expect("archive residual");
+    gate_records(&tree.root, RUN)
+        .unwrap_or_else(|defects| panic!("an archived mapping must count: {}", reasons(&defects)));
+
+    let tree = Tree::new("missing-mapping");
+    fs::write(
+        tree.root.join(".arca/goal/spec.md"),
+        "# Goal spec\n\n\
+         | Req ID | Requirement | Source |\n\
+         |---|---|---|\n\
+         | DEMO-001 | The demo behaves. | Source. |\n\
+         | DEMO-002 | The second behavior exists. | Source. |\n",
+    )
+    .expect("write goal with an unmapped requirement");
+    let defects =
+        gate_records(&tree.root, RUN).expect_err("every frozen requirement needs a residual");
+    let text = reasons(&defects);
+    assert!(
+        text.contains("DEMO-002")
+            && text.contains(".arca/residual")
+            && text.contains(".arca/residual/archive"),
+        "the refusal names the requirement and both residual locations: {text}"
+    );
+
+    let tree = Tree::new("duplicate-across-archive");
+    tree.write_residual("res-101", "DEMO-001", "satisfied", FROZEN, &["src/demo.rs"]);
+    let archive = tree.root.join(".arca/residual/archive");
+    fs::create_dir_all(&archive).expect("create residual archive");
+    fs::rename(
+        tree.root.join(".arca/residual/res-101.md"),
+        archive.join("res-101.md"),
+    )
+    .expect("archive duplicate residual");
+    let defects = gate_records(&tree.root, RUN)
+        .expect_err("duplicate mappings across active and archive must refuse");
+    let text = reasons(&defects);
+    assert!(
+        text.contains("DEMO-001")
+            && text.contains(".arca/residual/res-100.md")
+            && text.contains(".arca/residual/archive/res-101.md"),
+        "the refusal names the requirement and both records: {text}"
     );
 }
 
