@@ -429,8 +429,13 @@ mod t007_state_file {
     }
 
     fn scheduler(project: &IsolatedProject) -> Scheduler {
-        // FDC-004: state operations act on an addressed run.
-        Scheduler::open_run(project.root(), "run-001").expect("open isolated Scheduler project")
+        // FDC-004: mint the canonical roster member before state operations
+        // address it; a hand-made empty roster directory is terminal.
+        let mut scheduler =
+            Scheduler::open(project.root()).expect("open isolated Scheduler project");
+        let run = scheduler.start().expect("mint isolated Run");
+        assert_eq!(run.id(), Some("run-001"));
+        scheduler
     }
 
     fn install_machine_class(project: &IsolatedProject) {

@@ -209,20 +209,21 @@ impl Scheduler {
         })
     }
 
-    /// Open a project addressed at one run under `.arca/runs/<run_id>/`.
+    /// Open a project addressed at one canonical, minted roster member under
+    /// `.arca/runs/<run_id>/`.
     pub fn open_run(root: impl AsRef<Path>, run_id: impl AsRef<str>) -> Result<Self, StateError> {
         let run_id = run_id.as_ref();
-        if run_id.trim().is_empty() {
-            return Err(StateError::new("run addressing requires a non-empty id"));
-        }
         let root = root.as_ref().to_path_buf();
+        // FDC-004: caller input is proved to be one canonical direct-child
+        // name on the roster before it participates in any path join.
+        Self::validate_run_address(&root, run_id)?;
         let machine = Self::graph_of(&Self::load_class(&root)?);
         Self::refuse_flat_residue(&root)?;
         let run_dir = Self::runs_dir(&root).join(run_id);
         // FDC-006: a roster entry without a State File is a retired run —
         // terminal, never resurrected. The refusal names the run as terminal,
         // distinct from an unknown id (refused with the roster listing).
-        if run_dir.is_dir() && !run_dir.join("state.toml").is_file() {
+        if !run_dir.join("state.toml").is_file() {
             return Err(StateError::new(format!(
                 "run {run_id} is terminal: its admission state is retired and no \
                  transition may proceed on it; address a live run or mint a fresh \
@@ -298,28 +299,71 @@ impl Scheduler {
         root.as_ref().join(".arca").join("runs")
     }
 
-    /// Listing `.arca/runs/` IS the roster: run ids read off artifacts, sorted.
+    /// Listing `.arca/runs/` IS the roster: direct run-directory artifacts,
+    /// sorted. Symlinks are not Run directories and cannot put a roster member
+    /// outside the plural residency path.
     pub fn run_roster(root: impl AsRef<Path>) -> Vec<String> {
         let Ok(entries) = fs::read_dir(Self::runs_dir(root)) else {
             return Vec::new();
         };
         let mut ids: Vec<String> = entries
             .filter_map(Result::ok)
-            .filter(|entry| entry.path().is_dir())
+            .filter(|entry| {
+                entry
+                    .file_type()
+                    .map(|file_type| file_type.is_dir())
+                    .unwrap_or(false)
+            })
             .map(|entry| entry.file_name().to_string_lossy().into_owned())
             .collect();
         ids.sort();
         ids
     }
 
+    /// Validate caller-supplied run identity without joining it to a path.
+    ///
+    /// A usable address is exactly the canonical spelling minted by `start`
+    /// and exactly equals one direct roster member. Every refusal carries the
+    /// roster so command surfaces can report it without probing a candidate.
+    pub(crate) fn validate_run_address(root: &Path, run_id: &str) -> Result<(), StateError> {
+        let roster = Self::run_roster(root);
+        let roster_line = if roster.is_empty() {
+            "none".to_owned()
+        } else {
+            roster.join(", ")
+        };
+        if Self::canonical_run_ordinal(run_id).is_none() {
+            return Err(StateError::new(format!(
+                "run id {run_id:?} is not one canonical minted path segment; runs: {roster_line}"
+            )));
+        }
+        if !roster.iter().any(|entry| entry == run_id) {
+            return Err(StateError::new(format!(
+                "run id {run_id:?} is not an exact roster member; runs: {roster_line}"
+            )));
+        }
+        Ok(())
+    }
+
+    fn canonical_run_ordinal(run_id: &str) -> Option<u64> {
+        let digits = run_id.strip_prefix("run-")?;
+        if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+            return None;
+        }
+        let ordinal = digits.parse::<u64>().ok()?;
+        if ordinal == 0 || format!("run-{ordinal:03}") != run_id {
+            return None;
+        }
+        Some(ordinal)
+    }
+
     /// Mint the next run id in the single id namespace: one more than the
-    /// highest ordinal on the unfiltered roster — live or retired — so an
+    /// highest canonical ordinal on the roster — live or retired — so an
     /// abandoned run's id is never reissued (FDC-006).
     fn mint_run_id(root: &Path) -> String {
         let next = Self::run_roster(root)
             .iter()
-            .filter_map(|id| id.strip_prefix("run-"))
-            .filter_map(|ordinal| ordinal.parse::<u64>().ok())
+            .filter_map(|id| Self::canonical_run_ordinal(id))
             .max()
             .unwrap_or(0)
             + 1;
@@ -1018,6 +1062,7 @@ impl Scheduler {
     ) -> Result<(), StateError> {
         let _lock = self.invocation_lock_with_retry()?;
         let prerequisite = prerequisite.as_ref();
+
         state.status = Status::Blocked;
         state.blocker = format!("missing entry prerequisite: {prerequisite}");
         self.store()?.write(&state)

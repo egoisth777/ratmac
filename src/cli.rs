@@ -95,7 +95,8 @@ fn roster_line(project_root: &Path) -> String {
 }
 
 /// FDC-004: resolve the `--run <id>` a command must carry. A missing,
-/// empty, duplicated, or unknown value refuses and prints the roster; the
+/// empty, duplicated, non-canonical, escaping, or unknown value refuses and
+/// prints the roster; caller input is validated before any path join and the
 /// refusal changes nothing.
 fn addressed_run(command: &str, args: &[String], project_root: &Path) -> Result<String, CliError> {
     let mut run: Option<String> = None;
@@ -125,18 +126,14 @@ fn addressed_run(command: &str, args: &[String], project_root: &Path) -> Result<
             }
         }
     }
-    let Some(id) = run.filter(|id| !id.trim().is_empty()) else {
+    let Some(id) = run.filter(|id| !id.is_empty()) else {
         return Err(CliError::refusal(format!(
             "{command}: run addressing is always required — pass --run <id>; {}",
             roster_line(project_root)
         )));
     };
-    if !Scheduler::runs_dir(project_root).join(&id).is_dir() {
-        return Err(CliError::refusal(format!(
-            "{command}: no run {id:?} on the roster; {}",
-            roster_line(project_root)
-        )));
-    }
+    Scheduler::validate_run_address(project_root, &id)
+        .map_err(|error| CliError::refusal(format!("{command}: {error}")))?;
     Ok(id)
 }
 
