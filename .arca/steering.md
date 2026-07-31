@@ -144,8 +144,8 @@ wrote down is drift.
 Derived record. Regenerated wholesale at P1 close from the signed issue set;
 never hand-edited, never a progress report. Stage lives in the tree.
 
-Freeze stamp: pending the goal-integration landing for planning step 1,
-2026-07-30. The next shop-only stamp records its commit and goal SHA-256.
+Freeze stamp: goal git HEAD `3eb28a2`, goal SHA-256
+`ad1007250cdf00097b5ebd79dded5eef4135f025fe64d589cc6a22a38eeb41c2` — planning step 1 closed 2026-07-30.
 
 A sprint starts when enough issues have collected to be worth integrating
 into the goal, and runs the cycle - plan, then build - until the gap check
