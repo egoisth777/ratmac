@@ -219,12 +219,18 @@ pub fn gate_records(root: &Path, run_id: &str) -> Result<(), Vec<ContractDefect>
     let goal = fs::read_to_string(root.join(".arca/goal/spec.md")).unwrap_or_default();
     let goal_ids = requirement_ids(&goal);
 
-    // Residuals.
+    // Active and archived residuals are one namespace.
     let mut by_requirement: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    let mut gaps: Vec<String> = Vec::new();
-    for path in files_in(root.join(".arca/residual"), "md") {
+    let mut gaps: Vec<(String, String)> = Vec::new();
+    let mut residual_paths = files_in(root.join(".arca/residual"), "md");
+    residual_paths.extend(files_in(root.join(".arca/residual/archive"), "md"));
+    residual_paths.sort();
+    for path in residual_paths {
         let id = stem(&path);
-        let shown = format!(".arca/residual/{id}.md");
+        let shown = path
+            .strip_prefix(root)
+            .map(|relative| relative.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_else(|_| path.to_string_lossy().replace('\\', "/"));
         let text = fs::read_to_string(&path).unwrap_or_default();
 
         let Some(requirement) = yaml_field(&text, "goal-requirement-ref") else {
@@ -247,7 +253,7 @@ pub fn gate_records(root: &Path, run_id: &str) -> Result<(), Vec<ContractDefect>
         by_requirement
             .entry(requirement.clone())
             .or_default()
-            .push(id.clone());
+            .push(shown.clone());
 
         let cited = yaml_field(&text, "frozen-goal-bundle-revision").unwrap_or_default();
         if let Some(frozen) = frozen.as_deref() {
@@ -274,11 +280,20 @@ pub fn gate_records(root: &Path, run_id: &str) -> Result<(), Vec<ContractDefect>
                     ));
                 }
             }
-            "missing" | "partial" => gaps.push(id.clone()),
+            "missing" | "partial" => gaps.push((id, shown)),
             other => defects.push(defect(
                 &shown,
                 format!("unknown status {other:?}; expected missing, partial, or satisfied"),
             )),
+        }
+    }
+    for requirement in &goal_ids {
+        if !by_requirement.contains_key(requirement) {
+            defects.push(defect(
+                format!("requirement {requirement}"),
+                "has no residual record across .arca/residual/*.md and \
+                 .arca/residual/archive/*.md; exactly one is required",
+            ));
         }
     }
     for (requirement, residuals) in &by_requirement {
@@ -332,16 +347,16 @@ pub fn gate_records(root: &Path, run_id: &str) -> Result<(), Vec<ContractDefect>
         dependencies.insert(id.clone(), yaml_list(&text, "dependencies"));
     }
 
-    for gap in &gaps {
+    for (gap, shown) in &gaps {
         let ticket_owners = owners.get(gap).cloned().unwrap_or_default();
         match ticket_owners.len() {
             1 => {}
             0 => defects.push(defect(
-                format!(".arca/residual/{gap}.md"),
+                shown,
                 "gap is owned by no ticket; exactly one ticket must own it",
             )),
             count => defects.push(defect(
-                format!(".arca/residual/{gap}.md"),
+                shown,
                 format!(
                     "gap is owned by {count} tickets ({}); exactly one ticket must own it",
                     ticket_owners.join(", ")
