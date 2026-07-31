@@ -6,9 +6,8 @@
 .arca/goal/design.md	both	The frozen cutover design records captured legacy values and rollback.
 .arca/goal/test-list.md	both	The frozen verification table names expected legacy identity evidence.
 .arca/goal/ubi-lang.md	both	The glossary defines the superseded identity and historical allowlist.
-.arca/ticket/t-038.md	both	This ticket records captured pre-cutover values and acceptance assertions.
-.arca/residual/res-041.md	both	Frozen residual evidence records the active-reference baseline.
-.arca/residual/res-043.md	both	Frozen residual evidence records pending final acceptance.
-.arca/residual/res-044.md	both	Frozen residual evidence records planning-only scope.
+.arca/residual/archive/res-041.md	both	Frozen residual evidence records the active-reference baseline.
+.arca/residual/archive/res-043.md	both	Frozen residual evidence records pending final acceptance.
+.arca/residual/archive/res-044.md	both	Frozen residual evidence records planning-only scope.
 test/qa/fixtures/external-identity/allowlist.tsv	both	This manifest explicitly spells out each historical exception.
 test/qa/tests/t038_ext_identity.rs	both	Negative assertions intentionally spell out the superseded identity.

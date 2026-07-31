@@ -10,10 +10,6 @@
 .arca/issue/archive/i-001-ratmac-rebrand/spec.md	both	Accepted migration requirements explicitly name legacy surfaces.
 .arca/issue/archive/i-001-ratmac-rebrand/test-plan.md	both	Accepted verification plan explicitly names legacy audit and lock checks.
 .arca/issue/archive/i-001-ratmac-rebrand/ubi-lang.md	both	Issue glossary defines the superseded identity.
-.arca/ticket/t-031.md	schd	Ticket scope records the pre-cutover binary path.
-.arca/ticket/t-032.md	schd	Ticket coverage records direct legacy-command rejection.
-.arca/ticket/t-034.md	both	This ticket defines and verifies the legacy audit itself.
-.arca/ticket/t-036.md	schd	Lock-policy ticket records the legacy-lock fixture.
 src/bin/rtm.rs	schd	Runtime clean-cutover rejection of a direct legacy command.
 src/scheduler.rs	schd	Runtime refusal of a pre-existing legacy lock path.
 test/qa/tests/t031_rat002.rs	both	Negative metadata assertions prove legacy package and binary absence.
@@ -25,4 +21,3 @@ test/qa/tests/t037_rat008.rs	both	Final acceptance negative probes intentionally
 test/qa/fixtures/rebrand-audit/allowlist.tsv	both	The audit manifest necessarily spells out each legacy token.
 .arca/goal/spec.md	both	Frozen external-identity requirement names the superseded repository and path.
 .arca/issue/archive/i-002-ratmac-external-identity/**	both	Accepted external-identity issue preserves the incoming legacy identity as provenance.
-.arca/ticket/t-038.md	both	Active cutover ticket captures old identity for rollback and acceptance.
