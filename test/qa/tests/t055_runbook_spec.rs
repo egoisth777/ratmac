@@ -5,6 +5,7 @@
 //! PT-054-03 `decided_behavior_is_back_referenced`
 //! PT-054-04 `ownership_rules_name_their_enforcer`
 //! PT-054-05 `schema_is_defined_in_exactly_one_place`
+//! PT-054-06 `ownership_paths_match_canonical_run_residency`
 //! HT-054-01 `invented_kind_fails_the_agreement_check`
 //! HT-054-02 `specification_is_tracked`
 //! HT-054-03 `a_second_enumeration_fails_the_authority_check`
@@ -280,6 +281,57 @@ fn ownership_rules_name_their_enforcer() {
             }
         }
     }
+}
+
+/// PT-054-06 / RBSV-004: ownership uses the canonical split between
+/// project-level Machine Class/history/lock files and per-Run state/evidence.
+/// It also names the enforcers that superseded the original prose-only claims.
+#[test]
+fn ownership_paths_match_canonical_run_residency() {
+    let text = spec_text();
+    let rows = table_rows(&text, "## Ownership");
+    let ownership = rows
+        .iter()
+        .map(|row| row.join(" | "))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    for path in [
+        ".arca/ratmac.toml",
+        ".arca/log.md",
+        ".arca/rtm.lock",
+        ".arca/runs/<id>/state.toml",
+        ".arca/runs/<id>/evidence.toml",
+    ] {
+        assert!(
+            ownership.contains(path),
+            "RBSV-004: ownership must name the canonical path {path}"
+        );
+    }
+    for stale in ["`.arca/state.toml`", "`.arca/evidence.toml`"] {
+        assert!(
+            !ownership.contains(stale),
+            "RBSV-004: ownership must not claim the superseded flat path {stale}"
+        );
+    }
+
+    assert!(
+        ownership.contains("`scaffold::write_scaffold`")
+            && !ownership.contains("no writer of the runbook exists"),
+        "RBSV-004: ownership must name the real scaffold writer instead of claiming none exists"
+    );
+    let writable_verdict_row = rows
+        .iter()
+        .find(|row| {
+            row.first()
+                .is_some_and(|rule| rule.contains("verdict rests"))
+        })
+        .expect("agent-writable verdict ownership row");
+    assert!(
+        writable_verdict_row[1].contains("`doctor::lint_guards`")
+            && !writable_verdict_row[1].contains("prose-only"),
+        "RBSV-004: RB302 is mechanically enforced by doctor::lint_guards"
+    );
 }
 
 /// RBS-004: exactly one place defines the schema. A definition is a per-kind
