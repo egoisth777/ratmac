@@ -11,8 +11,8 @@ Behavior checks derived from [spec.md](spec.md). Each is a testable one-liner.
 | T-05 | Exit-guard failure never sets Status `blocked`. | R-018 |
 | T-06 | `blocked` appears only when entry prerequisites are missing, set only by the Scheduler; `blocker` names the missing prerequisite. | R-004, R-025 |
 | T-07 | `state.toml` is never written by anything but `rtm`; its content changes only across `rtm` invocations. | R-009, R-025 |
-| T-08 | A second `rtm start` while a Run is active is refused (allow 1 active). | R-022 |
-| T-09 | `rtm step` and `rtm status` accept no run-id and act on the active Run. | R-023 |
+| T-08 | A second `rtm start` while a Run is active is refused (allow 1 active). Superseded by `RRV-004`, which checks the lifted cap. | R-022, FDC-006 |
+| T-09 | `rtm step` and `rtm status` accept no run-id and act on the active Run. Superseded by `RRV-002`, which checks always-required `--run <id>` addressing. | R-023, FDC-004 |
 | T-10 | A `step` request without all Exit Guards passing is denied regardless of agent claims — guards check artifacts, not claims. | R-005, R-006 |
 | T-11 | A `step` with all Exit Guards passing transitions to the next Phase and appends exactly one Transition Log entry. | R-005, R-026 |
 | T-12 | `ratmac.toml` parse errors, including unknown keys, halt with an actionable message. | R-011 |
@@ -25,7 +25,7 @@ Behavior checks derived from [spec.md](spec.md). Each is a testable one-liner.
 | T-19 | `rtm start` instantiates a Run without modifying `ratmac.toml` (class read-only at runtime). | R-013, R-014 |
 | T-20 | Two concurrent `rtm` invocations on the same Run are arbitrated via `.arca/rtm.lock`; state stays consistent. | R-015 |
 | T-21 | `.arca/log.md` is append-only: a transition adds lines and never rewrites existing ones. | R-026 |
-| T-22 | A non-wishwillow Machine Class runs identically — the engine holds zero project knowledge. | R-016 |
+| T-22 | A Machine Class unrelated to this project's own cycle runs identically — the engine holds zero project knowledge. | R-016 |
 
 ## Integrated rebrand verification
 
@@ -157,3 +157,12 @@ Behavior checks derived from [spec.md](spec.md). Each is a testable one-liner.
 | AALV-002 | A seeded-defect runbook is driven to doctor-clean by a scripted stand-in that reads only `rtm doctor --json` codes and the repair table in `.arca/runbook-authoring.md`. | AAL-003, AAL-004 |
 | AALV-003 | The repair table in `.arca/runbook-authoring.md` covers exactly the Engine's diagnostic codes — no code missing, none invented. | AAL-003 |
 | AALV-004 | `.arca/runbook-authoring.md` defines no schema itself: it names no guard kind or runbook key except inside a link into `.arca/runbook-spec.md`, and it is routed from `.arca/index.md`. | AAL-001, AAL-004 |
+
+## Integrated run-residency verification
+
+| ID | Check | Requirement |
+|---|---|---|
+| RRV-001 | Every run-residency requirement traces to its adopted-default record in the split seed's design ([i-016-fsm-doctrine-convergence](../issue/i-016-fsm-doctrine-convergence/design.md), Adopted defaults, batch human sign-off 2026-07-29) and to the research sections it condenses — run identity, the invocation join, and migration cost under `.arca/research/re-ratmac-FSM/`. | FDC-004, FDC-005, FDC-006 |
+| RRV-002 | Runs list under the plural `runs` path in one id namespace; a verdict slot nests under its own run's directory and the per-run spawn-ledger path exists there by name only — no ledger contract is exercised, that is machine composition's to test; `--run <id>` is always required and a missing value refuses with the roster, the refusal recorded as behavioral evidence. | FDC-004 |
+| RRV-003 | The runbook pin is hash-only — no per-run runbook copy exists; a planted flat-layout residue produces a refusal that instructs and modifies nothing on disk. | FDC-005 |
+| RRV-004 | No active-Run cap is enforced; within the one run-id namespace an abandoned run's id is never reissued, and a respawn mints a new id — no ledger-entry content is exercised, that is machine composition's to test. | FDC-006 |

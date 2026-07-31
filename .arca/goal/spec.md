@@ -19,14 +19,14 @@ Requirement records distilled from the accepted decisions. Sources cite the deci
 | R-013 | `ratmac.toml` is a Machine Class: a pure template with no runtime state, read-only at runtime. | ADR-0005 |
 | R-014 | `rtm start` instantiates a Run from the class; each Run owns its State File, Transition Log, and lockfile. | ADR-0005 |
 | R-015 | The Scheduler arbitrates concurrent access per Run via the lockfile (`.arca/rtm.lock`). | ADR-0005, ADR-0008 |
-| R-016 | The engine holds zero project knowledge; wishwillow's P1–P5 loop is merely the first Machine Class. | ADR-0005 |
+| R-016 | The engine holds zero project knowledge; this project's own P1–P5 cycle is merely the first Machine Class. | ADR-0005 |
 | R-017 | A failing Exit Guard makes `rtm step` refuse, report, and stay: Phase unchanged, Status unchanged, no counter, no log entry beyond the refusal report. | ADR-0006 |
 | R-018 | Exit-guard failure never sets `blocked`. | ADR-0006 |
 | R-019 | The refusal report names the failing guard and states observed vs expected fact. | ADR-0006 |
 | R-020 | `rtm step` is idempotent under failure — safe to re-run any number of times. | ADR-0006 |
 | R-021 | The data model allows N Runs; nothing in formats or engine assumes a singleton. | ADR-0007 |
-| R-022 | v1 CLI allows at most one active Run per project; `rtm start` refuses while a Run is active. | ADR-0007 |
-| R-023 | `rtm step` and `rtm status` take no run-id in v1; they target the active Run. | ADR-0007 |
+| R-022 | v1 CLI allows at most one active Run per project; `rtm start` refuses while a Run is active. The cap is superseded by `FDC-006`, the lift ADR-0007 wrote as additive. | ADR-0007, FDC-006 |
+| R-023 | `rtm step` and `rtm status` take no run-id in v1; they target the active Run. Superseded by `FDC-004`: run addressing is `--run <id>`, always required. | ADR-0007, FDC-004 |
 | R-024 | Scheduler-owned files sit flat under `.arca/`, no folder: `ratmac.toml`, `state.toml`, `log.md`, `rtm.lock`. | ADR-0008 |
 | R-025 | `.arca/state.toml` is the State File with fields `phase`, `status`, `goal_revision`, `input_revision`, `output_revision`, `active_refs`, `blocker`; written ONLY by the Scheduler. | ADR-0008 |
 | R-026 | `.arca/log.md` is the append-only, human-readable Transition Log. | ADR-0008 |
@@ -151,3 +151,11 @@ Requirement records distilled from the accepted decisions. Sources cite the deci
 | AAL-002 | `rtm scaffold <path>` writes a minimal valid runbook at a path that does not yet exist and refuses rather than overwriting one that does. Its output passes `rtm doctor <path>` clean (exit `0`), enforced by test so it stays true. | [issue AAL-002](../issue/archive/i-014-agent-authoring-loop/spec.md#requirement-records) |
 | AAL-003 | The write → doctor → repair loop consumes `rtm doctor --json`: the instructions carry one repair row per stable diagnostic code, and that table is checked against the Engine's code table by test, so a repair addresses a named code rather than a guess. | [issue AAL-003](../issue/archive/i-014-agent-authoring-loop/spec.md#requirement-records) |
 | AAL-004 | The authoring surface builds on `TRP-*` and `DRD-*` and cites `RBS-*`: a seeded-defect runbook is repaired to doctor-clean using only the scaffold, the `--json` diagnostics, and the instructions — without reading `src/`. | [issue AAL-004](../issue/archive/i-014-agent-authoring-loop/spec.md#requirement-records) |
+
+## Integrated run-residency requirements
+
+| Req ID | Requirement | Source |
+|---|---|---|
+| FDC-004 | Runs reside canonically under the plural `runs` path with a single id namespace; verdict slots nest under their run's directory, and a per-run spawn-ledger path is reserved there by name — its contract (contents, when written, meaning) is defined by the machine-composition issue, [i-018-machine-composition](../issue/i-018-machine-composition/spec.md), not here. Run addressing is `--run <id>`, always required, and a missing value refuses with the roster. Supersedes `R-023` (no run-id in v1). | [issue FDC-004](../issue/i-017-run-residency/spec.md#requirement-records) |
+| FDC-005 | The runbook pin stays hash-only — no per-run copy without a demonstrated drift case — and a flat-layout residue refuses and instructs, never auto-migrates. | [issue FDC-005](../issue/i-017-run-residency/spec.md#requirement-records) |
+| FDC-006 | Multi-run is uncapped: no active-Run cap; within the one run-id namespace, ids are never reused after abandon; respawn mints a new id, a namespace fact (the `respawn` verb itself belongs to the machine-composition issue, [i-018-machine-composition](../issue/i-018-machine-composition/spec.md)) — what the ledger entry records about the superseded id is that issue's contract, at the location `FDC-004` reserves. Supersedes `R-022` (at most one active Run per project). | [issue FDC-006](../issue/i-017-run-residency/spec.md#requirement-records) |

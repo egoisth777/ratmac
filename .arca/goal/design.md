@@ -8,7 +8,7 @@ Decision record. Each section replaces a former ADR and keeps its id as an ancho
 
 **Decision.** Machine state = Phase, nothing else. `status` is a phase-local lifecycle field the Scheduler records; it is NOT part of the Machine graph and transitions never branch on it in the definition. `blocked` is a `status` value only; it is removed from the state list.
 
-**Consequences.** Machine definition files declare Phases and transitions only — no status dimension. The State File keeps both fields: `phase` (machine position) and `status` (lifecycle inside it). wishwillow's `.arca/index.md` states table must drop `blocked` as a state (doc update owed to wishwillow).
+**Consequences.** Machine definition files declare Phases and transitions only — no status dimension. The State File keeps both fields: `phase` (machine position) and `status` (lifecycle inside it). Any document listing `blocked` among the machine states is wrong by this decision and must drop it.
 
 ## Agents may request `next`; guards decide (ADR-0002)
 
@@ -20,7 +20,7 @@ Decision record. Each section replaces a former ADR and keeps its id as an ancho
 
 ## Main-Agent or human calls `rtm step`; Subagents never touch the Scheduler (ADR-0003)
 
-**Context.** ADR-0002 allowed agents to request transitions but left open which agent. wishwillow fans tickets out to Subagents in worktrees; if any agent may call `step`, the Machine leaks downward into every worker.
+**Context.** ADR-0002 allowed agents to request transitions but left open which agent. The concern recorded at the time: ticket work is fanned out to Subagents in worktrees, and if any agent may call `step`, the Machine reaches down into every worker.
 
 **Decision.** Only the Main-Agent (main checkout) or the human invokes `rtm step`. Subagents check out tickets, do the work, and READ state; they never invoke `rtm`. The state-write invariant is unchanged: the Scheduler is the sole writer of State Files. The Main-Agent "writes state" only in the sense of invoking `rtm`; it never edits a State File directly.
 
@@ -40,7 +40,7 @@ Accepted with layout details pending; both open points were later settled (see b
 
 **Context.** The Scheduler must be general enough to read `ratmac.toml` as a state-machine "class" and create running instances per active run (template vs instantiation). Design was delegated to the session.
 
-**Decision.** `ratmac.toml` = Machine Class: pure template, no runtime state inside it. `rtm start` instantiates a Run from the class. A Run owns: its State File, its Transition Log, its lockfile. The Scheduler arbitrates concurrent access per Run via the lockfile; the class file is read-only at runtime. The engine holds zero project knowledge: wishwillow's P1–P5 loop is merely the first Machine Class.
+**Decision.** `ratmac.toml` = Machine Class: pure template, no runtime state inside it. `rtm start` instantiates a Run from the class. A Run owns: its State File, its Transition Log, its lockfile. The Scheduler arbitrates concurrent access per Run via the lockfile; the class file is read-only at runtime. The engine holds zero project knowledge: this project's own P1–P5 cycle is merely the first Machine Class.
 
 **Formerly open, now settled.** Run identity / targeting and concurrent-Run count → ADR-0007 (model N, allow 1 active). On-disk layout → ADR-0008 (`.arca/state.toml` + `.arca/log.md`, `.arca/goal/` retired).
 
@@ -62,7 +62,7 @@ Accepted with layout details pending; both open points were later settled (see b
 
 ## State layout — flat `.arca/state.toml` + `.arca/log.md` (ADR-0008)
 
-**Context.** wishwillow's `.arca/goal/` folder (`current.md` YAML, `log.md`) predates the Scheduler. The session owner removed the folder in favor of a general-purpose state file; the format then settled on TOML for rigor (consistent with ADR-0004).
+**Context.** An inherited `.arca/goal/` folder (`current.md` YAML, `log.md`) predated the Scheduler. The session owner removed the folder in favor of a general-purpose state file; the format then settled on TOML for rigor (consistent with ADR-0004).
 
 **Decision.** Scheduler-owned files, all directly under `.arca/`, no folder:
 
@@ -71,7 +71,7 @@ Accepted with layout details pending; both open points were later settled (see b
 - `.arca/log.md` — Transition Log, append-only, human-readable.
 - `.arca/rtm.lock` — lockfile while an `rtm` invocation runs (one active Run in v1, ADR-0007).
 
-**Consequences.** `.arca/goal/` is retired; wishwillow is asked via wish file, not edited by this project (see ADR-0005 consequences discipline). N-Run extension path: when ADR-0007's limit lifts, per-Run files move under a runs directory; the v1 flat layout is the one-active-Run projection of that — additive migration, deferred. State parse errors are hard errors: a corrupt `rtm` invocation halts with a report, never a guess.
+**Consequences.** The inherited `.arca/goal/` layout is retired. N-Run extension path: when ADR-0007's limit lifts, per-Run files move under a runs directory; the v1 flat layout is the one-active-Run projection of that — additive migration, deferred. State parse errors are hard errors: a corrupt `rtm` invocation halts with a report, never a guess.
 
 ## Phase Prompt — inline prose in `ratmac.toml`, guard list generated (ADR-0009)
 
@@ -203,3 +203,19 @@ From the reopened checkout, run API and `gh repo view` checks, exact remote/path
 - *Authoring.* `rtm scaffold <path>` writes the smallest runbook that is doctor-clean — two phases, one transition, one `exempt` toolchain guard — and refuses an existing path rather than overwriting. `.arca/runbook-authoring.md` carries the loop (scaffold → edit → `rtm doctor --json <path>` → repair by code → repeat) and one repair row per code, with every schema statement a link into the specification.
 
 **Consequences.** The schema has one written source, one reader, one validator, and one repair vocabulary. A runbook defect is named by a stable code before it can become a mid-Run refusal, and an agent can author a runbook from the specification instead of from an example's accidents.
+
+## Canonical run residency and identity (FDC-004–FDC-006)
+
+**Context.** ADR-0007 modelled Runs as plural but capped v1 at one active Run and deferred the Run identity scheme "until the limit lifts"; ADR-0008 only promised the on-disk layout would not preclude N Runs. Nothing said where a Run lives, what addresses it, or what happens to an id after abandonment — so a run directory could be re-entered by a later Run and overwrite the evidence of the earlier one. This section lifts the limit and states residency. Integrated from [i-017-run-residency](../issue/i-017-run-residency/design.md), which condenses the settled research on run identity, the invocation join, and migration cost; the decision records stay in the split seed, the verdict-routed execution core issue ([i-016-fsm-doctrine-convergence](../issue/i-016-fsm-doctrine-convergence/design.md)), as adopted defaults under the 2026-07-29 batch sign-off.
+
+**Decision.**
+
+- *Residency is the registry.* Runs live under the plural `runs` path, one directory per run id in a single id namespace, so listing that path IS the roster: run identity is read off artifacts, never off a narrated index. Verdict slots nest under their own run's directory, which gives verdict addressing a computable base and keeps a recorded transcript self-describing.
+- *Reserved location, foreign contract.* A per-run spawn-ledger path is reserved by name under the run's directory and nothing more. Its contract — contents, when written, meaning — belongs to the machine-composition issue ([i-018-machine-composition](../issue/i-018-machine-composition/spec.md)). The goal reserves a location here because a requirement may not cite a contract defined nowhere in its own scope, and because a ledger without a spawn verb has nothing to record.
+- *Addressing.* `--run <id>` is always required; a missing value refuses and prints the roster. No default-when-unambiguous rule: that is the footgun ADR-0007 avoided by taking no run-id at all, and an always-required argument keeps the property once several Runs are live.
+- *Uncapped, never reused.* There is no active-Run cap. Any cap below the fan-out width would refuse mid-spawn and leave a partial child bundle unusable. Within the one namespace an id is never reissued after abandon, so a failed Run's evidence keeps its address and no later Run can occupy it.
+- *Pin stays hash-only.* The runbook pin remains a hash, with no per-run copy of the runbook until a drift case is demonstrated: two files that can disagree is a defect source, and the hash already names the mismatch.
+- *Residue refuses.* Meeting a flat-layout residue — a pre-plural run directory on disk — the Engine refuses and instructs, and migrates nothing. This follows the existing lock-refusal precedent: name the observed fact and the repair, modify nothing.
+- *Supersession.* `FDC-004` and `FDC-006` supersede the two v1 clauses ADR-0007 itself marked liftable: `R-022` (at most one active Run) and `R-023` (no run-id argument), and with them the checks `T-08` and `T-09`. ADR-0007's data model — Runs plural, nothing in formats or engine assuming a singleton — is unchanged, which is what makes the lift additive rather than a rewrite.
+
+**Consequences.** Run identity becomes durable: an address, once minted, names one Run forever, and the record of a finished or abandoned Run cannot be overwritten by whoever works next. The residency layout is stated before anything is built on it, so verdict routing and machine composition can be written in terms of a defined address instead of coining one each. One authority clash surfaced at the 2026-07-29 P1 close and was closed before this section was allowed to bind: steering's Non-goals read "one Run at a time", which is Authored identity and binds harder than any goal row, so that clause moved first — narrowed to "one repository, local disk" with Runs plural and uncapped inside it, on the same sign-off that accepted `FDC-006`. The tenancy non-goal itself is untouched; only the v1 concurrency cap ADR-0007 marked liftable was lifted.

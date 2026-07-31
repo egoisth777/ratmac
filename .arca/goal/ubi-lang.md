@@ -77,3 +77,8 @@ Glossary of ubiquitous language. One term, one meaning. Terms not listed here mu
 | Guard lint | The doctor checks on guards beyond parseability: a `command_exit` guard neither `exempt` nor pinnable, and a guard whose verdict rests on agent-writable content. |
 | Scaffold | The minimal doctor-clean runbook `rtm scaffold <path>` writes, so authoring begins from valid rather than from blank. |
 | Authoring loop | write → `rtm doctor --json` → repair by code, repeated until the doctor reports clean. |
+| `runs` path | The canonical plural directory every Run resides under, one directory per run id. Listing it IS the run registry — run identity is read off artifacts, never off a narrated roster. |
+| Run id namespace | The single namespace all run ids are minted from. An id is never reissued after its Run is abandoned, so a past Run keeps its address and its evidence cannot be overwritten by a later Run. |
+| Verdict slot | The per-run location where a typed verdict lands, nested under its own Run's directory. |
+| Spawn-ledger path | The per-run path reserved by name under a Run's directory for that Run's spawn ledger. Location only: what the ledger records, when it is written, and what an entry means are the machine-composition issue's contract, not this goal's. |
+| Flat-layout residue | A leftover pre-plural run directory found on disk. Meeting one, the Engine refuses and instructs; it never auto-migrates and modifies nothing. |

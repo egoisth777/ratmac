@@ -7,7 +7,7 @@ ratmac (`rtm`) is a thin, deterministic Rust CLI that owns state-machine transit
 ## Scope (v1)
 
 - Print-first: `rtm` prints the Phase Prompt to stdout; the Main-Agent or human feeds it into the working session.
-- wishwillow's P1–P5 loop is the first Machine Class; the engine holds zero project knowledge.
+- This project's own P1–P5 cycle is the first Machine Class; the engine holds zero project knowledge.
 
 ## Non-goals
 
@@ -59,3 +59,7 @@ The Machine Class stops being an implicit shape known only to code. Requirements
 - [i-012-typed-runbook-parser](../issue/archive/i-012-typed-runbook-parser/index.md): `TRP-001` through `TRP-006` — one typed parse, guards retained, unknown kinds and wrong-for-kind fields refused at parse time, a missing runbook refused by name.
 - [i-013-deep-rtm-doctor](../issue/archive/i-013-deep-rtm-doctor/index.md): `DRD-001` through `DRD-007` — the doctor validates through that parser, adds graph and guard lint plus the ownership audit, accepts an arbitrary path, and emits stable codes with `--json` and differentiated exit codes.
 - [i-014-agent-authoring-loop](../issue/archive/i-014-agent-authoring-loop/index.md): `AAL-001` through `AAL-004` — `rtm scaffold` plus `.arca/runbook-authoring.md` make write → doctor → repair an agent-runnable loop keyed to those codes.
+
+## Integrated canonical run residency
+
+Run residency requirements are integrated from [i-017-run-residency](../issue/i-017-run-residency/index.md): `FDC-004` through `FDC-006` — Runs reside under the plural `runs` path in one id namespace with `--run <id>` always required, the runbook pin stays hash-only while a flat-layout residue refuses instead of migrating, and run ids are never reused after abandon. The Ideal-shape property this advances is **One writer, append-only**: an address that is never reissued keeps a finished Run's record from being overwritten by whoever works next. These requirements supersede the v1 single-Run clauses `R-022` and `R-023`, the lift ADR-0007 wrote as additive.
