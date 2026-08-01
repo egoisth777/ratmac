@@ -1,10 +1,10 @@
 //! AOI-002: archive-aware history preservation.
 //!
-//! A completed issue folder may move to `.arca/issue/archive/<issue-id>/`
-//! with its identity, five-file shape, and content preserved except for the
-//! relative-link depth rewrite the extra directory level requires. Every other
-//! difference against HEAD — content mutation, partial moves, in-place edits,
-//! or archiving an issue that is not completed — is a preservation failure.
+//! A completed issue may move from intake to archive with relative-link depth
+//! rewrites. An issue archived under the former status-only rule may be
+//! restored to the live deferred buffer when its recorded specification
+//! already contains a deferred ask. Every other historical difference remains
+//! a preservation failure.
 
 use std::fs;
 use std::path::Path;
@@ -22,6 +22,13 @@ pub const ISSUE_FILES: [&str; 5] = [
     "test-plan.md",
     "ubi-lang.md",
 ];
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum HeadIssueIdentity {
+    Intake { issue_id: String, file_name: String },
+    Deferred { issue_id: String, file_name: String },
+    Archive { issue_id: String, file_name: String },
+}
 
 /// One way history preservation was broken.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -59,7 +66,15 @@ pub fn verify_history_preservation(
         };
 
         let working = repo_root.join(head_path);
+        let issue_identity = issue_identity(head_path);
+
         if working.is_file() {
+            if issue_identity
+                .as_ref()
+                .is_some_and(|identity| mutable_head_issue(repo_root, identity))
+            {
+                continue;
+            }
             let current = fs::read(&working).unwrap_or_default();
             let current = eol_normalized(&current);
             let recorded = eol_normalized(&head_content);
@@ -82,11 +97,44 @@ pub fn verify_history_preservation(
             continue;
         }
 
-        // The path is gone from the working tree: the only authorized reason
-        // is a complete archive move of a completed issue folder.
-        match issue_identity(head_path) {
-            Some((issue_id, file_name)) => {
-                if let Some(violation) = archive_move_violation(
+        // The path is gone from the working tree: only a complete authorized
+        // issue move may replace it.
+        match issue_identity {
+            Some(HeadIssueIdentity::Intake {
+                issue_id,
+                file_name,
+            }) => {
+                let deferred_dir = repo_root.join(format!(".arca/issue/deferred/{issue_id}"));
+                let violation = if deferred_dir.is_dir() {
+                    intake_deferred_move_violation(repo_root, head_path, &issue_id)
+                } else {
+                    archive_move_violation(
+                        repo_root,
+                        head_path,
+                        &issue_id,
+                        &file_name,
+                        &head_content,
+                    )
+                };
+                if let Some(violation) = violation {
+                    violations.push(violation);
+                }
+            }
+            Some(HeadIssueIdentity::Deferred {
+                issue_id,
+                file_name: _,
+            }) => {
+                if let Some(violation) =
+                    deferred_selection_violation(repo_root, head_path, &issue_id)
+                {
+                    violations.push(violation);
+                }
+            }
+            Some(HeadIssueIdentity::Archive {
+                issue_id,
+                file_name,
+            }) => {
+                if let Some(violation) = deferred_restore_violation(
                     repo_root,
                     head_path,
                     &issue_id,
@@ -98,7 +146,7 @@ pub fn verify_history_preservation(
             }
             None => violations.push(ArchiveViolation {
                 path: head_path.to_owned(),
-                reason: "historical file removed without an authorized archive move".to_owned(),
+                reason: "historical file removed without an authorized issue move".to_owned(),
             }),
         }
     }
@@ -110,17 +158,58 @@ pub fn verify_history_preservation(
     }
 }
 
-/// `Some((issue-id, file))` when `path` is `.arca/issue/<issue-id>/<file>`
-/// and the folder is not already the archive directory.
-fn issue_identity(path: &str) -> Option<(String, String)> {
+/// Classify one HEAD path in the issue namespace.
+fn issue_identity(path: &str) -> Option<HeadIssueIdentity> {
     let rest = path.strip_prefix(".arca/issue/")?;
-    let mut parts = rest.split('/');
-    let issue_id = parts.next()?;
-    let file_name = parts.next()?;
-    if issue_id == "archive" || parts.next().is_some() {
-        return None;
+    let parts: Vec<&str> = rest.split('/').collect();
+    match parts.as_slice() {
+        [issue_id, file_name] if issue_id.starts_with("i-") => Some(HeadIssueIdentity::Intake {
+            issue_id: (*issue_id).to_owned(),
+            file_name: (*file_name).to_owned(),
+        }),
+        ["deferred", issue_id, file_name] if issue_id.starts_with("i-") => {
+            Some(HeadIssueIdentity::Deferred {
+                issue_id: (*issue_id).to_owned(),
+                file_name: (*file_name).to_owned(),
+            })
+        }
+        ["archive", issue_id, file_name] if issue_id.starts_with("i-") => {
+            Some(HeadIssueIdentity::Archive {
+                issue_id: (*issue_id).to_owned(),
+                file_name: (*file_name).to_owned(),
+            })
+        }
+        _ => None,
     }
-    Some((issue_id.to_owned(), file_name.to_owned()))
+}
+
+fn mutable_head_issue(repo_root: &Path, identity: &HeadIssueIdentity) -> bool {
+    match identity {
+        HeadIssueIdentity::Deferred { .. } => true,
+        HeadIssueIdentity::Intake { issue_id, .. } => {
+            head_issue_status(repo_root, "intake", issue_id) == "pending"
+        }
+        HeadIssueIdentity::Archive { .. } => false,
+    }
+}
+
+fn head_issue_status(repo_root: &Path, location: &str, issue_id: &str) -> String {
+    let path = match location {
+        "intake" => format!(".arca/issue/{issue_id}/index.md"),
+        "deferred" => format!(".arca/issue/deferred/{issue_id}/index.md"),
+        "archive" => format!(".arca/issue/archive/{issue_id}/index.md"),
+        _ => return String::new(),
+    };
+    let index = head_bytes(repo_root, &path).unwrap_or_default();
+    String::from_utf8_lossy(&index)
+        .lines()
+        .find_map(|line| {
+            line.trim()
+                .strip_prefix("status: \"")
+                .and_then(|value| value.strip_suffix('"'))
+                .map(str::to_owned)
+        })
+        .unwrap_or_default()
 }
 
 fn head_bytes(repo_root: &Path, path: &str) -> Option<Vec<u8>> {
@@ -168,6 +257,17 @@ fn archive_move_violation(
         });
     }
 
+    // A pending intake bundle is mutable while its asks are integrated or
+    // rejected, whether changed in place or as part of this move. The
+    // destination checks above still require a complete, completed bundle.
+    let identity = HeadIssueIdentity::Intake {
+        issue_id: issue_id.to_owned(),
+        file_name: file_name.to_owned(),
+    };
+    if mutable_head_issue(repo_root, &identity) {
+        return None;
+    }
+
     // Content must match except for the relative-link depth rewrite.
     let archived = eol_normalized(&fs::read(archive_dir.join(file_name)).unwrap_or_default());
     let expected = eol_normalized(head_content);
@@ -178,6 +278,209 @@ fn archive_move_violation(
         path: head_path.to_owned(),
         reason: "archived content differs from HEAD beyond relative-link rewrites".to_owned(),
     })
+}
+
+fn intake_deferred_move_violation(
+    repo_root: &Path,
+    head_path: &str,
+    issue_id: &str,
+) -> Option<ArchiveViolation> {
+    let intake_dir = repo_root.join(format!(".arca/issue/{issue_id}"));
+    let deferred_dir = repo_root.join(format!(".arca/issue/deferred/{issue_id}"));
+    let remaining: Vec<&str> = ISSUE_FILES
+        .iter()
+        .copied()
+        .filter(|name| intake_dir.join(name).is_file())
+        .collect();
+    let missing: Vec<&str> = ISSUE_FILES
+        .iter()
+        .copied()
+        .filter(|name| !deferred_dir.join(name).is_file())
+        .collect();
+    if !remaining.is_empty() || !missing.is_empty() {
+        return Some(ArchiveViolation {
+            path: head_path.to_owned(),
+            reason: format!(
+                "partial intake-to-deferred move of {issue_id}: remaining [{}], missing [{}]",
+                remaining.join(", "),
+                missing.join(", ")
+            ),
+        });
+    }
+    if head_issue_status(repo_root, "intake", issue_id) != "pending" {
+        return Some(ArchiveViolation {
+            path: head_path.to_owned(),
+            reason: format!("{issue_id} was not pending and cannot enter the deferred buffer"),
+        });
+    }
+    let index = fs::read_to_string(deferred_dir.join("index.md")).unwrap_or_default();
+    let spec = fs::read(deferred_dir.join("spec.md")).unwrap_or_default();
+    if !index
+        .lines()
+        .any(|line| line.trim() == "status: \"deferred\"")
+        || !has_disposition(&spec, "deferred")
+    {
+        return Some(ArchiveViolation {
+            path: head_path.to_owned(),
+            reason: format!(
+                "{issue_id} moved to deferred without status deferred and a deferred ask"
+            ),
+        });
+    }
+    None
+}
+
+fn deferred_selection_violation(
+    repo_root: &Path,
+    head_path: &str,
+    issue_id: &str,
+) -> Option<ArchiveViolation> {
+    let deferred_dir = repo_root.join(format!(".arca/issue/deferred/{issue_id}"));
+    let intake_dir = repo_root.join(format!(".arca/issue/{issue_id}"));
+    let remaining: Vec<&str> = ISSUE_FILES
+        .iter()
+        .copied()
+        .filter(|name| deferred_dir.join(name).is_file())
+        .collect();
+    let missing: Vec<&str> = ISSUE_FILES
+        .iter()
+        .copied()
+        .filter(|name| !intake_dir.join(name).is_file())
+        .collect();
+    if !remaining.is_empty() || !missing.is_empty() {
+        return Some(ArchiveViolation {
+            path: head_path.to_owned(),
+            reason: format!(
+                "partial deferred selection of {issue_id}: remaining [{}], missing [{}]",
+                remaining.join(", "),
+                missing.join(", ")
+            ),
+        });
+    }
+    let index = fs::read_to_string(intake_dir.join("index.md")).unwrap_or_default();
+    if !index
+        .lines()
+        .any(|line| line.trim() == "status: \"pending\"")
+    {
+        return Some(ArchiveViolation {
+            path: head_path.to_owned(),
+            reason: format!("{issue_id} selected from deferred without status pending"),
+        });
+    }
+    None
+}
+
+fn deferred_restore_violation(
+    repo_root: &Path,
+    head_path: &str,
+    issue_id: &str,
+    file_name: &str,
+    head_content: &[u8],
+) -> Option<ArchiveViolation> {
+    let archive_dir = repo_root.join(format!(".arca/issue/archive/{issue_id}"));
+    let deferred_dir = repo_root.join(format!(".arca/issue/deferred/{issue_id}"));
+
+    let still_archived: Vec<&str> = ISSUE_FILES
+        .iter()
+        .copied()
+        .filter(|name| archive_dir.join(name).is_file())
+        .collect();
+    if !still_archived.is_empty() {
+        return Some(ArchiveViolation {
+            path: head_path.to_owned(),
+            reason: format!(
+                "partial deferred restoration of {issue_id}: {} still present in archive",
+                still_archived.join(", ")
+            ),
+        });
+    }
+
+    let missing: Vec<&str> = ISSUE_FILES
+        .iter()
+        .copied()
+        .filter(|name| !deferred_dir.join(name).is_file())
+        .collect();
+    if !missing.is_empty() {
+        return Some(ArchiveViolation {
+            path: head_path.to_owned(),
+            reason: format!(
+                "partial deferred restoration of {issue_id}: {} missing from deferred destination",
+                missing.join(", ")
+            ),
+        });
+    }
+
+    let head_spec_path = format!(".arca/issue/archive/{issue_id}/spec.md");
+    let head_spec = head_bytes(repo_root, &head_spec_path).unwrap_or_default();
+    if !has_disposition(&head_spec, "deferred") {
+        return Some(ArchiveViolation {
+            path: head_path.to_owned(),
+            reason: format!(
+                "{issue_id} has no recorded deferred ask and cannot leave completed archive"
+            ),
+        });
+    }
+
+    let index = fs::read_to_string(deferred_dir.join("index.md")).unwrap_or_default();
+    if !index
+        .lines()
+        .any(|line| line.trim() == "status: \"deferred\"")
+    {
+        return Some(ArchiveViolation {
+            path: head_path.to_owned(),
+            reason: format!("{issue_id} restored to deferred without status deferred"),
+        });
+    }
+
+    let restored = eol_normalized(&fs::read(deferred_dir.join(file_name)).unwrap_or_default());
+    let expected = eol_normalized(head_content);
+    if deferred_restore_normalized(file_name, &restored) == expected {
+        return None;
+    }
+    Some(ArchiveViolation {
+        path: head_path.to_owned(),
+        reason:
+            "deferred restoration differs from HEAD beyond status and required link-target rewrites"
+                .to_owned(),
+    })
+}
+
+fn has_disposition(bytes: &[u8], wanted: &str) -> bool {
+    String::from_utf8_lossy(bytes).lines().any(|line| {
+        if !line.trim_start().starts_with('|') {
+            return false;
+        }
+        let cells: Vec<&str> = line
+            .trim()
+            .trim_matches('|')
+            .split('|')
+            .map(|cell| cell.trim().trim_matches('`'))
+            .collect();
+        let requirement = cells.first().copied().unwrap_or_default();
+        requirement.contains('-')
+            && requirement
+                .chars()
+                .any(|character| character.is_ascii_digit())
+            && cells.iter().skip(1).any(|cell| *cell == wanted)
+    })
+}
+
+fn deferred_restore_normalized(file_name: &str, restored: &[u8]) -> Vec<u8> {
+    let text = String::from_utf8_lossy(restored);
+    let mut normalized = String::with_capacity(text.len());
+    for line in text.lines() {
+        let line = if file_name == "index.md" && line.trim() == "status: \"deferred\"" {
+            line.replacen("status: \"deferred\"", "status: \"integrated\"", 1)
+        } else {
+            line.to_owned()
+        };
+        normalized.push_str(&line.replace("](../../archive/", "](../"));
+        normalized.push('\n');
+    }
+    if !text.ends_with('\n') {
+        normalized.pop();
+    }
+    normalized.into_bytes()
 }
 
 /// Compare text by content, not by checkout line endings: a Windows checkout

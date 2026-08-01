@@ -21,6 +21,6 @@ No current event objectively means `failed`. A guard refusal says only that move
 
 ## Provenance
 
-The terminal vocabulary, Engine-written `passed`, durable abandonment, and deferred `failed` decisions come from the human rulings for `AR-04` and `AR-05` in the doctrine-convergence seed's [design](../i-016-fsm-doctrine-convergence/design.md). The seed remains the evidence history; this issue is the current requirement home.
+The terminal vocabulary, Engine-written `passed`, durable abandonment, and deferred `failed` decisions come from the human rulings for `AR-04` and `AR-05` in the doctrine-convergence seed's [design](../../archive/i-016-fsm-doctrine-convergence/design.md). The seed remains the evidence history; this issue is the current requirement home.
 
 This file is incoming evidence. Integrated mechanics remain authoritative only in the accepted forward authority.

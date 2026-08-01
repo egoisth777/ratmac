@@ -3,7 +3,7 @@
 ```yaml
 issue-id: "i-018-machine-composition"
 provenance: "Split of the FSM doctrine convergence issue (i-016) per human direction (Billy), 2026-07-29 - dependency strata; carries FDC-007 - FDC-010 from the i-016 seed unchanged, plus the recursion-depth open question"
-status: "integrated"
+status: "deferred"
 ```
 
 ## Summary
@@ -20,9 +20,9 @@ verb deferred (FDC-010). One open question rides along unresolved: recursion dep
 **Billy's 2026-07-30 cut** created input-routed transitions, input delivery and durability, and
 Run completion as separate pending concerns. **Assumed dependency forecast, revocable at planning
 step 1:** integrated Run residency supplies per-Run addresses; input-routed transitions
-([i-016-fsm-doctrine-convergence](../i-016-fsm-doctrine-convergence/index.md)) supply legal inputs
+([i-016-fsm-doctrine-convergence](../../archive/i-016-fsm-doctrine-convergence/index.md)) supply legal inputs
 and deterministic edge selection; input delivery
-([i-019-input-delivery-durability](../i-019-input-delivery-durability/index.md)) supplies
+([i-019-input-delivery-durability](../../archive/i-019-input-delivery-durability/index.md)) supplies
 replay-safe judgment handoff; Run completion
 ([i-020-run-completion](../i-020-run-completion/index.md)) supplies durable terminal facts.
 Machine composition follows those four contracts.

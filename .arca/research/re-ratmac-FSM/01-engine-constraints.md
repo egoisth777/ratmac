@@ -60,7 +60,7 @@ The in-memory model is `Run` (`model.rs:110-115`) with `RunArtifacts` (`model.rs
 
 `status` deserves its own note. `start` writes `Planned` (`scheduler.rs:251`). `step` copies the state and mutates only `phase` and possibly `goal_revision` (`scheduler.rs:382-400`) — `status` is never touched. `hold` mutates only `phase` (`blocked.rs:251`). The two writers that could set `Blocked` are `Run::block_for` (`model.rs:160-163`, reachable only through `evaluate_entry_prerequisites`, which no CLI command calls) and `Scheduler::record_missing_prerequisite` (`scheduler.rs:816-826`, called only from `test/qa/src/lib.rs` and `t022_r026.rs`). **A state file written by `rtm` therefore reads `status = "planned"` for the entire life of the Run.** `Passed`, `Failed`, and `Executing` exist in the enum (`model.rs:12-18`) and are never written by anything. **(c)**
 
-`active_refs` is the one dead field the project has already noticed. `.arca/dict.md:62` and `.arca/issue/archive/i-015-cycle-as-runbook/ubi-lang.md:12` both describe it as present in the format and in the fixtures and populated by nothing. That matters here because it is the obvious carrier for "which ticket is this instance working on" — the issue's own option (c) proposes exactly that.
+`active_refs` is the one dead field the project has already noticed. `.arca/dict.md:62` and `.arca/issue/deferred/i-015-cycle-as-runbook/ubi-lang.md:12` both describe it as present in the format and in the fixtures and populated by nothing. That matters here because it is the obvious carrier for "which ticket is this instance working on" — the issue's own option (c) proposes exactly that.
 
 `graph.rs:152-168` — `MachineState` is a newtype over a single `Phase`, documented as having "no lifecycle/status dimension". It is constructed nowhere in `src/`: `step` and `status` work directly on `RunState`. **(c)** — a third, wholly unused position type.
 
@@ -179,7 +179,7 @@ The full inventory, all **(a)**:
 
 Every one of these is `root.join(<literal>)`. The consequence for per-subtask instances is uniform: **an instance's identity is entirely its root directory.** Two instances under one root would collide on all twelve; two instances in two worktrees collide on none.
 
-**The contract gates read the whole project, not one ticket.** `gate_intake` (`contract.rs:79-201`) walks every direct issue folder; `gate_records` (`contract.rs:204-361`) walks every residual and every ticket, checks one-residual-per-requirement globally (`contract.rs:280-291`), one-owning-ticket-per-gap globally (`contract.rs:331-347`), and runs a cycle detector over the whole ticket dependency graph (`contract.rs:349-354`). Neither takes a ticket argument — `machine.rs:77` gives both kinds an empty accepted-field list. **(a)** — these gates are inherently whole-project, and a per-subtask instance in its own worktree would evaluate them against that worktree's partial copy of the records.
+**The contract gates read the whole project, not one ticket.** `gate_intake` (`contract.rs:79-201`) reads issue bundles across intake, deferred, and archive as one namespace, with deferred live and archive historical; `gate_records` (`contract.rs:204-361`) walks every residual and every ticket, checks one-residual-per-requirement globally (`contract.rs:280-291`), one-owning-ticket-per-gap globally (`contract.rs:331-347`), and runs a cycle detector over the whole ticket dependency graph (`contract.rs:349-354`). Neither takes a ticket argument — `machine.rs:77` gives both kinds an empty accepted-field list. **(a)** — these gates are inherently whole-project, and a per-subtask instance in its own worktree would evaluate them against that worktree's partial copy of the records.
 
 **`unproven_mechanization` couples every instance to the runbook's declared vocabulary.** `contract.rs:367-381` classifies PGE-001, PGE-002, and PGE-003 as *missing* whenever the runbook declares no gate of kind `intake_contract`, `record_contract`, or `sensitivity_receipts` respectively, and `contract.rs:266-271` then refuses any `satisfied` residual for those requirements. `declared_gate_kinds` (`contract.rs:384-395`) reads the single project runbook. So splitting one runbook into several per-ticket runbooks would change which requirements are provable, in every instance. **(a)** — and a sharp edge for any per-instance runbook scheme.
 
@@ -229,7 +229,7 @@ Three smaller rules foreclose the surrounding machinery:
 
 - `.arca/goal/design.md:80` (ADR-0009) — "The Phase Prompt is the ONLY machine information an agent ever receives — never the flowchart, never other Phases." A fan-in barrier needs an instance to learn about sibling instances; the prompt may not carry it.
 - `.arca/goal/design.md:88` (ADR-0010) — "No process management, no spawn flag." A parent instance may not launch children.
-- `.arca/issue/archive/i-015-cycle-as-runbook/design.md:126` — "No agent-spawning, no process management, no scheduling: the Run is still stepped by a caller."
+- `.arca/issue/deferred/i-015-cycle-as-runbook/design.md:126` — "No agent-spawning, no process management, no scheduling: the Run is still stepped by a caller."
 
 **The pre-authorizing rules.** Three passages written the extension path down before it was needed.
 
@@ -284,7 +284,7 @@ Two further items `i-015` leaves open bear directly here. `design.md:107-110` �
 
 `.arca/steering.md:86-97` records the matching open question, "Catch it, or stop it?". So the sole-writer invariant — the property that makes today's shared Run safe at all — is itself **(b)**. The design pressure's framing is exactly right: today's isolation is by prohibition, and the prohibition has no mechanism behind it.
 
-**Definitional gaps found while checking.** "Engine" is used throughout `.arca/steering.md` and `.arca/index.md` but is defined in neither `.arca/dict.md` nor `.arca/goal/ubi-lang.md`, whose line 3 states "Terms not listed here must not be used in docs, code, or CLI output" — the canonical term is *Scheduler* (`.arca/goal/ubi-lang.md:11`). "Ticket" likewise has no glossary entry in either file. `.arca/steering.md` has no section titled Horizon despite `.arca/steering.md:22` and `.arca/dict.md:84` referencing one as an authority. And `.arca/issue/archive/i-015-cycle-as-runbook/test-plan.md:12` still carries verification row PCRV-006 for the PCR-006 requirement dropped at `spec.md:19-21` — whose content, "the contract and freeze guards read [roots] from the parsed class ... with no `.arca` literal in `src/`", is precisely the mechanism a per-instance design needs.
+**Definitional gaps found while checking.** "Engine" is used throughout `.arca/steering.md` and `.arca/index.md` but is defined in neither `.arca/dict.md` nor `.arca/goal/ubi-lang.md`, whose line 3 states "Terms not listed here must not be used in docs, code, or CLI output" — the canonical term is *Scheduler* (`.arca/goal/ubi-lang.md:11`). "Ticket" likewise has no glossary entry in either file. `.arca/steering.md` has no section titled Horizon despite `.arca/steering.md:22` and `.arca/dict.md:84` referencing one as an authority. And `.arca/issue/deferred/i-015-cycle-as-runbook/test-plan.md:12` still carries verification row PCRV-006 for the PCR-006 requirement dropped at `spec.md:19-21` — whose content, "the contract and freeze guards read [roots] from the parsed class ... with no `.arca` literal in `src/`", is precisely the mechanism a per-instance design needs.
 
 **No git-state guard kind exists.** `.arca/index.md:87-89`: "Two guards are not runbook kinds: goal drift against the frozen revision hash is implicit, and no git-state kind exists - only `command_exit` reaches tree state." A worktree-based design has no declarative way to guard on branch or worktree state, and `command_exit` drags in the pinning requirement (`scheduler.rs:706-755`, `doctor.rs:366-374`).
 
@@ -337,7 +337,7 @@ That collides directly with a written rule. `.arca/schema.md`, "Reviewable snaps
 3. `.arca/goal/design.md:23,27` (ADR-0003) — the decided alternative: "Ticket→worktree parallelism stays inside a Phase; Exit Guards check the merged result", chosen because otherwise "the Machine leaks downward into every worker". Carries its own escape clause: "the policy is a documented rule, not enforced code (revisit if violated in practice)."
 4. `.arca/runbook-spec.md:9` and `.arca/goal/ubi-lang.md:9` — the runbook is "one per project". The read-only half is recorded as having no enforcer at `.arca/runbook-spec.md:77`.
 5. `.arca/goal/design.md:80` (ADR-0009) — a Phase Prompt carries "never the flowchart, never other Phases", so no instance can be told about a sibling.
-6. `.arca/goal/design.md:88` (ADR-0010) and `.arca/issue/archive/i-015-cycle-as-runbook/design.md:126` — no process management, no spawn flag, no scheduling.
+6. `.arca/goal/design.md:88` (ADR-0010) and `.arca/issue/deferred/i-015-cycle-as-runbook/design.md:126` — no process management, no spawn flag, no scheduling.
 7. The reviewable-snapshot rule in `.arca/schema.md` requiring everything under `.arca/` to be tracked or staged — violated by the engine's own runtime files.
 8. `doctor.rs:340-351` (`RB205`) discouraging more than one terminal phase — a warning, not a refusal.
 9. `.arca/index.md:68` — the sole-writer invariant is "a rule the Engine keeps, not a rule it enforces." Today's shared-Run safety rests on this.
@@ -349,7 +349,7 @@ That collides directly with a written rule. `.arca/schema.md`, "Reviewable snaps
 3. `.arca/goal/design.md:74` (ADR-0008) — "when ADR-0007's limit lifts, per-Run files move under a runs directory; the v1 flat layout is the one-active-Run projection of that."
 4. `.arca/goal/spec.md:20` (R-014) and `.arca/goal/ubi-lang.md:15-16` — the State File and Transition Log are already described as **per-Run**.
 5. `.arca/steering.md:98-103` — routing is an explicitly open question, in a section that "binds nothing".
-6. `.arca/issue/archive/i-015-cycle-as-runbook/design.md:18-20` — "Run per ticket" is recorded as a live option with no rejection marker, while (a) and (d) carry one.
+6. `.arca/issue/deferred/i-015-cycle-as-runbook/design.md:18-20` — "Run per ticket" is recorded as a live option with no rejection marker, while (a) and (d) carry one.
 
 **(c) Accident of implementation — nobody chose these:**
 

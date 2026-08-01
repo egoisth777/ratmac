@@ -266,7 +266,7 @@ composition (`i-018-machine-composition`) depends on both. `NRI`-shaped work the
 The dependency sentence above naming one “verdict-routed execution core” is superseded. Billy split
 the pending bundle into input-routed transitions (`FDC-001`) at
 [i-016-fsm-doctrine-convergence](../../issue/archive/i-016-fsm-doctrine-convergence/index.md), Run completion
-(`FDC-002`) at [i-020-run-completion](../../issue/archive/i-020-run-completion/index.md), and input delivery
+(`FDC-002`) at [i-020-run-completion](../../issue/deferred/i-020-run-completion/index.md), and input delivery
 and durability (`FDC-003`) at
 [i-019-input-delivery-durability](../../issue/archive/i-019-input-delivery-durability/index.md).
 

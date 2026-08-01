@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Working-rule shape check: resolve every relative markdown link under .arca/
-and confirm each integrated issue's accepted requirement IDs exist in the goal.
+"""Working-rule shape check: resolve live relative Markdown links under .arca/
+and verify issue dispositions, physical carriers, and accepted goal IDs across
+intake, deferred, and archive.
 
 Contributor tool, not a product gate: PGE-001 mechanizes this inside `rtm`.
 Run: python tools/check_links.py
@@ -45,6 +46,42 @@ def markdown_files(rel_root: str):
                     yield path
 
 
+def issue_rows(text: str):
+    """Yield (requirement id, exact disposition) from issue requirement tables."""
+    for line in text.splitlines():
+        if not line.lstrip().startswith("|"):
+            continue
+        cells = [cell.strip().strip("`") for cell in line.strip().strip("|").split("|")]
+        if not cells or not re.fullmatch(r"[A-Z]+-\d+", cells[0]):
+            continue
+        disposition = next(
+            (
+                cell
+                for cell in cells[1:]
+                if cell in {"accepted", "rejected", "duplicate", "deferred"}
+            ),
+            None,
+        )
+        if disposition is not None:
+            yield cells[0], disposition
+
+
+def issue_bundles():
+    issue_root = os.path.join(ROOT, ".arca", "issue")
+    for bucket, location in (
+        ("", "intake"),
+        ("deferred", "deferred"),
+        ("archive", "archive"),
+    ):
+        directory = os.path.join(issue_root, bucket)
+        if not os.path.isdir(directory):
+            continue
+        for entry in sorted(os.listdir(directory)):
+            folder = os.path.join(directory, entry)
+            if entry.startswith("i-") and os.path.isdir(folder):
+                yield entry, folder, location
+
+
 def main() -> int:
     failures: list[str] = []
 
@@ -63,32 +100,63 @@ def main() -> int:
                 )
 
     goal_spec = read(os.path.join(ROOT, ".arca/goal/spec.md"))
-    issue_root = os.path.join(ROOT, ".arca/issue")
-    for entry in sorted(os.listdir(issue_root)):
-        folder = os.path.join(issue_root, entry)
-        if entry == "archive" or not os.path.isdir(folder):
-            continue
-        expected = {"index.md", "spec.md", "design.md", "test-plan.md", "ubi-lang.md"}
-        present = {n for n in os.listdir(folder) if n.endswith(".md")}
+    expected = {"index.md", "spec.md", "design.md", "test-plan.md", "ubi-lang.md"}
+    seen: dict[str, str] = {}
+    for entry, folder, location in issue_bundles():
+        shown = os.path.relpath(folder, ROOT)
+        if entry in seen:
+            failures.append(
+                f"{shown}: issue id {entry} duplicates carrier {seen[entry]}"
+            )
+        else:
+            seen[entry] = shown
+
+        present = {name for name in os.listdir(folder) if name.endswith(".md")}
         if present != expected:
-            failures.append(f"{entry}: five-file shape broken: {sorted(present)}")
+            failures.append(f"{shown}: five-file shape broken: {sorted(present)}")
             continue
         index_text = read(os.path.join(folder, "index.md"))
         match = STATUS.search(index_text)
         status = match.group(1) if match else "<none>"
-        if status not in {"integrated", "rejected"}:
-            failures.append(f"{entry}: status {status!r} is neither integrated nor rejected")
-        if status != "integrated":
-            continue
-        for line in read(os.path.join(folder, "spec.md")).splitlines():
-            found = REQ_ID.match(line)
-            if not found:
-                continue
-            if "| accepted |" not in line:
-                continue
-            req = found.group(1)
-            if f"| {req} |" not in goal_spec:
-                failures.append(f"{entry}: accepted {req} missing from goal spec")
+        rows = list(issue_rows(read(os.path.join(folder, "spec.md"))))
+        accepted = {req for req, disposition in rows if disposition == "accepted"}
+        duplicate = {req for req, disposition in rows if disposition == "duplicate"}
+        deferred = {req for req, disposition in rows if disposition == "deferred"}
+
+        if location == "intake":
+            if deferred:
+                failures.append(
+                    f"{shown}: deferred asks require .arca/issue/deferred and status deferred"
+                )
+            if status not in {"integrated", "rejected"}:
+                failures.append(
+                    f"{shown}: intake status {status!r} is neither integrated nor rejected"
+                )
+        elif location == "deferred":
+            if status != "deferred":
+                failures.append(
+                    f"{shown}: deferred location requires status 'deferred', found {status!r}"
+                )
+            if not deferred:
+                failures.append(f"{shown}: deferred carrier has no deferred ask")
+        else:
+            if status not in {"integrated", "rejected"}:
+                failures.append(
+                    f"{shown}: archive requires integrated or rejected, found {status!r}"
+                )
+            if deferred:
+                failures.append(f"{shown}: archived issue still has deferred asks")
+
+        if status == "integrated" and not (accepted or duplicate):
+            failures.append(
+                f"{shown}: integrated issue has no accepted or duplicate ask"
+            )
+        if status == "rejected" and accepted:
+            failures.append(f"{shown}: rejected issue still has accepted asks")
+        if status in {"integrated", "deferred"}:
+            for req in sorted(accepted):
+                if f"| {req} |" not in goal_spec:
+                    failures.append(f"{shown}: accepted {req} missing from goal spec")
 
     for failure in failures:
         print(f"FAIL {failure}")

@@ -157,20 +157,31 @@ A fork nobody wrote down is drift.
 
 ## The issue folder
 
-- Each direct child of `.arca/issue/` is a folder holding exactly five files created from `.arca/tpl/issue/`:
-  `index.md` (front door: identity, where it came from, status, links), `ubi-lang.md` (issue-specific words,
-  or `No issue-specific terms.`), `spec.md` (what is asked for, plus what was decided about each ask),
-  `design.md` (suggested how — carries no weight until folded into the goal), `test-plan.md` (how to prove it
-  works, plus traces).
+- The issue namespace has three physical locations. `.arca/issue/<issue-id>/` is the intake work area for a
+  newly created or explicitly selected issue; `.arca/issue/deferred/<issue-id>/` is the live waiting buffer
+  for an issue with at least one deferred ask; `.arca/issue/archive/<issue-id>/` is completed history. Every
+  issue location holds the same exact five-file bundle created from `.arca/tpl/issue/`: `index.md` (front
+  door: identity, where it came from, status, links), `ubi-lang.md` (issue-specific words, or
+  `No issue-specific terms.`), `spec.md` (what is asked for, plus what was decided about each ask),
+  `design.md` (suggested how — carries no weight until folded into the goal), and `test-plan.md` (how to
+  prove it works, plus traces).
 - Naming: folder name = `issue-id` = `i-<nnn>-<condensed-name>` — zero-padded number plus a short dashed name
-  taken from the title (2–4 words, e.g. `i-007-continuous-qa`). `<nnn>` alone guarantees uniqueness and
-  order; the name part is set at creation and does not change if the title changes later.
+  taken from the title (2–4 words, e.g. `i-007-continuous-qa`). `<nnn>` alone guarantees uniqueness across
+  intake, deferred, and archive; the name part is set at creation and does not change if the title changes.
 - `index.md` front matter: `issue-id` equal to the folder name, non-empty origin, status
-  `pending|integrated|rejected`; relative links to the other four files; no unfilled template blanks.
-- The schema gate is mechanized by `rtm` Exit Guards; agents don't hand-run it. See .arca/goal/design.md, ADR-0006 and ADR-0009.
-  A failed check is a **fix you do right away**, not a stop; log the check and the fix.
-- Creating an issue is a direct act: write the five files from the blanks, run the shape check, done. It
-  enters no loop step and touches neither `.arca/state.toml` nor `.arca/log.md`; the next planning pass folds it in.
+  `pending|deferred|integrated|rejected`; relative links to the other four files; no unfilled template
+  blanks. Location is authoritative for waiting versus completed work and the status is its checked mirror:
+  a bundle under `deferred/` has status `deferred`, while a bundle under `archive/` has status `integrated`
+  or `rejected`.
+- A deferred ask is unresolved work, including when sibling asks were accepted. Any issue whose `spec.md`
+  contains a `deferred` disposition stays whole under `deferred/`; it is never archived and no replacement
+  issue is minted. Selecting it again visibly moves the same bundle to the intake work area and changes its
+  status to `pending`; required relative-link rewrites travel with that move.
+- The schema gate is mechanized by `rtm` Exit Guards; agents don't hand-run it. See .arca/goal/design.md,
+  ADR-0006 and ADR-0009. A failed check is a **fix you do right away**, not a stop; log the check and the fix.
+- Creating an issue is a direct act: write the five files from the blanks under `.arca/issue/<issue-id>/`
+  with status `pending`, run the shape check, done. It enters no loop step and touches neither
+  `.arca/state.toml` nor `.arca/log.md`; the next planning pass folds it in.
 
 ## The steps (P1–P5)
 
@@ -178,7 +189,7 @@ A fork nobody wrote down is drift.
 
 | Step                  | Does                                                                                                             | Finish line                                                                          |
 | :-------------------- | :--------------------------------------------------------------------------------------------------------------- | :----------------------------------------------------------------------------------- |
-| **P1** Fold in issues | Work every `pending` issue into the goal: give each ask a stable requirement ID and a decision `accepted|rejected|duplicate|deferred`, link everything both ways; name, per accepted issue, the Ideal-shape property it advances — an issue that advances none is `rejected`, or it is a pivot, and then steering changes first and the issue waits for the next pass; shape check | Every issue ends `integrated|rejected`; every accepted issue names the shape property it advances; all links resolve (fix them yourself, don't set them aside) |
+| **P1** Fold in issues | Work every `pending` issue in the intake work area into the goal: give each ask a stable requirement ID and a decision `accepted|rejected|duplicate|deferred`, link everything both ways; name, per accepted issue, the Ideal-shape property it advances — an issue that advances none and defers nothing is `rejected`, or it is a pivot, and then steering changes first and the issue waits for the next pass; shape check | An issue with any deferred ask moves whole to `.arca/issue/deferred/` with status `deferred`; every other issue ends `integrated|rejected`; every integrated issue has at least one accepted or duplicate ask, every accepted requirement exists in the goal, and each accepted issue names the shape property it advances; all live links resolve |
 | **P2** Find the gaps  | Freeze the goal (note git HEAD), then compare each requirement against what actually exists; write one record in `.arca/residual/` per requirement: `missing|partial|satisfied`, with pointers to the proof and a short why | Every requirement has exactly one record, active and archive counted together; no proof ⇒ never `satisfied` |
 | **P3** Cut tickets    | Turn each `missing|partial` record into one small, self-contained, provable piece of work in `.arca/ticket/` (from `.arca/tpl/ticket.md`); order them so a ticket that needs another comes after it; **approved on creation** | Each such record ↔ exactly one ticket; all links resolve                             |
 
@@ -239,11 +250,22 @@ One policy, and the same one on every surface (goal `ORS-001`, which supersedes 
 
 These are durable working rules; the goal's `AOI-001`–`AOI-003` bind the program that mechanizes them.
 
-- **Authorized archive move.** A completed issue folder — `index.md` status `integrated` or `rejected` — may move to
-  `.arca/issue/archive/<issue-id>/`, keeping its issue-id, its five-file shape, and its bytes, except relative links
-  that must gain one `../` level. Live links pointing at it are updated in the same change, and `i-<nnn>` numbers stay
-  unique across active and archived issues. A complete move IS preservation: every history oracle compares content at
-  the archived destination. A partial move, a content change, or archiving a non-completed issue is a failure.
+- **Authorized archive move.** A completed issue folder — `index.md` status `integrated` or `rejected`,
+  at least one accepted or duplicate ask when integrated, and no ask disposition `deferred` — may move to
+  `.arca/issue/archive/<issue-id>/`, keeping its issue-id, its five-file shape, and its bytes, except relative
+  links that must gain one `../` level. Live links pointing at it are updated in the same change, and issue
+  numbers stay unique across intake, deferred, and archive. A complete move IS preservation: every history
+  oracle compares content at the archived destination. A partial move, a content change, or archiving an
+  issue that is pending or deferred is a failure. Links inside already archived records are frozen
+  provenance, not live links, and are never rewritten when another issue later moves.
+- **Authorized deferred restoration.** An issue with any ask disposition `deferred` lives at
+  `.arca/issue/deferred/<issue-id>/`, including a mixed issue whose other asks were accepted. If an archived
+  bundle is found with a deferred ask, the same complete five-file bundle moves to `deferred/` in one
+  correction: `index.md` status changes to `deferred`, live inbound and outbound links are retargeted, and
+  no other historical prose is rewritten. This visible restoration is preservation and reuses the issue id;
+  a replacement issue or a second carrier for any deferred ask is a failure. Selecting the issue later
+  moves that same bundle to the intake work area with status `pending`; if any ask remains deferred after
+  P1, the bundle returns to `deferred/`.
 - **Authorized residual archive move.** A residual record whose status is `satisfied` may move to
   `.arca/residual/archive/<record-name>`, keeping its name, its bytes, and its shape, except relative links
   that must gain one `../` level; links elsewhere pointing at it are updated in the same change. The active
@@ -351,9 +373,12 @@ nothing.
 Two gate kinds read the records themselves, so a status edit cannot route the
 loop. Declare them in the Runbook phase that must not be left without them:
 
-- `intake_contract` — every direct issue folder ends `integrated` or
-  `rejected`, keeps its five-file shape exactly, states accepted requirement
-  IDs that exist in the goal, and links that resolve in both directions.
+- `intake_contract` — reads intake, deferred, and archive as one issue-id namespace and derives ask
+  dispositions from each `spec.md`, never from status alone. Every bundle keeps its exact five-file shape;
+  any deferred ask requires status `deferred` under `.arca/issue/deferred/`; archived bundles contain no
+  deferred asks; an integrated bundle has at least one accepted or duplicate ask and every accepted
+  requirement ID exists in the goal; and links from live intake and deferred bundles resolve in both
+  directions.
 - `record_contract` — exactly one residual per requirement, counted over the
   active folder and `.arca/residual/archive/` together, each citing the
   frozen goal revision; `satisfied` only with concrete evidence references;

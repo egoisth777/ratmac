@@ -3,14 +3,14 @@
 ```yaml
 issue-id: "i-020-run-completion"
 provenance: "Billy, 2026-07-30 - authorized the atomic cut of i-016-fsm-doctrine-convergence so Run completion stands apart from transition selection and input durability"
-status: "integrated"
+status: "deferred"
 ```
 
 ## Summary
 
 This issue owns the Engine-observable end of a Run. Starting in or advancing into a terminal state writes `passed`. Explicit abandonment records a durable terminal event before retiring active state. Guard refusal remains non-terminal and changes nothing. The `failed` outcome stays deferred until a separate issue defines a concrete event the Engine can observe.
 
-It retains requirement `FDC-002` under its existing identifier and has no dependency on input-routed branching or verdict consumption. It builds on the integrated per-Run residency contract only for the State File and evidence address. The doctrine-convergence issue ([i-016-fsm-doctrine-convergence](../i-016-fsm-doctrine-convergence/index.md)) remains the evidence seed: its adversarial-review ledger and decision records are cited here, never copied.
+It retains requirement `FDC-002` under its existing identifier and has no dependency on input-routed branching or verdict consumption. It builds on the integrated per-Run residency contract only for the State File and evidence address. The doctrine-convergence issue ([i-016-fsm-doctrine-convergence](../../archive/i-016-fsm-doctrine-convergence/index.md)) remains the evidence seed: its adversarial-review ledger and decision records are cited here, never copied.
 
 ## Routes
 

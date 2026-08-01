@@ -74,23 +74,43 @@ impl Tree {
     }
 
     fn write_issue(&self, folder: &str, status: &str, requirement: &str) {
-        let dir = self.root.join(".arca/issue").join(folder);
+        self.write_issue_rows_at("", folder, status, &[(requirement, "accepted")]);
+    }
+
+    fn write_issue_rows_at(&self, bucket: &str, folder: &str, status: &str, rows: &[(&str, &str)]) {
+        let issue_root = self.root.join(".arca/issue");
+        let dir = if bucket.is_empty() {
+            issue_root.join(folder)
+        } else {
+            issue_root.join(bucket).join(folder)
+        };
         fs::create_dir_all(&dir).expect("create issue folder");
+        let goal_target = if bucket.is_empty() {
+            "../../goal/spec.md"
+        } else {
+            "../../../goal/spec.md"
+        };
         fs::write(
             dir.join("index.md"),
             format!(
                 "# Issue {folder}\n\n\
-                 ```yaml\nstatus: \"{status}\"\n```\n\n\
-                 See [goal spec](../../goal/spec.md).\n"
+                 ```yaml\nissue-id: \"{folder}\"\nstatus: \"{status}\"\n```\n\n\
+                 See [goal spec]({goal_target}).\n"
             ),
         )
         .expect("write issue index");
+        let records: String = rows
+            .iter()
+            .map(|(requirement, disposition)| {
+                format!("| `{requirement}` | The demo behaves. | {disposition} |\n")
+            })
+            .collect();
         fs::write(
             dir.join("spec.md"),
             format!(
                 "# Requirement records\n\n\
                  | Req ID | Requirement | Status |\n|---|---|---|\n\
-                 | `{requirement}` | The demo behaves. | accepted |\n"
+                 {records}"
             ),
         )
         .expect("write issue spec");
@@ -301,6 +321,139 @@ fn intake_contract_verified() {
         status.contains("intake"),
         "a refused gate leaves the Phase unchanged: {status}"
     );
+}
+
+/// PGE-001 extension: dispositions determine the physical issue carrier.
+#[test]
+fn deferred_issue_location_and_dispositions_verified() {
+    let tree = Tree::new("deferred-valid");
+    tree.write_issue_rows_at(
+        "deferred",
+        "i-101-wait",
+        "deferred",
+        &[("WAI-001", "deferred")],
+    );
+    gate_intake(&tree.root).unwrap_or_else(|defects| {
+        panic!(
+            "a deferred issue in the waiting buffer must pass: {}",
+            reasons(&defects)
+        )
+    });
+
+    let tree = Tree::new("deferred-mixed");
+    tree.write_issue_rows_at(
+        "deferred",
+        "i-101-wait",
+        "deferred",
+        &[("DEMO-001", "accepted"), ("WAI-001", "deferred")],
+    );
+    gate_intake(&tree.root).unwrap_or_else(|defects| {
+        panic!(
+            "accepted plus deferred asks stay live and must pass: {}",
+            reasons(&defects)
+        )
+    });
+
+    let tree = Tree::new("deferred-in-intake");
+    tree.write_issue_rows_at("", "i-101-wait", "integrated", &[("WAI-001", "deferred")]);
+    let text = reasons(&gate_intake(&tree.root).expect_err("a deferred ask in intake must refuse"));
+    assert!(
+        text.contains("i-101-wait") && text.contains(".arca/issue/deferred"),
+        "refusal names the required carrier: {text}"
+    );
+
+    let tree = Tree::new("deferred-without-row");
+    tree.write_issue_rows_at(
+        "deferred",
+        "i-101-wait",
+        "deferred",
+        &[("DEMO-001", "accepted")],
+    );
+    let text = reasons(
+        &gate_intake(&tree.root).expect_err("deferred status without a deferred ask must refuse"),
+    );
+    assert!(text.contains("no deferred ask"), "{text}");
+
+    let tree = Tree::new("deferred-in-archive");
+    tree.write_issue_rows_at(
+        "archive",
+        "i-101-wait",
+        "integrated",
+        &[("WAI-001", "deferred")],
+    );
+    let text = reasons(&gate_intake(&tree.root).expect_err("an archived deferred ask must refuse"));
+    assert!(
+        text.contains("i-101-wait") && text.contains("restore"),
+        "{text}"
+    );
+
+    let tree = Tree::new("integrated-empty");
+    tree.write_issue_rows_at("", "i-100-demo", "integrated", &[("DEMO-001", "rejected")]);
+    let text = reasons(
+        &gate_intake(&tree.root).expect_err("integrated without accepted or duplicate must refuse"),
+    );
+    assert!(text.contains("accepted or duplicate"), "{text}");
+
+    let tree = Tree::new("integrated-duplicate");
+    tree.write_issue_rows_at("", "i-100-demo", "integrated", &[("SPC-001", "duplicate")]);
+    gate_intake(&tree.root).unwrap_or_else(|defects| {
+        panic!(
+            "a duplicate is already represented in the goal and is a valid integration: {}",
+            reasons(&defects)
+        )
+    });
+
+    let tree = Tree::new("duplicate-issue-id");
+    tree.write_issue_rows_at(
+        "deferred",
+        "i-100-demo",
+        "deferred",
+        &[("WAI-001", "deferred")],
+    );
+    let text = reasons(
+        &gate_intake(&tree.root).expect_err("duplicate issue ids across buckets must refuse"),
+    );
+    assert!(
+        text.contains("duplicated") && text.contains("i-100-demo"),
+        "{text}"
+    );
+}
+
+#[test]
+fn archived_links_are_frozen_but_deferred_links_are_live() {
+    let tree = Tree::new("historical-link");
+    tree.write_issue_rows_at(
+        "archive",
+        "i-101-history",
+        "integrated",
+        &[("HIS-001", "duplicate")],
+    );
+    fs::write(
+        tree.issue_dir("archive/i-101-history").join("design.md"),
+        "# Design\n\n[historical target](../i-999-gone/design.md)\n",
+    )
+    .expect("write frozen historical link");
+    gate_intake(&tree.root).unwrap_or_else(|defects| {
+        panic!(
+            "archived links are frozen provenance: {}",
+            reasons(&defects)
+        )
+    });
+
+    let tree = Tree::new("live-deferred-link");
+    tree.write_issue_rows_at(
+        "deferred",
+        "i-101-wait",
+        "deferred",
+        &[("WAI-001", "deferred")],
+    );
+    fs::write(
+        tree.issue_dir("deferred/i-101-wait").join("design.md"),
+        "# Design\n\n[live target](../i-999-gone/design.md)\n",
+    )
+    .expect("write dangling live link");
+    let text = reasons(&gate_intake(&tree.root).expect_err("a dangling deferred link must refuse"));
+    assert!(text.contains("i-999-gone"), "{text}");
 }
 
 /// PT-046-02: record contracts are validated, not trusted.

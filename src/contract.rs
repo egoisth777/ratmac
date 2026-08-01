@@ -3,10 +3,10 @@
 //! The gates read the records themselves, so a status edit cannot route the
 //! loop:
 //!
-//! - *intake* — every direct issue folder ends `integrated` or `rejected`
-//!   with its five-file shape intact, every accepted requirement ID of an
-//!   integrated issue exists in the goal authority, and the links between
-//!   goal and issue resolve;
+//! - *intake* — issue ids are unique across intake, deferred, and archive;
+//!   exact ask dispositions determine whether a five-file bundle is live in
+//!   the deferred buffer or completed in archive; integrated claims contribute
+//!   accepted requirement IDs to the goal; live links resolve;
 //! - *records* — exactly one residual per requirement citing the frozen goal
 //!   revision, `satisfied` only with concrete evidence, every gap owned by
 //!   exactly one ticket, acyclic ticket dependencies, and complete ticket
@@ -75,6 +75,19 @@ fn defect(artifact: impl Into<String>, reason: impl Into<String>) -> ContractDef
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum IssueLocation {
+    Intake,
+    Deferred,
+    Archive,
+}
+
+impl IssueLocation {
+    fn is_live(self) -> bool {
+        self != Self::Archive
+    }
+}
+
 /// PGE-001: verify intake completion over the working tree.
 pub fn gate_intake(root: &Path) -> Result<(), Vec<ContractDefect>> {
     let mut defects = Vec::new();
@@ -87,13 +100,20 @@ pub fn gate_intake(root: &Path) -> Result<(), Vec<ContractDefect>> {
         ));
     }
     let goal_ids = requirement_ids(&goal);
+    let mut seen_ids: BTreeMap<String, String> = BTreeMap::new();
 
-    for folder in issue_folders(root) {
-        let name = folder
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        let shown = format!(".arca/issue/{name}");
+    for (name, folder, location) in issue_folders(root) {
+        let shown = folder
+            .strip_prefix(root)
+            .map(|relative| relative.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_else(|_| folder.to_string_lossy().replace('\\', "/"));
+
+        if let Some(first) = seen_ids.insert(name.clone(), shown.clone()) {
+            defects.push(defect(
+                &shown,
+                format!("issue id {name} is duplicated; first carrier is {first}"),
+            ));
+        }
 
         // Five-file shape: exactly these files, no more, no fewer.
         let mut present: BTreeSet<String> = BTreeSet::new();
@@ -140,43 +160,111 @@ pub fn gate_intake(root: &Path) -> Result<(), Vec<ContractDefect>> {
 
         let index = fs::read_to_string(folder.join("index.md")).unwrap_or_default();
         let status = yaml_field(&index, "status").unwrap_or_default();
-        if !matches!(status.as_str(), "integrated" | "rejected") {
-            defects.push(defect(
-                &shown,
-                format!(
-                    "issue status is {:?}; a direct issue folder must end integrated or rejected",
-                    if status.is_empty() { "absent" } else { &status }
-                ),
-            ));
-        }
+        let spec = fs::read_to_string(folder.join("spec.md")).unwrap_or_default();
+        let accepted = requirements_with_disposition(&spec, "accepted");
+        let duplicate = requirements_with_disposition(&spec, "duplicate");
+        let deferred = requirements_with_disposition(&spec, "deferred");
+        let has_deferred = !deferred.is_empty();
 
-        // An integrated issue's accepted requirement IDs must be in the goal.
-        if status == "integrated" {
-            let spec = fs::read_to_string(folder.join("spec.md")).unwrap_or_default();
-            for accepted in accepted_requirements(&spec) {
-                if !goal_ids.contains(&accepted) {
+        match location {
+            IssueLocation::Intake => {
+                if has_deferred {
+                    defects.push(defect(
+                        &shown,
+                        "spec contains a deferred ask; the complete issue must live under .arca/issue/deferred with status deferred",
+                    ));
+                }
+                if !matches!(status.as_str(), "integrated" | "rejected") {
                     defects.push(defect(
                         &shown,
                         format!(
-                            "claims integrated, but accepted requirement {accepted} is absent from the goal authority"
+                            "issue status is {:?}; an issue left in the intake work area must end integrated or rejected",
+                            if status.is_empty() { "absent" } else { &status }
+                        ),
+                    ));
+                }
+            }
+            IssueLocation::Deferred => {
+                if status != "deferred" {
+                    defects.push(defect(
+                        &shown,
+                        format!(
+                            "deferred-buffer issue status is {:?}; location requires deferred",
+                            if status.is_empty() { "absent" } else { &status }
+                        ),
+                    ));
+                }
+                if !has_deferred {
+                    defects.push(defect(
+                        &shown,
+                        "deferred-buffer issue has no ask whose disposition is deferred",
+                    ));
+                }
+            }
+            IssueLocation::Archive => {
+                if !matches!(status.as_str(), "integrated" | "rejected") {
+                    defects.push(defect(
+                        &shown,
+                        format!(
+                            "archived issue status is {:?}; archive requires integrated or rejected",
+                            if status.is_empty() { "absent" } else { &status }
+                        ),
+                    ));
+                }
+                if has_deferred {
+                    defects.push(defect(
+                        &shown,
+                        "archived issue still contains a deferred ask; restore the complete bundle to .arca/issue/deferred",
+                    ));
+                }
+            }
+        }
+
+        if status == "deferred" && !has_deferred {
+            defects.push(defect(
+                &shown,
+                "claims deferred, but spec contains no deferred ask",
+            ));
+        }
+        if status == "integrated" && accepted.is_empty() && duplicate.is_empty() {
+            defects.push(defect(
+                &shown,
+                "claims integrated, but spec contains no accepted or duplicate ask",
+            ));
+        }
+        if status == "rejected" && !accepted.is_empty() {
+            defects.push(defect(
+                &shown,
+                "claims rejected, but spec still contains accepted requirements",
+            ));
+        }
+        if matches!(status.as_str(), "integrated" | "deferred") {
+            for requirement in &accepted {
+                if !goal_ids.contains(requirement) {
+                    defects.push(defect(
+                        &shown,
+                        format!(
+                            "claims {status}, but accepted requirement {requirement} is absent from the goal authority"
                         ),
                     ));
                 }
             }
         }
 
-        // Forward links from the issue must resolve.
-        for file in ISSUE_FILES {
-            let path = folder.join(file);
-            let Ok(text) = fs::read_to_string(&path) else {
-                continue;
-            };
-            for target in markdown_targets(&text) {
-                if !resolves(&folder, &target) {
-                    defects.push(defect(
-                        format!("{shown}/{file}"),
-                        format!("link target does not resolve: {target}"),
-                    ));
+        // Archived links are frozen provenance. Intake and deferred links are live.
+        if location.is_live() {
+            for file in ISSUE_FILES {
+                let path = folder.join(file);
+                let Ok(text) = fs::read_to_string(&path) else {
+                    continue;
+                };
+                for target in markdown_targets(&text) {
+                    if !resolves(&folder, &target) {
+                        defects.push(defect(
+                            format!("{shown}/{file}"),
+                            format!("link target does not resolve: {target}"),
+                        ));
+                    }
                 }
             }
         }
@@ -413,24 +501,36 @@ fn declared_gate_kinds(root: &Path) -> BTreeSet<String> {
         .collect()
 }
 
-/// Direct (non-archived) issue folders.
-fn issue_folders(root: &Path) -> Vec<PathBuf> {
-    let mut folders: Vec<PathBuf> = fs::read_dir(root.join(".arca/issue"))
-        .map(|entries| {
-            entries
-                .flatten()
-                .map(|entry| entry.path())
-                .filter(|path| {
-                    path.is_dir()
-                        && path
-                            .file_name()
-                            .map(|name| name.to_string_lossy().starts_with("i-"))
-                            .unwrap_or(false)
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    folders.sort();
+/// Issue bundles across intake, deferred, and archive.
+fn issue_folders(root: &Path) -> Vec<(String, PathBuf, IssueLocation)> {
+    let issue_root = root.join(".arca/issue");
+    let locations = [
+        (issue_root.clone(), IssueLocation::Intake),
+        (issue_root.join("deferred"), IssueLocation::Deferred),
+        (issue_root.join("archive"), IssueLocation::Archive),
+    ];
+    let mut folders = Vec::new();
+    for (directory, location) in locations {
+        let Ok(entries) = fs::read_dir(directory) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let Some(name) = path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+            else {
+                continue;
+            };
+            if name.starts_with("i-") {
+                folders.push((name, path, location));
+            }
+        }
+    }
+    folders.sort_by(|left, right| left.1.cmp(&right.1));
     folders
 }
 
@@ -480,24 +580,31 @@ fn requirement_ids(text: &str) -> BTreeSet<String> {
     ids
 }
 
-/// Accepted requirement IDs of an issue: a table row whose status is accepted.
-fn accepted_requirements(spec: &str) -> BTreeSet<String> {
+/// Requirement IDs of issue rows carrying one exact disposition cell.
+fn requirements_with_disposition(spec: &str, wanted: &str) -> BTreeSet<String> {
     let mut ids = BTreeSet::new();
     for line in spec.lines() {
         let trimmed = line.trim();
-        if !trimmed.starts_with('|') || !trimmed.to_ascii_lowercase().contains("accepted") {
+        if !trimmed.starts_with('|') {
             continue;
         }
-        let first = trimmed
-            .trim_start_matches('|')
+        let cells: Vec<&str> = trimmed
+            .trim_matches('|')
             .split('|')
-            .next()
-            .unwrap_or_default()
-            .trim()
-            .trim_matches('`')
-            .to_owned();
-        if is_requirement_id(&first) {
-            ids.insert(first);
+            .map(|cell| cell.trim().trim_matches('`'))
+            .collect();
+        let Some(first) = cells.first() else {
+            continue;
+        };
+        if !is_requirement_id(first) {
+            continue;
+        }
+        let disposition = cells
+            .iter()
+            .skip(1)
+            .find(|cell| matches!(**cell, "accepted" | "rejected" | "duplicate" | "deferred"));
+        if disposition.copied() == Some(wanted) {
+            ids.insert((*first).to_owned());
         }
     }
     ids

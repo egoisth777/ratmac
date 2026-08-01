@@ -13,10 +13,13 @@ only, **never evidence** - a residual may not cite it.
 
 **Where are we?** Derived from the tree, never declared - check in order:
 open tickets in `.arca/ticket/` -> P4/P5 (building); `missing|partial`
-residuals without tickets -> P3; goal frozen but residuals stale -> P2;
-`pending` issues -> P1; none of the above -> Idle. (`.arca/state.toml`
-answers only for a live `rtm` Run; until the P-cycle is the real runbook -
-see steering.md, Current sprint endpoint - the tree is the oracle.)
+residuals without tickets -> P3; goal frozen but residuals stale -> P2; a
+`pending` issue bundle directly under `.arca/issue/` -> P1; none of the above
+-> Idle. Bundles in `.arca/issue/deferred/` are live waiting work but do not
+force P1. Selecting one visibly moves that same complete bundle to the intake
+work area and changes its status to `pending`. (`.arca/state.toml` answers only
+for a live `rtm` Run; until the P-cycle is the real runbook - see steering.md,
+Current sprint endpoint - the tree is the oracle.)
 
 ## Map - how ratmac hangs together
 
@@ -80,7 +83,7 @@ error. `rtm scaffold <path>` writes the one runbook that starts clean.
 | `pin.rs` | Run evidence: stable Engine identity, gate-artifact pins, goal baseline/freeze, and the hash-only SHA-256 pin of canonical `.arca/ratmac.toml`. Non-exempt command guards run pinned code. |
 | `receipt.rs` | Sensitivity receipts; digests re-derived, self-verifying. |
 | `completion.rs` | Completion gate: green + fresh via tree digest. |
-| `contract.rs` | Intake/record contract gates; the record gate receives the addressed Run id for frozen-goal evidence. Project-specific `.arca/issue`, `.arca/residual`, `.arca/ticket`, and `.arca/goal` paths remain R-016 debt. |
+| `contract.rs` | Intake/record contract gates; the intake gate parses ask dispositions across intake, deferred, and archive as one issue-id namespace, while the record gate receives the addressed Run id for frozen-goal evidence. Project-specific `.arca/issue`, `.arca/residual`, `.arca/ticket`, and `.arca/goal` paths remain R-016 debt. |
 | `goal.rs` | Goal freeze and drift check (content hash of `.arca/goal/`). |
 | `blocked.rs` | Plans and applies an always-addressed human-confirmed hold: ticket/blocker checks, `open_run` residue/pin preflight, declared blocked route, then all-or-none named-Run state, history, and ticket updates. |
 | `abandon.rs` | Human-confirmed retirement. A live Run requires `--run`; class/pin/residue checks are intentionally bypassed so broken Runs remain retireable. One terminal event and retirement of that Run's state/evidence plus any leftover lock are all-or-none; its directory remains to reserve the id. |
@@ -139,7 +142,9 @@ All agent routing and documentation must use these paths.
 | `.arca/dict.md` | Glossary - plain-word definitions; consult before coining a term, add an entry when introducing one. |
 | `.arca/wishlist.md` | Unordered wishes with zero commitment; only a human promotes one into planning. |
 | `.arca/goal/` | The goal bundle now in force (`spec.md` > `design.md` > `test-list.md`, plus `ubi-lang.md`, `index.md`). Frozen per Run. |
-| `.arca/issue/<issue-id>/` | One incoming issue, exactly five files (shape: schema.md, "The issue folder"). |
+| `.arca/issue/<issue-id>/` | Intake work area for a newly created or explicitly selected issue; one exact five-file bundle (shape: schema.md, "The issue folder"). |
+| `.arca/issue/deferred/<issue-id>/` | Deferred issue buffer: the live waiting location for that same five-file bundle when any `spec.md` ask is `deferred`; `index.md` status mirrors it as `deferred`. |
+| `.arca/issue/archive/<issue-id>/` | Completed issue history: the same five-file shape, no `deferred` ask, and `index.md` status `rejected` or `integrated`; an integrated bundle has at least one accepted-or-duplicate ask, and duplicate-only integration adds no new goal row. |
 | `.arca/residual/` | Gap records, one per requirement - proven yet? |
 | `.arca/ticket/` | Small self-contained work units, cut from gap records. |
 | `.arca/state.toml` | Run state - written ONLY by `rtm`; everyone else reads. |
@@ -149,6 +154,32 @@ All agent routing and documentation must use these paths.
 | `.arca-private/` | Hidden test code, out of git, listed by its owning ticket. |
 | `test/` | The runnable suite plus `test/test-list.md`. |
 | `src/` | The Engine - mapped above. |
+
+## Issue movement and reviewable history
+
+The three issue locations form one issue-id namespace, with issue numbers
+unique across all three. P1 works only `pending` bundles in the intake work
+area. A deferred issue stays whole in the live buffer; selecting it moves that
+same bundle and issue id to intake, sets its status to `pending`, and carries
+the required live-link rewrites with it. Waiting in the buffer alone never
+puts the tree in P1.
+
+A completed bundle with no deferred ask may move whole into archive when its
+status is `rejected`, or when it is `integrated` with at least one
+accepted-or-duplicate ask; duplicate-only integration adds no new goal row.
+The move preserves identity, shape, and content except required relative-link
+rewrites. If a parsed archived `spec.md` contains any `deferred`
+disposition, the correction restores that exact complete bundle to
+`deferred/`, changes `index.md` status to `deferred`, and retargets the live
+inbound and outbound links without minting a replacement or second carrier.
+Links inside already archived records are frozen provenance, including inbound
+links to the restored issue, and stay byte-for-byte unchanged.
+
+Acceptance and merge-gate evidence is reviewable only when every file under
+its declared roots is tracked or staged, or is enumerated as an explicit
+exception. The evidence stores a manifest of path, tracking state, and SHA-256
+beside the claim. The binding archive, restoration, and snapshot rules are in
+[schema.md](schema.md#evidence-and-archive-rules).
 
 ## Bootstrap
 

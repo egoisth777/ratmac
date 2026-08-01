@@ -35,6 +35,8 @@ Glossary of ubiquitous language. One term, one meaning. Terms not listed here mu
 | Frozen goal revision | The content revision of `.arca/goal/` computed after intake integration completes; the only revision gap analysis and residual records may cite as the freeze. |
 | Goal drift | Any change to `.arca/goal/` observed after the frozen goal revision is recorded and before the build batch closes. |
 | Contract gate | A mechanized phase gate that verifies the phase's artifact contract and evidence, so status or prose edits alone can never satisfy it. |
+| Deferred issue | One exact five-file issue bundle whose parsed `spec.md` gives at least one ask the disposition `deferred`, even if sibling asks were accepted or marked duplicate. It is unresolved work, keeps its issue id, and is restored whole from archive if found there rather than represented by a replacement or second carrier. |
+| Deferred issue buffer | `.arca/issue/deferred/`, the live waiting location for a Deferred issue, where the whole bundle has status `deferred`. Waiting there does not force P1; selection visibly moves that same bundle and issue id to intake with status `pending`. |
 | Evidence receipt | A structured, tamper-evident record of one executed check: the command or predicate, the exercised target, the observed result, and a content digest binding them. |
 | Sensitivity receipt | An evidence receipt proving a planned test can fail: a recorded baseline failure before implementation or a controlled mutation that flips it. |
 | Agent-writable evidence artifact | A file agents may author to carry notes and receipts, distinct from Scheduler-owned files; the append-only log remains Engine-owned. |
@@ -44,7 +46,7 @@ Glossary of ubiquitous language. One term, one meaning. Terms not listed here mu
 | Reviewable snapshot | Candidate content whose every exercised path is visible to git review (tracked or staged), so the tested tree can be reconstructed and audited from the recorded change. |
 | Snapshot manifest | The recorded enumeration binding an evidence claim to its snapshot: per declared root, the git tracking state and a content digest. |
 | Declared evidence root | A directory the acceptance evidence claims to have exercised (product sources, QA suites, contributor artifacts). |
-| Authorized archive move | Relocating a completed issue folder to `.arca/issue/archive/<issue-id>/` with identity and five-file shape preserved and content unchanged except required relative-link updates. |
+| Authorized archive move | Relocating a completed issue with no deferred ask to `.arca/issue/archive/<issue-id>/`: status `rejected`, or status `integrated` with at least one accepted-or-duplicate disposition (duplicate-only integration adds no new goal row). Identity and five-file shape are preserved and content is unchanged except required relative-link updates. Live links move with it; links inside already archived records are frozen provenance and never rewritten for a later issue move. |
 | Release acceptance lane | The environment-coupled checks (live GitHub identity, exact origin, branch, clean worktree) that prove an operator cutover, runnable only by explicit opt-in. |
 | Default suite | What plain `cargo test --workspace` runs with no opt-in environment configured. |
 | Run-start sign-off | Explicit human authorization for the Main-Agent to invoke argument-free `rtm start` for the current target project; conversational instruction suffices, and no token, file, or Engine state encodes it. |

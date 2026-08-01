@@ -3,7 +3,7 @@
 ```yaml
 issue-id: "{{issue-id}}"
 provenance: "{{provenance}}"
-status: "{{pending|integrated|rejected}}"
+status: "{{pending|deferred|integrated|rejected}}"
 ```
 
 ## Summary

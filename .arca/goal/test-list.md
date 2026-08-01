@@ -67,7 +67,7 @@ Behavior checks derived from [spec.md](spec.md). Each is a testable one-liner.
 
 | ID | Check | Requirement |
 |---|---|---|
-| PGEV-002 | A correctly integrated fixture batch passes the intake gate; `integrated` with an accepted requirement ID absent from the goal, and a dangling reverse link, each refuse naming the offending artifact. | PGE-001 |
+| PGEV-002 | A valid fixture spanning intake, deferred, and archive passes `intake_contract` only after the gate parses each exact `accepted\|rejected\|duplicate\|deferred` disposition from `spec.md`: the deferred bundle stays whole with status `deferred`; every archived bundle is `integrated\|rejected` with no deferred ask; each accepted ID exists verbatim in the goal; a duplicate-only integrated bundle passes without its proposed duplicate ID becoming a new goal row; every integrated bundle has at least one accepted-or-duplicate ask; and live intake/deferred links resolve both ways. Variants with an unknown disposition, a status-only lie, a deferred ask outside `deferred/`, a bundle under `deferred/` with no deferred ask, status `deferred` in the wrong location, an archived deferred ask, a duplicate issue id, an integrated bundle with neither accepted nor duplicate, an accepted ID absent from the goal, a missing bundle file, or a dangling live reverse link each refuse naming the offending artifact. | PGE-001 |
 | PGEV-003 | Complete residual and ticket records pass; `satisfied` without evidence refs, a gap owned by zero or two tickets, a dependency cycle, and a ticket missing hidden-lane assessments each refuse naming the record. | PGE-002 |
 | PGEV-004 | A planned test with a baseline-failure receipt passes the P4 gate; the identical fixture with the receipt replaced by a prose log line is refused identifying the receiptless planned test. | PGE-003 |
 | PGEV-005 | An executable audit finds no active prompt or gate contract instructing a write to `.arca/state.toml`, `.arca/log.md`, or `.arca/rtm.lock`; a deliberately violating fixture prompt makes the audit fail. | PGE-004 |
@@ -82,11 +82,11 @@ Behavior checks derived from [spec.md](spec.md). Each is a testable one-liner.
 |---|---|---|
 | AOIV-002 | Recording evidence over declared roots in a clean fixture emits a manifest whose per-path digests match an independent re-hash and whose tracking states are all reviewable. | AOI-001 |
 | AOIV-003 | Adding one untracked file under a declared evidence root makes evidence recording refuse naming the path or forces its explicit enumeration as an exception; silent success fails. | AOI-001 |
-| AOIV-004 | A complete authorized archive move of a completed five-file issue passes the history-preservation oracle with live links updated. | AOI-002 |
-| AOIV-005 | The same move with one byte of preserved content altered fails naming the file; a partial move fails naming the gap; an in-place edit without a move still fails. | AOI-002 |
+| AOIV-004 | The history-preservation oracle passes both a complete authorized move to archive of a completed non-deferred five-file issue, including a duplicate-only integrated fixture that adds no new goal row, and exact complete restoration of an archived deferred issue's same bundle to `deferred/` with status `deferred` and live links retargeted; an inbound link inside another archived record stays byte-for-byte unchanged through both checks. | AOI-002 |
+| AOIV-005 | For either authorized direction, altering one otherwise preserved byte or leaving one of the five files behind fails naming the file or gap; archiving a pending/deferred issue or an integrated issue with neither an accepted nor duplicate ask, restoring by a replacement or second carrier, changing historical prose or a frozen archived inbound link, and editing in place without a move each fail. | AOI-002 |
 | AOIV-006 | On a feature branch with a pending issue folder present and no opt-in configured, `cargo test --workspace` passes and the release acceptance lane visibly reports skipped. | AOI-003 |
 | AOIV-007 | With the documented opt-in set in an unsatisfying environment, only the release acceptance lane fails and its diagnostics name the unsatisfied fact. | AOI-003 |
-| AOIV-008 | `.arca/index.md` states the archive authorization and the reviewable-snapshot rule, in tracked content visible to `git diff`. | AOI-002 |
+| AOIV-008 | `.arca/index.md` states the three-location issue namespace, completed-archive authorization, exact complete archive-to-deferred restoration with archived inbound links frozen, and the reviewable-snapshot rule, in tracked content visible to `git diff`. | AOI-002 |
 
 ## Integrated operable Run-start verification
 

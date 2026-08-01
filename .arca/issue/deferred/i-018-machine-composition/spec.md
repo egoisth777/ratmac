@@ -1,12 +1,12 @@
 # Issue specification
 
 Each ask below states a settled position from the closed adversarial-review ledger of the
-doctrine-convergence evidence seed ([test-plan.md](../i-016-fsm-doctrine-convergence/test-plan.md)),
+doctrine-convergence evidence seed ([test-plan.md](../../archive/i-016-fsm-doctrine-convergence/test-plan.md)),
 written as a requirement candidate for P1 fold-in. Dispositions record the author's proposed decision;
 P1 confirms or revises them at integration. Every rationale names its decision provenance: a **human
 ruling** (not revocable by an agent) or an **adopted default** (revocable; batch human sign-off,
 2026-07-29), both recorded in the seed's decision records
-([design.md](../i-016-fsm-doctrine-convergence/design.md)).
+([design.md](../../archive/i-016-fsm-doctrine-convergence/design.md)).
 
 Moved from the i-016 seed at the 2026-07-29 split.
 
@@ -32,14 +32,14 @@ defined in [ubi-lang.md](ubi-lang.md); IDs stay stable and are never renumbered.
 ## Acceptance criteria
 
 - Every requirement above traces to its decision record in the seed's
-  [design.md](../i-016-fsm-doctrine-convergence/design.md) and names its provenance: human ruling or
+  [design.md](../../archive/i-016-fsm-doctrine-convergence/design.md) and names its provenance: human ruling or
   adopted default (revocable).
 - **Billy's 2026-07-30 cut** created input-routed transitions, input delivery and durability, and
   Run completion as separate pending concerns. **Assumed dependency forecast, revocable at planning
   step 1:** integrated Run residency supplies addresses; input-routed transitions
-  ([i-016-fsm-doctrine-convergence](../i-016-fsm-doctrine-convergence/index.md)) supply legal inputs
+  ([i-016-fsm-doctrine-convergence](../../archive/i-016-fsm-doctrine-convergence/index.md)) supply legal inputs
   and edge selection; input delivery
-  ([i-019-input-delivery-durability](../i-019-input-delivery-durability/index.md)) supplies
+  ([i-019-input-delivery-durability](../../archive/i-019-input-delivery-durability/index.md)) supplies
   replay-safe judgment handoff; Run completion
   ([i-020-run-completion](../i-020-run-completion/index.md)) supplies durable terminal facts.
   Machine composition follows those four contracts.

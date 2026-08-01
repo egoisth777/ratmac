@@ -3,7 +3,7 @@
 ```yaml
 issue-id: "i-015-cycle-as-runbook"
 provenance: "Discovered while closing the i-011..i-014 sprint, 2026-07-28 - steering.md Current sprint endpoint is unmet and the frozen goal carries no requirement for it; schema.md, The only road back"
-status: "integrated"
+status: "deferred"
 ```
 
 ## Summary

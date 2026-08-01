@@ -64,6 +64,115 @@ fn archive_move(repo: &TempRepo, issue_id: &str, skip: Option<&str>) {
     }
 }
 
+fn seed_archived_issue(repo: &TempRepo, issue_id: &str, disposition: &str) {
+    for name in FILES {
+        let content = if name == "index.md" {
+            format!(
+                "# {issue_id}\n\n```yaml\nissue-id: \"{issue_id}\"\nstatus: \"integrated\"\n```\n"
+            )
+        } else if name == "spec.md" {
+            format!(
+                "# Requirement records\n\n\
+                 | Req ID | Requirement | Disposition |\n\
+                 |---|---|---|\n\
+                 | `DEF-001` | Preserve the original carrier. | {disposition} |\n\n\
+                 See [archived dependency](../i-900-dependency/design.md).\n"
+            )
+        } else {
+            format!("# {name} for {issue_id}\n")
+        };
+        repo.write(&format!(".arca/issue/archive/{issue_id}/{name}"), &content);
+    }
+}
+
+fn restore_deferred(repo: &TempRepo, issue_id: &str, skip: Option<&str>) {
+    for name in FILES {
+        if Some(name) == skip {
+            continue;
+        }
+        let from = repo
+            .root()
+            .join(format!(".arca/issue/archive/{issue_id}/{name}"));
+        let content = fs::read_to_string(&from).expect("read archived issue file");
+        let restored = content
+            .replace("status: \"integrated\"", "status: \"deferred\"")
+            .replace(
+                "](../i-900-dependency/",
+                "](../../archive/i-900-dependency/",
+            );
+        let to = repo
+            .root()
+            .join(format!(".arca/issue/deferred/{issue_id}/{name}"));
+        fs::create_dir_all(to.parent().expect("deferred parent"))
+            .expect("create deferred directory");
+        fs::write(&to, restored).expect("write deferred issue file");
+        fs::remove_file(&from).expect("remove archived source file");
+    }
+}
+
+fn move_intake_to_deferred(repo: &TempRepo, issue_id: &str) {
+    for name in FILES {
+        let from = repo.root().join(format!(".arca/issue/{issue_id}/{name}"));
+        let content = fs::read_to_string(&from).expect("read intake issue file");
+        let mut moved = content
+            .replace("status: \"pending\"", "status: \"deferred\"")
+            .replace("](../../", "](../../../");
+        if name == "spec.md" {
+            moved.push_str(
+                "\n| Req ID | Requirement | Disposition |\n\
+                 |---|---|---|\n\
+                 | `DEF-001` | Preserve the original carrier. | deferred |\n",
+            );
+        }
+        let to = repo
+            .root()
+            .join(format!(".arca/issue/deferred/{issue_id}/{name}"));
+        fs::create_dir_all(to.parent().expect("deferred parent"))
+            .expect("create deferred directory");
+        fs::write(&to, moved).expect("write deferred issue file");
+        fs::remove_file(&from).expect("remove intake source file");
+    }
+}
+
+fn move_deferred_to_intake(repo: &TempRepo, issue_id: &str) {
+    for name in FILES {
+        let from = repo
+            .root()
+            .join(format!(".arca/issue/deferred/{issue_id}/{name}"));
+        let content = fs::read_to_string(&from).expect("read deferred issue file");
+        let moved = content
+            .replace("status: \"deferred\"", "status: \"pending\"")
+            .replace("](../../../", "](../../");
+        let to = repo.root().join(format!(".arca/issue/{issue_id}/{name}"));
+        fs::create_dir_all(to.parent().expect("intake parent")).expect("create intake directory");
+        fs::write(&to, moved).expect("write selected issue file");
+        fs::remove_file(&from).expect("remove deferred source file");
+    }
+}
+
+fn complete_and_archive(repo: &TempRepo, issue_id: &str) {
+    for name in FILES {
+        let from = repo.root().join(format!(".arca/issue/{issue_id}/{name}"));
+        let content = fs::read_to_string(&from).expect("read pending issue file");
+        let mut archived = content
+            .replace("status: \"pending\"", "status: \"integrated\"")
+            .replace("](../../", "](../../../");
+        if name == "spec.md" {
+            archived.push_str(
+                "\n| Req ID | Requirement | Disposition |\n\
+                 |---|---|---|\n\
+                 | `REQ-001` | Preserve the original carrier. | accepted |\n",
+            );
+        }
+        let to = repo
+            .root()
+            .join(format!(".arca/issue/archive/{issue_id}/{name}"));
+        fs::create_dir_all(to.parent().expect("archive parent")).expect("create archive dir");
+        fs::write(&to, archived).expect("write completed issue file");
+        fs::remove_file(&from).expect("remove intake source file");
+    }
+}
+
 fn history_roots() -> Vec<&'static str> {
     vec![".arca/issue"]
 }
@@ -78,6 +187,112 @@ fn complete_authorized_move_is_preservation() {
 
     verify_history_preservation(repo.root(), &history_roots())
         .expect("a complete authorized archive move is preservation");
+}
+
+#[test]
+fn complete_deferred_restoration_is_preservation() {
+    let repo = TempRepo::new("deferred-restore-pass");
+    seed_archived_issue(&repo, "i-010-waiting", "deferred");
+    repo.commit_all("seed wrongly archived deferred issue");
+
+    restore_deferred(&repo, "i-010-waiting", None);
+
+    verify_history_preservation(repo.root(), &history_roots())
+        .expect("complete status-and-link-only deferred restoration is preservation");
+}
+
+#[test]
+fn active_issue_lifecycle_moves_are_preservation() {
+    let repo = TempRepo::new("intake-to-deferred-pass");
+    seed_issue(&repo, "i-020-waiting", "pending");
+    repo.commit_all("seed pending issue");
+    move_intake_to_deferred(&repo, "i-020-waiting");
+    verify_history_preservation(repo.root(), &history_roots())
+        .expect("a complete pending-to-deferred move is preservation");
+
+    let repo = TempRepo::new("deferred-to-intake-pass");
+    seed_issue(&repo, "i-021-selected", "pending");
+    move_intake_to_deferred(&repo, "i-021-selected");
+    repo.commit_all("seed deferred issue");
+    move_deferred_to_intake(&repo, "i-021-selected");
+    verify_history_preservation(repo.root(), &history_roots())
+        .expect("selecting the complete deferred bundle is preservation");
+
+    let repo = TempRepo::new("pending-to-archive-pass");
+    seed_issue(&repo, "i-022-completed", "pending");
+    repo.commit_all("seed pending issue");
+    complete_and_archive(&repo, "i-022-completed");
+    verify_history_preservation(repo.root(), &history_roots())
+        .expect("completing and archiving a pending issue is preservation");
+}
+
+#[test]
+fn invalid_deferred_restorations_fail() {
+    let repo = TempRepo::new("deferred-restore-partial");
+    seed_archived_issue(&repo, "i-011-waiting", "deferred");
+    repo.commit_all("seed wrongly archived deferred issue");
+    restore_deferred(&repo, "i-011-waiting", Some("ubi-lang.md"));
+    let violations = verify_history_preservation(repo.root(), &history_roots())
+        .expect_err("partial deferred restoration must fail");
+    assert!(
+        violations
+            .iter()
+            .any(|violation| violation.reason.contains("partial")),
+        "partial restoration names the gap: {violations:?}"
+    );
+
+    let repo = TempRepo::new("deferred-restore-no-row");
+    seed_archived_issue(&repo, "i-012-complete", "accepted");
+    repo.commit_all("seed completed archived issue");
+    restore_deferred(&repo, "i-012-complete", None);
+    let violations = verify_history_preservation(repo.root(), &history_roots())
+        .expect_err("an issue without a deferred ask must stay archived");
+    assert!(
+        violations
+            .iter()
+            .any(|violation| violation.reason.contains("no recorded deferred ask")),
+        "missing disposition is named: {violations:?}"
+    );
+
+    let repo = TempRepo::new("deferred-restore-status");
+    seed_archived_issue(&repo, "i-013-waiting", "deferred");
+    repo.commit_all("seed wrongly archived deferred issue");
+    restore_deferred(&repo, "i-013-waiting", None);
+    let index = repo
+        .root()
+        .join(".arca/issue/deferred/i-013-waiting/index.md");
+    let content = fs::read_to_string(&index).expect("read restored index");
+    fs::write(
+        &index,
+        content.replace("status: \"deferred\"", "status: \"integrated\""),
+    )
+    .expect("write wrong restored status");
+    let violations = verify_history_preservation(repo.root(), &history_roots())
+        .expect_err("restoration without deferred status must fail");
+    assert!(
+        violations
+            .iter()
+            .any(|violation| violation.reason.contains("status deferred")),
+        "wrong status is named: {violations:?}"
+    );
+
+    let repo = TempRepo::new("deferred-restore-mutated");
+    seed_archived_issue(&repo, "i-014-waiting", "deferred");
+    repo.commit_all("seed wrongly archived deferred issue");
+    restore_deferred(&repo, "i-014-waiting", None);
+    let spec = repo
+        .root()
+        .join(".arca/issue/deferred/i-014-waiting/spec.md");
+    let content = fs::read_to_string(&spec).expect("read restored spec");
+    fs::write(&spec, format!("{content}\nChanged prose.\n")).expect("mutate restored spec");
+    let violations = verify_history_preservation(repo.root(), &history_roots())
+        .expect_err("arbitrary content mutation during restoration must fail");
+    assert!(
+        violations
+            .iter()
+            .any(|violation| violation.reason.contains("differs")),
+        "mutation is named: {violations:?}"
+    );
 }
 
 #[test]
@@ -166,6 +381,10 @@ fn schema_states_archive_and_snapshot_rules() {
     assert!(
         schema.to_lowercase().contains("reviewable snapshot"),
         "the reviewable-snapshot evidence rule is stated"
+    );
+    assert!(
+        schema.contains(".arca/issue/deferred/<issue-id>/"),
+        "the deferred restoration destination is authorized in the contributor schema"
     );
     assert!(
         schema.contains("RATMAC_RELEASE_ACCEPTANCE"),

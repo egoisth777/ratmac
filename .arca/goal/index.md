@@ -37,11 +37,11 @@ Guard-execution, refusal-diagnostic, and goal-freeze requirements are integrated
 
 ## Integrated contract-verifying gates
 
-Contract-gate, receipt, ownership, blocked-route, and Run-abandonment requirements are integrated from [i-007-contract-verifying-gates](../issue/archive/i-007-contract-verifying-gates/index.md): `PGE-001` through `PGE-007`.
+Contract-gate, receipt, ownership, blocked-route, and Run-abandonment requirements are integrated from [i-007-contract-verifying-gates](../issue/archive/i-007-contract-verifying-gates/index.md): `PGE-001` through `PGE-007`. The intake contract treats intake, the Deferred issue buffer, and archive as one issue-id namespace, parses ask dispositions from `spec.md`, and enforces five-file shape, status/location, accepted-goal, and live-link invariants. Every integrated bundle has no deferred ask and at least one accepted-or-duplicate ask; only accepted IDs must exist verbatim as goal rows, so duplicate-only integration is valid.
 
 ## Integrated acceptance-oracle integrity
 
-Reviewable-snapshot, archive-aware oracle, and opt-in release lane requirements are integrated from [i-008-honest-acceptance-oracles](../issue/archive/i-008-honest-acceptance-oracles/index.md): `AOI-001` through `AOI-003`.
+Reviewable-snapshot, archive-aware oracle, and opt-in release lane requirements are integrated from [i-008-honest-acceptance-oracles](../issue/archive/i-008-honest-acceptance-oracles/index.md): `AOI-001` through `AOI-003`. The archive oracle recognizes both complete completed-issue moves into archive and exact complete restoration of an archived deferred bundle to the Deferred issue buffer, while inbound links inside already archived records remain frozen provenance.
 
 ## Integrated operable Run start
 

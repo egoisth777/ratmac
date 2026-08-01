@@ -802,7 +802,7 @@ impl Scheduler {
                 GuardKind::IntakeContract => self.evaluate_contract(
                     "intake_contract",
                     crate::contract::gate_intake(root),
-                    "every issue integrated or rejected, five-file shape intact, requirement IDs in the goal, links resolving",
+                    "issue dispositions, status, and location agree across intake/deferred/archive; five-file shape intact; accepted IDs in the goal; live links resolving",
                 ),
                 GuardKind::RecordContract => self.evaluate_contract(
                     "record_contract",
