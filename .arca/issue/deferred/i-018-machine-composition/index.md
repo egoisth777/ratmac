@@ -47,3 +47,5 @@ this issue's files cite them, never copy.
   dependent input delivery and durability, and independent Run completion. Requirement identifiers
   stayed unchanged.
 - 2026-07-30: all four asks were dispositioned `deferred`; the issue closes this batch as `integrated` with zero accepted goal rows. Steering retains machine composition in Horizon for a later issue after Run completion lands.
+
+- 2026-07-31 correction: the preceding `integrated` conclusion is superseded. All four asks remain `deferred`, so the same five-file bundle stays live in the Deferred issue buffer with status `deferred`; no replacement issue carries them.

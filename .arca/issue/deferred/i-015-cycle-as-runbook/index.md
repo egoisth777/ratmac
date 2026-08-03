@@ -38,3 +38,5 @@ yet. They are recorded here as requirements, not as intentions.
   requirement identifiers stayed unchanged. The ordering among the new concerns is an assumed
   dependency forecast, revocable at planning step 1.
 - 2026-07-30: all six asks were dispositioned `deferred`; the issue closes this batch as `integrated` with zero accepted goal rows, satisfying the planning-step terminal status without pretending the asks landed. Steering retains the direction in Horizon; a later planning issue may carry the deferred asks when their dependencies land.
+
+- 2026-07-31 correction: the preceding `integrated` conclusion is superseded. All six asks remain `deferred`, so the same five-file bundle stays live in the Deferred issue buffer with status `deferred`; no replacement issue carries them.

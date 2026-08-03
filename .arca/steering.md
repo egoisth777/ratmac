@@ -82,27 +82,53 @@ one is a direction change and starts here.
 
 An authored ordering of directions beyond the current sprint, in direction
 and issue terms only. Binds nothing; nothing here is chosen; an item enters
-work only by going through P1 like any other issue.
+work only by going through P1 like any other issue. The ordering below is
+the forecast route from the landed routing and delivery contracts to the
+Self-hosted property in Ideal shape: this repository's own P1-P5 cycle run
+as a ratmac runbook. Each item names an entry condition - what must already
+be landed or ruled before selecting it at P1 is safe - and an exit - the
+direction-level fact its integration would make true. Conditions forecast
+what selection would require and deliver; they select nothing.
 
-1. **Run completion** - the Run-completion issue
-   (`i-020-run-completion`): `passed` on entering a terminal state, durable
-   abandonment before active-state retirement, and guard refusal kept
-   non-terminal. Independent of routing, but before composition because joins
-   need an Engine-written terminal fact they can read.
-2. **The `failed`-outcome contract** - a later, separate issue must name the
-   concrete Engine-observable failure event that grants the third terminal.
-   It does not fold back into input routing or Run completion: neither a
-   judgment value nor a guard refusal is failure.
-3. **Machine composition** - the machine-composition issue
-   (`i-018-machine-composition`): spawn and join semantics, the spawn-ledger
-   content contract, recursion depth. After routing, delivery, and completion
-   because spawned children must return durable facts that route and
-   terminate the parent.
+1. **Run completion** - the Run-completion issue (`i-020-run-completion`),
+   waiting whole in the deferred buffer. Entry: none outstanding - it
+   builds only on integrated Run residency for the addressed State File,
+   so the next planning pass may select it as-is. Exit: the Engine itself
+   writes the `passed` terminal fact, abandonment leaves a durable
+   terminal event before active state retires, and guard refusal stays
+   non-terminal. First on the route because a composition join and a
+   cycle runbook both need an Engine-written terminal fact they can read.
+2. **Machine composition** - the machine-composition issue
+   (`i-018-machine-composition`), waiting whole in the deferred buffer.
+   Entry: durable Run completion is integrated, and the spawn-ledger
+   content fork below is answered (that issue's spec extended, or the
+   small separate carrier minted). Exit: spawn and join are ordinary
+   checked motion - spawned children return durable terminal facts that
+   route and terminate the parent - with the recursion-depth fork ruled,
+   not guessed. After completion because a join can only read a terminal
+   fact the Engine writes.
+3. **The `failed`-outcome contract** - a later, separate issue that names
+   the concrete Engine-observable failure event granting the third
+   terminal. Entry: the failure-event fork below is answered - neither a
+   judgment value nor a guard refusal qualifies. Exit: `failed` has
+   exactly one Engine-observable trigger. Off the critical path: neither
+   the machine-composition issue nor the cycle-as-runbook issue names it
+   as a dependency, so it may land beside composition and blocks nothing;
+   it becomes urgent only if the cycle runbook's terminal vocabulary
+   turns out to need the third outcome.
 4. **The cycle as the real runbook** - the cycle-as-runbook issue
-   (`i-015-cycle-as-runbook`): self-hosting this repository's P1-P5 loop as
-   a ratmac runbook. Last because it consumes selection, delivery,
-   completion, and composition; hosting it earlier would encode
-   first-edge-wins into the shop's own loop.
+   (`i-015-cycle-as-runbook`), waiting whole in the deferred buffer:
+   self-hosting this repository's P1-P5 loop. Entry: routing, delivery,
+   completion, and composition are all integrated and landed, because the
+   cycle consumes all four; hosting it earlier would encode
+   first-edge-wins into the shop's own loop. Exit - the Self-hosted
+   property itself: `.arca/ratmac.toml` declares the real cycle and is
+   doctor-clean, `rtm status` answers "where are we" with the
+   tree-derived lookup demoted to a no-live-Run fallback, the landing
+   line is Engine-appended while a Run is live, and no gate's verdict
+   rests on content writable by the agent under test. Only when that exit
+   holds does ratmac replace the manual P1-P5 control this file
+   describes - never before, and never by declaring it here.
 
 ## Open questions
 

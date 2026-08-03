@@ -24,3 +24,5 @@ It retains requirement `FDC-002` under its existing identifier and has no depend
 ## P1 disposition
 
 - 2026-07-30: `FDC-002` was dispositioned `deferred`; the issue closes this batch as `integrated` with zero accepted goal rows. Steering retains Run completion as the next Horizon direction for a later planning issue.
+
+- 2026-07-31 correction: the preceding `integrated` conclusion is superseded. The Run-completion ask remains `deferred`, so the same five-file bundle stays live in the Deferred issue buffer with status `deferred`; no replacement issue carries it.
