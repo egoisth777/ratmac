@@ -159,7 +159,10 @@ fn runs_snapshot(runs: &Path) -> BTreeMap<String, Vec<u8>> {
                     .expect("snapshot path is below the runs root")
                     .to_string_lossy()
                     .replace('\\', "/");
-                files.insert(relative, fs::read(&path).expect("snapshot entry is readable"));
+                files.insert(
+                    relative,
+                    fs::read(&path).expect("snapshot entry is readable"),
+                );
             }
         }
     }
@@ -225,7 +228,11 @@ fn spawn_is_ordinary_checked_motion_without_phrase() {
         "a declared spawn in the spawning Phase is ordinary motion: {spawn_text}"
     );
     let roster = fixture.roster();
-    assert_eq!(roster.len(), 2, "the child is a flat top-level Run: {roster:?}");
+    assert_eq!(
+        roster.len(),
+        2,
+        "the child is a flat top-level Run: {roster:?}"
+    );
     let child = roster
         .iter()
         .find(|id| **id != parent)
@@ -326,7 +333,13 @@ fn abandon_phrase_names_the_run_id() {
     let run = fixture.start();
 
     let before = runs_snapshot(&fixture.runs_dir());
-    let old = fixture.rtm(&["abandon", "--run", &run, "--confirm", &fixture.project_phrase()]);
+    let old = fixture.rtm(&[
+        "abandon",
+        "--run",
+        &run,
+        "--confirm",
+        &fixture.project_phrase(),
+    ]);
     let old_text = combined(&old);
     assert!(
         !old.status.success(),

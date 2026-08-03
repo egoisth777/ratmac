@@ -118,3 +118,15 @@ refuses while no ledger records children. The format is one level deep: class
 bodies accept no nested class tables and their Phases no spawn tables
 (FDC-012's shape). The repair loop is unchanged: `rtm doctor --json` names
 composition defects as `RB501`-`RB506`.
+
+Creating and superseding those children is Engine motion, split by kind
+(FDC-007). `rtm spawn <spawn name> --run <parent id>` is ordinary checked
+motion - no confirmation phrase - legal only while the parent stands in the
+Phase declaring that entry; the child lands on the flat roster as an ordinary
+Run. `rtm respawn --run <id> --confirm "respawn <id>"` and
+`rtm abandon --run <id> --confirm "abandon <id>"` are human-confirmed by
+phrases naming that run id, typed at invocation and never read from a file.
+A respawn mints a fresh successor id - the superseded record keeps its
+address - and retires the superseded Run by the abandon path. Retiring only
+a leftover lock, with no live run anywhere, still confirms with the project
+directory name.

@@ -18,5 +18,5 @@ pub mod scheduler;
 pub mod state;
 pub mod verdict;
 
-pub use scheduler::{GuardFailure, Scheduler, StepOutcome, StepRequest};
+pub use scheduler::{GuardFailure, RespawnRequest, Scheduler, StepOutcome, StepRequest};
 pub use state::{PhasePrompt, StateError, StateStore, StatusReport};

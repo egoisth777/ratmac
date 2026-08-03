@@ -86,15 +86,10 @@ impl Fixture {
         ids
     }
 
-    /// The exact phrase a human types to retire a run of this project.
-    fn confirm_phrase(&self) -> String {
-        format!(
-            "abandon {}",
-            self.root
-                .file_name()
-                .expect("the fixture root has a name")
-                .to_string_lossy()
-        )
+    /// The exact phrase a human types to retire the named run
+    /// (FDC-007: the phrase names the run id, not the project).
+    fn confirm_phrase(&self, id: &str) -> String {
+        format!("abandon {id}")
     }
 
     /// The one id on the roster beyond `known` — exactly one start minted it.
@@ -216,8 +211,6 @@ fn no_active_run_cap_is_enforced() {
 #[test]
 fn abandoned_ids_are_never_reissued() {
     let fixture = Fixture::new("reissue");
-    let confirm = fixture.confirm_phrase();
-
     // The fixture premise: a project with one abandoned run.
     let start = fixture.rtm(&["start"]);
     assert!(
@@ -226,7 +219,13 @@ fn abandoned_ids_are_never_reissued() {
         combined(&start)
     );
     let first = fixture.newly_minted(&[]);
-    let abandon = fixture.rtm(&["abandon", "--run", &first, "--confirm", &confirm]);
+    let abandon = fixture.rtm(&[
+        "abandon",
+        "--run",
+        &first,
+        "--confirm",
+        &fixture.confirm_phrase(&first),
+    ]);
     assert!(
         abandon.status.success(),
         "the confirmed abandon must retire the named run: {}",
@@ -263,7 +262,13 @@ fn abandoned_ids_are_never_reissued() {
     // Model a respawn: retire the live run, then start its successor. The
     // successor mints a fresh id rather than reviving either retired id — a
     // namespace fact; the respawn verb itself is machine composition's.
-    let abandon_second = fixture.rtm(&["abandon", "--run", &second, "--confirm", &confirm]);
+    let abandon_second = fixture.rtm(&[
+        "abandon",
+        "--run",
+        &second,
+        "--confirm",
+        &fixture.confirm_phrase(&second),
+    ]);
     assert!(
         abandon_second.status.success(),
         "the confirmed abandon must retire the named run: {}",

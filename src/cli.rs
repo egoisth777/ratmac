@@ -63,7 +63,13 @@ pub fn help(command: impl AsRef<str>) -> &'static str {
             "Usage: rtm hold <ticket-id> --run <id> --blocker <issue folder or residual> --confirm \"hold <ticket-id>\"\n\nA human confirms holding an executing ticket that is blocked for an out-of-scope reason. The named Run then routes along the Runbook's blocked route while the ticket stays not-passed and its residuals unproven. The confirmation phrase is typed at invocation; it is never read from a file.\n"
         }
         "abandon" => {
-            "Usage: rtm abandon --run <id> --confirm \"abandon <project directory name>\"\n\nA human retires a broken Run: rtm records a terminal abandoned event, then retires the admission state, the Run evidence, and the lock so a fresh Run can start. The confirmation phrase is typed at invocation; it is never read from a file. No bypass flag exists - a stale lock is retired through this path.\n"
+            "Usage: rtm abandon --run <id> --confirm \"abandon <run id>\"\n\nA human retires a broken Run: rtm records a terminal abandoned event, then retires the admission state, the Run evidence, and the lock so a fresh Run can start. The confirmation phrase names the addressed run id (FDC-007), is typed at invocation, and is never read from a file. Retiring only a leftover lock - no live run anywhere - omits --run and confirms with \"abandon <project directory name>\". No bypass flag exists - a stale lock is retired through this path.\n"
+        }
+        "spawn" => {
+            "Usage: rtm spawn <name> --run <parent id>\n\nOrdinary checked motion, no confirmation phrase (FDC-007): create a child Run from a class the parent's runbook declares. Legal only while the parent occupies the Phase declaring that spawn. The child is an ordinary Run on the flat roster with its own State File and evidence.\n"
+        }
+        "respawn" => {
+            "Usage: rtm respawn --run <id> --confirm \"respawn <run id>\"\n\nA human supersedes a Run: a fresh successor id is minted - never overwriting, the superseded record keeps its address - and the superseded Run is retired by the abandon path. The confirmation phrase names the run id, is typed at invocation, and is never read from a file.\n"
         }
         "doctor" => {
             "Usage: rtm doctor [--json] [runbook path]\n\nRead-only diagnosis: reports the resolved Engine identity, Runbook validity, and runtime state, and names the next legitimate action. Given a path, diagnoses that runbook instead, inside or outside a project. --json emits the findings as data. Exit code: 0 clean, 1 warnings, 2 errors. Writes nothing.\n"
@@ -71,7 +77,7 @@ pub fn help(command: impl AsRef<str>) -> &'static str {
         "scaffold" => {
             "Usage: rtm scaffold <path>\n\nWrite the smallest doctor-clean runbook at a path that does not exist yet. Scaffolding creates exactly one file, never overwrites, and creates no directories. Edit from there and repair with rtm doctor --json <path>; the loop is written down in .arca/runbook-authoring.md.\n"
         }
-        _ => "Usage: rtm <command> [options]\n\nCommands: start, status, step, hold, abandon, doctor, scaffold\n",
+        _ => "Usage: rtm <command> [options]\n\nCommands: start, status, step, hold, abandon, spawn, respawn, doctor, scaffold\n",
     }
 }
 
@@ -185,6 +191,16 @@ where
 
     if command == "abandon" {
         abandon(command_args, &project_root, writer)?;
+        return Ok(0);
+    }
+
+    if command == "spawn" {
+        spawn(command_args, &project_root, writer)?;
+        return Ok(0);
+    }
+
+    if command == "respawn" {
+        respawn(command_args, &project_root, writer)?;
         return Ok(0);
     }
 
@@ -317,6 +333,100 @@ fn hold<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Resul
 ///
 /// The confirmation phrase is checked before the first write; the retirement
 /// itself is all-or-nothing.
+/// FDC-007: ordinary checked motion. No confirmation phrase; the Scheduler
+/// checks the parent's Phase and the declared spawn before any write.
+fn spawn<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Result<(), CliError> {
+    let mut name: Option<String> = None;
+    let mut run: Option<String> = None;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--run" => {
+                run = Some(args.get(index + 1).cloned().ok_or_else(|| {
+                    CliError::refusal(format!(
+                        "spawn: --run needs a run id; {}",
+                        roster_line(project_root)
+                    ))
+                })?);
+                index += 2;
+            }
+            other if name.is_none() && !other.starts_with("--") => {
+                name = Some(other.to_owned());
+                index += 1;
+            }
+            other => {
+                return Err(CliError::new(format!(
+                    "spawn: unsupported option {other}; usage: rtm spawn <name> --run <parent id>"
+                )))
+            }
+        }
+    }
+    let name = name.ok_or_else(|| {
+        CliError::new(
+            "spawn needs the declared spawn name: rtm spawn <name> --run <parent id>".to_owned(),
+        )
+    })?;
+    let run = run.ok_or_else(|| {
+        CliError::refusal(format!(
+            "spawn requires --run <parent id>; {}",
+            roster_line(project_root)
+        ))
+    })?;
+    let mut scheduler = Scheduler::open_run(project_root, &run)
+        .map_err(|error| CliError::new(format!("spawn: {error}")))?;
+    let child = scheduler
+        .spawn(&name)
+        .map_err(|error| CliError::new(format!("spawn: {error}")))?;
+    writeln!(
+        writer,
+        "rtm: spawned run {child} (spawn {name}) from run {run}; the child is an ordinary Run at .arca/runs/{child}/"
+    )?;
+    Ok(())
+}
+
+/// FDC-007/FDC-006: human-confirmed supersession by a phrase naming the
+/// superseded run id.
+fn respawn<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Result<(), CliError> {
+    let mut confirmation: Option<String> = None;
+    let mut run: Option<String> = None;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--run" => {
+                run = Some(args.get(index + 1).cloned().ok_or_else(|| {
+                    CliError::refusal(format!(
+                        "respawn: --run needs a run id; {}",
+                        roster_line(project_root)
+                    ))
+                })?);
+                index += 2;
+            }
+            "--confirm" => {
+                confirmation = Some(args.get(index + 1).cloned().ok_or_else(|| {
+                    CliError::new(
+                        "respawn: --confirm needs the exact confirmation phrase \"respawn <run id>\""
+                            .to_owned(),
+                    )
+                })?);
+                index += 2;
+            }
+            other => {
+                return Err(CliError::new(format!(
+                    "respawn: unsupported option {other}; usage: rtm respawn --run <id> --confirm \"respawn <run id>\""
+                )))
+            }
+        }
+    }
+    let request = crate::RespawnRequest { run, confirmation };
+    let successor = Scheduler::respawn(project_root, &request)
+        .map_err(|error| CliError::new(format!("respawn refused; {error}")))?;
+    writeln!(
+        writer,
+        "rtm: run superseded; successor run {successor} minted at .arca/runs/{successor}/"
+    )?;
+    Ok(())
+}
+
 fn abandon<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Result<(), CliError> {
     let mut confirmation: Option<String> = None;
     let mut run: Option<String> = None;
@@ -336,7 +446,7 @@ fn abandon<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Re
                 confirmation = Some(args.get(index + 1).cloned().ok_or_else(|| {
                     CliError::new(format!(
                         "abandon: --confirm needs the exact confirmation phrase {:?}",
-                        crate::abandon::required_phrase(project_root)
+                        crate::abandon::required_phrase(project_root, run.as_deref())
                     ))
                 })?);
                 index += 2;
@@ -344,7 +454,7 @@ fn abandon<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Re
             other => {
                 return Err(CliError::new(format!(
                     "abandon: unsupported option {other}; the only option is --confirm {:?}",
-                    crate::abandon::required_phrase(project_root)
+                    crate::abandon::required_phrase(project_root, run.as_deref())
                 )))
             }
         }

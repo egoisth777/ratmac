@@ -150,15 +150,10 @@ impl Fixture {
         .expect("publish live verdict fixture");
     }
 
-    /// The exact phrase a human must type to retire this project's Run.
+    /// The exact phrase a human must type to retire the addressed Run
+    /// (FDC-007: the phrase names the run id, not the project).
     fn abandon_phrase(&self) -> String {
-        format!(
-            "abandon {}",
-            self.root
-                .file_name()
-                .expect("fixture has a directory name")
-                .to_string_lossy()
-        )
+        format!("abandon {}", self.run_id)
     }
 
     fn run_snapshot(&self) -> BTreeMap<String, Option<Vec<u8>>> {

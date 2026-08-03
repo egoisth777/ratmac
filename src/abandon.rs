@@ -55,9 +55,15 @@ fn refusal(reason: impl Into<String>) -> AbandonRefusal {
     }
 }
 
-/// The exact phrase a human must type to retire this project's Run.
-pub fn required_phrase(root: &Path) -> String {
-    format!("abandon {}", project_name(root))
+/// The exact phrase a human must type to retire the addressed Run.
+pub fn required_phrase(root: &Path, run: Option<&str>) -> String {
+    // FDC-007: abandon-with-run-id demands a phrase naming that run id. Only
+    // the unaddressed leftover-lock retirement - which touches no Run - keeps
+    // the project-name phrase.
+    match run.map(str::trim).filter(|id| !id.is_empty()) {
+        Some(id) => format!("abandon {id}"),
+        None => format!("abandon {}", project_name(root)),
+    }
 }
 
 fn project_name(root: &Path) -> String {
@@ -94,7 +100,7 @@ pub struct AbandonPlan {
 
 /// Decide whether this project's Run may be retired. Writes nothing.
 pub fn plan_abandon(root: &Path, request: &AbandonRequest) -> Result<AbandonPlan, AbandonRefusal> {
-    let required = required_phrase(root);
+    let required = required_phrase(root, request.run.as_deref());
     match request.confirmation.as_deref() {
         None => {
             return Err(refusal(format!(

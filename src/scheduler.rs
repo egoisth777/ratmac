@@ -9,6 +9,15 @@ use crate::machine::{GuardKind, MachineClass};
 use crate::model::{Run, RunState, Status};
 use crate::state::{PhasePrompt, StateError, StateStore, StatusReport};
 
+/// What a human asked for when superseding a Run (FDC-007/FDC-006).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RespawnRequest {
+    /// The run to supersede: `--run <id>`, always required.
+    pub run: Option<String>,
+    /// The typed confirmation phrase, `respawn <id>`, naming that run id.
+    pub confirmation: Option<String>,
+}
+
 /// Entry facts needed before a Run may proceed.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EntryPrerequisites {
@@ -463,8 +472,28 @@ impl Scheduler {
         // FDC-006: no active-Run cap. Any number of runs coexist under
         // .arca/runs/, each addressed by its own id; start only mints the
         // next id over the unfiltered roster — live or retired.
-        let run_id = Self::mint_run_id(&root);
-        let runs_dir = Self::runs_dir(&root);
+        let run_id = Self::mint_run(&root, phase.as_str(), initial_status, &runbook_pin)?;
+        let store = StateStore::for_run(&root, &run_id);
+        self.store = Some(store);
+        self.run_id = Some(run_id.clone());
+
+        Ok(Run::new(phase, initial_status).with_artifacts(&root, &run_id))
+    }
+
+    /// Mint the next run id and create its directory, State File, evidence,
+    /// and reserved spawn-ledger path - all of it or none of it. Used by
+    /// `start` for the project machine and by `spawn`/`respawn` for children
+    /// and successors: every minted Run is an ordinary flat top-level Run in
+    /// the single namespace (FDC-004/FDC-006).
+    fn mint_run(
+        root: &Path,
+        phase: &str,
+        status: Status,
+        runbook_pin: &str,
+    ) -> Result<String, StateError> {
+        let arca = root.join(".arca");
+        let run_id = Self::mint_run_id(root);
+        let runs_dir = Self::runs_dir(root);
         fs::create_dir_all(&runs_dir)
             .map_err(|error| StateError::new(format!("create .arca/runs: {error}")))?;
         let run_dir = runs_dir.join(&run_id);
@@ -473,7 +502,7 @@ impl Scheduler {
 
         let state = RunState {
             phase: phase.to_string(),
-            status: initial_status,
+            status,
             goal_revision: String::new(),
             input_revision: String::new(),
             output_revision: String::new(),
@@ -482,7 +511,7 @@ impl Scheduler {
         };
         let log_path = arca.join("log.md");
         let log_existed = log_path.exists();
-        let store = StateStore::for_run(&root, &run_id);
+        let store = StateStore::for_run(root, &run_id);
         let create_run = || -> Result<(), StateError> {
             let log = OpenOptions::new()
                 .create(true)
@@ -517,10 +546,10 @@ impl Scheduler {
             }
             // ETB-003: Run start records the baseline goal revision. The
             // freeze happens later, at the intake-completion boundary.
-            evidence.goal_baseline = crate::goal::revision(&root);
+            evidence.goal_baseline = crate::goal::revision(root);
             evidence.goal_frozen = None;
             // FDC-005: record the runbook pin — hash only, never a copy.
-            evidence.runbook_sha256 = Some(runbook_pin.clone());
+            evidence.runbook_sha256 = Some(runbook_pin.to_owned());
             evidence
                 .write(&run_dir)
                 .map_err(|error| StateError::new(format!("write evidence.toml: {error}")))?;
@@ -541,10 +570,198 @@ impl Scheduler {
             let _ = fs::remove_dir_all(&run_dir);
             return Err(error);
         }
-        self.store = Some(store);
-        self.run_id = Some(run_id.clone());
 
-        Ok(Run::new(phase, initial_status).with_artifacts(&root, &run_id))
+        Ok(run_id)
+    }
+
+    /// FDC-007: `rtm spawn` is ordinary checked motion - no confirmation
+    /// phrase. Legal only while the addressed parent occupies the spawning
+    /// Phase and only for a spawn that Phase declares. The child is minted as
+    /// an ordinary flat top-level Run in the single run-id namespace - same
+    /// State File, evidence, terminal facts, and reserved spawn-ledger path;
+    /// the ledger's written entry is FDC-011, a later increment.
+    pub fn spawn(&mut self, spawn_name: &str) -> Result<String, StateError> {
+        let root = self
+            .root
+            .as_ref()
+            .ok_or_else(|| StateError::new("spawn requires Scheduler::open_run"))?
+            .clone();
+        let parent_id = self.run_id.clone().ok_or_else(|| {
+            StateError::new("spawn requires an addressed parent: open one with Scheduler::open_run")
+        })?;
+        let run_dir = self.run_dir()?;
+        let lock_path = root.join(".arca/rtm.lock");
+        let _lock = InvocationLock::acquire_with_retry(&lock_path)?;
+        let class = Self::load_class(&root)?;
+        // FDC-005: no motion may proceed on a drifted class.
+        Self::verify_runbook_pin(&root, &run_dir)?;
+        self.machine = Self::graph_of(&class);
+        let state = self.load_state_unlocked()?;
+        // FDC-002: a passed Run admits no further motion; a held Run is
+        // parked on the blocked route. Both refuse by name before any write
+        // - and before any phase lookup, because the terminal fact holds
+        // regardless of which machine declared the Run's Phase.
+        if state.status == Status::Passed {
+            return Err(StateError::new(format!(
+                "spawn refused: run {parent_id} is terminal (status passed): no motion may proceed"
+            )));
+        }
+        if state.status == Status::Blocked {
+            return Err(StateError::new(format!(
+                "spawn refused: run {parent_id} is held (status blocked): the blocked route admits no spawn"
+            )));
+        }
+        let definition = class.phases().get(&state.phase).ok_or_else(|| {
+            StateError::new(format!(
+                "State File phase {:?} is undeclared in ratmac.toml",
+                state.phase
+            ))
+        })?;
+        let declared = definition.spawns();
+        if declared.is_empty() {
+            return Err(StateError::new(format!(
+                "spawn refused: phase {:?} declares no spawns; run {parent_id} is outside a spawning Phase",
+                state.phase
+            )));
+        }
+        let declaration = declared
+            .iter()
+            .find(|spawn| spawn.name() == spawn_name)
+            .ok_or_else(|| {
+                let names = declared
+                    .iter()
+                    .map(|spawn| spawn.name())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                StateError::new(format!(
+                    "spawn refused: {spawn_name:?} is not declared in phase {:?}; declared spawns: {names}",
+                    state.phase
+                ))
+            })?;
+        let child_class = class.classes().get(declaration.class()).ok_or_else(|| {
+            StateError::new(format!(
+                "spawn refused: class {:?} is not declared in ratmac.toml",
+                declaration.class()
+            ))
+        })?;
+        let child_machine = MachineGraph::new(
+            child_class
+                .phases()
+                .keys()
+                .map(Phase::new)
+                .collect::<Vec<_>>(),
+            child_class.transitions().to_vec(),
+        );
+        let child_phase = Self::initial_phase_of(&child_machine)?;
+        // FDC-002 binds children from their first State File: born in a
+        // terminal Phase means the Engine writes the terminal fact at mint.
+        let child_status = if child_machine.has_ordinary_outgoing(child_phase.as_str()) {
+            Status::Planned
+        } else {
+            Status::Passed
+        };
+        let runbook_pin = Self::runbook_sha256(&root)?;
+        Self::mint_run(&root, child_phase.as_str(), child_status, &runbook_pin)
+    }
+
+    /// FDC-007/FDC-006: human-confirmed supersession. Refuses without a
+    /// confirmation phrase naming the superseded run id - typed at
+    /// invocation, never read from a file. With the exact phrase it mints a
+    /// fresh successor id (never overwriting: the superseded record keeps its
+    /// address) and retires the superseded Run by the abandon path. The
+    /// successor is start-shaped this increment; class-faithful
+    /// re-instantiation needs the ledger's recorded class and bindings
+    /// (FDC-011, a later increment).
+    pub fn respawn(root: impl AsRef<Path>, request: &RespawnRequest) -> Result<String, StateError> {
+        let root = root.as_ref();
+        let roster = Self::run_roster(root);
+        let roster_line = if roster.is_empty() {
+            "none".to_owned()
+        } else {
+            roster.join(", ")
+        };
+        let superseded = match request
+            .run
+            .as_deref()
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+        {
+            Some(id) => id.to_owned(),
+            None => {
+                return Err(StateError::new(format!(
+                    "respawn requires --run <id>; runs: {roster_line}"
+                )))
+            }
+        };
+        let required = format!("respawn {superseded}");
+        match request.confirmation.as_deref() {
+            None => {
+                return Err(StateError::new(format!(
+                    "respawn is unconfirmed: a human must type --confirm {required:?}"
+                )))
+            }
+            Some(phrase) if phrase != required => {
+                return Err(StateError::new(format!(
+                    "respawn is unconfirmed: confirmation {phrase:?} does not match the required phrase {required:?}"
+                )))
+            }
+            Some(_) => {}
+        }
+        if !roster.iter().any(|entry| entry == &superseded) {
+            return Err(StateError::new(format!(
+                "respawn names no run: {superseded:?} is not on the roster; runs: {roster_line}"
+            )));
+        }
+        if !Self::runs_dir(root)
+            .join(&superseded)
+            .join("state.toml")
+            .is_file()
+        {
+            return Err(StateError::new(format!(
+                "run {superseded} is already terminal: its admission state is retired; nothing to supersede"
+            )));
+        }
+        // Mint the successor first: an interrupted respawn leaves either the
+        // superseded Run or a fully minted successor, never a half-made pair.
+        let successor = {
+            let arca = root.join(".arca");
+            fs::create_dir_all(&arca)
+                .map_err(|error| StateError::new(format!("create .arca: {error}")))?;
+            let lock_path = arca.join("rtm.lock");
+            let _lock = InvocationLock::acquire_with_retry(&lock_path)?;
+            Self::refuse_flat_residue(root)?;
+            let class = Self::load_class(root)?;
+            let machine = Self::graph_of(&class);
+            let phase = Self::initial_phase_of(&machine)?;
+            let status = if machine.has_ordinary_outgoing(phase.as_str()) {
+                Status::Planned
+            } else {
+                Status::Passed
+            };
+            let runbook_pin = Self::runbook_sha256(root)?;
+            Self::mint_run(root, phase.as_str(), status, &runbook_pin)?
+            // The invocation lock releases here, before the abandon path
+            // plans its own retirement set.
+        };
+        // Retire the superseded Run by the abandon path: durable terminal
+        // event first, then all-or-none retirement of admission state,
+        // evidence, and lock.
+        let abandon_request = crate::abandon::AbandonRequest {
+            confirmation: Some(crate::abandon::required_phrase(root, Some(&superseded))),
+            run: Some(superseded.clone()),
+        };
+        let retired = crate::abandon::plan_abandon(root, &abandon_request)
+            .and_then(|plan| crate::abandon::apply_abandon(root, &plan));
+        if let Err(refusal) = retired {
+            // Converge: never leave both the superseded Run and its
+            // successor live. The half of the pair minted this invocation is
+            // the one rolled back; a retry starts over.
+            let _ = fs::remove_dir_all(Self::runs_dir(root).join(&successor));
+            return Err(StateError::new(format!(
+                "respawn interrupted retiring {superseded}: {refusal}; the successor mint was rolled back"
+            )));
+        }
+        Ok(successor)
     }
 
     /// Evaluate the supported `files_exact` guards and apply a transition only
@@ -1120,18 +1337,23 @@ impl Scheduler {
     }
 
     fn initial_phase(&self) -> Result<Phase, StateError> {
-        let candidates =
-            self.machine
-                .phases()
-                .filter(|phase| {
-                    // A blocked route points backwards by design; it never makes
-                    // its destination a non-initial Phase.
-                    !self.machine.transitions().any(|transition| {
-                        transition.to() == *phase && !transition.is_blocked_route()
-                    })
-                })
-                .cloned()
-                .collect::<Vec<_>>();
+        Self::initial_phase_of(&self.machine)
+    }
+
+    /// The unique Phase no ordinary transition enters. Shared by `start` for
+    /// the project machine and by `spawn`/`respawn` for child machines.
+    fn initial_phase_of(machine: &MachineGraph) -> Result<Phase, StateError> {
+        let candidates = machine
+            .phases()
+            .filter(|phase| {
+                // A blocked route points backwards by design; it never makes
+                // its destination a non-initial Phase.
+                !machine
+                    .transitions()
+                    .any(|transition| transition.to() == *phase && !transition.is_blocked_route())
+            })
+            .cloned()
+            .collect::<Vec<_>>();
         match candidates.as_slice() {
             [phase] => Ok(phase.clone()),
             [] => Err(StateError::new(
