@@ -23,9 +23,9 @@ Current sprint endpoint - the tree is the oracle.)
 
 ## Map - how ratmac hangs together
 
-Stamped cache - describes the tree through the verdict-delivery landing
-(`t-062`), surveyed 2026-07-30 from a read-only pass of `src/`, `test/`, and
-the current `.arca-private/t-058/` through `.arca-private/t-062/` lanes.
+Stamped cache - describes the tree through the Run-completion landing
+(`t-063`), surveyed 2026-08-03 from a read-only pass of `src/`, `test/`, and
+the current `.arca-private/t-058/` through `.arca-private/t-063/` lanes.
 Refresh at each cycle close (gap check green).
 
 ### Architecture
@@ -74,9 +74,9 @@ error. `rtm scaffold <path>` writes the one runbook that starts clean.
 | Module | Role |
 | :--- | :--- |
 | `cli.rs` | Hand-rolled parsing of seven verbs and exit codes. `start` is unaddressed; `status`/`step` validate a canonical roster address, `hold` resolves through `open_run`, and live-Run `abandon` requires a roster id. It contains no graph or guard policy. |
-| `graph.rs` | `Phase`, `Transition`, `MachineGraph` - graph position without lifecycle. `transition_for_input` selects the unique ordinary edge whose optional `input` exactly matches; `None` selects an unlabelled straight edge. Declaration order and guards never select, and blocked routes remain hold-only. |
+| `graph.rs` | `Phase`, `Transition`, `MachineGraph` - graph position without lifecycle. `transition_for_input` selects the unique ordinary edge whose optional `input` exactly matches; `None` selects an unlabelled straight edge. `has_ordinary_outgoing` is the one structural terminal predicate (blocked routes excluded). Declaration order and guards never select, and blocked routes remain hold-only. |
 | `machine.rs` | `MachineClass::from_toml` - the whole runbook schema boundary and its only reader, hand-rolled over `toml::Value`. It retains typed `GuardKind`, closed Phase `inputs`, and Transition `input`; RB208-RB213 reject malformed branch contracts. |
-| `scheduler.rs` | Project/Run binding and ordinary execution. `open` has no Run; `open_run` binds one canonical live roster member. `open`/`open_run` and `start` refuse flat residue, while pinned reads reject runbook drift. `start` mints an uncapped never-reused id; `step` evaluates guards before verdict routing/consumption; `status` reloads and reports read-only. |
+| `scheduler.rs` | Project/Run binding and ordinary execution. `open` has no Run; `open_run` binds one canonical live roster member. `open`/`open_run` and `start` refuse flat residue, while pinned reads reject runbook drift. `start` mints an uncapped never-reused id and writes `passed` when the initial Phase is terminal; `step` refuses a passed Run by name, evaluates guards before verdict routing/consumption, and writes `passed` beside a terminal successor in one replacement; `status` reloads and reports read-only. |
 | `verdict.rs` | Strict Run-local transition-input delivery. A branch validates exact `phase`/`input`/`rationale`; a straight Phase requires an absent live slot. Valid bytes rename to monotonic `verdicts/NNNNNN.toml` evidence before State File advance; refusals consume nothing. |
 | `model.rs` | `Run`, `RunArtifacts`, plural `Runs`, and serde `RunState`/`Status`; persisted state belongs to `.arca/runs/<id>/state.toml`. |
 | `state.rs` | Strictly parses and atomically replaces the addressed `.arca/runs/<id>/state.toml`. The write path is crate-private, centralizing Engine writes without filesystem-enforcing ownership, and it renders the report behind `rtm status`. |
@@ -85,8 +85,8 @@ error. `rtm scaffold <path>` writes the one runbook that starts clean.
 | `completion.rs` | Completion gate: green + fresh via tree digest. |
 | `contract.rs` | Intake/record contract gates; the intake gate parses ask dispositions across intake, deferred, and archive as one issue-id namespace, while the record gate receives the addressed Run id for frozen-goal evidence. Project-specific `.arca/issue`, `.arca/residual`, `.arca/ticket`, and `.arca/goal` paths remain R-016 debt. |
 | `goal.rs` | Goal freeze and drift check (content hash of `.arca/goal/`). |
-| `blocked.rs` | Plans and applies an always-addressed human-confirmed hold: ticket/blocker checks, `open_run` residue/pin preflight, declared blocked route, then all-or-none named-Run state, history, and ticket updates. |
-| `abandon.rs` | Human-confirmed retirement. A live Run requires `--run`; class/pin/residue checks are intentionally bypassed so broken Runs remain retireable. One terminal event and retirement of that Run's state/evidence plus any leftover lock are all-or-none; its directory remains to reserve the id. |
+| `blocked.rs` | Plans and applies an always-addressed human-confirmed hold: ticket/blocker checks, `open_run` residue/pin preflight, declared blocked route, then all-or-none named-Run state, history, and ticket updates. A passed Run refuses the hold before any route lookup (FDC-002). |
+| `abandon.rs` | Human-confirmed retirement. A live Run requires `--run`; class/pin/residue checks are intentionally bypassed so broken Runs remain retireable. One terminal event naming the addressed Run durably precedes retirement of that Run's state/evidence plus any leftover lock, all-or-none; its directory remains to reserve the id. |
 | `ownership.rs` | PGE-004 ownership lint over prompts and guard contracts; the doctor's fourth pass. |
 | `doctor.rs` | DRD-001..007: findings as data. Diagnoses through `machine.rs` and never walks runbook TOML itself; owns the graph and guard-lint passes, JSON rendering, and exit-code mapping. |
 | `scaffold.rs` | AAL-002: the smallest doctor-clean runbook, written at a path that does not exist yet. One file, no options, never overwrites. |
@@ -105,12 +105,12 @@ an external program to inspect repository state.
 
 ### Tests
 
-`test/qa/` cargo crate, public integration suites through `t062`. Current FDC
+`test/qa/` cargo crate, public integration suites through `t063`. Current FDC
 coverage is `t059_run_residency` (4 tests), `t060_runbook_pin` (3),
-`t061_uncapped_runs` (2), `t061_input_routing` (3), and
-`t062_verdict_delivery` (4). Wording surfaces (caller policy, schema rules)
-are asserted against `.arca/schema.md` and `AGENTS.md`. Hidden lanes
-`.arca-private/t-058/` through `t-062/` contain 6/6/6/5/6 tests. Opt-in
+`t061_uncapped_runs` (2), `t061_input_routing` (3), `t062_verdict_delivery`
+(4), and `t063_run_completion` (4). Wording surfaces (caller policy, schema
+rules) are asserted against `.arca/schema.md` and `AGENTS.md`. Hidden lanes
+`.arca-private/t-058/` through `t-063/` contain 6/6/6/5/6/6 tests. Opt-in
 release lane: `RATMAC_RELEASE_ACCEPTANCE=1`.
 
 ### Known limitations / deferred debt (steering.md)
