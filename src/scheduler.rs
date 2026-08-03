@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fmt;
 use std::fs::{self, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -5,7 +6,8 @@ use std::path::{Path, PathBuf};
 use std::thread;
 
 use crate::graph::{MachineGraph, Phase};
-use crate::machine::{GuardKind, MachineClass};
+use crate::ledger::LedgerEntry;
+use crate::machine::{GuardKind, MachineClass, PhaseDefinition};
 use crate::model::{Run, RunState, Status};
 use crate::state::{PhasePrompt, StateError, StateStore, StatusReport};
 
@@ -430,6 +432,51 @@ impl Scheduler {
         &self.machine
     }
 
+    /// The git revision at spawn; `"none"` when the project has none.
+    fn revision_at(root: &Path) -> String {
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .and_then(|output| String::from_utf8(output.stdout).ok())
+            .map(|text| text.trim().to_owned())
+            .filter(|text| !text.is_empty())
+            .unwrap_or_else(|| "none".to_owned())
+    }
+
+    /// FDC-011: the live ledger entry recording the named run, with the
+    /// ledger path carrying it. A ledger whose raw bytes name the run but
+    /// refuse strict read is a named defect, never skipped.
+    fn ledger_record_of(
+        root: &Path,
+        run_id: &str,
+    ) -> Result<Option<(PathBuf, LedgerEntry)>, StateError> {
+        for candidate in Self::run_roster(root) {
+            let path = Self::runs_dir(root).join(&candidate).join("spawn-ledger");
+            let Ok(text) = fs::read_to_string(&path) else {
+                continue;
+            };
+            if !text.contains(run_id) {
+                continue;
+            }
+            let entries = crate::ledger::read_entries(&path).map_err(|error| {
+                StateError::new(format!(
+                    "the spawn ledger recording {run_id} is defective: {error}"
+                ))
+            })?;
+            if let Some(entry) = entries
+                .into_iter()
+                .find(|entry| entry.id == run_id && !entry.abandoned)
+            {
+                return Ok(Some((path, entry)));
+            }
+        }
+        Ok(None)
+    }
+
     /// Instantiate a Run from the canonical, human-authored Machine Class.
     ///
     /// FDC-004: start mints a run id in the single namespace and creates
@@ -581,6 +628,17 @@ impl Scheduler {
     /// State File, evidence, terminal facts, and reserved spawn-ledger path;
     /// the ledger's written entry is FDC-011, a later increment.
     pub fn spawn(&mut self, spawn_name: &str) -> Result<String, StateError> {
+        self.spawn_with_bindings(spawn_name, &BTreeMap::new())
+    }
+
+    /// FDC-011: spawn records what it makes. The ledger entry - child id,
+    /// class, binding values, revision at spawn - lands in the same turn
+    /// that mints the child; a refused spawn writes no byte anywhere.
+    pub fn spawn_with_bindings(
+        &mut self,
+        spawn_name: &str,
+        bindings: &BTreeMap<String, String>,
+    ) -> Result<String, StateError> {
         let root = self
             .root
             .as_ref()
@@ -638,6 +696,16 @@ impl Scheduler {
                     state.phase
                 ))
             })?;
+        // FDC-011: a binding name outside the declared set refuses before
+        // any write.
+        for name in bindings.keys() {
+            if !declaration.bind().iter().any(|declared| declared == name) {
+                let declared = declaration.bind().join(", ");
+                return Err(StateError::new(format!(
+                    "spawn refused: binding {name:?} is not declared for spawn {spawn_name:?}; declared bindings: {declared}"
+                )));
+            }
+        }
         let child_class = class.classes().get(declaration.class()).ok_or_else(|| {
             StateError::new(format!(
                 "spawn refused: class {:?} is not declared in ratmac.toml",
@@ -661,7 +729,25 @@ impl Scheduler {
             Status::Passed
         };
         let runbook_pin = Self::runbook_sha256(&root)?;
-        Self::mint_run(&root, child_phase.as_str(), child_status, &runbook_pin)
+        let child = Self::mint_run(&root, child_phase.as_str(), child_status, &runbook_pin)?;
+        // FDC-011: the entry lands in the same turn that mints the child; a
+        // blocked append rolls the mint back so no child exists unrecorded.
+        let entry = LedgerEntry {
+            id: child.clone(),
+            class: declaration.class().to_owned(),
+            bind: bindings.clone(),
+            spawned_at: Self::revision_at(&root),
+            workspace: None,
+            abandoned: false,
+            supersedes: None,
+        };
+        if let Err(error) = crate::ledger::append_entry(&run_dir.join("spawn-ledger"), &entry) {
+            let _ = fs::remove_dir_all(Self::runs_dir(&root).join(&child));
+            return Err(StateError::new(format!(
+                "spawn cannot record the ledger entry for {child}: {error}; the child mint was rolled back"
+            )));
+        }
+        Ok(child)
     }
 
     /// FDC-007/FDC-006: human-confirmed supersession. Refuses without a
@@ -721,6 +807,9 @@ impl Scheduler {
                 "run {superseded} is already terminal: its admission state is retired; nothing to supersede"
             )));
         }
+        // FDC-011: find the live ledger entry recording the superseded run,
+        // if any parent recorded it.
+        let recorded = Self::ledger_record_of(root, &superseded)?;
         // Mint the successor first: an interrupted respawn leaves either the
         // superseded Run or a fully minted successor, never a half-made pair.
         let successor = {
@@ -731,12 +820,43 @@ impl Scheduler {
             let _lock = InvocationLock::acquire_with_retry(&lock_path)?;
             Self::refuse_flat_residue(root)?;
             let class = Self::load_class(root)?;
-            let machine = Self::graph_of(&class);
-            let phase = Self::initial_phase_of(&machine)?;
-            let status = if machine.has_ordinary_outgoing(phase.as_str()) {
-                Status::Planned
-            } else {
-                Status::Passed
+            // FDC-011: a ledger-recorded child re-instantiates class-
+            // faithfully from the recorded class; anything else is
+            // start-shaped from the top-level machine.
+            let (phase, status) = match recorded.as_ref() {
+                Some((_, entry)) => {
+                    let child_class = class.classes().get(&entry.class).ok_or_else(|| {
+                        StateError::new(format!(
+                            "respawn refused: recorded class {:?} is not declared in ratmac.toml",
+                            entry.class
+                        ))
+                    })?;
+                    let child_machine = MachineGraph::new(
+                        child_class
+                            .phases()
+                            .keys()
+                            .map(Phase::new)
+                            .collect::<Vec<_>>(),
+                        child_class.transitions().to_vec(),
+                    );
+                    let phase = Self::initial_phase_of(&child_machine)?;
+                    let status = if child_machine.has_ordinary_outgoing(phase.as_str()) {
+                        Status::Planned
+                    } else {
+                        Status::Passed
+                    };
+                    (phase, status)
+                }
+                None => {
+                    let machine = Self::graph_of(&class);
+                    let phase = Self::initial_phase_of(&machine)?;
+                    let status = if machine.has_ordinary_outgoing(phase.as_str()) {
+                        Status::Planned
+                    } else {
+                        Status::Passed
+                    };
+                    (phase, status)
+                }
             };
             let runbook_pin = Self::runbook_sha256(root)?;
             Self::mint_run(root, phase.as_str(), status, &runbook_pin)?
@@ -761,6 +881,25 @@ impl Scheduler {
                 "respawn interrupted retiring {superseded}: {refusal}; the successor mint was rolled back"
             )));
         }
+        if let Some((ledger_path, entry)) = recorded {
+            // FDC-011: the successor entry names the superseded id and
+            // inherits the recorded class and binding values.
+            let successor_entry = LedgerEntry {
+                id: successor.clone(),
+                class: entry.class.clone(),
+                bind: entry.bind.clone(),
+                spawned_at: Self::revision_at(root),
+                workspace: None,
+                abandoned: false,
+                supersedes: Some(superseded.clone()),
+            };
+            if let Err(error) = crate::ledger::append_entry(&ledger_path, &successor_entry) {
+                let _ = fs::remove_dir_all(Self::runs_dir(root).join(&successor));
+                return Err(StateError::new(format!(
+                    "respawn cannot record the successor entry for {successor}: {error}; the successor mint was rolled back"
+                )));
+            }
+        }
         Ok(successor)
     }
 
@@ -783,15 +922,35 @@ impl Scheduler {
         self.machine = Self::graph_of(&class);
         let state = self.load_state_unlocked()?;
         let state_phase = state.phase.clone();
-        if !self
-            .machine
-            .phases()
-            .any(|phase| phase.as_str() == state_phase)
+        // FDC-011/FDC-012: a child Run moves on its own class's machine.
+        // The owning scope of the State File phase resolves once, before
+        // any status refusal or guard.
+        let (definition, scope_machine) = if let Some(definition) = class.phases().get(&state_phase)
         {
+            (definition, Self::graph_of(&class))
+        } else if let Some(child_class) = class
+            .classes()
+            .values()
+            .find(|child| child.phases().contains_key(&state_phase))
+        {
+            let definition = child_class
+                .phases()
+                .get(&state_phase)
+                .expect("the owning child class carries the phase definition");
+            let machine = MachineGraph::new(
+                child_class
+                    .phases()
+                    .keys()
+                    .map(Phase::new)
+                    .collect::<Vec<_>>(),
+                child_class.transitions().to_vec(),
+            );
+            (definition, machine)
+        } else {
             return Err(StateError::new(format!(
                 "State File phase {state_phase:?} is undeclared in ratmac.toml"
             )));
-        }
+        };
         // FDC-002: a passed Run admits no further transition. The refusal
         // precedes guard and verdict work and mutates nothing.
         if state.status == Status::Passed {
@@ -804,7 +963,7 @@ impl Scheduler {
                 )],
             });
         }
-        let mut failures = self.guard_failures(&class, &state.phase)?;
+        let mut failures = self.guard_failures(definition)?;
         // ETB-003: between the freeze and batch closure, the goal is fixed.
         // The drift check is appended rather than short-circuited so a guard
         // refusal and a drift refusal are reported in the same reply.
@@ -825,10 +984,6 @@ impl Scheduler {
         }
 
         let from = Phase::new(state.phase.clone());
-        let definition = class
-            .phases()
-            .get(&state.phase)
-            .ok_or_else(|| StateError::new("current Phase definition disappeared"))?;
         // FDC-003/FDC-001: every readiness guard above finishes before the
         // live slot is inspected. Branches validate one external record;
         // straight lines read no record and reject any occupied slot.
@@ -859,7 +1014,7 @@ impl Scheduler {
             }
             None
         };
-        let Some(transition) = Self::route_for(&self.machine, &from, transition_input.as_deref())
+        let Some(transition) = Self::route_for(&scope_machine, &from, transition_input.as_deref())
         else {
             return Ok(StepOutcome::Refused {
                 failures: vec![guard_failure(
@@ -917,7 +1072,7 @@ impl Scheduler {
         // FDC-002: arrival at a Phase with no ordinary outgoing edge completes
         // ordinary execution. The terminal fact lands in the same atomic State
         // File replacement that records the position.
-        if !self.machine.has_ordinary_outgoing(to.as_str()) {
+        if !scope_machine.has_ordinary_outgoing(to.as_str()) {
             next.status = Status::Passed;
         }
         if let Some(frozen) = frozen_revision {
@@ -998,8 +1153,7 @@ impl Scheduler {
     /// order, from the typed class - no second walk over runbook TOML.
     fn guard_failures(
         &self,
-        class: &MachineClass,
-        phase: &str,
+        definition: &PhaseDefinition,
     ) -> Result<Vec<GuardFailure>, StateError> {
         let root = match self.root.as_ref() {
             Some(root) => root,
@@ -1011,14 +1165,6 @@ impl Scheduler {
                     "opened project",
                 )])
             }
-        };
-        let Some(definition) = class.phases().get(phase) else {
-            return Ok(vec![guard_failure(
-                "ratmac",
-                phase,
-                "missing phase definition",
-                "current Phase definition",
-            )]);
         };
 
         let mut failures = Vec::new();
@@ -1066,14 +1212,68 @@ impl Scheduler {
     /// so a join guard cannot be satisfied.
     fn evaluate_join(&self, min: Option<i64>) -> Result<(), GuardFailure> {
         let required = min.unwrap_or(1);
-        Err(guard_failure(
-            "join",
-            "spawn ledger",
-            format!(
+        let expected = "every ledger-recorded live child passed, at least the declared min";
+        let refuse = |observed: String| guard_failure("join", "spawn ledger", observed, expected);
+        let run_dir = self
+            .run_dir()
+            .map_err(|error| refuse(format!("the addressed run is unresolved: {error}")))?;
+        let root = self
+            .root
+            .clone()
+            .ok_or_else(|| refuse("the join needs an opened run".to_owned()))?;
+        let entries = crate::ledger::read_entries(&run_dir.join("spawn-ledger"))
+            .map_err(|error| refuse(error.to_string()))?;
+        let live: Vec<&crate::ledger::LedgerEntry> =
+            entries.iter().filter(|entry| !entry.abandoned).collect();
+        if live.is_empty() {
+            return Err(refuse(format!(
                 "no spawn ledger records a child Run; 0 of {required} required children are passed"
-            ),
-            "every ledger-recorded live child passed, at least the declared min",
-        ))
+            )));
+        }
+        let mut missing = Vec::new();
+        let mut unfinished = Vec::new();
+        let mut passed: i64 = 0;
+        for entry in &live {
+            let state_path = Self::runs_dir(&root).join(&entry.id).join("state.toml");
+            if !state_path.is_file() {
+                missing.push(entry.id.as_str());
+                continue;
+            }
+            let state = crate::state::StateStore::at(state_path)
+                .load()
+                .map_err(|error| {
+                    refuse(format!(
+                        "ledger child {} has an unreadable State File: {error}",
+                        entry.id
+                    ))
+                })?;
+            if state.status == Status::Passed {
+                passed += 1;
+            } else {
+                unfinished.push(format!(
+                    "{} is {} at {}",
+                    entry.id, state.status, state.phase
+                ));
+            }
+        }
+        if !missing.is_empty() {
+            return Err(refuse(format!(
+                "ledger children missing on disk: {}; the expected set never silently shrinks",
+                missing.join(", ")
+            )));
+        }
+        if !unfinished.is_empty() {
+            return Err(refuse(format!(
+                "{passed} of {required} required children are passed; unfinished: {}",
+                unfinished.join(", ")
+            )));
+        }
+        if passed < required {
+            return Err(refuse(format!(
+                "{passed} of {required} required children are passed"
+            )));
+        }
+        Ok(())
     }
 
     /// PGE-003: the P4 gate. Every planned test the ticket declares must

@@ -96,6 +96,12 @@ pub struct AbandonPlan {
     pub phase: Option<String>,
     /// Scheduler-owned paths to retire, in order.
     pub retire: Vec<PathBuf>,
+    /// The addressed run, when one is being retired.
+    pub run: Option<String>,
+    /// Spawn ledgers whose entry for the addressed run gets its abandoned
+    /// mark flipped (FDC-011) - only that mark, inside the same all-or-none
+    /// transaction.
+    pub annotate: Vec<PathBuf>,
 }
 
 /// Decide whether this project's Run may be retired. Writes nothing.
@@ -210,10 +216,46 @@ pub fn plan_abandon(root: &Path, request: &AbandonRequest) -> Result<AbandonPlan
         retire.push(lock_path);
     }
 
+    // FDC-011: a retired child's ledger entry keeps its address; only its
+    // abandoned mark flips. A corrupt ledger that names the run in its raw
+    // bytes refuses the retirement rather than leaving a live-looking entry
+    // behind.
+    let mut annotate = Vec::new();
+    if admitted {
+        let run = run_id
+            .as_deref()
+            .expect("admitted implies an addressed run");
+        for id in crate::Scheduler::run_roster(root) {
+            let path = crate::Scheduler::runs_dir(root)
+                .join(&id)
+                .join("spawn-ledger");
+            match crate::ledger::read_entries(&path) {
+                Ok(entries) => {
+                    if entries
+                        .iter()
+                        .any(|entry| entry.id == run && !entry.abandoned)
+                    {
+                        annotate.push(path);
+                    }
+                }
+                Err(error) => {
+                    let raw = std::fs::read_to_string(&path).unwrap_or_default();
+                    if raw.contains(&format!("id = {run:?}")) {
+                        return Err(refusal(format!(
+                            "the spawn ledger recording {run} is defective: {error}"
+                        )));
+                    }
+                }
+            }
+        }
+    }
+
     Ok(AbandonPlan {
         event,
         phase,
         retire,
+        run: run_id,
+        annotate,
     })
 }
 
@@ -237,7 +279,10 @@ pub fn apply_abandon(root: &Path, plan: &AbandonPlan) -> Result<(), AbandonRefus
     // absent - restoring "absent" would delete the very file it claims to
     // protect.
     let mut snapshot: Vec<(PathBuf, Option<Vec<u8>>)> = Vec::new();
-    for path in std::iter::once(&log_path).chain(plan.retire.iter().filter(|p| **p != lock_path)) {
+    for path in std::iter::once(&log_path)
+        .chain(plan.retire.iter().filter(|p| **p != lock_path))
+        .chain(plan.annotate.iter())
+    {
         match fs::read(path) {
             Ok(bytes) => snapshot.push((path.clone(), Some(bytes))),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -285,6 +330,19 @@ pub fn apply_abandon(root: &Path, plan: &AbandonPlan) -> Result<(), AbandonRefus
             return Err(restore(refusal(format!(
                 "abandon cannot record the terminal event: {error}"
             ))));
+        }
+    }
+
+    // The ledger mark flips before any retirement: a crash between the two
+    // leaves a flipped entry beside a still-live run, which the join reads
+    // honestly, never the reverse (a retired run still counted live).
+    if let Some(run) = plan.run.as_deref() {
+        for path in &plan.annotate {
+            if let Err(error) = crate::ledger::annotate_abandoned(path, run) {
+                return Err(restore(refusal(format!(
+                    "abandon cannot record the ledger mark: {error}"
+                ))));
+            }
         }
     }
 

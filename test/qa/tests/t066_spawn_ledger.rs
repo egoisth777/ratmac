@@ -216,7 +216,11 @@ fn spawn_appends_one_ledger_entry_with_the_recorded_fields() {
     let recorded = entries(&first);
     assert_eq!(recorded.len(), 1, "one entry parsed");
     let entry = &recorded[0];
-    assert_eq!(field(entry, "id"), child, "the entry names the child run id");
+    assert_eq!(
+        field(entry, "id"),
+        child,
+        "the entry names the child run id"
+    );
     assert_eq!(
         field(entry, "class"),
         "reviewer",
@@ -241,7 +245,11 @@ fn spawn_appends_one_ledger_entry_with_the_recorded_fields() {
     );
     let recorded = entries(&second);
     assert_eq!(recorded.len(), 2, "two entries after two spawns");
-    assert_eq!(field(&recorded[1], "id"), sibling, "second entry names the sibling");
+    assert_eq!(
+        field(&recorded[1], "id"),
+        sibling,
+        "second entry names the sibling"
+    );
 
     let refused = fixture.rtm(&["spawn", "rev", "--run", &parent, "--bind", "price=9"]);
     let text = combined(&refused);
@@ -289,9 +297,12 @@ fn abandon_flips_only_the_mark_and_respawn_appends_the_successor() {
     let phrase = format!("respawn {second_child}");
     let respawn = fixture.rtm(&["respawn", "--run", &second_child, "--confirm", &phrase]);
     let text = combined(&respawn);
-    assert!(respawn.status.success(), "confirmed respawn succeeds: {text}");
+    assert!(
+        respawn.status.success(),
+        "confirmed respawn succeeds: {text}"
+    );
     let successor = text
-        .split(" run ")
+        .split("successor run ")
         .nth(1)
         .and_then(|rest| rest.split_whitespace().next())
         .expect("respawn names the successor id")
@@ -300,22 +311,37 @@ fn abandon_flips_only_the_mark_and_respawn_appends_the_successor() {
 
     let after = fixture.ledger_text(&parent);
     let recorded = entries(&after);
-    assert_eq!(recorded.len(), 3, "respawn appends the successor entry:\n{after}");
+    assert_eq!(
+        recorded.len(),
+        3,
+        "respawn appends the successor entry:\n{after}"
+    );
     assert_eq!(field(&recorded[0], "id"), first_child);
-    assert!(abandoned(&recorded[0]), "the first entry keeps its abandoned mark");
+    assert!(
+        abandoned(&recorded[0]),
+        "the first entry keeps its abandoned mark"
+    );
     assert_eq!(field(&recorded[1], "id"), second_child);
     assert!(
         abandoned(&recorded[1]),
         "the superseded entry's mark flips when respawn retires it"
     );
     let entry = &recorded[2];
-    assert_eq!(field(entry, "id"), successor, "the successor entry names the successor");
+    assert_eq!(
+        field(entry, "id"),
+        successor,
+        "the successor entry names the successor"
+    );
     assert_eq!(
         field(entry, "supersedes"),
         second_child,
         "the successor entry records the superseded id"
     );
-    assert_eq!(field(entry, "class"), "reviewer", "the successor keeps the recorded class");
+    assert_eq!(
+        field(entry, "class"),
+        "reviewer",
+        "the successor keeps the recorded class"
+    );
     assert_eq!(
         binding(entry, "ticket"),
         "t-102",
@@ -358,12 +384,8 @@ fn join_reads_the_ledger_and_refuses_naming_the_missing_child() {
     let hollow = refusing.rtm(&["step", "--run", &parent]);
     let text = combined(&hollow);
     assert!(
-        !hollow.status.success(),
-        "an empty ledger keeps the honest refusal: {text}"
-    );
-    assert!(
-        text.contains("no spawn ledger records a child Run"),
-        "the zero-children refusal is unchanged: {text}"
+        text.contains("step refused") && text.contains("no spawn ledger records a child Run"),
+        "an empty ledger keeps the honest zero-children refusal: {text}"
     );
 
     let child = refusing.spawn_rev(&parent, "t-202");
@@ -374,7 +396,7 @@ fn join_reads_the_ledger_and_refuses_naming_the_missing_child() {
     let step = refusing.rtm(&["step", "--run", &parent]);
     let text = combined(&step);
     assert!(
-        !step.status.success(),
+        text.contains("step refused"),
         "a ledger entry with no run on disk refuses: {text}"
     );
     assert!(

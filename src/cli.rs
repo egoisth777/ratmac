@@ -66,7 +66,7 @@ pub fn help(command: impl AsRef<str>) -> &'static str {
             "Usage: rtm abandon --run <id> --confirm \"abandon <run id>\"\n\nA human retires a broken Run: rtm records a terminal abandoned event, then retires the admission state, the Run evidence, and the lock so a fresh Run can start. The confirmation phrase names the addressed run id (FDC-007), is typed at invocation, and is never read from a file. Retiring only a leftover lock - no live run anywhere - omits --run and confirms with \"abandon <project directory name>\". No bypass flag exists - a stale lock is retired through this path.\n"
         }
         "spawn" => {
-            "Usage: rtm spawn <name> --run <parent id>\n\nOrdinary checked motion, no confirmation phrase (FDC-007): create a child Run from a class the parent's runbook declares. Legal only while the parent occupies the Phase declaring that spawn. The child is an ordinary Run on the flat roster with its own State File and evidence.\n"
+            "Usage: rtm spawn <name> --run <parent id> [--bind name=value ...]\n\nOrdinary checked motion, no confirmation phrase (FDC-007): create a child Run from a class the parent's runbook declares. Legal only while the parent occupies the Phase declaring that spawn. Each --bind supplies a value for a binding name the spawn declares; the entry lands in the parent's spawn ledger (FDC-011). The child is an ordinary Run on the flat roster with its own State File and evidence.\n"
         }
         "respawn" => {
             "Usage: rtm respawn --run <id> --confirm \"respawn <run id>\"\n\nA human supersedes a Run: a fresh successor id is minted - never overwriting, the superseded record keeps its address - and the superseded Run is retired by the abandon path. The confirmation phrase names the run id, is typed at invocation, and is never read from a file.\n"
@@ -272,24 +272,41 @@ fn hold<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Resul
     while index < args.len() {
         match args[index].as_str() {
             "--run" => {
-                run = Some(args.get(index + 1).cloned().ok_or_else(|| {
-                    CliError::refusal(format!(
-                        "hold: --run needs a run id; {}",
-                        roster_line(project_root)
-                    ))
-                })?);
+                run = Some(
+                    args.get(index + 1)
+                        .filter(|value| !value.starts_with("--"))
+                        .cloned()
+                        .ok_or_else(|| {
+                            CliError::refusal(format!(
+                                "hold: --run needs a run id; {}",
+                                roster_line(project_root)
+                            ))
+                        })?,
+                );
                 index += 2;
             }
             "--blocker" => {
-                blocker = Some(args.get(index + 1).cloned().ok_or_else(|| {
-                    CliError::new("hold: --blocker needs an issue folder or residual record")
-                })?);
+                blocker = Some(
+                    args.get(index + 1)
+                        .filter(|value| !value.starts_with("--"))
+                        .cloned()
+                        .ok_or_else(|| {
+                            CliError::new(
+                                "hold: --blocker needs an issue folder or residual record",
+                            )
+                        })?,
+                );
                 index += 2;
             }
             "--confirm" => {
-                confirmation = Some(args.get(index + 1).cloned().ok_or_else(|| {
-                    CliError::new("hold: --confirm needs the exact confirmation phrase")
-                })?);
+                confirmation = Some(
+                    args.get(index + 1)
+                        .filter(|value| !value.starts_with("--"))
+                        .cloned()
+                        .ok_or_else(|| {
+                            CliError::new("hold: --confirm needs the exact confirmation phrase")
+                        })?,
+                );
                 index += 2;
             }
             other if other.starts_with("--") => {
@@ -338,16 +355,50 @@ fn hold<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Resul
 fn spawn<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Result<(), CliError> {
     let mut name: Option<String> = None;
     let mut run: Option<String> = None;
+    let mut bindings: std::collections::BTreeMap<String, String> =
+        std::collections::BTreeMap::new();
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
+            "--bind" => {
+                let pair = args
+                    .get(index + 1)
+                    .filter(|value| !value.starts_with("--"))
+                    .cloned()
+                    .ok_or_else(|| {
+                        CliError::new("spawn: --bind needs a value shaped name=value".to_owned())
+                    })?;
+                let (bind_name, bind_value) = pair.split_once('=').ok_or_else(|| {
+                    CliError::new(format!("spawn: --bind {pair:?} is not shaped name=value"))
+                })?;
+                let bind_name = bind_name.trim();
+                if bind_name.is_empty() {
+                    return Err(CliError::new(format!(
+                        "spawn: --bind {pair:?} names no binding"
+                    )));
+                }
+                if bindings
+                    .insert(bind_name.to_owned(), bind_value.to_owned())
+                    .is_some()
+                {
+                    return Err(CliError::new(format!(
+                        "spawn: --bind names {bind_name:?} twice"
+                    )));
+                }
+                index += 2;
+            }
             "--run" => {
-                run = Some(args.get(index + 1).cloned().ok_or_else(|| {
-                    CliError::refusal(format!(
-                        "spawn: --run needs a run id; {}",
-                        roster_line(project_root)
-                    ))
-                })?);
+                run = Some(
+                    args.get(index + 1)
+                        .filter(|value| !value.starts_with("--"))
+                        .cloned()
+                        .ok_or_else(|| {
+                            CliError::refusal(format!(
+                                "spawn: --run needs a run id; {}",
+                                roster_line(project_root)
+                            ))
+                        })?,
+                );
                 index += 2;
             }
             other if name.is_none() && !other.starts_with("--") => {
@@ -375,7 +426,7 @@ fn spawn<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Resu
     let mut scheduler = Scheduler::open_run(project_root, &run)
         .map_err(|error| CliError::new(format!("spawn: {error}")))?;
     let child = scheduler
-        .spawn(&name)
+        .spawn_with_bindings(&name, &bindings)
         .map_err(|error| CliError::new(format!("spawn: {error}")))?;
     writeln!(
         writer,
@@ -393,7 +444,10 @@ fn respawn<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Re
     while index < args.len() {
         match args[index].as_str() {
             "--run" => {
-                run = Some(args.get(index + 1).cloned().ok_or_else(|| {
+                run = Some(args.get(index + 1)
+                    .filter(|value| !value.starts_with("--"))
+                    .cloned()
+                    .ok_or_else(|| {
                     CliError::refusal(format!(
                         "respawn: --run needs a run id; {}",
                         roster_line(project_root)
@@ -402,7 +456,10 @@ fn respawn<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Re
                 index += 2;
             }
             "--confirm" => {
-                confirmation = Some(args.get(index + 1).cloned().ok_or_else(|| {
+                confirmation = Some(args.get(index + 1)
+                    .filter(|value| !value.starts_with("--"))
+                    .cloned()
+                    .ok_or_else(|| {
                     CliError::new(
                         "respawn: --confirm needs the exact confirmation phrase \"respawn <run id>\""
                             .to_owned(),
@@ -430,25 +487,45 @@ fn respawn<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Re
 fn abandon<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Result<(), CliError> {
     let mut confirmation: Option<String> = None;
     let mut run: Option<String> = None;
+    // The addressed run resolves first, wherever --run sits, so every
+    // refusal below names the phrase for the right target.
+    let mut index = 0;
+    while index < args.len() {
+        if args[index] == "--run" {
+            run = Some(
+                args.get(index + 1)
+                    .filter(|value| !value.starts_with("--"))
+                    .cloned()
+                    .ok_or_else(|| {
+                        CliError::refusal(format!(
+                            "abandon: --run needs a run id; {}",
+                            roster_line(project_root)
+                        ))
+                    })?,
+            );
+            index += 2;
+        } else {
+            index += 1;
+        }
+    }
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
             "--run" => {
-                run = Some(args.get(index + 1).cloned().ok_or_else(|| {
-                    CliError::refusal(format!(
-                        "abandon: --run needs a run id; {}",
-                        roster_line(project_root)
-                    ))
-                })?);
                 index += 2;
             }
             "--confirm" => {
-                confirmation = Some(args.get(index + 1).cloned().ok_or_else(|| {
-                    CliError::new(format!(
-                        "abandon: --confirm needs the exact confirmation phrase {:?}",
-                        crate::abandon::required_phrase(project_root, run.as_deref())
-                    ))
-                })?);
+                confirmation = Some(
+                    args.get(index + 1)
+                        .filter(|value| !value.starts_with("--"))
+                        .cloned()
+                        .ok_or_else(|| {
+                            CliError::new(format!(
+                                "abandon: --confirm needs the exact confirmation phrase {:?}",
+                                crate::abandon::required_phrase(project_root, run.as_deref())
+                            ))
+                        })?,
+                );
                 index += 2;
             }
             other => {
