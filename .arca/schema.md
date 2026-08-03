@@ -106,12 +106,13 @@ Two lanes decide what must enter the loop:
 - **Shop lane** — `.arca` docs (steering, schema, index, dict, tpl, vis): lands directly, steering first on
   pivots, one log line per landing (issue creation excepted — see "The issue folder").
 
-Cycle-end git discipline — two duties close every build cycle:
+Cycle-end git discipline — three duties close every build cycle:
 
 - **Ticket worktrees.** Every build turn runs in a linked worktree on a ticket branch named after its
   ticket (`t-<id>-<slug>`, e.g. `t-063-run-completion`). Its landings happen there; when the turn ends green, the ticket
   branch merges into `main` — fast-forward when `main` has not moved, otherwise one merge commit that is
-  itself a landing with its own log line — and the worktree and branch are removed. A cycle never closes
+  itself a landing with its own log line — then `.arca-private/` copies back (next duty), and only then
+  are the worktree and branch removed. A cycle never closes
   with a live ticket worktree. A ticket worktree is not a trial worktree: a trial branch never merges
   into `main` (see Trial worktrees), and nothing here changes that.
 - **Hidden lanes travel with the turn.** `.arca-private/` is untracked (gitignored), so a fresh ticket
@@ -119,8 +120,10 @@ Cycle-end git discipline — two duties close every build cycle:
   whichever checkout holds the crate. At turn start, copy `.arca-private/` from the primary checkout
   into the ticket worktree, skipping each crate's `target/` build output; author the new ticket's
   hidden crate inside that copy; run every hidden lane from inside the worktree, so the lanes test
-  the branch code, never the pre-turn `main`. At green, after the merge, copy `.arca-private/` back
-  to the primary checkout and re-run the hidden lanes once from `main` — the post-merge confirmation.
+  the branch code, never the pre-turn `main`. At green the order is fixed: merge first; copy
+  `.arca-private/` back to the primary checkout second — before any removal, because the new crate is
+  gitignored and committed nowhere, so removing the worktree first destroys its only copy; remove the
+  worktree and branch third; re-run the hidden lanes once from `main` last — the post-merge confirmation.
 - **Sync at Idle.** A cycle is complete only when its landings are on the remote: after the clean gap
   check lands and every ticket worktree is merged, push `main` to `origin` (a plain push, never a force
   push). Resting at Idle with unpushed landings is a defect. The push is a sync, never a deploy; the
@@ -219,7 +222,7 @@ A fork nobody wrote down is drift.
 | Step                            | Does                                                                                                             | Finish line                                                                          |
 | :------------------------------ | :--------------------------------------------------------------------------------------------------------------- | :----------------------------------------------------------------------------------- |
 | **P4** Write this ticket's tests | Turn the ticket's planned checks (planned-test-ID → test function, recorded in the ticket) into runnable tests; then re-read them trying to poke holes: would they catch a wrong answer, do they cover the edges, does each stand alone; run them — they should fail, since the code is not written yet | Every planned check for this ticket runs as a real test; hole-poking notes logged    |
-| **P5** Write the code           | Implement; run **every test so far** (all earlier tickets' plus this one's); run the hidden test lanes (test code in `.arca-private/`, listed in the ticket with `hidden-id`, `goal-contract-ref`, `category`, `oracle`, `owner`); fix and re-run until all green; short review; take the next ticket | All tests green including hidden lanes, run from inside the ticket worktree; the ticket branch is merged into `main`, the worktree removed, and the hidden lanes re-run green from `main`. No tickets left → redo P2's gap check → nothing `missing|partial` → push `main` to `origin`, then Idle |
+| **P5** Write the code           | Implement; run **every test so far** (all earlier tickets' plus this one's); run the hidden test lanes (test code in `.arca-private/`, listed in the ticket with `hidden-id`, `goal-contract-ref`, `category`, `oracle`, `owner`); fix and re-run until all green; short review; take the next ticket | All tests green including hidden lanes, run from inside the ticket worktree; then in order: merge the ticket branch into `main`, copy `.arca-private/` back to the primary checkout, remove the worktree and branch, re-run the hidden lanes green from `main`. No tickets left → redo P2's gap check → nothing `missing|partial` → push `main` to `origin`, then Idle |
 
 ```mermaid
 flowchart LR
