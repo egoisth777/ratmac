@@ -9,7 +9,8 @@
 | MCV-003 | FDC-008 | A runbook with a cycle whose every phase carries a receipt- or contract-class guarded out-edge passes the termination check; removing that edge from one phase on the cycle fails it by kind membership. |
 | MCV-004 | FDC-009 | A runbook carrying the class and spawn tables parses without the format-restriction refusal the review cites (`RBS-004`); the `blocked-route` spelling (hyphen) is accepted as canonical. |
 | MCV-005 | FDC-010 | Child-as-reviewer works in the first increment; no witnessed verdict verb exists in the surface, and its deferral is recorded, not silently dropped. |
-| MCV-006 | FDC-007 - FDC-010 | The recursion-depth open question in [spec.md](spec.md) remains recorded and unresolved; no ask, ticket, or mechanic here answers it. |
+| MCV-006 | FDC-012 | The recursion-depth ruling is recorded with its provenance (2026-08-03, Billy); a spawn addressed to a Run that is itself a ledger-recorded child refuses naming the one-level cap. |
+| MCV-007 | FDC-011 | The spawn ledger at the reserved per-run path is Scheduler-owned and append/annotate-only: spawn appends an entry with the recorded fields; abandon flips only the abandoned mark; respawn appends the successor entry naming the superseded id; a ledger entry whose child Run is missing on disk makes the join refuse naming that child. |
 
 ## Goal/Test File Traces
 

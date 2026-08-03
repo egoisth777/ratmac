@@ -14,8 +14,9 @@ with `respawn` and abandon-with-run-id phrase-confirmed (FDC-007); cycle termina
 receipt- or contract-class guard-kind membership (FDC-008); the runbook format extended to carry
 the class and spawn tables, superseding the format-spec restriction (`RBS-004`), with
 `blocked-route` as the canonical spelling (FDC-009); child-as-reviewer first, the witnessed verdict
-verb deferred (FDC-010). One open question rides along unresolved: recursion depth (see
-[spec.md](spec.md)).
+verb deferred (FDC-010). Two rulings of 2026-08-03 extend the asks: the spawn-ledger content
+contract lives here as `FDC-011`, and composition is capped at one level as `FDC-012` — the
+recursion-depth fork is resolved (see [spec.md](spec.md)).
 
 **Billy's 2026-07-30 cut** created input-routed transitions, input delivery and durability, and
 Run completion as separate pending concerns. **Assumed dependency forecast, revocable at planning
@@ -49,3 +50,9 @@ this issue's files cite them, never copy.
 - 2026-07-30: all four asks were dispositioned `deferred`; the issue closes this batch as `integrated` with zero accepted goal rows. Steering retains machine composition in Horizon for a later issue after Run completion lands.
 
 - 2026-07-31 correction: the preceding `integrated` conclusion is superseded. All four asks remain `deferred`, so the same five-file bundle stays live in the Deferred issue buffer with status `deferred`; no replacement issue carries them.
+
+- 2026-08-03: Billy ruled both forks at selection: the spawn-ledger content contract is carried by
+  this issue's spec as `FDC-011` (extending the 2026-07-29 scope settlement that named this issue
+  the home), and recursion depth is capped at one level as `FDC-012` (a child Run may not itself
+  spawn; lifting the cap is additive). The open question is resolved; the issue is selected for the
+  next planning pass now that Run completion (`FDC-002`) has landed.
