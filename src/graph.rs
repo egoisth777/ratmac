@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 /// A named position in a machine graph.
@@ -164,6 +164,55 @@ impl MachineGraph {
         });
         let selected = matches.next()?;
         matches.next().is_none().then_some(selected)
+    }
+
+    /// FDC-008: every elementary cycle over ordinary edges.
+    ///
+    /// Each cycle is reported exactly once, rooted at its lexicographically
+    /// smallest Phase, in deterministic order. Blocked routes never form
+    /// cycles: `rtm step` cannot take one, so they carry no repetition.
+    pub fn ordinary_cycles(&self) -> Vec<Vec<Phase>> {
+        let mut adjacency: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+        for transition in &self.transitions {
+            if transition.blocked_route {
+                continue;
+            }
+            adjacency
+                .entry(transition.from.as_str())
+                .or_default()
+                .insert(transition.to.as_str());
+        }
+
+        fn explore<'a>(
+            root: &'a str,
+            at: &'a str,
+            adjacency: &BTreeMap<&'a str, BTreeSet<&'a str>>,
+            path: &mut Vec<&'a str>,
+            cycles: &mut Vec<Vec<Phase>>,
+        ) {
+            let Some(nexts) = adjacency.get(at) else {
+                return;
+            };
+            for &next in nexts {
+                if next == root {
+                    cycles.push(path.iter().map(|name| Phase::new(*name)).collect());
+                } else if next > root && !path.contains(&next) {
+                    // Restricting the walk to Phases after the root reports
+                    // each cycle once, at its smallest member.
+                    path.push(next);
+                    explore(root, next, adjacency, path, cycles);
+                    path.pop();
+                }
+            }
+        }
+
+        let mut cycles = Vec::new();
+        for phase in &self.phases {
+            let root = phase.as_str();
+            let mut path = vec![root];
+            explore(root, root, &adjacency, &mut path, &mut cycles);
+        }
+        cycles
     }
 
     /// PGE-006: the blocked route leaving `phase`, if the Runbook declares one.

@@ -232,6 +232,15 @@ fn defect_catalogue() -> Vec<(&'static str, &'static str, &'static str)> {
              [[transitions]]\nfrom = \"b\"\nto = \"a\"\nblocked-route = true\ninput = \"hold\"\n",
         ),
         (
+            "rb214",
+            "RB214",
+            "[phases.entry]\nprompt = \"p\"\n[phases.a]\nprompt = \"p\"\n\
+             [phases.b]\nprompt = \"p\"\n\
+             [[transitions]]\nfrom = \"entry\"\nto = \"a\"\n\
+             [[transitions]]\nfrom = \"a\"\nto = \"b\"\n\
+             [[transitions]]\nfrom = \"b\"\nto = \"a\"\n",
+        ),
+        (
             "rb301",
             "RB301",
             "[phases.a]\nprompt = \"p\"\nguards = [{ kind = \"command_exit\", program = \"no-such-program-anywhere\", expected = 0 }]\n",

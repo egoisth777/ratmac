@@ -158,7 +158,11 @@ fn unguarded_cycle_fails_naming_phases_and_class() {
         "one unguarded cycle yields exactly one termination finding, got: {found:?}"
     );
     let finding = &found[0];
-    assert_eq!(finding.severity(), Severity::Error, "termination is an error");
+    assert_eq!(
+        finding.severity(),
+        Severity::Error,
+        "termination is an error"
+    );
     let text = format!("{} {}", finding.location(), finding.message());
     for needle in ["plan", "review", "receipt", "contract"] {
         assert!(

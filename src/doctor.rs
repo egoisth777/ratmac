@@ -140,6 +140,7 @@ pub fn diagnose(path: &Path) -> Vec<Finding> {
 
     let mut findings = Vec::new();
     inspect_graph(&class, &mut findings);
+    audit_termination(&class, &mut findings);
     lint_guards(&class, &mut findings);
     audit_ownership(&class, &shown, &mut findings);
     findings.sort();
@@ -350,6 +351,71 @@ fn inspect_graph(class: &MachineClass, findings: &mut Vec<Finding>) {
             ));
         }
     }
+}
+
+/// FDC-008: cycle termination as guard-kind membership (RB214).
+///
+/// Every Phase on a cycle over ordinary edges must carry at least one
+/// receipt-class (`sensitivity_receipts`, `completion_gate`) or
+/// contract-class (`intake_contract`, `record_contract`) guard: that guard
+/// gates the Phase's ordinary out-edges, so kind membership alone proves the
+/// cycle can end. Nothing is executed, and a blocked route satisfies
+/// nothing - `rtm step` never takes one.
+fn audit_termination(class: &MachineClass, findings: &mut Vec<Finding>) {
+    let graph = crate::graph::MachineGraph::new(
+        class.phases().keys().map(String::as_str),
+        class.transitions().to_vec(),
+    );
+    for cycle in graph.ordinary_cycles() {
+        let offenders = cycle
+            .iter()
+            .filter(|phase| {
+                class
+                    .phases()
+                    .get(phase.as_str())
+                    .is_none_or(|definition| {
+                        !definition.guards().iter().any(guard_terminates)
+                    })
+            })
+            .map(|phase| format!("{:?}", phase.as_str()))
+            .collect::<Vec<_>>();
+        if offenders.is_empty() {
+            continue;
+        }
+        let mut route = cycle
+            .iter()
+            .map(|phase| format!("{:?}", phase.as_str()))
+            .collect::<Vec<_>>()
+            .join(" -> ");
+        route.push_str(" -> ");
+        route.push_str(&format!("{:?}", cycle[0].as_str()));
+        let (noun, verb) = if offenders.len() == 1 {
+            ("Phase", "carries")
+        } else {
+            ("Phases", "carry")
+        };
+        findings.push(Finding::error(
+            "RB214",
+            format!("cycle {route}"),
+            format!(
+                "{noun} {} on this cycle {verb} no receipt- or contract-class \
+                 guarded out-edge, so nothing statically proves the cycle \
+                 terminates",
+                offenders.join(", ")
+            ),
+        ));
+    }
+}
+
+/// The guard-kind classes whose membership satisfies termination (FDC-008).
+fn guard_terminates(kind: &GuardKind) -> bool {
+    matches!(
+        kind,
+        GuardKind::SensitivityReceipts { .. }
+            | GuardKind::CompletionGate { .. }
+            | GuardKind::IntakeContract
+            | GuardKind::RecordContract
+    )
 }
 
 /// DRD-002: what a guard's verdict actually rests on.

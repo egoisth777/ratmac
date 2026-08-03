@@ -163,6 +163,7 @@ when any finding is an error.
 | `RB211` | error | More than one ordinary outgoing edge carries the same transition input. |
 | `RB212` | error | An ordinary transition input is foreign to its Phase's list, labelled and unlabelled ordinary branches are mixed, or a terminal/straight-line Phase declares an input contract. |
 | `RB213` | error | A blocked route declares `input`. |
+| `RB214` | error | A Phase on a cycle over ordinary edges carries no receipt- or contract-class guard, so nothing statically proves the cycle terminates. |
 | `RB301` | error | A `command_exit` guard is neither `exempt` nor resolvable to a pinnable regular file. |
 | `RB302` | warning | A guard's verdict rests on agent-writable content. |
 | `RB401` | error | A prompt or guard contract directs an agent to write a Scheduler-owned artifact. |
@@ -191,5 +192,6 @@ the decision and the statement above that preserves it.
 | `PGE-005` | Guard kinds: `completion_gate` reads the ticket's completion receipts. |
 | `PGE-006` | Transitions: `blocked-route = true` is the human-authorized escape `rtm step` never takes. |
 | `FDC-001` | Phases and Transitions: a branch declares closed `inputs`, ordinary edges carry unique covering `input` values, straight lines remain unlabelled, and blocked routes remain outside selection; `RB208`–`RB213`. |
+| `FDC-008` | Guard kinds and Transitions: every Phase on an ordinary-edge cycle carries a receipt- (`sensitivity_receipts`, `completion_gate`) or contract-class (`intake_contract`, `record_contract`) guarded out-edge, checked by kind membership alone; `RB214`. |
 | `FDC-009` | Classes and spawns, Guard kinds: one runbook declares a composed machine - inline class bodies, per-Phase spawn tables, and the `join` guard kind; `RB501`–`RB506`. |
 | `FDC-012` | Classes and spawns: a class body accepts no `classes` and its Phases no `spawns` - the format itself is one level deep. |

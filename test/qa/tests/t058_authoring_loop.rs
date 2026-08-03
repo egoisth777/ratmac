@@ -691,6 +691,14 @@ fn seeds(scaffold: &str) -> Vec<(&'static str, String)> {
             ),
         ),
         (
+            "RB214",
+            plain(
+                "\n[phases.spin]\nprompt = \"Spin until the guard says stop.\"\n\
+                 [[transitions]]\nfrom = \"review\"\nto = \"spin\"\n\
+                 [[transitions]]\nfrom = \"spin\"\nto = \"review\"\n",
+            ),
+        ),
+        (
             "RB301",
             scaffold.replace(
                 "[phases.build]",
