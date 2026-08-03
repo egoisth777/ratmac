@@ -6,7 +6,9 @@ defines nothing. Every fact about what may appear in a runbook lives in the
 something schematic is a link into it.
 
 Write against the specification, not against an example. An example teaches its
-accidents along with its rules.
+accidents along with its rules. Where your machine ends is also defined there:
+a [terminal Phase](runbook-spec.md#transitions) is structural, and the Engine —
+never the runbook — writes the lifecycle status when a Run reaches one.
 
 ## The loop
 

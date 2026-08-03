@@ -186,8 +186,11 @@ pub fn plan_abandon(root: &Path, request: &AbandonRequest) -> Result<AbandonPlan
             .load()
             .map_err(|error| refusal(format!("abandon cannot read the State File: {error}")))?;
         phase = Some(state.phase.clone());
+        // FDC-002: the durable terminal event identifies the addressed Run and
+        // its last state before any retirement begins.
         event = Some(format!(
-            "- Abandoned: Run retired at phase {} (status {}, goal revision {}) on an explicit human confirmation; admission state, Run evidence, and lock retired. The Run is terminal: no transition may proceed on it.\n",
+            "- Abandoned: Run {} retired at phase {} (status {}, goal revision {}) on an explicit human confirmation; admission state, Run evidence, and lock retired. The Run is terminal: no transition may proceed on it.\n",
+            run_id.as_deref().expect("admitted implies an addressed run"),
             state.phase,
             state.status,
             revision_or_none(&state.goal_revision),

@@ -441,6 +441,14 @@ impl Scheduler {
             .clone();
         self.machine = Self::graph_of(&Self::load_class(&root)?);
         let phase = self.initial_phase()?;
+        // FDC-002: a Run beginning in a terminal Phase — no ordinary outgoing
+        // edge — is complete from its first State File. The Engine writes the
+        // terminal fact; no agent claim participates.
+        let initial_status = if self.machine.has_ordinary_outgoing(phase.as_str()) {
+            Status::Planned
+        } else {
+            Status::Passed
+        };
         let arca = root.join(".arca");
         fs::create_dir_all(&arca)
             .map_err(|error| StateError::new(format!("create .arca: {error}")))?;
@@ -465,7 +473,7 @@ impl Scheduler {
 
         let state = RunState {
             phase: phase.to_string(),
-            status: Status::Planned,
+            status: initial_status,
             goal_revision: String::new(),
             input_revision: String::new(),
             output_revision: String::new(),
@@ -536,7 +544,7 @@ impl Scheduler {
         self.store = Some(store);
         self.run_id = Some(run_id.clone());
 
-        Ok(Run::new(phase, Status::Planned).with_artifacts(&root, &run_id))
+        Ok(Run::new(phase, initial_status).with_artifacts(&root, &run_id))
     }
 
     /// Evaluate the supported `files_exact` guards and apply a transition only
@@ -566,6 +574,18 @@ impl Scheduler {
             return Err(StateError::new(format!(
                 "State File phase {state_phase:?} is undeclared in ratmac.toml"
             )));
+        }
+        // FDC-002: a passed Run admits no further transition. The refusal
+        // precedes guard and verdict work and mutates nothing.
+        if state.status == Status::Passed {
+            return Ok(StepOutcome::Refused {
+                failures: vec![guard_failure(
+                    "terminal",
+                    state_phase,
+                    "run is terminal (status passed): no transition may proceed",
+                    "a live, non-terminal Run",
+                )],
+            });
         }
         let mut failures = self.guard_failures(&class, &state.phase)?;
         // ETB-003: between the freeze and batch closure, the goal is fixed.
@@ -677,6 +697,12 @@ impl Scheduler {
 
         let mut next = state;
         next.phase = to.to_string();
+        // FDC-002: arrival at a Phase with no ordinary outgoing edge completes
+        // ordinary execution. The terminal fact lands in the same atomic State
+        // File replacement that records the position.
+        if !self.machine.has_ordinary_outgoing(to.as_str()) {
+            next.status = Status::Passed;
+        }
         if let Some(frozen) = frozen_revision {
             // ETB-003 and FDC-003: freeze evidence follows Verdict consumption
             // but still precedes the successor State File. Failure leaves the

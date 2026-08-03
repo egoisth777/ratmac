@@ -211,7 +211,11 @@ fn tamper_refuses_and_restore_proceeds() {
     let state_path = fixture.state_path();
     let rewound = fs::read_to_string(&state_path)
         .expect("read advanced state")
-        .replace("phase = \"done\"", "phase = \"prepare\"");
+        .replace("phase = \"done\"", "phase = \"prepare\"")
+        // FDC-002: arrival at `done` wrote the terminal fact; the hand rewind
+        // must restore the lifecycle value it edits past, or the terminal
+        // refusal correctly fires before the pin under test.
+        .replace("status = \"passed\"", "status = \"planned\"");
     fs::write(&state_path, rewound).expect("rewind run to the guarded phase");
 
     let mut tampered = pristine.clone();
@@ -417,7 +421,9 @@ fn pin_refusal_carries_identity_and_diagnostic_framing() {
     let state_path = fixture.state_path();
     let rewound = fs::read_to_string(&state_path)
         .expect("read advanced state")
-        .replace("phase = \"done\"", "phase = \"prepare\"");
+        .replace("phase = \"done\"", "phase = \"prepare\"")
+        // FDC-002: restore the lifecycle value the rewind edits past.
+        .replace("status = \"passed\"", "status = \"planned\"");
     fs::write(&state_path, rewound).expect("rewind run to the guarded phase");
     let mut bytes = fs::read(&gate).expect("read gate");
     bytes.extend_from_slice(b"x");

@@ -890,9 +890,12 @@ to = "missing"
         let root = revalidation_project();
         let outside = root.parent().unwrap().join("arca-t005-outside.txt");
         fs::write(&outside, "SECRET").unwrap();
+        // FDC-002: `prepare` needs an ordinary outgoing edge, or start would
+        // write the terminal `passed` fact and step would refuse before the
+        // guard under test is ever evaluated.
         fs::write(
             root.join(".arca/ratmac.toml"),
-            "[phases.prepare]\nprompt = \"Prepare\"\nguards = [{ kind = \"file_contains\", path = \"../arca-t005-outside.txt\", contains = \"SECRET\" }]\n",
+            "[phases.prepare]\nprompt = \"Prepare\"\nguards = [{ kind = \"file_contains\", path = \"../arca-t005-outside.txt\", contains = \"SECRET\" }]\n\n[phases.done]\nprompt = \"Done\"\n\n[[transitions]]\nfrom = \"prepare\"\nto = \"done\"\n",
         )
         .unwrap();
         let mut scheduler = Scheduler::open(&root).unwrap();
@@ -912,7 +915,7 @@ to = "missing"
         fs::write(
             absolute_root.join(".arca/ratmac.toml"),
             format!(
-                "[phases.prepare]\nprompt = \"Prepare\"\nguards = [{{ kind = \"file_contains\", path = {absolute_path}, contains = \"SECRET\" }}]\n"
+                "[phases.prepare]\nprompt = \"Prepare\"\nguards = [{{ kind = \"file_contains\", path = {absolute_path}, contains = \"SECRET\" }}]\n\n[phases.done]\nprompt = \"Done\"\n\n[[transitions]]\nfrom = \"prepare\"\nto = \"done\"\n"
             ),
         )
         .unwrap();

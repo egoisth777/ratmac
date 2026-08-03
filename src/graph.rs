@@ -174,6 +174,16 @@ impl MachineGraph {
             .find(|transition| transition.from.as_str() == phase && transition.blocked_route)
     }
 
+    /// FDC-002: true when `phase` has at least one ordinary
+    /// (non-blocked-route) outgoing transition. A Phase without one is
+    /// structurally terminal: entering it completes ordinary execution.
+    pub fn has_ordinary_outgoing<P: AsRef<str>>(&self, phase: P) -> bool {
+        let phase = phase.as_ref();
+        self.transitions
+            .iter()
+            .any(|transition| transition.from.as_str() == phase && !transition.blocked_route)
+    }
+
     /// Finds the first destination of a transition leaving `phase`.
     pub fn next_phase<P: AsRef<str>>(&self, phase: P) -> Option<&Phase> {
         self.transition_for(phase).map(Transition::to)

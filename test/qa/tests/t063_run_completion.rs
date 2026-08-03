@@ -393,12 +393,11 @@ fn guard_refusal_is_non_terminal_and_failed_is_never_written() {
         "the satisfied guard lets the Run advance: {}",
         combined(&advance)
     );
-    for observed in [fixture.state_field("status")] {
-        assert_ne!(
-            observed, "failed",
-            "FDC-002: no Engine path writes the deferred failed outcome"
-        );
-    }
+    assert_ne!(
+        fixture.state_field("status"),
+        "failed",
+        "FDC-002: no Engine path writes the deferred failed outcome"
+    );
     assert_eq!(
         fixture.state_field("status"),
         "passed",

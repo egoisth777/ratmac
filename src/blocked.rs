@@ -149,6 +149,13 @@ pub fn plan_hold(root: &Path, request: &HoldRequest) -> Result<HoldPlan, HoldRef
         .load_state()
         .map_err(|error| refusal(format!("hold requires an active Run: {error}")))?;
     let from_phase = state.phase.clone();
+    // FDC-002: a passed Run admits no further transition — not even the
+    // human-confirmed blocked route. The refusal precedes any route lookup.
+    if state.status == crate::model::Status::Passed {
+        return Err(refusal(format!(
+            "run {run_id} is terminal (status passed): a blocked route may not move it"
+        )));
+    }
     let Some(route) = scheduler.machine().blocked_route_for(&from_phase) else {
         return Err(refusal(format!(
             "Phase {from_phase:?} declares no blocked route; add a transition with blocked-route = true"

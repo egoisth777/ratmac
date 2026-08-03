@@ -48,6 +48,13 @@ Each `[[transitions]]` table declares one directed edge.
 The **initial Phase** is the one Phase with no inbound ordinary transition.
 Zero such Phases is `RB202`; more than one is `RB203`.
 
+A **terminal Phase** is one with no ordinary outgoing transition (blocked
+routes do not count). Terminality is structural: nothing declares it.
+Entering a terminal Phase completes the Run — `rtm start` beginning there and
+`rtm step` arriving there write the Engine-owned status `passed` (FDC-002),
+and a passed Run refuses further motion. Lifecycle status is Engine runtime
+data and never a runbook key (R-002/R-003).
+
 ## Guard kinds
 
 An Exit Guard is a predicate over artifacts on disk, never over an agent's
