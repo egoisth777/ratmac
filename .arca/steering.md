@@ -83,22 +83,15 @@ one is a direction change and starts here.
 An authored ordering of directions beyond the current sprint, in direction
 and issue terms only. Binds nothing; nothing here is chosen; an item enters
 work only by going through P1 like any other issue. The ordering below is
-the forecast route from the landed routing and delivery contracts to the
-Self-hosted property in Ideal shape: this repository's own P1-P5 cycle run
-as a ratmac runbook. Each item names an entry condition - what must already
-be landed or ruled before selecting it at P1 is safe - and an exit - the
-direction-level fact its integration would make true. Conditions forecast
-what selection would require and deliver; they select nothing.
+the forecast route from the landed routing, delivery, and completion
+contracts to the Self-hosted property in Ideal shape: this repository's own
+P1-P5 cycle run as a ratmac runbook. Each item names an entry condition -
+what must already be landed or ruled before selecting it at P1 is safe - and
+an exit - the direction-level fact its integration would make true.
+Conditions forecast what selection would require and deliver; they select
+nothing.
 
-1. **Run completion** - the Run-completion issue (`i-020-run-completion`),
-   waiting whole in the deferred buffer. Entry: none outstanding - it
-   builds only on integrated Run residency for the addressed State File,
-   so the next planning pass may select it as-is. Exit: the Engine itself
-   writes the `passed` terminal fact, abandonment leaves a durable
-   terminal event before active state retires, and guard refusal stays
-   non-terminal. First on the route because a composition join and a
-   cycle runbook both need an Engine-written terminal fact they can read.
-2. **Machine composition** - the machine-composition issue
+1. **Machine composition** - the machine-composition issue
    (`i-018-machine-composition`), waiting whole in the deferred buffer.
    Entry: durable Run completion is integrated, and the spawn-ledger
    content fork below is answered (that issue's spec extended, or the
@@ -107,7 +100,7 @@ what selection would require and deliver; they select nothing.
    route and terminate the parent - with the recursion-depth fork ruled,
    not guessed. After completion because a join can only read a terminal
    fact the Engine writes.
-3. **The `failed`-outcome contract** - a later, separate issue that names
+2. **The `failed`-outcome contract** - a later, separate issue that names
    the concrete Engine-observable failure event granting the third
    terminal. Entry: the failure-event fork below is answered - neither a
    judgment value nor a guard refusal qualifies. Exit: `failed` has
@@ -116,7 +109,7 @@ what selection would require and deliver; they select nothing.
    as a dependency, so it may land beside composition and blocks nothing;
    it becomes urgent only if the cycle runbook's terminal vocabulary
    turns out to need the third outcome.
-4. **The cycle as the real runbook** - the cycle-as-runbook issue
+3. **The cycle as the real runbook** - the cycle-as-runbook issue
    (`i-015-cycle-as-runbook`), waiting whole in the deferred buffer:
    self-hosting this repository's P1-P5 loop. Entry: routing, delivery,
    completion, and composition are all integrated and landed, because the
@@ -170,46 +163,38 @@ wrote down is drift.
 Derived record. Regenerated wholesale at P1 close from the signed issue set;
 never hand-edited, never a progress report. Stage lives in the tree.
 
-Freeze stamp: goal git HEAD `3eb28a2`, goal SHA-256
-`ad1007250cdf00097b5ebd79dded5eef4135f025fe64d589cc6a22a38eeb41c2` — planning step 1 closed 2026-07-30.
+Freeze stamp: goal git HEAD `913e9d7`, goal SHA-256
+`674f77c9a830285ce148cd912f098d548a6773850201db7434189a547a99eb29` — planning step 1 closed 2026-08-03.
 
 A sprint starts when enough issues have collected to be worth integrating
 into the goal, and runs the cycle - plan, then build - until the gap check
 comes back clean.
 
-This sprint: make every branch choice checked and every consumed choice
-single-use.
+This sprint: the Engine, not the agent, writes the end of a Run.
 
-Signed issue set: i-016-fsm-doctrine-convergence,
-i-019-input-delivery-durability, and the duplicate-only goal correction
-i-021-state-file-path-correction.
+Signed issue set: i-020-run-completion.
 
 Route - an ordered dependency list, one why per edge. It says what depends on
 what, never when.
 
-0. i-021 State File path correction (`SPC-001`, duplicate of `FDC-004`) -
-   reconcile the inherited flat clauses with canonical per-Run residency. It
-   changes the goal only and mints no residual or program ticket.
-1. i-016 Input-routed transitions (`FDC-001`) - branching Phases declare
-   closed `inputs`, ordinary transitions map one `input`, the doctor proves
-   complete unique coverage, and runtime selects independently of declaration
-   order. It builds on integrated Run residency.
-2. i-019 Input delivery and durability (`FDC-003`) - one strict verdict record
-   supplies one transition input to one addressed Run and current Phase, then
-   is archived before successor state. It depends on `FDC-001` because
-   delivery has no meaning until the Machine Class declares legal values and
-   their mappings.
+1. i-020 Run completion (`FDC-002`) - start-in-terminal and
+   arrival-at-terminal write the Engine-owned `passed` fact in the same
+   State File replacement, abandonment leaves a durable terminal event
+   naming the Run before active state retires, guard refusal stays
+   non-terminal, and no path writes `failed`. It builds only on integrated
+   Run residency for the addressed State File.
 
-Endpoint: a review result can choose a declared branch without convention;
-the Engine rejects malformed or stale input, consumes a valid choice once,
-and preserves it as immutable Run evidence before advancing.
+Endpoint: a composition join or a stage oracle can read an Engine-written
+terminal fact - `passed` appears in the State File without any agent claim,
+and an abandoned Run leaves its durable event in append-only history.
 
-Deferred: Run completion (`i-020-run-completion`) is the next independent
-stratum; machine composition (`i-018-machine-composition`) then consumes
-routing, delivery, and terminal facts; the real cycle runbook
-(`i-015-cycle-as-runbook`) follows all of them. Also still deferred: a
-git-state guard kind and extraction of hard-coded
-`.arca/issue|ticket|residual|goal` paths from the Engine (R-016 debt).
+Deferred: machine composition (`i-018-machine-composition`) consumes
+routing, delivery, and terminal facts and awaits the spawn-ledger content
+ruling; the real cycle runbook (`i-015-cycle-as-runbook`) follows
+composition; the `failed`-outcome contract awaits a concrete
+Engine-observable event. Also still deferred: a git-state guard kind and
+extraction of hard-coded `.arca/issue|ticket|residual|goal` paths from the
+Engine (R-016 debt).
 
 ## How direction flows
 
