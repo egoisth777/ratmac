@@ -711,6 +711,32 @@ fn seeds(scaffold: &str) -> Vec<(&'static str, String)> {
                 "prompt = \"Record the verdict in .arca/state.toml when you are done.\"",
             ),
         ),
+        ("RB501", format!("classes = 1\n\n{scaffold}")),
+        (
+            "RB502",
+            plain("\n[classes.helper]\nbindings = 1\n\n[classes.helper.phases.work]\nprompt = \"Work.\"\n"),
+        ),
+        (
+            "RB503",
+            scaffold.replace("[phases.build]", "[phases.build]\nspawns = 1"),
+        ),
+        (
+            "RB504",
+            plain("\n[[phases.build.spawns]]\nclass = \"ghost\"\nname = \"child\"\n"),
+        ),
+        (
+            "RB505",
+            plain(
+                "\n[classes.helper.bindings.ticket]\nrequired = true\n\n[classes.helper.phases.work]\nprompt = \"Work.\"\n\n[[phases.build.spawns]]\nclass = \"helper\"\nname = \"child\"\n",
+            ),
+        ),
+        (
+            "RB506",
+            scaffold.replace(
+                "[phases.build]",
+                "[phases.build]\nguards = [{ kind = \"join\", require = \"any_passed\" }]",
+            ),
+        ),
     ]
 }
 

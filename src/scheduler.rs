@@ -830,6 +830,7 @@ impl Scheduler {
                     crate::contract::gate_intake(root),
                     "issue dispositions, status, and location agree across intake/deferred/archive; five-file shape intact; accepted IDs in the goal; live links resolving",
                 ),
+                GuardKind::Join { min, .. } => self.evaluate_join(*min),
                 GuardKind::RecordContract => self.evaluate_contract(
                     "record_contract",
                     crate::contract::gate_records(root, self.run_id.as_deref().unwrap_or_default()),
@@ -841,6 +842,21 @@ impl Scheduler {
             }
         }
         Ok(failures)
+    }
+
+    /// FDC-009: the composition join. Until a spawn ledger records children
+    /// (FDC-011, t-066), the honest verdict is that zero children are passed,
+    /// so a join guard cannot be satisfied.
+    fn evaluate_join(&self, min: Option<i64>) -> Result<(), GuardFailure> {
+        let required = min.unwrap_or(1);
+        Err(guard_failure(
+            "join",
+            "spawn ledger",
+            format!(
+                "no spawn ledger records a child Run; 0 of {required} required children are passed"
+            ),
+            "every ledger-recorded live child passed, at least the declared min",
+        ))
     }
 
     /// PGE-003: the P4 gate. Every planned test the ticket declares must

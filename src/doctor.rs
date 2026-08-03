@@ -388,7 +388,8 @@ fn lint_guards(class: &MachineClass, findings: &mut Vec<Finding>) {
                 GuardKind::SensitivityReceipts { .. }
                 | GuardKind::CompletionGate { .. }
                 | GuardKind::IntakeContract
-                | GuardKind::RecordContract => {}
+                | GuardKind::RecordContract
+                | GuardKind::Join { .. } => {}
             }
         }
     }

@@ -246,6 +246,36 @@ fn defect_catalogue() -> Vec<(&'static str, &'static str, &'static str)> {
             "RB401",
             "[phases.a]\nprompt = \"Write .arca/state.toml when you are done.\"\n",
         ),
+        (
+            "rb501",
+            "RB501",
+            "classes = 1\n[phases.a]\nprompt = \"p\"\n",
+        ),
+        (
+            "rb502",
+            "RB502",
+            "[classes.c]\nbindings = 1\n\n[classes.c.phases.x]\nprompt = \"p\"\n\n[phases.a]\nprompt = \"p\"\n",
+        ),
+        (
+            "rb503",
+            "RB503",
+            "[classes.c.phases.x]\nprompt = \"p\"\n\n[phases.a]\nprompt = \"p\"\nspawns = 1\n",
+        ),
+        (
+            "rb504",
+            "RB504",
+            "[phases.a]\nprompt = \"p\"\n[[phases.a.spawns]]\nclass = \"ghost\"\nname = \"g\"\n",
+        ),
+        (
+            "rb505",
+            "RB505",
+            "[classes.c.bindings.ticket]\nrequired = true\n\n[classes.c.phases.x]\nprompt = \"p\"\n\n[phases.a]\nprompt = \"p\"\n[[phases.a.spawns]]\nclass = \"c\"\nname = \"n\"\n",
+        ),
+        (
+            "rb506",
+            "RB506",
+            "[phases.a]\nprompt = \"p\"\nguards = [{ kind = \"join\", require = \"any_passed\" }]\n",
+        ),
     ]
 }
 

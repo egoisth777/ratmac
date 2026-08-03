@@ -67,6 +67,12 @@ answer, and the row says so.
 | `RB301` | A command gate names a program that cannot be pinned. | Name a program that exists, or mark the gate exempt if it deliberately runs unpinned code. | `pin-command` |
 | `RB302` | A gate's verdict rests on content the agent under test can write. | Delete the gate, or point it at something that agent cannot write. If the weaker gate is intended, keep it and accept the warning. | `drop-guard` |
 | `RB401` | A prompt or gate contract tells an agent to write a Scheduler-owned file. | Rewrite the sentence so the agent produces evidence instead - see [Ownership](runbook-spec.md#ownership). | `restore-location` |
+| `RB501` | The classes table is malformed at the named location. | Rewrite it as a table of named class bodies - see [Classes and spawns](runbook-spec.md#classes-and-spawns) - or delete it. | `restore-location` |
+| `RB502` | A class's binding declarations are malformed. | Rewrite each binding as a small table carrying at most a boolean requirement flag, or delete the declaration. | `restore-location` |
+| `RB503` | A Phase's spawn declarations are malformed. | Rewrite them as an array of tables, each naming a declared class and a child, or delete the declaration. | `restore-location` |
+| `RB504` | A spawn names a class the runbook does not declare. | Declare that class, or delete the spawn entry. | `restore-file` |
+| `RB505` | A spawn's binding names do not match the class's required set. | List exactly the required binding names on the spawn entry. | `restore-file` |
+| `RB506` | A join gate carries a verdict rule outside the closed vocabulary or a child count below one. | Use the one accepted rule and a count of at least one, or delete the gate. | `drop-guard` |
 
 ## Action vocabulary
 
@@ -93,3 +99,22 @@ and a human read the same table:
 - Read the [specification](runbook-spec.md) for anything this file did not
   answer. If it answers something the specification should own, the
   specification is wrong, not this file.
+
+## Composing
+
+To declare a composed machine (FDC-009): put each child class inline under
+the [`classes`](runbook-spec.md#classes-and-spawns) table - a class body is a
+whole machine under the same rules as the top level - declare the binding
+names the class requires under its
+[`bindings`](runbook-spec.md#classes-and-spawns) table, and give the spawning
+Phase one [`spawns`](runbook-spec.md#classes-and-spawns) entry per child,
+naming a declared [`class`](runbook-spec.md#classes-and-spawns), a
+Phase-unique [`name`](runbook-spec.md#classes-and-spawns), and a
+[`bind`](runbook-spec.md#classes-and-spawns) list covering the class's
+required bindings exactly. Guard the Phase that waits on children with the
+[`join`](runbook-spec.md#guard-kinds) kind. Declarations are dormant data:
+nothing spawns until the Engine's spawn verb does, and a join gate honestly
+refuses while no ledger records children. The format is one level deep: class
+bodies accept no nested class tables and their Phases no spawn tables
+(FDC-012's shape). The repair loop is unchanged: `rtm doctor --json` names
+composition defects as `RB501`-`RB506`.

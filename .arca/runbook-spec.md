@@ -18,6 +18,7 @@ an unknown key is a hard error, never an ignored one (R-011).
 | :--- | :--- | :--- | :--- |
 | `phases` | table of tables | yes | One entry per Phase, keyed by Phase name. A name may not be empty. |
 | `transitions` | array of tables | no | The directed edges between Phases. Absent means a single-Phase machine with no edges. |
+| `classes` | table of tables | no | FDC-009: one entry per declared child Machine Class, keyed by class name. See "Classes and spawns". |
 
 Any other top-level key is `RB103`. A top-level `status` key is `RB104`.
 
@@ -30,6 +31,7 @@ Each `[phases.<name>]` table declares one Phase.
 | `prompt` | string | yes | Short prose stating the Phase's intent. The Scheduler renders the Phase Prompt as this prose plus generated Exit Guards and, for a branching Phase, its legal input values (R-028, FDC-001). It is the only machine information an agent receives (R-029). |
 | `inputs` | array of strings | branching Phase only | The closed, non-empty, unique, ordered set of exact transition-input values. Required when the Phase has more than one ordinary outgoing edge; forbidden for a straight line or terminal. |
 | `guards` | array of tables | no | The Phase's Exit Guards, evaluated in declaration order at `rtm step`. Absent or empty means the Phase may be left unconditionally. Guards are readiness checks, never route selectors. |
+| `spawns` | array of tables | no | FDC-009: the child Runs this Phase may create, one entry per child. Only top-level Phases accept it. See "Classes and spawns". |
 
 Comments in the file carry authoring intent and never reach an agent (R-012).
 
@@ -55,6 +57,39 @@ Entering a terminal Phase completes the Run — `rtm start` beginning there and
 and a passed Run refuses further motion. Lifecycle status is Engine runtime
 data and never a runbook key (R-002/R-003).
 
+## Classes and spawns
+
+FDC-009: one runbook can declare a composed machine. The declarations are
+data; creating, joining, and superseding child Runs are Engine verbs governed
+by FDC-007/FDC-011/FDC-012.
+
+Each `[classes.<name>]` table declares one child Machine Class inline. A class
+body is a whole machine under the same rules as the top level - a `phases`
+table and `transitions` array validated identically (the shared codes apply,
+locations prefixed `class "<name>"`) - plus one extra key:
+
+| Field | Type | Required | Meaning |
+| :--- | :--- | :--- | :--- |
+| `phases` | table of tables | yes | The child machine's Phases, same rules as top level. |
+| `transitions` | array of tables | no | The child machine's edges, same rules as top level. |
+| `bindings` | table of tables | no | One entry per binding name the class declares: `[classes.<c>.bindings.<name>]` with the single optional boolean field `required` (default `false`). |
+
+A malformed `classes` shape is `RB501`; a malformed binding entry is `RB502`.
+A class body accepts no `classes` key and its Phases accept no `spawns` -
+the format itself is one level deep, the shape FDC-012 caps.
+
+Each `[[phases.<name>.spawns]]` table declares one child this Phase may spawn:
+
+| Field | Type | Required | Meaning |
+| :--- | :--- | :--- | :--- |
+| `class` | string | yes | A class declared in this runbook's `classes` table. An undeclared class is `RB504`. |
+| `name` | string | yes | The child instance's name, unique within the Phase. |
+| `bind` | array of strings | no | The binding names the spawner supplies. They must cover the class's required set exactly and name nothing the class does not declare (`RB505`). |
+
+A malformed spawn entry is `RB503`. Static validation proves the spawn table
+names a declared class and its binding names equal the child class's required
+set; binding values are supplied at spawn time, never in the runbook.
+
 ## Guard kinds
 
 An Exit Guard is a predicate over artifacts on disk, never over an agent's
@@ -71,6 +106,7 @@ is not listed for the selected kind is `RB107`; a missing required field is
 | `sensitivity_receipts` | Every planned test the named ticket declares has a sensitivity receipt under `.arca/evidence/` (PGE-003). | `ticket` | none |
 | `completion_gate` | Every check the named ticket declares has a green, fresh completion receipt (PGE-005). | `ticket` | none |
 | `intake_contract` | `.arca/issue/<issue-id>/` (intake), `.arca/issue/deferred/<issue-id>/`, and `.arca/issue/archive/<issue-id>/` form one issue-id namespace of exact five-file bundles. The guard parses each ask's exact `accepted\|rejected\|duplicate\|deferred` disposition from `spec.md`, never from status alone; enforces at the intake-completion boundary that the whole bundle is under `deferred/` with status `deferred` if and only if at least one ask remains deferred, while archived bundles are `integrated\|rejected` and contain no deferred ask; requires every accepted requirement ID verbatim in the goal; permits a duplicate ask to reuse the goal's existing representation without adding its proposed ID as a new row; requires every integrated bundle to have no deferred ask and at least one accepted-or-duplicate disposition; and resolves links from live intake and deferred bundles in both directions (PGE-001). | none | none |
+| `join` | FDC-009/FDC-011: the composition join. Satisfied only when the spawn ledger's live children carry Engine-written terminal `passed` facts - at least `min` of them. Until a ledger records children, a join guard honestly refuses. `require` accepts only `"all_passed"`; any other value is `RB506`, as is `min` below 1. | `require` | `min` (integer >= 1; default 1) |
 | `record_contract` | One residual per frozen requirement, evidence behind every `satisfied`, one owning ticket per gap, acyclic ticket dependencies, complete ticket sections (PGE-002). | none | none |
 
 Guard evaluation never compiles or fetches project source (ETB-001), and a
@@ -130,6 +166,12 @@ when any finding is an error.
 | `RB301` | error | A `command_exit` guard is neither `exempt` nor resolvable to a pinnable regular file. |
 | `RB302` | warning | A guard's verdict rests on agent-writable content. |
 | `RB401` | error | A prompt or guard contract directs an agent to write a Scheduler-owned artifact. |
+| `RB501` | error | The `classes` table is malformed: not a table, empty, an empty class name, or a class body that is not a table. |
+| `RB502` | error | A class's `bindings` declaration is malformed. |
+| `RB503` | error | A Phase's `spawns` declaration is malformed: not an array of tables, missing or empty `class`/`name`, a duplicate spawn name, or a `bind` value that is not an array of unique non-empty strings. |
+| `RB504` | error | A spawn names a class the runbook does not declare. |
+| `RB505` | error | A spawn's binding names do not cover the class's required set exactly, or name a binding the class does not declare. |
+| `RB506` | error | A `join` guard carries a `require` value outside the closed vocabulary or a `min` below 1. |
 
 ## Back-references
 
@@ -149,3 +191,5 @@ the decision and the statement above that preserves it.
 | `PGE-005` | Guard kinds: `completion_gate` reads the ticket's completion receipts. |
 | `PGE-006` | Transitions: `blocked-route = true` is the human-authorized escape `rtm step` never takes. |
 | `FDC-001` | Phases and Transitions: a branch declares closed `inputs`, ordinary edges carry unique covering `input` values, straight lines remain unlabelled, and blocked routes remain outside selection; `RB208`–`RB213`. |
+| `FDC-009` | Classes and spawns, Guard kinds: one runbook declares a composed machine - inline class bodies, per-Phase spawn tables, and the `join` guard kind; `RB501`–`RB506`. |
+| `FDC-012` | Classes and spawns: a class body accepts no `classes` and its Phases no `spawns` - the format itself is one level deep. |
