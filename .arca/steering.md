@@ -84,23 +84,15 @@ An authored ordering of directions beyond the current sprint, in direction
 and issue terms only. Binds nothing; nothing here is chosen; an item enters
 work only by going through P1 like any other issue. The ordering below is
 the forecast route from the landed routing, delivery, and completion
-contracts to the Self-hosted property in Ideal shape: this repository's own
+contracts - and the composition sprint now in flight - to the Self-hosted
+property in Ideal shape: this repository's own
 P1-P5 cycle run as a ratmac runbook. Each item names an entry condition -
 what must already be landed or ruled before selecting it at P1 is safe - and
 an exit - the direction-level fact its integration would make true.
 Conditions forecast what selection would require and deliver; they select
 nothing.
 
-1. **Machine composition** - the machine-composition issue
-   (`i-018-machine-composition`), waiting whole in the deferred buffer.
-   Entry: durable Run completion is integrated, and the spawn-ledger
-   content fork below is answered (that issue's spec extended, or the
-   small separate carrier minted). Exit: spawn and join are ordinary
-   checked motion - spawned children return durable terminal facts that
-   route and terminate the parent - with the recursion-depth fork ruled,
-   not guessed. After completion because a join can only read a terminal
-   fact the Engine writes.
-2. **The `failed`-outcome contract** - a later, separate issue that names
+1. **The `failed`-outcome contract** - a later, separate issue that names
    the concrete Engine-observable failure event granting the third
    terminal. Entry: the failure-event fork below is answered - neither a
    judgment value nor a guard refusal qualifies. Exit: `failed` has
@@ -109,7 +101,7 @@ nothing.
    as a dependency, so it may land beside composition and blocks nothing;
    it becomes urgent only if the cycle runbook's terminal vocabulary
    turns out to need the third outcome.
-3. **The engine-namespace split** - a future issue, not yet minted: the
+2. **The engine-namespace split** - a future issue, not yet minted: the
    files the Engine owns or consumes (the runbook, the runs roster, the
    lock, the receipts) move out of `.arca/` to an engine-named root, and
    the arca folder roots the contract guards read become runbook data,
@@ -123,7 +115,7 @@ nothing.
    existing. Before the cycle because a self-hosting runbook freezes
    every path it reads: splitting afterwards would re-path the live
    machine governing this repository and churn the namespace twice.
-4. **The cycle as the real runbook** - the cycle-as-runbook issue
+3. **The cycle as the real runbook** - the cycle-as-runbook issue
    (`i-015-cycle-as-runbook`), waiting whole in the deferred buffer:
    self-hosting this repository's P1-P5 loop. Entry: routing, delivery,
    completion, and composition are all integrated and landed, because the
@@ -167,47 +159,55 @@ wrote down is drift.
   cannot qualify because richer work outcomes belong in judgments and
   evidence. Every Ideal-shape property holds whichever qualifying event is
   eventually chosen.
-- **Where does the spawn-ledger content contract live?** Run residency
-  reserved the per-run spawn-ledger slot by name and left its content
-  undefined; the machine-composition issue (`i-018-machine-composition`) is
-  the named home but does not yet define it. Either that issue's spec is
-  extended to carry the contract, or a new small issue carries it alone.
-  Undecided; every property above holds either way.
 
 ## Current sprint
 
 Derived record. Regenerated wholesale at P1 close from the signed issue set;
 never hand-edited, never a progress report. Stage lives in the tree.
 
-Freeze stamp: goal git HEAD `913e9d7`, goal SHA-256
-`674f77c9a830285ce148cd912f098d548a6773850201db7434189a547a99eb29` — planning step 1 closed 2026-08-03.
+Freeze stamp: goal git HEAD `e9dbf46`, goal SHA-256
+`c96ba1541352a9261b8bfe23d2cf41d34049f8642c9cd750902bf40f4ed8e7c6` — planning step 1 closed 2026-08-03.
 
 A sprint starts when enough issues have collected to be worth integrating
 into the goal, and runs the cycle - plan, then build - until the gap check
 comes back clean.
 
-This sprint: the Engine, not the agent, writes the end of a Run.
+This sprint: one Run creates and consumes other Runs - composition as
+checked ordinary motion.
 
-Signed issue set: i-020-run-completion.
+Signed issue set: i-018-machine-composition.
 
 Route - an ordered dependency list, one why per edge. It says what depends on
 what, never when.
 
-1. i-020 Run completion (`FDC-002`) - start-in-terminal and
-   arrival-at-terminal write the Engine-owned `passed` fact in the same
-   State File replacement, abandonment leaves a durable terminal event
-   naming the Run before active state retires, guard refusal stays
-   non-terminal, and no path writes `failed`. It builds only on integrated
-   Run residency for the addressed State File.
+1. FDC-009 format extension - the runbook format grows the class and spawn
+   tables (and the `join` guard kind's fields) with the doctor's static
+   checks; first because every other composition surface reads declared
+   classes and spawn names from the format authority.
+2. FDC-007 spawn + FDC-011 ledger - `rtm spawn` as checked ordinary motion
+   appending the Scheduler-owned ledger entry; after the format because a
+   spawn table must exist to check against; the ledger fixes the expected
+   set the join will read.
+3. Join evaluation + FDC-008 termination - the join guard passes only on
+   the Engine-written terminal facts of every non-abandoned ledger child,
+   and the doctor's cycle check demands a receipt- or contract-guarded exit
+   on every cycle Phase; after spawn/ledger because the join judges the
+   ledger.
+4. FDC-007 respawn and abandon-with-run-id + FDC-012 cap - phrase-confirmed
+   supersession recording the superseded id, and the one-level refusal at
+   the spawn boundary; after spawn because both act on ledger-recorded
+   children.
+5. FDC-010 child-as-reviewer - a spawned child produces the judgment a
+   parent's branching Phase consumes; last because it composes spawn, join,
+   and the landed verdict delivery without new machinery.
 
-Endpoint: a composition join or a stage oracle can read an Engine-written
-terminal fact - `passed` appears in the State File without any agent claim,
-and an abandoned Run leaves its durable event in append-only history.
+Endpoint: a parent Run parked on its spawn/join Phase finishes on the
+durable terminal facts its children's Engines wrote - spawn, join, respawn,
+and the cap all refuse or pass by name, with no human courier between
+machines.
 
-Deferred: machine composition (`i-018-machine-composition`) consumes
-routing, delivery, and terminal facts and awaits the spawn-ledger content
-ruling; the real cycle runbook (`i-015-cycle-as-runbook`) follows
-composition; the `failed`-outcome contract awaits a concrete
+Deferred: the real cycle runbook (`i-015-cycle-as-runbook`) follows the
+engine-namespace split; the `failed`-outcome contract awaits a concrete
 Engine-observable event. Also still deferred: a git-state guard kind and
 extraction of hard-coded `.arca/issue|ticket|residual|goal` paths from the
 Engine (R-016 debt).
