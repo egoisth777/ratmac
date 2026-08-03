@@ -93,10 +93,10 @@ short hash. Larger units line up with git like this:
 | Unit        | Git shape                                              | Link                                                                                 |
 | :---------- | :----------------------------------------------------- | :----------------------------------------------------------------------------------- |
 | Landing     | one commit                                             | one log.md line citing the short hash                                                |
-| Ticket      | a contiguous run of commits ending green               | commits prefixed `t-<id>:`; the ticket file records its final hash. The red commit (tests exist, fail) and the green commit (all pass) are its two required landings |
+| Ticket      | a contiguous run of commits ending green; when built in a ticket worktree, the ticket branch merges into `main` at green | commits prefixed `t-<id>:`; the ticket file records its final hash. The red commit (tests exist, fail) and the green commit (all pass) are its two required landings |
 | Goal freeze | a recorded HEAD hash of `.arca/goal/`                  | the freeze note (see Defaults) — writing it IS the freeze                            |
 | Residual    | none — a judgment about a frozen HEAD                  | cites commit hashes as evidence                                                      |
-| Sprint      | trunk from the freeze HEAD to the clean-gap-check commit | —                                                                                  |
+| Sprint      | trunk from the freeze HEAD to the clean-gap-check commit, then pushed to `origin` at Idle | the sync (see cycle-end git discipline below)                                        |
 | Issue       | none — issues precede code                             | folded in at the next planning pass                                                  |
 
 Two lanes decide what must enter the loop:
@@ -105,6 +105,19 @@ Two lanes decide what must enter the loop:
   a ticket. Work enters as issue → goal → residual → ticket.
 - **Shop lane** — `.arca` docs (steering, schema, index, dict, tpl, vis): lands directly, steering first on
   pivots, one log line per landing (issue creation excepted — see "The issue folder").
+
+Cycle-end git discipline — two duties close every build cycle:
+
+- **Ticket worktrees.** A build turn may run in a linked worktree on a ticket branch named after its
+  ticket (e.g. `t-063-run-completion`). Its landings happen there; when the turn ends green, the ticket
+  branch merges into `main` — fast-forward when `main` has not moved, otherwise one merge commit that is
+  itself a landing with its own log line — and the worktree and branch are removed. A cycle never closes
+  with a live ticket worktree. A ticket worktree is not a trial worktree: a trial branch never merges
+  into `main` (see Trial worktrees), and nothing here changes that.
+- **Sync at Idle.** A cycle is complete only when its landings are on the remote: after the clean gap
+  check lands and every ticket worktree is merged, push `main` to `origin` (a plain push, never a force
+  push). Resting at Idle with unpushed landings is a defect. The push is a sync, never a deploy; the
+  trial lifecycle stays offline as before.
 
 # The work — one straight pass, then a loop
 
@@ -117,8 +130,9 @@ The work has two parts with different shapes:
   green, review, take the next ticket.
 
 The two parts meet at the gap check (P2). When the last ticket is done, do the gap check again: nothing
-missing → rest (Idle). Something still missing → cut more tickets and keep building. The gap check is how the
-loop knows when it is finished.
+missing → merge any live ticket worktree, push `main` to `origin` (Units and git: cycle-end git
+discipline), rest (Idle). Something still missing → cut more tickets and keep building. The gap check is
+how the loop knows when it is finished.
 
 **The only road back:** if, while building, you find the goal itself is wrong or incomplete — do **not**
 touch the goal. Write a **new issue** into `.arca/issue/`. It gets folded in on the next planning pass. From
@@ -198,7 +212,7 @@ A fork nobody wrote down is drift.
 | Step                            | Does                                                                                                             | Finish line                                                                          |
 | :------------------------------ | :--------------------------------------------------------------------------------------------------------------- | :----------------------------------------------------------------------------------- |
 | **P4** Write this ticket's tests | Turn the ticket's planned checks (planned-test-ID → test function, recorded in the ticket) into runnable tests; then re-read them trying to poke holes: would they catch a wrong answer, do they cover the edges, does each stand alone; run them — they should fail, since the code is not written yet | Every planned check for this ticket runs as a real test; hole-poking notes logged    |
-| **P5** Write the code           | Implement; run **every test so far** (all earlier tickets' plus this one's); run the hidden test lanes (test code in `.arca-private/`, listed in the ticket with `hidden-id`, `goal-contract-ref`, `category`, `oracle`, `owner`); fix and re-run until all green; short review; take the next ticket | All tests green including hidden lanes. No tickets left → redo P2's gap check → Idle when nothing is `missing|partial` |
+| **P5** Write the code           | Implement; run **every test so far** (all earlier tickets' plus this one's); run the hidden test lanes (test code in `.arca-private/`, listed in the ticket with `hidden-id`, `goal-contract-ref`, `category`, `oracle`, `owner`); fix and re-run until all green; short review; take the next ticket | All tests green including hidden lanes; when the turn ran in a ticket worktree, the ticket branch is merged into `main` and the worktree removed. No tickets left → redo P2's gap check → nothing `missing|partial` → push `main` to `origin`, then Idle |
 
 ```mermaid
 flowchart LR
