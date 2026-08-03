@@ -3,7 +3,7 @@
 ```yaml
 issue-id: "i-018-machine-composition"
 provenance: "Split of the FSM doctrine convergence issue (i-016) per human direction (Billy), 2026-07-29 - dependency strata; carries FDC-007 - FDC-010 from the i-016 seed unchanged, plus the recursion-depth open question"
-status: "deferred"
+status: "pending"
 ```
 
 ## Summary
@@ -21,11 +21,11 @@ recursion-depth fork is resolved (see [spec.md](spec.md)).
 **Billy's 2026-07-30 cut** created input-routed transitions, input delivery and durability, and
 Run completion as separate pending concerns. **Assumed dependency forecast, revocable at planning
 step 1:** integrated Run residency supplies per-Run addresses; input-routed transitions
-([i-016-fsm-doctrine-convergence](../../archive/i-016-fsm-doctrine-convergence/index.md)) supply legal inputs
+([i-016-fsm-doctrine-convergence](../archive/i-016-fsm-doctrine-convergence/index.md)) supply legal inputs
 and deterministic edge selection; input delivery
-([i-019-input-delivery-durability](../../archive/i-019-input-delivery-durability/index.md)) supplies
+([i-019-input-delivery-durability](../archive/i-019-input-delivery-durability/index.md)) supplies
 replay-safe judgment handoff; Run completion
-([i-020-run-completion](../../archive/i-020-run-completion/index.md)) supplies durable terminal facts.
+([i-020-run-completion](../archive/i-020-run-completion/index.md)) supplies durable terminal facts.
 Machine composition follows those four contracts.
 
 The decision records and the closed AR resolution ledger stay in the seed as evidence history;
@@ -54,5 +54,6 @@ this issue's files cite them, never copy.
 - 2026-08-03: Billy ruled both forks at selection: the spawn-ledger content contract is carried by
   this issue's spec as `FDC-011` (extending the 2026-07-29 scope settlement that named this issue
   the home), and recursion depth is capped at one level as `FDC-012` (a child Run may not itself
-  spawn; lifting the cap is additive). The open question is resolved; the issue is selected for the
-  next planning pass now that Run completion (`FDC-002`) has landed.
+  spawn; lifting the cap is additive). The open question is resolved; the issue is selected now that
+  Run completion (`FDC-002`) has landed: the same five-file bundle moved visibly to the intake work
+  area with status `pending`, awaiting the P1 fold-in.
