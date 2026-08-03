@@ -114,6 +114,13 @@ Cycle-end git discipline — two duties close every build cycle:
   itself a landing with its own log line — and the worktree and branch are removed. A cycle never closes
   with a live ticket worktree. A ticket worktree is not a trial worktree: a trial branch never merges
   into `main` (see Trial worktrees), and nothing here changes that.
+- **Hidden lanes travel with the turn.** `.arca-private/` is untracked (gitignored), so a fresh ticket
+  worktree does not contain it, and each hidden crate's `ratmac = { path = "../.." }` resolves to
+  whichever checkout holds the crate. At turn start, copy `.arca-private/` from the primary checkout
+  into the ticket worktree, skipping each crate's `target/` build output; author the new ticket's
+  hidden crate inside that copy; run every hidden lane from inside the worktree, so the lanes test
+  the branch code, never the pre-turn `main`. At green, after the merge, copy `.arca-private/` back
+  to the primary checkout and re-run the hidden lanes once from `main` — the post-merge confirmation.
 - **Sync at Idle.** A cycle is complete only when its landings are on the remote: after the clean gap
   check lands and every ticket worktree is merged, push `main` to `origin` (a plain push, never a force
   push). Resting at Idle with unpushed landings is a defect. The push is a sync, never a deploy; the
@@ -212,7 +219,7 @@ A fork nobody wrote down is drift.
 | Step                            | Does                                                                                                             | Finish line                                                                          |
 | :------------------------------ | :--------------------------------------------------------------------------------------------------------------- | :----------------------------------------------------------------------------------- |
 | **P4** Write this ticket's tests | Turn the ticket's planned checks (planned-test-ID → test function, recorded in the ticket) into runnable tests; then re-read them trying to poke holes: would they catch a wrong answer, do they cover the edges, does each stand alone; run them — they should fail, since the code is not written yet | Every planned check for this ticket runs as a real test; hole-poking notes logged    |
-| **P5** Write the code           | Implement; run **every test so far** (all earlier tickets' plus this one's); run the hidden test lanes (test code in `.arca-private/`, listed in the ticket with `hidden-id`, `goal-contract-ref`, `category`, `oracle`, `owner`); fix and re-run until all green; short review; take the next ticket | All tests green including hidden lanes; the ticket branch is merged into `main` and the worktree removed. No tickets left → redo P2's gap check → nothing `missing|partial` → push `main` to `origin`, then Idle |
+| **P5** Write the code           | Implement; run **every test so far** (all earlier tickets' plus this one's); run the hidden test lanes (test code in `.arca-private/`, listed in the ticket with `hidden-id`, `goal-contract-ref`, `category`, `oracle`, `owner`); fix and re-run until all green; short review; take the next ticket | All tests green including hidden lanes, run from inside the ticket worktree; the ticket branch is merged into `main`, the worktree removed, and the hidden lanes re-run green from `main`. No tickets left → redo P2's gap check → nothing `missing|partial` → push `main` to `origin`, then Idle |
 
 ```mermaid
 flowchart LR
