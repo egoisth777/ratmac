@@ -71,3 +71,7 @@ Input-routed transition selection is integrated from [i-016-fsm-doctrine-converg
 ## Integrated input delivery and durability
 
 Transition-input delivery is integrated from [i-019-input-delivery-durability](../issue/archive/i-019-input-delivery-durability/index.md): `FDC-003`. One strict live verdict record belongs to the addressed Run and current Phase; the Scheduler consumes it into immutable, collision-free Run evidence before writing successor state, so a consumed input cannot replay. The carrying Ideal-shape property is **One writer, append-only**, with **Every boundary machine-checked** served by validating the record against the current Phase's legal list.
+
+## Integrated Run completion
+
+Run completion is integrated from [i-020-run-completion](../issue/archive/i-020-run-completion/index.md): `FDC-002`. A state with no ordinary outgoing edge is terminal; starting in or arriving at one makes the Engine write `passed` in the same State File replacement, abandonment leaves a durable terminal event naming the Run before active state retires, guard refusal stays non-terminal, and `failed` keeps no write path. The carrying Ideal-shape property is **One writer, append-only**: the terminal fact is Engine-written run state, never an agent claim — and it serves **Self-hosted**, because a composition join and the cycle runbook read that fact.

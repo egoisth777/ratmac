@@ -143,7 +143,7 @@ From the reopened checkout, run API and `gh repo view` checks, exact remote/path
 - *Receipts.* `.arca/evidence/` is agent-writable and holds one structured file per executed check — command, working directory, target refs (planned-test ID, residual ID), exit status, and a SHA-256 over captured output — plus a per-ticket index. The P4 gate resolves each planned-test ID to a receipt carrying a failing baseline or mutation kill; the P5 gate re-executes the ticket's declared commands or verifies fresh receipts whose digests match re-hashed output. Receipts are evidence inputs, never Scheduler state.
 - *Ownership.* Prompts direct agent-authored notes to the ticket file or `.arca/evidence/`; an executable prompt audit scans active Runbook prompts and gate contracts for Scheduler-owned paths.
 - *Blocked route.* The human `hold t-<id>` convention is the authorization; the held ticket carries a `blocker-ref` to a new five-file issue (preferred) or a named residual. Route predicate `p5-blocked` verifies held-plus-linked state and routes to intake, leaving ticket status `held` and residuals untouched.
-- *Abandonment.* `rtm abandon` requires an explicit human confirmation phrase, checks authorization before the first write, appends the terminal abandoned event to the Scheduler-owned log itself, marks the State File terminal, and retires the lock. Stale-lock recovery routes through this same authorized path; no bypass flag exists.
+- *Abandonment.* `rtm abandon` requires an explicit human confirmation phrase, checks authorization before the first write, appends the terminal abandoned event to the Scheduler-owned log itself, then retires the active State File and the lock; no terminal value is ever written into the State File (wording corrected at the FDC-002 integration). Stale-lock recovery routes through this same authorized path; no bypass flag exists.
 
 **Consequences.** A status edit can no longer route the loop; honest blockage and honest abandonment both have mechanized, human-authorized exits; ownership of Scheduler-owned files is obeyable.
 
@@ -248,3 +248,18 @@ From the reopened checkout, run API and `gh repo view` checks, exact remote/path
 - *Wrong-time input.* A malformed record, a phase mismatch, a value outside the current list, a missing branch record, or a live record presented to a straight-line Phase refuses without transition. Completed or abandoned lifecycle behavior remains outside this requirement.
 
 **Consequences.** One judgment can cause at most one transition. Run evidence records every consumed input without making the Engine a judge, and repeated visits cannot overwrite earlier decisions.
+
+
+## Run completion (FDC-002)
+
+**Context.** Runs advanced but never ended: start always wrote `planned`, step carried the prior status forward, and completion existed only as prose. A composition join and a cycle runbook both need a terminal fact the Engine itself wrote. Integrated from [i-020-run-completion](../issue/archive/i-020-run-completion/design.md).
+
+**Decision.** The end of a Run is Engine-observable and Engine-written. A state is terminal when it has no ordinary outgoing edge; entering it completes ordinary execution. `rtm start` beginning in a terminal state and `rtm step` arriving at one write status `passed` in the same atomic State File replacement that records the position. A passed Run admits no further transition. Explicit abandonment appends its durable terminal event — naming the addressed Run, its last phase, status, and goal revision — to append-only history before any active state is retired; `abandoned` is never a surviving State File value. Guard refusal stays non-terminal and leaves Run state byte-identical. No path writes `failed`: the value remains legal vocabulary with no Engine write path until a later issue names a concrete Engine-observable failure event.
+
+- *Terminal recognition.* Structural only: no ordinary outgoing edge, where ordinary means not a blocked route. The Machine Class never declares lifecycle status (R-002/R-003); the parser and doctor already use this exact edge definition.
+- *Two write points.* Start-in-terminal and arrival-at-terminal. `passed` is written only by ordinary motion; a human hold never writes it.
+- *Terminal Runs refuse motion.* `rtm step` and a human hold refuse a passed Run by name, before guard or route work, leaving state untouched.
+- *Durable abandoned event.* The synced event append precedes retirement; the existing all-or-none compensation keeps event and retirement consistent.
+- *Deferred failed.* A guard refusal is not failure and no failure command exists.
+
+**Consequences.** A join or a stage oracle reads `passed` from the State File without trusting narration. A Phase whose only outgoing edge is a blocked route is structurally terminal; once its Run passes, that blocked route is unreachable.

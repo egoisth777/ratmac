@@ -90,3 +90,7 @@ Glossary of ubiquitous language. One term, one meaning. Terms not listed here mu
 | Straight-line Phase | A Phase with exactly one ordinary outgoing transition. It declares no legal input list, its edge has no input label, and movement needs no verdict. |
 | Live verdict record | The strict `verdict.toml` currently published in one Run's Verdict slot: `phase`, `input`, and `rationale`. It is absent when the slot is empty. |
 | Archived verdict | A consumed live verdict renamed into that Run's immutable `verdicts/` evidence sequence before state advance. |
+| Terminal state | A state with no ordinary outgoing edge. Entering it completes ordinary execution. The runbook schema calls a state a `Phase`. |
+| Passed Run | A Run whose Engine-owned status is `passed` because it started in or advanced into a terminal state. |
+| Abandoned event | The durable Engine-written history fact recorded before an explicitly abandoned Run's active state is retired. `abandoned` is not a surviving State File value. |
+| Failed outcome | A deferred terminal outcome with no current Engine-observable trigger. Guard refusal is not failure. |

@@ -270,7 +270,7 @@ Billy split the pending doctrine-convergence execution bundle without changing t
 run-identity findings or the integrated residency requirements. Current pending homes are:
 input-routed transitions (`FDC-001`) in
 [i-016-fsm-doctrine-convergence](../../issue/archive/i-016-fsm-doctrine-convergence/index.md), Run completion
-(`FDC-002`) in [i-020-run-completion](../../issue/deferred/i-020-run-completion/index.md), and input delivery
+(`FDC-002`) in [i-020-run-completion](../../issue/archive/i-020-run-completion/index.md), and input delivery
 and durability (`FDC-003`) in
 [i-019-input-delivery-durability](../../issue/archive/i-019-input-delivery-durability/index.md). The
 accepted `Verdict slot` and current `verdict.toml` reservation remain unchanged; any physical rename

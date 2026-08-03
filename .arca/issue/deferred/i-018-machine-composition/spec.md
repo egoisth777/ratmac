@@ -41,6 +41,6 @@ defined in [ubi-lang.md](ubi-lang.md); IDs stay stable and are never renumbered.
   and edge selection; input delivery
   ([i-019-input-delivery-durability](../../archive/i-019-input-delivery-durability/index.md)) supplies
   replay-safe judgment handoff; Run completion
-  ([i-020-run-completion](../i-020-run-completion/index.md)) supplies durable terminal facts.
+  ([i-020-run-completion](../../archive/i-020-run-completion/index.md)) supplies durable terminal facts.
   Machine composition follows those four contracts.
 - The recursion-depth open question stays recorded and unresolved until a ruling answers it.

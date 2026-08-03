@@ -179,6 +179,15 @@ Behavior checks derived from [spec.md](spec.md). Each is a testable one-liner.
 | FDCV-009 | A Phase with one ordinary outgoing transition has no `inputs`, its edge has no `input`, and `rtm step` selects it without reading a verdict. | FDC-001 |
 | FDCV-010 | Blocked routes never participate in input coverage or selection; adding `input` to one refuses with the documented blocked-route diagnostic. | FDC-001 |
 
+## Integrated Run-completion verification
+
+| ID | Check | Requirement |
+|---|---|---|
+| FDCV-011 | `rtm start` writes `passed` when the initial state has no ordinary outgoing edge. | FDC-002 |
+| FDCV-012 | `rtm step` writes `passed` when its selected transition arrives at a state with no ordinary outgoing edge. | FDC-002 |
+| FDCV-013 | Confirmed abandonment writes one durable terminal event before retiring active state; `abandoned` never survives as a State File value. | FDC-002 |
+| FDCV-014 | No Engine path writes the deferred `failed` outcome, and guard refusal leaves Run state byte-identical rather than marking it terminal. | FDC-002 |
+
 ## Integrated input-delivery-and-durability verification
 
 | ID | Check | Requirement |

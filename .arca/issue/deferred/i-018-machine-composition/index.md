@@ -24,7 +24,7 @@ step 1:** integrated Run residency supplies per-Run addresses; input-routed tran
 and deterministic edge selection; input delivery
 ([i-019-input-delivery-durability](../../archive/i-019-input-delivery-durability/index.md)) supplies
 replay-safe judgment handoff; Run completion
-([i-020-run-completion](../i-020-run-completion/index.md)) supplies durable terminal facts.
+([i-020-run-completion](../../archive/i-020-run-completion/index.md)) supplies durable terminal facts.
 Machine composition follows those four contracts.
 
 The decision records and the closed AR resolution ledger stay in the seed as evidence history;

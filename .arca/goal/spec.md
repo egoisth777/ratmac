@@ -171,3 +171,9 @@ Requirement records distilled from the accepted decisions. Sources cite the deci
 | Req ID | Requirement | Source |
 |---|---|---|
 | FDC-003 | One live verdict record belongs to the addressed Run and its current Phase. An external evidence reviewer authors exactly one transition input plus rationale; the Engine makes no judgment and chooses no reviewer. On a branching step, after all readiness guards pass, the Engine validates the record against the addressed Run, current Phase, and legal input list, then atomically renames it into immutable, collision-free Run evidence before writing the successor State File. A refusal before consumption changes nothing. An interruption after consumption but before state advance leaves the old Phase awaiting a fresh verdict; archived input never replays. Straight-line movement needs no verdict and refuses a stale live record. | [issue FDC-003](../issue/archive/i-019-input-delivery-durability/spec.md#requirement-records) |
+
+## Integrated Run-completion requirements
+
+| Req ID | Requirement | Source |
+|---|---|---|
+| FDC-002 | The Engine writes `passed` when `rtm start` begins in a terminal Phase or `rtm step` arrives at one. Explicit abandonment writes a durable terminal event before active state is retired; `abandoned` is never a surviving State File value. Guard refusal remains non-terminal and leaves Run state unchanged. No path writes `failed` until a later issue defines a concrete Engine-observable failure event. | [issue FDC-002](../issue/archive/i-020-run-completion/spec.md#requirement-records) |

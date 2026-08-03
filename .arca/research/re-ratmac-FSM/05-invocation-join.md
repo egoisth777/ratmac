@@ -769,7 +769,7 @@ faithful to how PGE-005 already collapses that loop into a gate
 Billy split the pending doctrine-convergence execution bundle into three current requirement homes:
 input-routed transitions (`FDC-001`) remain in
 [i-016-fsm-doctrine-convergence](../../issue/archive/i-016-fsm-doctrine-convergence/index.md), Run completion
-(`FDC-002`) moved to [i-020-run-completion](../../issue/deferred/i-020-run-completion/index.md), and input
+(`FDC-002`) moved to [i-020-run-completion](../../issue/archive/i-020-run-completion/index.md), and input
 delivery and durability (`FDC-003`) moved to
 [i-019-input-delivery-durability](../../issue/archive/i-019-input-delivery-durability/index.md). Earlier
 references to one “verdict-routed execution core” are historical. The judge-authored verdict record
