@@ -109,11 +109,27 @@ nothing.
    as a dependency, so it may land beside composition and blocks nothing;
    it becomes urgent only if the cycle runbook's terminal vocabulary
    turns out to need the third outcome.
-3. **The cycle as the real runbook** - the cycle-as-runbook issue
+3. **The engine-namespace split** - a future issue, not yet minted: the
+   files the Engine owns or consumes (the runbook, the runs roster, the
+   lock, the receipts) move out of `.arca/` to an engine-named root, and
+   the arca folder roots the contract guards read become runbook data,
+   retiring the hard-coded-path debt (R-016) the current sprint's
+   Deferred list already names. Entry: none among these items - it
+   consumes neither routing, delivery, completion, nor composition, so
+   it may land beside composition and blocks nothing on the critical
+   path. Exit: one owner per root - everything under the engine's root
+   is Engine-written or Engine-consumed, `src/` carries no `.arca/`
+   literal, and a second project runs `rtm` without an `.arca/` folder
+   existing. Before the cycle because a self-hosting runbook freezes
+   every path it reads: splitting afterwards would re-path the live
+   machine governing this repository and churn the namespace twice.
+4. **The cycle as the real runbook** - the cycle-as-runbook issue
    (`i-015-cycle-as-runbook`), waiting whole in the deferred buffer:
    self-hosting this repository's P1-P5 loop. Entry: routing, delivery,
    completion, and composition are all integrated and landed, because the
-   cycle consumes all four; hosting it earlier would encode
+   cycle consumes all four; and the engine-namespace split above, because
+   the cycle runbook welds in whatever namespace exists when it is
+   authored; hosting it earlier would encode
    first-edge-wins into the shop's own loop. Exit - the Self-hosted
    property itself: `.arca/ratmac.toml` declares the real cycle and is
    doctor-clean, `rtm status` answers "where are we" with the
