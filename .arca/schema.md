@@ -366,6 +366,11 @@ retires them. On the exact phrase - typed at invocation, never read from a file
 and goal revision, then retires the admission state, the Run evidence, and the
 lock, so a fresh `rtm start` can begin and records its own baseline and pins.
 
+With multi-run addressing, authorization splits by motion kind (`FDC-007`):
+`rtm spawn` is ordinary motion and takes no confirmation phrase, while
+`rtm respawn --run <id>` and abandon-with-run-id require confirmation phrases
+naming that run id - typed at invocation, never read from a file.
+
 A stale lock is retired through this same path; no bypass flag exists.
 Everything unconfirmed refuses before the first write, and a retirement that
 cannot finish restores every file it touched - the Run stays active rather than

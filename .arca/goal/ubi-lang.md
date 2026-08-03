@@ -94,3 +94,10 @@ Glossary of ubiquitous language. One term, one meaning. Terms not listed here mu
 | Passed Run | A Run whose Engine-owned status is `passed` because it started in or advanced into a terminal state. |
 | Abandoned event | The durable Engine-written history fact recorded before an explicitly abandoned Run's active state is retired. `abandoned` is not a surviving State File value. |
 | Failed outcome | A deferred terminal outcome with no current Engine-observable trigger. Guard refusal is not failure. |
+| Spawn | Ordinary checked motion creating a child Run from a class the parent's runbook declares; legal only while the parent occupies the spawning Phase; no confirmation phrase. |
+| Spawn ledger | The Scheduler-owned, append/annotate-only per-run record of spawned children, at the path `FDC-004` reserves under the parent Run's directory. It fixes the join's expected set; agents never write it. |
+| Respawn | The human-confirmed one-for-one replacement of a spawned child: mints a fresh run id for the same bindings and appends a successor ledger entry naming the superseded id. Its confirmation phrase names the run id. |
+| Join | The guard that reads each non-abandoned ledger child's Engine-written terminal fact and passes only when every such child stands at a graph-terminal phase with status `passed` and the satisfied count meets the declared minimum. A refusal names every non-satisfying child. |
+| Child-as-reviewer | The first-increment judge-independence mechanism: a spawned child machine produces the judgment a parent's branching Phase consumes. |
+| Recursion depth cap | One level: a spawned child Run may not itself spawn; the Engine refuses the attempt naming the cap. Lifting the cap is additive and needs a new ruling or issue. |
+| Witnessed verdict verb | The deferred judge-independence verb; it needs signer identity, which stays outside the Engine (`ORS-001`). Its deferral is recorded, never silently dropped. |

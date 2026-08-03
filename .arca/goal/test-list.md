@@ -200,3 +200,15 @@ Behavior checks derived from [spec.md](spec.md). Each is a testable one-liner.
 | FDCV-020 | `rtm start` leaves `.arca/runs/<id>/verdict.toml` absent. A branching step with no live record refuses after readiness guards and leaves State File and Run evidence byte-identical. | FDC-003 |
 | FDCV-021 | Runtime recording proves every retained readiness guard runs before the verdict is read or consumed, and archive rename precedes successor State File replacement. | FDC-003 |
 | FDCV-022 | A live verdict presented to a straight-line Phase refuses without consumption or transition; straight-line movement with an empty slot does not read a verdict. | FDC-003 |
+
+## Integrated machine-composition verification
+
+| ID | Check | Requirement |
+|---|---|---|
+| MCV-001 | Every ask traces to its decision provenance: `FDC-007`–`FDC-010` to their records in the seed's design (Adopted defaults for FDC-007, FDC-008, FDC-010; an individual human ruling for FDC-009) and the research sections they condense; `FDC-011` and `FDC-012` to the 2026-08-03 individual human rulings recorded in the archived bundle. | FDC-007–FDC-012 |
+| MCV-002 | `spawn` proceeds with no confirmation phrase; `respawn` and abandon-with-run-id refuse without a phrase naming the run id and proceed with one, the refusals recorded as behavioral evidence. | FDC-007 |
+| MCV-003 | A runbook with a cycle whose every phase carries a receipt- or contract-class guarded out-edge passes the termination check; removing that edge from one phase on the cycle fails it by kind membership. | FDC-008 |
+| MCV-004 | A runbook carrying the class and spawn tables parses without the format refusal the review cited; the `blocked-route` spelling (hyphen) is accepted as canonical. | FDC-009 |
+| MCV-005 | Child-as-reviewer works in the first increment; no witnessed verdict verb exists in the surface, and its deferral is recorded, not silently dropped. | FDC-010 |
+| MCV-006 | The recursion-depth ruling is recorded with its provenance (2026-08-03, Billy); a spawn addressed to a Run that is itself a ledger-recorded child refuses naming the one-level cap. | FDC-012 |
+| MCV-007 | The spawn ledger at the reserved per-run path is Scheduler-owned and append/annotate-only: spawn appends an entry with the recorded fields; abandon flips only the abandoned mark; respawn appends the successor entry naming the superseded id; a ledger entry whose child Run is missing on disk makes the join refuse naming that child. | FDC-011 |
