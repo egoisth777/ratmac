@@ -100,6 +100,7 @@ def main() -> int:
                 )
 
     goal_spec = read(os.path.join(ROOT, ".arca/goal/spec.md"))
+    working_authority = read(os.path.join(ROOT, ".arca/schema.md"))
     expected = {"index.md", "spec.md", "design.md", "test-plan.md", "ubi-lang.md"}
     seen: dict[str, str] = {}
     for entry, folder, location in issue_bundles():
@@ -155,8 +156,14 @@ def main() -> int:
             failures.append(f"{shown}: rejected issue still has accepted asks")
         if status in {"integrated", "deferred"}:
             for req in sorted(accepted):
-                if f"| {req} |" not in goal_spec:
-                    failures.append(f"{shown}: accepted {req} missing from goal spec")
+                if f"| {req} |" in goal_spec:
+                    continue
+                if f"### {req} " in working_authority:
+                    continue
+                failures.append(
+                    f"{shown}: accepted {req} resolves to neither a goal spec row"
+                    f" nor a working-authority requirement heading"
+                )
 
     for failure in failures:
         print(f"FAIL {failure}")

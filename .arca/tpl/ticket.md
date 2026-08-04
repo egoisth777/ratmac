@@ -2,6 +2,9 @@
 ticket-id: "{{ticket-id}}"
 residual-ids:
   - "{{residual-id}}"
+# SDC-003 (schema.md, "Deliberate damage and discard safety"): deliberate-damage
+# evidence lives solely in these gap records' mutation-kill lists; the ticket
+# points and duplicates no evidence bytes.
 behavior-refs:
   - "{{path/to/spec.md#anchor}}"
 design-refs:

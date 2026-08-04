@@ -99,6 +99,12 @@ short hash. Larger units line up with git like this:
 | Sprint      | trunk from the freeze HEAD to the clean-gap-check commit, then pushed to `origin` at Idle | the sync (see cycle-end git discipline below)                                        |
 | Issue       | none — issues precede code                             | folded in at the next planning pass                                                  |
 
+One stated exception to the identity above: during a build turn's deliberate-damage checks, the ephemeral
+safety commit — subject exactly `t-<id>: checkpoint - not a landing` — is not a landing and takes no
+log line. It is unpublished and unmerged, and `git commit --amend` replaces it with the green landing
+before the merge, so permanent ticket-branch history keeps the identity intact (see
+[Deliberate damage and discard safety](#deliberate-damage-and-discard-safety)).
+
 Two lanes decide what must enter the loop:
 
 - **Program lane** — anything changing what the program does (`src/`, tests, the runbook): no commit without
@@ -213,7 +219,7 @@ A fork nobody wrote down is drift.
 
 | Step                  | Does                                                                                                             | Finish line                                                                          |
 | :-------------------- | :--------------------------------------------------------------------------------------------------------------- | :----------------------------------------------------------------------------------- |
-| **P1** Fold in issues | Work every `pending` issue in the intake work area into the goal: give each ask a stable requirement ID and a decision `accepted|rejected|duplicate|deferred`, link everything both ways; name, per accepted issue, the Ideal-shape property it advances — an issue that advances none and defers nothing is `rejected`, or it is a pivot, and then steering changes first and the issue waits for the next pass; shape check | An issue with any deferred ask moves whole to `.arca/issue/deferred/` with status `deferred`; every other issue ends `integrated|rejected`; every integrated issue has at least one accepted or duplicate ask, every accepted requirement exists in the goal, and each accepted issue names the shape property it advances; all live links resolve |
+| **P1** Fold in issues | Work every `pending` issue in the intake work area into the goal or the working authority: give each ask a stable requirement ID and a decision `accepted|rejected|duplicate|deferred`, link everything both ways — an accepted ask resolves either to a product requirement row in `.arca/goal/spec.md` or to an explicit requirement-ID heading in the working authority (this file), and a working-authority requirement binds at integration while minting no goal row, no gap record, and no ticket; name, per accepted issue, the Ideal-shape property it advances — an issue that advances none and defers nothing is `rejected`, or it is a pivot, and then steering changes first and the issue waits for the next pass; shape check | An issue with any deferred ask moves whole to `.arca/issue/deferred/` with status `deferred`; every other issue ends `integrated|rejected`; every integrated issue has at least one accepted or duplicate ask, every accepted requirement exists in the goal or under its requirement-ID heading in the working authority, and each accepted issue names the shape property it advances; all live links resolve |
 | **P2** Find the gaps  | Freeze the goal (note git HEAD), then compare each requirement against what actually exists; write one record in `.arca/residual/` per requirement: `missing|partial|satisfied`, with pointers to the proof and a short why | Every requirement has exactly one record, active and archive counted together; no proof ⇒ never `satisfied` |
 | **P3** Cut tickets    | Turn each `missing|partial` record into one small, self-contained, provable piece of work in `.arca/ticket/` (from `.arca/tpl/ticket.md`); order them so a ticket that needs another comes after it; **approved on creation** | Each such record ↔ exactly one ticket; all links resolve                             |
 
@@ -222,7 +228,7 @@ A fork nobody wrote down is drift.
 | Step                            | Does                                                                                                             | Finish line                                                                          |
 | :------------------------------ | :--------------------------------------------------------------------------------------------------------------- | :----------------------------------------------------------------------------------- |
 | **P4** Write this ticket's tests | Turn the ticket's planned checks (planned-test-ID → test function, recorded in the ticket) into runnable tests; then re-read them trying to poke holes: would they catch a wrong answer, do they cover the edges, does each stand alone; run them — they should fail, since the code is not written yet | Every planned check for this ticket runs as a real test; hole-poking notes logged    |
-| **P5** Write the code           | Implement; run **every test so far** (all earlier tickets' plus this one's); run the hidden test lanes (test code in `.arca-private/`, listed in the ticket with `hidden-id`, `goal-contract-ref`, `category`, `oracle`, `owner`); fix and re-run until all green; short review; take the next ticket | All tests green including hidden lanes, run from inside the ticket worktree; then in order: merge the ticket branch into `main`, copy `.arca-private/` back to the primary checkout, remove the worktree and branch, re-run the hidden lanes green from `main`. No tickets left → redo P2's gap check → nothing `missing|partial` → push `main` to `origin`, then Idle |
+| **P5** Write the code           | Implement; run **every test so far** (all earlier tickets' plus this one's); run the hidden test lanes (test code in `.arca-private/`, listed in the ticket with `hidden-id`, `goal-contract-ref`, `category`, `oracle`, `owner`); fix and re-run until all green; then the deliberate-damage checks in the fixed order of [Deliberate damage and discard safety](#deliberate-damage-and-discard-safety): safety commit, each check from it, restore and verify, kills into the owning gap record, `git commit --amend` into the green landing; short review; take the next ticket | All tests green including hidden lanes, run from inside the ticket worktree; every deliberate-damage check run from the safety commit and the checkpoint amended into the green landing with its one log line; then in order: merge the ticket branch into `main`, copy `.arca-private/` back to the primary checkout, remove the worktree and branch, re-run the hidden lanes green from `main`. No tickets left → redo P2's gap check → nothing `missing|partial` → push `main` to `origin`, then Idle |
 
 ```mermaid
 flowchart LR
@@ -321,6 +327,70 @@ These are durable working rules; the goal's `AOI-001`–`AOI-003` bind the progr
 - **Release acceptance lane opt-in.** Environment-coupled release checks (live GitHub identity, exact origin, branch,
   clean worktree) run only with `RATMAC_RELEASE_ACCEPTANCE=1`. Plain `cargo test --workspace` skips that lane and
   prints the skip; never make branch work depend on operator-cutover facts.
+
+## Deliberate damage and discard safety
+
+Every gap record must cite the mutations that kill its tests, so every build turn briefly breaks the code
+on purpose to watch a named test fail. This section is how that happens without ever risking completed
+work. It binds the manual cycle this repository runs today; its machine enforcement — a guard refusing a
+dirty tree — is owned by the cycle-as-runbook issue (`i-015`), not built here. `SDC-001`–`SDC-004` are
+working-authority requirements: accepted asks resolve to the headings below, and they mint no goal row,
+no gap record, and no ticket.
+
+Provenance: in the composition-format turn (the archived ticket `t-064`), a mutation-evidence revert ran
+`git checkout -- src/machine.rs` after the green build while the green implementation of that file was
+uncommitted and never staged. The index still held the red bytes, so the command restored the red state
+and destroyed the only copy, and the file had to be reconstructed from its tests. The lesson frozen in
+that ticket's P5 notes — restore mutation probes from an explicit backup copy, never from git, while an
+increment is uncommitted — is superseded by `SDC-002` below: with the safety commit, checkpoint-sourced
+git restoration is the standard, and backup copies and hand-written inverse edits are not. The archived
+notes stay byte-identical; this paragraph is where the supersession lives.
+
+### SDC-001 — the discard guard
+
+No contributor runs a discard command — `git checkout -- <path>`, `git restore`, `git clean`,
+`git reset --hard`, dropping a stash, or any other command that throws away uncommitted changes — while
+the working tree holds unsaved completed work. Before any discard: look (`git status`, then `git diff`
+over anything it lists); whatever is wanted beyond what the discard is meant to remove is saved as a
+commit or parked first (`git stash push -m "t-<id>: <what>"`, dropped only after its content lands or is
+explicitly declared obsolete). `git clean` and `git reset --hard` are discard commands under this rule at
+every moment. The rule bans discarding unsaved work, never version-control restoration: restoring saved
+bytes from a checkpoint is standard and preferred.
+
+### SDC-002 — damage only from a checkpoint
+
+A deliberate-damage check runs only from the safety commit: after the turn's tests are all green, commit
+everything with the subject exactly `t-<id>: checkpoint - not a landing`. That commit is ephemeral —
+unpublished, unmerged, never a Landing, no log line. Damage is limited to paths the checkpoint already
+tracks. Each undo restores index and worktree from the checkpoint —
+`git restore --source=<checkpoint> --staged --worktree -- <paths>` — never plain `git restore <paths>`
+or `git checkout -- <paths>`, which copy index bytes that may be stale (exactly the `t-064` failure),
+and never `git clean`. After each restore, verify: `git status --porcelain` prints nothing and the tree
+matches the checkpoint. Hand-written inverse edits are not the standard undo.
+
+### SDC-003 — turn order and the single evidence home
+
+The order inside the code-writing step (P5) is fixed: tests green → safety commit → each
+deliberate-damage check from it → restore and verify → evidence → green landing → merge. Evidence is
+written only after the observed failure, and only into the owning gap record's `mutation-kill` list —
+the sole physical home for deliberate-damage evidence; the ticket carries its `residual-ids` pointer and
+no evidence bytes. Then `git commit --amend` folds the checkpoint into the final green landing: one
+commit carrying the code, the updated gap record, and the ticket reference, with its one required log
+line. Red then green stays the shape of permanent ticket-branch history — the checkpoint never merges,
+never earns a log line, and no evidence claim predates the check it reports.
+
+Interruption recovery: interrupted mid-damage, restore index and worktree from the checkpoint (the
+command above), verify, then continue or re-run the check. Interrupted after the checks but before the
+amend, the checkpoint holds everything — finish the gap-record evidence, amend, append the log line,
+merge. A stray checkpoint found later on an unmerged ticket branch is never merged as-is: amend or
+replace it into the green landing first.
+
+### SDC-004 — forward-binding migration
+
+These rules bind from their integration forward. Archived tickets, gap records, and issue bundles whose
+kills predate them stay byte-identical — nothing is re-run, re-stamped, or rewritten; a reviewer reading
+older history should expect kills produced from pre-green trees there. The `t-064` P5 notes stay frozen
+as written; the provenance paragraph above is where their backup-copy lesson is superseded.
 
 ## Blocked route
 
@@ -438,7 +508,9 @@ none are written. The same property is carried by artifacts a reviewer can
 re-derive: every residual cites the exact test file and test names behind each
 claim, the mutations that kill each lane, and a snapshot manifest of path,
 tracking state, and SHA-256. A claim resting on prose alone is a defect in
-either loop.
+either loop. The mutation kills a residual cites are produced from the safety commit after the turn's
+tests are green, live solely in that record's `mutation-kill` list, and the green landing that carries
+them is created after every check ([Deliberate damage and discard safety](#deliberate-damage-and-discard-safety)).
 
 Scheduler-owned files - `.arca/state.toml`, `.arca/log.md`, `.arca/rtm.lock` -
 belong to `rtm` for as long as a Run is active: while one exists, `rtm` writes
