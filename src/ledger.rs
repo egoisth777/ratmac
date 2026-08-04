@@ -59,6 +59,39 @@ impl fmt::Display for LedgerError {
 
 impl std::error::Error for LedgerError {}
 
+/// FDC-012: is `run_id` recorded as a child in any spawn ledger under
+/// `runs_dir`? Provenance, not liveness - abandoned and superseded entries
+/// still count, so the cap holds across abandon and respawn. Strict read:
+/// an unreadable ledger refuses rather than guessing membership.
+pub fn is_recorded_child(runs_dir: &Path, run_id: &str) -> Result<bool, LedgerError> {
+    let entries = match std::fs::read_dir(runs_dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => {
+            return Err(LedgerError::new(format!(
+                "runs directory {} is unreadable: {error}",
+                runs_dir.display()
+            )));
+        }
+    };
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            LedgerError::new(format!(
+                "runs directory {} is unreadable: {error}",
+                runs_dir.display()
+            ))
+        })?;
+        let ledger_path = entry.path().join("spawn-ledger");
+        if read_entries(&ledger_path)?
+            .iter()
+            .any(|child| child.id == run_id)
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// Strictly read every entry. An absent or empty file is an empty ledger
 /// (the path is reserved at mint); anything unreadable or malformed refuses.
 pub fn read_entries(path: &Path) -> Result<Vec<LedgerEntry>, LedgerError> {

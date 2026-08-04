@@ -423,10 +423,7 @@ fn spawn<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Resu
             roster_line(project_root)
         ))
     })?;
-    let mut scheduler = Scheduler::open_run(project_root, &run)
-        .map_err(|error| CliError::new(format!("spawn: {error}")))?;
-    let child = scheduler
-        .spawn_with_bindings(&name, &bindings)
+    let child = Scheduler::spawn_to(project_root, &run, &name, &bindings)
         .map_err(|error| CliError::new(format!("spawn: {error}")))?;
     writeln!(
         writer,

@@ -373,9 +373,7 @@ fn audit_termination(class: &MachineClass, findings: &mut Vec<Finding>) {
                 class
                     .phases()
                     .get(phase.as_str())
-                    .is_none_or(|definition| {
-                        !definition.guards().iter().any(guard_terminates)
-                    })
+                    .is_none_or(|definition| !definition.guards().iter().any(guard_terminates))
             })
             .map(|phase| format!("{:?}", phase.as_str()))
             .collect::<Vec<_>>();

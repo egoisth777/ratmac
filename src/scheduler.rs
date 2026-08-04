@@ -627,6 +627,32 @@ impl Scheduler {
     /// an ordinary flat top-level Run in the single run-id namespace - same
     /// State File, evidence, terminal facts, and reserved spawn-ledger path;
     /// the ledger's written entry is FDC-011, a later increment.
+    /// The addressed spawn boundary (FDC-012 ordering). A malformed or
+    /// never-recorded id refuses for the ordinary addressing reason; an id
+    /// recorded as a child in any spawn ledger refuses naming the one-level
+    /// cap - checked before the retired-run admission check, so an abandoned
+    /// child and a superseded record refuse by the cap's name, exactly like
+    /// a live child. Only then is the parent opened and the spawn attempted.
+    pub fn spawn_to(
+        root: impl AsRef<Path>,
+        parent_id: &str,
+        spawn_name: &str,
+        bindings: &BTreeMap<String, String>,
+    ) -> Result<String, StateError> {
+        let root = root.as_ref();
+        Self::validate_run_address(root, parent_id)?;
+        if crate::ledger::is_recorded_child(&Self::runs_dir(root), parent_id)
+            .map_err(|error| StateError::new(format!("spawn cap check refused: {error}")))?
+        {
+            return Err(StateError::new(format!(
+                "spawn refused: run {parent_id} is a ledger-recorded child; \
+composition is capped at one level (FDC-012)"
+            )));
+        }
+        let mut scheduler = Self::open_run(root, parent_id)?;
+        scheduler.spawn_with_bindings(spawn_name, bindings)
+    }
+
     pub fn spawn(&mut self, spawn_name: &str) -> Result<String, StateError> {
         self.spawn_with_bindings(spawn_name, &BTreeMap::new())
     }
@@ -650,6 +676,19 @@ impl Scheduler {
         let run_dir = self.run_dir()?;
         let lock_path = root.join(".arca/rtm.lock");
         let _lock = InvocationLock::acquire_with_retry(&lock_path)?;
+        // FDC-012: composition is capped at one level. A parent that is
+        // itself a ledger-recorded child anywhere refuses before any read of
+        // its state - provenance, not liveness, so an abandoned child and a
+        // respawned successor (its State File retired or fresh) refuse by
+        // the same name, before any write.
+        if crate::ledger::is_recorded_child(&Self::runs_dir(&root), &parent_id)
+            .map_err(|error| StateError::new(format!("spawn cap check refused: {error}")))?
+        {
+            return Err(StateError::new(format!(
+                "spawn refused: run {parent_id} is a ledger-recorded child; \
+composition is capped at one level (FDC-012)"
+            )));
+        }
         let class = Self::load_class(&root)?;
         // FDC-005: no motion may proceed on a drifted class.
         Self::verify_runbook_pin(&root, &run_dir)?;
