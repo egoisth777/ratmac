@@ -964,32 +964,7 @@ composition is capped at one level (FDC-012)"
         // FDC-011/FDC-012: a child Run moves on its own class's machine.
         // The owning scope of the State File phase resolves once, before
         // any status refusal or guard.
-        let (definition, scope_machine) = if let Some(definition) = class.phases().get(&state_phase)
-        {
-            (definition, Self::graph_of(&class))
-        } else if let Some(child_class) = class
-            .classes()
-            .values()
-            .find(|child| child.phases().contains_key(&state_phase))
-        {
-            let definition = child_class
-                .phases()
-                .get(&state_phase)
-                .expect("the owning child class carries the phase definition");
-            let machine = MachineGraph::new(
-                child_class
-                    .phases()
-                    .keys()
-                    .map(Phase::new)
-                    .collect::<Vec<_>>(),
-                child_class.transitions().to_vec(),
-            );
-            (definition, machine)
-        } else {
-            return Err(StateError::new(format!(
-                "State File phase {state_phase:?} is undeclared in ratmac.toml"
-            )));
-        };
+        let (definition, scope_machine) = Self::resolve_phase_scope(&class, &state_phase)?;
         // FDC-002: a passed Run admits no further transition. The refusal
         // precedes guard and verdict work and mutates nothing.
         if state.status == Status::Passed {
@@ -1686,16 +1661,11 @@ composition is capped at one level (FDC-012)"
         if self.run_id.is_some() {
             Self::verify_runbook_pin(root, &self.run_dir()?)?;
         }
-        let machine = Self::graph_of(&class);
         let state = self.load_state_unlocked()?;
-        if !machine.phases().any(|phase| phase.as_str() == state.phase) {
-            return Err(StateError::new(format!(
-                "State File phase {:?} is undeclared in ratmac.toml",
-                state.phase
-            )));
-        }
-        let pending_guards = Self::pending_guard_labels(&class, &state.phase);
-        let phase_prompt = Self::render_phase_prompt(&class, &state.phase)?;
+        // FDC-011/FDC-012: a child Run is reported from its own class's view.
+        let (definition, _scope_machine) = Self::resolve_phase_scope(&class, &state.phase)?;
+        let pending_guards = Self::pending_guard_labels(definition);
+        let phase_prompt = Self::render_phase_prompt(definition)?;
         Ok(StatusReport {
             state,
             pending_guards,
@@ -1703,14 +1673,45 @@ composition is capped at one level (FDC-012)"
         })
     }
 
+    /// FDC-011/FDC-012: resolve the owning scope of a State File phase -
+    /// the top level first, else the one child class declaring it. Every
+    /// phase-addressed surface (step, status) reads through this view, so a
+    /// child Run is reported and moved on its own class's machine.
+    fn resolve_phase_scope<'a>(
+        class: &'a MachineClass,
+        state_phase: &str,
+    ) -> Result<(&'a PhaseDefinition, MachineGraph), StateError> {
+        if let Some(definition) = class.phases().get(state_phase) {
+            return Ok((definition, Self::graph_of(class)));
+        }
+        if let Some(child_class) = class
+            .classes()
+            .values()
+            .find(|child| child.phases().contains_key(state_phase))
+        {
+            let definition = child_class
+                .phases()
+                .get(state_phase)
+                .expect("the owning child class carries the phase definition");
+            let machine = MachineGraph::new(
+                child_class
+                    .phases()
+                    .keys()
+                    .map(Phase::new)
+                    .collect::<Vec<_>>(),
+                child_class.transitions().to_vec(),
+            );
+            return Ok((definition, machine));
+        }
+        Err(StateError::new(format!(
+            "State File phase {state_phase:?} is undeclared in ratmac.toml"
+        )))
+    }
+
     /// R-028: the Phase Prompt is the authored prose plus the generated list of
     /// this Phase's Exit Guards - rendered from the typed guards, so what the
     /// agent reads is what the Scheduler will evaluate.
-    fn render_phase_prompt(class: &MachineClass, phase: &str) -> Result<PhasePrompt, StateError> {
-        let definition = class
-            .phases()
-            .get(phase)
-            .ok_or_else(|| StateError::new(format!("missing phase definition: {phase}")))?;
+    fn render_phase_prompt(definition: &PhaseDefinition) -> Result<PhasePrompt, StateError> {
         let mut rendered = definition.prompt().to_owned();
         let guards = definition.guards();
         if !guards.is_empty() {
@@ -1740,17 +1741,12 @@ composition is capped at one level (FDC-012)"
         Ok(PhasePrompt::new(rendered))
     }
 
-    fn pending_guard_labels(class: &MachineClass, phase: &str) -> Vec<String> {
-        class
-            .phases()
-            .get(phase)
-            .map_or_else(Vec::new, |definition| {
-                definition
-                    .guards()
-                    .iter()
-                    .map(|guard| guard.name().to_owned())
-                    .collect()
-            })
+    fn pending_guard_labels(definition: &PhaseDefinition) -> Vec<String> {
+        definition
+            .guards()
+            .iter()
+            .map(|guard| guard.name().to_owned())
+            .collect()
     }
 }
 

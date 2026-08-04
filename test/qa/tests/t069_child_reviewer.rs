@@ -200,7 +200,11 @@ fn child_reviews_and_parent_routes_without_courier() {
     );
     let archive = fixture.run_dir(&parent).join("verdicts");
     let archived = names_in(&archive);
-    assert_eq!(archived.len(), 1, "exactly one archived verdict: {archived:?}");
+    assert_eq!(
+        archived.len(),
+        1,
+        "exactly one archived verdict: {archived:?}"
+    );
     let archived_bytes =
         fs::read(archive.join(&archived[0])).expect("the archived verdict is readable");
     assert_eq!(
