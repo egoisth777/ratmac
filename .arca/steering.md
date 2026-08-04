@@ -130,6 +130,11 @@ nothing.
    rests on content writable by the agent under test. Only when that exit
    holds does ratmac replace the manual P1-P5 control this file
    describes - never before, and never by declaring it here.
+   The carrier grew at the 2026-08-03 planning pass: its first ask
+   (`PCR-001`) now also owns the dirty-tree refusal before any
+   deliberate-damage step and the intake gate's acceptance of
+   working-authority requirement headings, so selecting this item also
+   mechanizes the integrated discard guard. Entry conditions unchanged.
 
 ## Open questions
 
@@ -165,52 +170,60 @@ wrote down is drift.
 Derived record. Regenerated wholesale at P1 close from the signed issue set;
 never hand-edited, never a progress report. Stage lives in the tree.
 
-Freeze stamp: goal git HEAD `e9dbf46`, goal SHA-256
-`c96ba1541352a9261b8bfe23d2cf41d34049f8642c9cd750902bf40f4ed8e7c6` — planning step 1 closed 2026-08-03.
+Freeze stamp: P1 integration HEAD
+`4e7d085e4747077d317babb7ef882631b017c3ea`, goal bytes unchanged since the
+`e9dbf46` freeze (`git diff` over `.arca/goal/` is empty); canonical goal
+revision retained: goal SHA-256
+`c96ba1541352a9261b8bfe23d2cf41d34049f8642c9cd750902bf40f4ed8e7c6`,
+re-verified 2026-08-03 by recomputing `src/goal.rs::revision` over the
+checked-out goal - planning step 1 closed 2026-08-03.
 
 A sprint starts when enough issues have collected to be worth integrating
 into the goal, and runs the cycle - plan, then build - until the gap check
 comes back clean.
 
-This sprint: one Run creates and consumes other Runs - composition as
-checked ordinary motion.
+This sprint: the loop's own hands are made safe - deliberate-damage
+evidence is produced without ever risking unsaved completed work. Working
+rules, not product behavior.
 
-Signed issue set: i-018-machine-composition.
+Signed issue set: i-022-safe-deliberate-damage (SDC-001..SDC-004 accepted
+as working-authority requirements in `.arca/schema.md`, "Deliberate damage
+and discard safety"; SDC-005 duplicate, routed to the deferred
+cycle-as-runbook carrier). No product-goal rows were minted, and no SDC
+residual or ticket exists or may exist: working-authority requirements bind
+at integration and are checked as authority text, never built.
 
-Route - an ordered dependency list, one why per edge. It says what depends on
-what, never when.
+Route - an ordered dependency list, one why per edge. It says what depends
+on what, never when.
 
-1. FDC-009 format extension - the runbook format grows the class and spawn
-   tables (and the `join` guard kind's fields) with the doctor's static
-   checks; first because every other composition surface reads declared
-   classes and spawn names from the format authority.
-2. FDC-007 spawn + FDC-011 ledger - `rtm spawn` as checked ordinary motion
-   appending the Scheduler-owned ledger entry; after the format because a
-   spawn table must exist to check against; the ledger fixes the expected
-   set the join will read.
-3. Join evaluation + FDC-008 termination - the join guard passes only on
-   the Engine-written terminal facts of every non-abandoned ledger child,
-   and the doctor's cycle check demands a receipt- or contract-guarded exit
-   on every cycle Phase; after spawn/ledger because the join judges the
-   ledger.
-4. FDC-007 respawn and abandon-with-run-id + FDC-012 cap - phrase-confirmed
-   supersession recording the superseded id, and the one-level refusal at
-   the spawn boundary; after spawn because both act on ledger-recorded
-   children.
-5. FDC-010 child-as-reviewer - a spawned child produces the judgment a
-   parent's branching Phase consumes; last because it composes spawn, join,
-   and the landed verdict delivery without new machinery.
+1. Working-authority landing - the schema section, the P1/P5/Units/
+   Evidence-receipts alignment, the glossary terms, the residual and ticket
+   blanks, and the shape-check branch; first and already carried by the
+   integration landing itself, because a working-authority requirement
+   binds at integration rather than through the build loop.
+2. P2 gap check - re-run against the unchanged frozen goal, the normal
+   next step after any P1 close; after the landing because the check must
+   judge the tree the landing produced. The goal gained no rows, so the
+   expected verdict is the standing clean result re-confirmed; a
+   `missing|partial` surprise would cut tickets as always.
+3. Idle - on a clean check, nothing to cut and no build turn to start; the
+   next ticket any future sprint cuts runs under the new discard rules
+   from its first deliberate-damage check.
 
-Endpoint: a parent Run parked on its spawn/join Phase finishes on the
-durable terminal facts its children's Engines wrote - spawn, join, respawn,
-and the cap all refuse or pass by name, with no human courier between
-machines.
+Endpoint: the discard guard, checkpoint-only damage, the fixed
+green-checkpoint-checks-evidence-landing order, and the single evidence
+home are findable, shape-checked authority; no deliberate-damage check in
+this repository can destroy unsaved completed work by rule, and the next
+gap check closes the sprint at Idle.
 
 Deferred: the real cycle runbook (`i-015-cycle-as-runbook`) follows the
-engine-namespace split; the `failed`-outcome contract awaits a concrete
-Engine-observable event. Also still deferred: a git-state guard kind and
-extraction of hard-coded `.arca/issue|ticket|residual|goal` paths from the
-Engine (R-016 debt).
+engine-namespace split and now also carries the machine enforcement of the
+discard guard - the dirty-tree refusal before any deliberate-damage step
+and the intake gate's acceptance of working-authority requirement headings
+(`PCR-001`, extended 2026-08-03); the `failed`-outcome contract awaits a
+concrete Engine-observable event. Also still deferred: a git-state guard
+kind and extraction of hard-coded `.arca/issue|ticket|residual|goal` paths
+from the Engine (R-016 debt).
 
 ## How direction flows
 
