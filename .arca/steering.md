@@ -10,8 +10,8 @@ overrides `.arca/goal/spec.md` on what the running program does.
 ## What we are building
 
 ratmac (`rtm`) is a small Rust engine that runs agent work as an explicit
-state machine. A Machine Class - a runbook at `.arca/ratmac.toml`, plain TOML
-data - declares phases, prompts, guards, and transitions; the Engine
+state machine. A Machine Class - a runbook, plain TOML data - declares phases,
+prompts, guards, and transitions; the Engine
 instantiates it into a Run and is the only writer of run state. Progress is
 proven by machine-checked guards over artifacts on disk, never by an agent's
 claim.
@@ -83,58 +83,61 @@ one is a direction change and starts here.
 An authored ordering of directions beyond the current sprint, in direction
 and issue terms only. Binds nothing; nothing here is chosen; an item enters
 work only by going through P1 like any other issue. The ordering below is
-the forecast route from the landed routing, delivery, and completion
-contracts - and the composition sprint now in flight - to the Self-hosted
-property in Ideal shape: this repository's own
-P1-P5 cycle run as a ratmac runbook. Each item names an entry condition -
-what must already be landed or ruled before selecting it at P1 is safe - and
-an exit - the direction-level fact its integration would make true.
-Conditions forecast what selection would require and deliver; they select
-nothing.
+the forecast route from the landed routing, delivery, completion, and
+composition contracts to the Self-hosted property in Ideal shape: this
+repository's own P1-P5 cycle run as a ratmac runbook. Each item names an
+entry condition - what must already be landed or ruled before selecting it
+at P1 is safe - and an exit - the direction-level fact its integration would
+make true. Conditions forecast what selection would require and deliver;
+they select nothing.
 
-1. **The `failed`-outcome contract** - a later, separate issue that names
-   the concrete Engine-observable failure event granting the third
-   terminal. Entry: the failure-event fork below is answered - neither a
-   judgment value nor a guard refusal qualifies. Exit: `failed` has
-   exactly one Engine-observable trigger. Off the critical path: neither
-   the machine-composition issue nor the cycle-as-runbook issue names it
-   as a dependency, so it may land beside composition and blocks nothing;
-   it becomes urgent only if the cycle runbook's terminal vocabulary
-   turns out to need the third outcome.
-2. **The engine-namespace split** - a future issue, not yet minted: the
-   files the Engine owns or consumes (the runbook, the runs roster, the
-   lock, the receipts) move out of `.arca/` to an engine-named root, and
-   the arca folder roots the contract guards read become runbook data,
-   retiring the hard-coded-path debt (R-016) the current sprint's
-   Deferred list already names. Entry: none among these items - it
-   consumes neither routing, delivery, completion, nor composition, so
-   it may land beside composition and blocks nothing on the critical
-   path. Exit: one owner per root - everything under the engine's root
-   is Engine-written or Engine-consumed, `src/` carries no `.arca/`
-   literal, and a second project runs `rtm` without an `.arca/` folder
-   existing. Before the cycle because a self-hosting runbook freezes
-   every path it reads: splitting afterwards would re-path the live
-   machine governing this repository and churn the namespace twice.
-3. **The cycle as the real runbook** - the cycle-as-runbook issue
+1. **The engine-namespace split** - the next promotion target, but still a
+   future issue, not yet minted: the files the Engine owns or consumes (the
+   runbook, the runs roster, the lock, the receipts) move out of `.arca/` to
+   an engine-named root, and the arca folder roots the contract guards read
+   become runbook data, retiring the hard-coded-path debt (R-016). Entry:
+   none among these items - it consumes neither routing, delivery,
+   completion, nor composition. Those contracts are landed and no
+   unanswered fork blocks the split, making it the only unblocked
+   critical-path item. Exit: one owner per root - everything under the
+   engine's root is Engine-written or Engine-consumed, `src/` carries no
+   `.arca/` literal, and a second project runs `rtm` without an `.arca/`
+   folder existing. The future issue, not this forecast, must choose the new
+   root. Before the cycle because a self-hosting runbook freezes every path
+   it reads: splitting afterwards would re-path the live machine governing
+   this repository and churn the namespace twice.
+2. **The cycle as the real runbook** - the cycle-as-runbook issue
    (`i-015-cycle-as-runbook`), waiting whole in the deferred buffer:
    self-hosting this repository's P1-P5 loop. Entry: routing, delivery,
    completion, and composition are all integrated and landed, because the
    cycle consumes all four; and the engine-namespace split above, because
-   the cycle runbook welds in whatever namespace exists when it is
-   authored; hosting it earlier would encode
-   first-edge-wins into the shop's own loop. Exit - the Self-hosted
-   property itself: `.arca/ratmac.toml` declares the real cycle and is
-   doctor-clean, `rtm status` answers "where are we" with the
-   tree-derived lookup demoted to a no-live-Run fallback, the landing
-   line is Engine-appended while a Run is live, and no gate's verdict
-   rests on content writable by the agent under test. Only when that exit
-   holds does ratmac replace the manual P1-P5 control this file
-   describes - never before, and never by declaring it here.
-   The carrier grew at the 2026-08-03 planning pass: its first ask
-   (`PCR-001`) now also owns the dirty-tree refusal before any
+   the cycle runbook welds in whatever namespace exists when it is authored.
+   The four contracts are landed; the split is the remaining entry
+   condition. Exit - the Self-hosted property itself: the real cycle's
+   Machine Class declares the cycle and is doctor-clean, `rtm status`
+   answers "where are we" with the tree-derived lookup demoted to a
+   no-live-Run fallback, the landing line is Engine-appended while a Run is
+   live, and no gate's verdict rests on content writable by the agent under
+   test. Only when that exit holds does ratmac replace the manual P1-P5
+   control this file describes - never before, and never by declaring it
+   here.
+   The carrier also owns (`PCR-001`) the dirty-tree refusal before every
    deliberate-damage step and the intake gate's acceptance of
-   working-authority requirement headings, so selecting this item also
-   mechanizes the integrated discard guard. Entry conditions unchanged.
+   working-authority requirement headings. Those responsibilities and the
+   entry conditions are unchanged.
+   The State-not-Phase wishlist entry is neither promoted nor an entry
+   condition here. If a human promotes it, settle it before this item, or
+   the real cycle runbook will first be authored with `Phase` and later need
+   a runbook format migration.
+3. **The `failed`-outcome contract** - a blocked, independent side path that
+   names the concrete Engine-observable failure event granting the third
+   terminal. Entry: a human answers the failure-event fork below with that
+   concrete event; a judgment value, a transition input, and a guard refusal
+   do not qualify. Until that ruling, this item is blocked. Exit: `failed`
+   has exactly one Engine-observable trigger. It is independent because the
+   cycle-as-runbook issue does not depend on it, so it blocks no
+   critical-path item; it becomes relevant only if the cycle runbook's
+   terminal vocabulary turns out to need the third outcome.
 
 ## Open questions
 
@@ -224,6 +227,30 @@ and the intake gate's acceptance of working-authority requirement headings
 concrete Engine-observable event. Also still deferred: a git-state guard
 kind and extraction of hard-coded `.arca/issue|ticket|residual|goal` paths
 from the Engine (R-016 debt).
+
+## Advisor conclusion — 2026-08-03
+
+The just-closed safe-deliberate-damage sprint ended at Idle: its
+working-authority rules landed, the final gap check found no product gaps,
+and there are no current product tickets or live Runs. That is a clean
+cutover point because namespace work would not have to move active product
+work or an in-flight Run.
+
+The engine-namespace split is the next promotion target. It is the only
+unblocked item on the critical path and directly gates the deferred
+cycle-as-runbook issue. Today path literals in Rust bake this repository's
+`.arca/issue`, `.arca/ticket`, `.arca/residual`, and `.arca/goal` layout into
+the Engine. If the cycle is authored first, its runbook will freeze those
+paths, so splitting later means re-pathing the shop's own governing runbook
+as well as the Engine. Cutting over now means doing that work once. The
+authored Machine Class identity above now says only runbook and plain TOML:
+it removes `.arca/ratmac.toml` and deliberately names no replacement root.
+
+The State-not-Phase wish remains unordered and unpromoted. If a human
+promotes it, settle it before cycle-as-runbook, or that runbook will require
+a later format migration. No engine-split issue is minted here. The next
+concrete action is to author its complete pending issue bundle for human P1
+disposition.
 
 ## How direction flows
 
