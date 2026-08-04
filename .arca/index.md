@@ -23,10 +23,18 @@ Current sprint endpoint - the tree is the oracle.)
 
 ## Map - how ratmac hangs together
 
-Stamped cache - describes the tree through the machine-composition landing
-(`t-069`), surveyed 2026-08-03 from a read-only pass of `src/`, `test/`, and
-the current `.arca-private/t-058/` through `.arca-private/t-069/` lanes.
-Refresh at each cycle close (gap check green).
+Stamped cache - describes the tree through the safe deliberate-damage
+working-authority integration and its P1 close (`i-022`, integration HEAD
+`4e7d085`), surveyed 2026-08-03. Program behavior is unchanged: `src/`,
+`test/`, and the `.arca-private/t-058/` through `.arca-private/t-069/` lanes
+remain byte-identical through the machine-composition landing (`t-069`), so
+every Architecture, Binary, Modules, and Tests row below still describes that
+tree. The working rules moved instead: `.arca/schema.md` ("Deliberate damage
+and discard safety", `SDC-001`..`SDC-004`), `.arca/dict.md`,
+`.arca/tpl/residual.md`, `.arca/tpl/ticket.md`, and `tools/check_links.py`
+are current through the working-authority landing, with the archived carrier
+at `.arca/issue/archive/i-022-safe-deliberate-damage/`. Refresh at each cycle
+close (gap check green).
 
 ### Architecture
 
