@@ -23,18 +23,16 @@ Current sprint endpoint - the tree is the oracle.)
 
 ## Map - how ratmac hangs together
 
-Stamped cache - describes the tree through the safe deliberate-damage
-working-authority integration and its P1 close (`i-022`, integration HEAD
-`4e7d085`), surveyed 2026-08-03. Program behavior is unchanged: `src/`,
-`test/`, and the `.arca-private/t-058/` through `.arca-private/t-069/` lanes
-remain byte-identical through the machine-composition landing (`t-069`), so
-every Architecture, Binary, Modules, and Tests row below still describes that
-tree. The working rules moved instead: `.arca/schema.md` ("Deliberate damage
-and discard safety", `SDC-001`..`SDC-004`), `.arca/dict.md`,
-`.arca/tpl/residual.md`, `.arca/tpl/ticket.md`, and `tools/check_links.py`
-are current through the working-authority landing, with the archived carrier
-at `.arca/issue/archive/i-022-safe-deliberate-damage/`. Refresh at each cycle
-close (gap check green).
+Stamped cache - describes the tree through the full doctor executable
+fingerprint landing (`t-070`, `3e6ee6c`), surveyed 2026-08-04. The accepted
+carrier is `.arca/issue/archive/i-023-doctor-full-fingerprint/`; `DFP-001`
+widens only the argument-free human doctor's rendered Engine SHA-256 from a
+16-character prefix to the complete 64-character lowercase digest. The fresh
+public proof is in `test/qa/tests/t045_bootstrap_doctor.rs`; inherited public
+behavior remains green, and `.arca-private/t-058/` through
+`.arca-private/t-070/` hold the current hidden lanes. Every Architecture,
+Binary, Modules, and Tests row below describes this landed tree. Refresh at
+each cycle close (gap check green).
 
 ### Architecture
 
@@ -75,17 +73,19 @@ declared child from a parent's spawning Phase as ordinary checked motion;
 `respawn` and live-run `abandon` demand `--confirm` phrases naming the run id
 (FDC-007). Only leftover-lock retirement may be unaddressed;
 missing or unknown addresses report the `.arca/runs/` roster. `doctor` is
-read-only and deep: parse, graph, guard lint, and ownership passes over
-`MachineClass`, one `RB*` finding per defect, `--json` for the finding list,
-and exit `0`/`1`/`2` for clean, warnings, errors. `rtm doctor <path>` diagnoses
-any runbook file - an unreadable path is the finding `RB101`, not a usage
-error. `rtm scaffold <path>` writes the one runbook that starts clean.
+read-only and deep: its argument-free human report identifies the exact
+running Engine with the complete 64-character lowercase SHA-256, then reports
+parse, graph, guard-lint, and ownership findings over `MachineClass`; `--json`
+remains the finding list only, with exit `0`/`1`/`2` for clean, warnings, and
+errors. `rtm doctor <path>` diagnoses any runbook file - an unreadable path is
+the finding `RB101`, not a usage error. `rtm scaffold <path>` writes the one
+runbook that starts clean.
 
 ### Modules (src/)
 
 | Module | Role |
 | :--- | :--- |
-| `cli.rs` | Hand-rolled parsing of nine verbs and exit codes. `start` is unaddressed; `status`/`step` validate a canonical roster address, `hold` resolves through `open_run`, live-Run `abandon` requires a roster id, and `spawn`/`respawn` address the parent and superseded run. It contains no graph or guard policy. |
+| `cli.rs` | Hand-rolled parsing of nine verbs and exit codes. `start` is unaddressed; `status`/`step` validate a canonical roster address, `hold` resolves through `open_run`, live-Run `abandon` requires a roster id, and `spawn`/`respawn` address the parent and superseded run. Argument-free human `doctor` renders the complete SHA-256 of the exact current executable; executable selection and hashing remain unchanged. It contains no graph or guard policy. |
 | `graph.rs` | `Phase`, `Transition`, `MachineGraph` - graph position without lifecycle. `transition_for_input` selects the unique ordinary edge whose optional `input` exactly matches; `None` selects an unlabelled straight edge. `has_ordinary_outgoing` is the one structural terminal predicate (blocked routes excluded). Declaration order and guards never select, and blocked routes remain hold-only. |
 | `machine.rs` | `MachineClass::from_toml` - the whole runbook schema boundary and its only reader, hand-rolled over `toml::Value`. It retains typed `GuardKind`, closed Phase `inputs`, and Transition `input`; RB208-RB213 reject malformed branch contracts, and inline `classes`, per-Phase `spawns`, and the `join` guard kind parse one level deep with RB501-RB506 rejecting malformed composition (FDC-009). |
 | `scheduler.rs` | Project/Run binding and ordinary execution. `open` has no Run; `open_run` binds one canonical live roster member. `open`/`open_run` and `start` refuse flat residue, while pinned reads reject runbook drift. `start` mints an uncapped never-reused id and writes `passed` when the initial Phase is terminal; `step` refuses a passed Run by name, evaluates guards before verdict routing/consumption, and writes `passed` beside a terminal successor in one replacement; `status` reloads and reports read-only. `resolve_phase_scope` reads a child Run through its own class's view for step and status alike (FDC-010/FDC-011); `spawn` mints a declared child as an ordinary flat Run and appends its ledger entry, refusing any parent that is itself a recorded child (FDC-012); `respawn` supersedes by confirmed phrase; the `join` guard reads the ledger's live children's terminal facts. |
@@ -118,17 +118,19 @@ an external program to inspect repository state.
 
 ### Tests
 
-`test/qa/` cargo crate, public integration suites through `t069`. Current FDC
+`test/qa/` cargo crate, public integration suites through `t070`. Current FDC
 coverage is `t059_run_residency` (4 tests), `t060_runbook_pin` (3),
 `t061_uncapped_runs` (2), `t061_input_routing` (3), `t062_verdict_delivery`
 (4), `t063_run_completion` (4), `t064_composition_format` (3),
 `t065_motion_authorization` (3), `t066_spawn_ledger` (3),
 `t067_cycle_termination` (2), `t068_recursion_cap` (2), and
-`t069_child_reviewer` (2). Wording surfaces (caller policy, schema rules) are
-asserted against `.arca/schema.md` and `AGENTS.md`. Hidden lanes
-`.arca-private/t-058/` through `t-069/` contain 6/6/6/5/6/6/6/6/6/5/6/6
-tests. Opt-in
-release lane: `RATMAC_RELEASE_ACCEPTANCE=1`.
+`t069_child_reviewer` (2). DFP-001 is proven by
+`t045_bootstrap_doctor::doctor_reports_complete_engine_fingerprint_and_is_write_free`
+plus the inherited `t045` and `t057` suites. Wording surfaces (caller policy,
+schema rules) are asserted against `.arca/schema.md` and `AGENTS.md`. Hidden
+lanes `.arca-private/t-058/` through `t-070/` contain
+6/6/6/5/6/6/6/6/6/5/6/6/6 tests. Opt-in release lane:
+`RATMAC_RELEASE_ACCEPTANCE=1`.
 
 ### Known limitations / deferred debt (steering.md)
 
