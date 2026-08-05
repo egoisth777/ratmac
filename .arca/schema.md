@@ -575,6 +575,41 @@ checkout with the experiment base checked out. An Advisor authors trial log
 content only and invokes no lifecycle verb. A Subagent invokes neither a
 lifecycle verb nor `rtm`.
 
+**Post-trial debrief and routing.** A self-evolution trial's primary result is
+what it proves about RatMac; its feature is the test load and may be salvaged
+only as a secondary result.
+
+1. Before `finish`, the Advisor completes the trial log with separate
+   **feature observations** and **RatMac observations**. A Run status, an
+   agent claim, or content writable by the agent under test is never evidence
+   by itself. Each conclusion cites the command, receipt, review, or artifact
+   that makes it reviewable.
+2. `finish` preserves the tag and durable log and removes the prototype in the
+   fixed order above. No trial source, test, issue, ticket, or Run artifact is
+   copied out.
+3. Before any feature work resumes, switch the primary checkout to clean
+   `main`. Record each actionable RatMac defect as its own zero-commitment
+   wish on `main`; record at most one feature wish when the Advisor verdict is
+   `adopt`. Provenance names the archive tag and durable-log path as text,
+   because the durable log lives on the experiment base, not on `main`.
+4. Promotion remains a human decision. A promoted feature re-enters the
+   ordinary P1-P5 loop with fresh evidence and no trial implementation bytes.
+   A promoted RatMac observation changes working authority or product
+   requirements through P1 before later work depends on it.
+5. Mark a completed source wish `fulfilled` with links to its archived issue
+   and ticket. Push `main`, then check out the clean experiment base, run
+   `sync`, and run `status`. The next trial may start only after that ready
+   check is clean and every actionable observation is visible on `main`.
+
+**Runbook boundary.** The in-worktree development run is one human-reviewed
+Machine Class: bind the selected issue, require fresh red/green receipts,
+consume an independent review verdict, then reach an Engine-written terminal
+fact. The independent observer may be its one-level child Machine Class. Git
+worktree/tag/branch operations stay in `tools/trial.ps1`; Run start, wish
+promotion, P1 disposition, and runbook review stay human. This preserves the
+existing cycle-as-runbook exit rule in `steering.md`: no gate verdict rests on
+content writable by the agent under test.
+
 **Working directory (Windows).** Run the verbs from the primary checkout,
 never with your working directory inside a trial worktree: Windows refuses to
 remove a directory somebody is standing in. `finish` refuses that case by name

@@ -1,7 +1,9 @@
 # Trial log: <trial-branch>
 
-Fill every section. `tools/trial.ps1 finish` refuses a log with a missing
-section, an empty section, an unfilled angle-bracket placeholder, or identity facts that
+Fill every section. Keep feature behavior separate from RatMac's behavior:
+the feature is the test load; RatMac's self-evaluation is the trial's primary
+result. `tools/trial.ps1 finish` refuses a log with a missing section, an empty
+section, an unfilled angle-bracket placeholder, or identity facts that
 contradict the branch. Commit this file as `trial-log.md` at the root of the
 trial worktree; finish copies it to `trials/<trial-branch>/trial-log.md` on the
 experiment base, and that copy is the only trial content that outlives the trial.
@@ -26,15 +28,27 @@ experiment base, and that copy is the only trial content that outlives the trial
 
 ## Observations
 
-<what happened - numbers, failures, surprises>
+### Feature observations
+
+<what happened to the feature - numbers, failures, surprises>
+
+### RatMac observations
+
+<what the workflow proved about RatMac - trustworthy gates, false claims, manual catches, and missing evidence>
 
 ## Verdict
 
-<one line starting with adopt:, drop:, or inconclusive: - this line goes into the archive tag>
+<one feature-verdict line starting with adopt:, drop:, or inconclusive: - this line goes into the archive tag>
 
 ## Recommendations
 
-<what the next loop should do with this result>
+### Feature route
+
+<drop it, or describe the behavior that may re-enter normal P1-P5 development without copying trial bytes>
+
+### RatMac route
+
+<one actionable process recommendation per RatMac observation; these route to main before feature work>
 
 ## Artifacts and diffs
 

@@ -240,16 +240,24 @@ fn template_matches_the_validator() {
             "cargo test --workspace",
         )
         .replace(
-            "<what happened - numbers, failures, surprises>",
+            "<what happened to the feature - numbers, failures, surprises>",
             "3x faster",
         )
         .replace(
-            "<one line starting with adopt:, drop:, or inconclusive: - this line goes into the archive tag>",
+            "<what the workflow proved about RatMac - trustworthy gates, false claims, manual catches, and missing evidence>",
+            "the receipt gate rejected one false completion claim",
+        )
+        .replace(
+            "<one feature-verdict line starting with adopt:, drop:, or inconclusive: - this line goes into the archive tag>",
             "adopt: fold the rewrite into main",
         )
         .replace(
-            "<what the next loop should do with this result>",
-            "port the parser first",
+            "<drop it, or describe the behavior that may re-enter normal P1-P5 development without copying trial bytes>",
+            "port the parser through normal development",
+        )
+        .replace(
+            "<one actionable process recommendation per RatMac observation; these route to main before feature work>",
+            "bind completion to fresh receipts",
         )
         .replace(
             "<paths, commits, and diffs a reader needs to reconstruct the trial>",
