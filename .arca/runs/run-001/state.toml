@@ -1,5 +1,5 @@
-phase = "build"
-status = "planned"
+phase = "build-done"
+status = "passed"
 goal_revision = ""
 input_revision = ""
 output_revision = ""

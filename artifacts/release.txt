@@ -1,0 +1,6 @@
+ready: true
+feature: doctor-full-fingerprint
+focused-test: passed
+public-suite: 243 passed, 1 ignored
+clippy: passed
+candidate-sha256: 79c82b4912140cdb0e2d412caf85623d66549b00a7cc1f13ff09f3eab50138e3

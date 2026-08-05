@@ -388,6 +388,41 @@ fn doctor_is_actionable_and_write_free() {
     );
 }
 
+/// ORS-002: the doctor reports the complete identity of the executable it ran.
+#[test]
+fn doctor_reports_full_hash_of_the_test_built_executable() {
+    let boot = Boot::new("doctor-full-hash");
+
+    let before = boot.whole_snapshot();
+    let output = boot.rtm(&["doctor"]);
+    let report = text(&output);
+    assert!(output.status.success(), "doctor runs read-only: {report}");
+
+    let reported_hash = report
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix("Engine: ")
+                .and_then(|line| line.rsplit_once(" (sha256: "))
+                .and_then(|(_, hash)| hash.strip_suffix(')'))
+        })
+        .unwrap_or_else(|| panic!("doctor reports its Engine SHA-256: {report}"));
+    assert_eq!(
+        reported_hash.len(),
+        64,
+        "doctor reports the complete SHA-256: {report}"
+    );
+    assert_eq!(
+        reported_hash,
+        sha256_file(Path::new(env!("CARGO_BIN_EXE_rtm"))),
+        "doctor reports the exact executable bytes it ran: {report}"
+    );
+    assert_eq!(
+        boot.whole_snapshot(),
+        before,
+        "reporting the complete Engine identity writes nothing"
+    );
+}
+
 /// HT-053-02: nothing can be smuggled into the diagnosis.
 ///
 /// t-053 read this as "no arguments at all". DRD-005 (t-056) is the later
