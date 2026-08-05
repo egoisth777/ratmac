@@ -174,50 +174,46 @@ Derived record. Regenerated wholesale at P1 close from the signed issue set;
 never hand-edited, never a progress report. Stage lives in the tree.
 
 Freeze stamp: P1 integration HEAD
-`4e7d085e4747077d317babb7ef882631b017c3ea`, goal bytes unchanged since the
-`e9dbf46` freeze (`git diff` over `.arca/goal/` is empty); canonical goal
-revision retained: goal SHA-256
-`c96ba1541352a9261b8bfe23d2cf41d34049f8642c9cd750902bf40f4ed8e7c6`,
-re-verified 2026-08-03 by recomputing `src/goal.rs::revision` over the
-checked-out goal - planning step 1 closed 2026-08-03.
+`95786be39739db7a5fc0e727c1bfd9cc053af05a`, canonical goal revision
+goal SHA-256
+`d4feb91e20a21ba9e09edee4577a27d32bc8860d87ab588d1155344e046eb14e`,
+computed 2026-08-04 by `src/goal.rs::revision` over the checked-out goal -
+planning step 1 closed 2026-08-04.
 
 A sprint starts when enough issues have collected to be worth integrating
 into the goal, and runs the cycle - plan, then build - until the gap check
 comes back clean.
 
-This sprint: the loop's own hands are made safe - deliberate-damage
-evidence is produced without ever risking unsaved completed work. Working
-rules, not product behavior.
+This sprint: make the human `rtm doctor` report name the exact Engine bytes
+without changing any machine decision, trust check, or write boundary.
 
-Signed issue set: i-022-safe-deliberate-damage (SDC-001..SDC-004 accepted
-as working-authority requirements in `.arca/schema.md`, "Deliberate damage
-and discard safety"; SDC-005 duplicate, routed to the deferred
-cycle-as-runbook carrier). No product-goal rows were minted, and no SDC
-residual or ticket exists or may exist: working-authority requirements bind
-at integration and are checked as authority text, never built.
+Signed issue set: i-023-doctor-full-fingerprint (`DFP-001` accepted as one
+product requirement refining `ORS-002` and `DRD-005`). The complete issue
+bundle is archived; its trial is evidence only and contributes no
+implementation or test bytes.
 
 Route - an ordered dependency list, one why per edge. It says what depends
 on what, never when.
 
-1. Working-authority landing - the schema section, the P1/P5/Units/
-   Evidence-receipts alignment, the glossary terms, the residual and ticket
-   blanks, and the shape-check branch; first and already carried by the
-   integration landing itself, because a working-authority requirement
-   binds at integration rather than through the build loop.
-2. P2 gap check - re-run against the unchanged frozen goal, the normal
-   next step after any P1 close; after the landing because the check must
-   judge the tree the landing produced. The goal gained no rows, so the
-   expected verdict is the standing clean result re-confirmed; a
-   `missing|partial` surprise would cut tickets as always.
-3. Idle - on a clean check, nothing to cut and no build turn to start; the
-   next ticket any future sprint cuts runs under the new discard rules
-   from its first deliberate-damage check.
+1. Independent red proof - hash the exact test-built executable separately,
+   require the argument-free human report to equal all 64 lowercase
+   hexadecimal characters, and snapshot the fixture before and after;
+   first because the existing 16-character report must fail for the stated
+   reason before production changes.
+2. Narrow rendering change - render the whole digest already computed by
+   the environment report; after the red proof because no trial bytes or
+   remembered patch may substitute for fresh evidence.
+3. Inherited behavior and review - run both doctor suites, the public
+   workspace, formatting, Clippy, and all six hidden-lane assessments;
+   after the narrow change because selection, trust, state, Runbook,
+   findings, and `--json` must remain unchanged.
+4. Re-gap and close - classify `DFP-001` from fresh evidence and return to
+   Idle only when the exact digest and every inherited boundary are proven.
 
-Endpoint: the discard guard, checkpoint-only damage, the fixed
-green-checkpoint-checks-evidence-landing order, and the single evidence
-home are findable, shape-checked authority; no deliberate-damage check in
-this repository can destroy unsaved completed work by rule, and the next
-gap check closes the sprint at Idle.
+Endpoint: argument-free `rtm doctor` reports the complete 64-character
+lowercase SHA-256 of the exact executable it runs, remains write-free, and
+changes no executable selection, pin or trust behavior, state report,
+Runbook finding, arbitrary-path diagnosis, or `--json` behavior.
 
 Deferred: the real cycle runbook (`i-015-cycle-as-runbook`) follows the
 engine-namespace split and now also carries the machine enforcement of the
