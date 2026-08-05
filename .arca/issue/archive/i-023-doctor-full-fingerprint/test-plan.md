@@ -15,11 +15,11 @@
 
 | Goal/Test File | Status | Reverse Issue Refs |
 | :--- | :--- | :--- |
-| `.arca/goal/index.md` | updated | Add the reverse route for `i-023-doctor-full-fingerprint`. |
+| `.arca/goal/index.md` | integrated | Reverse route recorded under `Integrated full doctor executable fingerprint`. |
 | `.arca/goal/ubi-lang.md` | unaffected | No new durable terms are introduced. |
-| `.arca/goal/spec.md` | updated | Add accepted requirement `DFP-001` while retaining `ORS-002` and `DRD-005`. |
-| `.arca/goal/design.md` | updated | Record the accepted full-digest rendering and unchanged-behavior boundary. |
-| `.arca/goal/test-list.md` | updated | Add `DFPV-001` through `DFPV-006`. |
+| `.arca/goal/spec.md` | integrated | Accepted `DFP-001` under `Integrated full doctor executable fingerprint requirement`; `ORS-002` and `DRD-005` remain unchanged. |
+| `.arca/goal/design.md` | integrated | Accepted rendering boundary recorded under `Full doctor executable fingerprint (DFP-001)`. |
+| `.arca/goal/test-list.md` | integrated | Accepted `DFPV-001` through `DFPV-006` under `Integrated full doctor executable fingerprint verification`. |
 
 ## Contributor Authority/Schema Traces
 

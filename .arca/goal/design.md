@@ -281,3 +281,11 @@ From the reopened checkout, run API and `gh repo view` checks, exact remote/path
 - *One level deep (FDC-012).* A spawn addressed to a Run recorded as a child in any spawn ledger refuses naming the cap. Lifting the cap is additive.
 
 **Consequences.** A parent machine finishes on durable facts child Engines wrote — no human courier between machines. The composed picture self-hosting needs — one child per cut ticket, a join that closes the sprint — becomes expressible as runbook data, and every new surface stays inside the existing postures: one writer for state and ledger, refusal over guessing, guards judging artifacts.
+
+## Full doctor executable fingerprint (DFP-001)
+
+**Context.** The argument-free environment report already resolves the exact current executable, computes its SHA-256, and stays write-free, but renders only an abbreviated digest. Integrated from [i-023-doctor-full-fingerprint](../issue/archive/i-023-doctor-full-fingerprint/design.md); the archived trial is evidence only and supplies no implementation bytes.
+
+**Decision.** The human environment report renders all 64 lowercase hexadecimal characters of the SHA-256 already computed for the exact current executable. Executable selection and hashing, pin and trust behavior, runtime-state reporting, Runbook diagnosis and findings, arbitrary-path diagnosis, and `--json` remain governed by `ORS-002` and `DRD-005` and are unchanged.
+
+**Consequences.** A reader can independently identify the exact Engine bytes from the report without changing any machine decision or write boundary.

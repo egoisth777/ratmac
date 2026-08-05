@@ -212,3 +212,14 @@ Behavior checks derived from [spec.md](spec.md). Each is a testable one-liner.
 | MCV-005 | Child-as-reviewer works in the first increment; no witnessed verdict verb exists in the surface, and its deferral is recorded, not silently dropped. | FDC-010 |
 | MCV-006 | The recursion-depth ruling is recorded with its provenance (2026-08-03, Billy); a spawn addressed to a Run that is itself a ledger-recorded child refuses naming the one-level cap. | FDC-012 |
 | MCV-007 | The spawn ledger at the reserved per-run path is Scheduler-owned and append/annotate-only: spawn appends an entry with the recorded fields; abandon flips only the abandoned mark; respawn appends the successor entry naming the superseded id; a ledger entry whose child Run is missing on disk makes the join refuse naming that child. | FDC-011 |
+
+## Integrated full doctor executable fingerprint verification
+
+| ID | Check | Requirement |
+|---|---|---|
+| DFPV-001 | A fresh red-first regression independently hashes the exact test-built `rtm` executable, observes the abbreviated report fail, then passes only when argument-free `rtm doctor` reports that exact 64-character lowercase hexadecimal digest and the before-and-after filesystem snapshot is identical. | DFP-001 |
+| DFPV-002 | The existing `t045_bootstrap_doctor` and `t057_deep_doctor` suites remain green, preserving write-free, state, Runbook, arbitrary-path, finding, exit-code, and `--json` behavior. | DFP-001, ORS-002, DRD-005 |
+| DFPV-003 | The public workspace suite passes after the focused regression is green. | DFP-001 |
+| DFPV-004 | Workspace formatting passes. | DFP-001 |
+| DFPV-005 | Workspace Clippy passes for all targets and features with warnings denied. | DFP-001 |
+| DFPV-006 | All six hidden lanes are assessed: Regression and Output/Filesystem require coverage; Input/Routing, Lifecycle/Model, Durability/Recovery, and Cross-Feature each record coverage or a specific public not-applicable rationale. | DFP-001 |
