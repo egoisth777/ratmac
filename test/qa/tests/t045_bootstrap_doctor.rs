@@ -388,6 +388,51 @@ fn doctor_is_actionable_and_write_free() {
     );
 }
 
+/// PT-070-01: the human doctor report identifies the exact Engine with its
+/// complete SHA-256 fingerprint while leaving the fixture untouched.
+#[test]
+fn doctor_reports_complete_engine_fingerprint_and_is_write_free() {
+    let boot = Boot::new("doctor-full-fingerprint");
+    let engine = boot.prebuild();
+    let expected = sha256_file(&engine);
+    let before = boot.whole_snapshot();
+
+    let doctor = boot.rtm(&["doctor"]);
+    let report = text(&doctor);
+    assert!(
+        doctor.status.success(),
+        "argument-free doctor succeeds: {report}"
+    );
+    let reported = report
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix("Engine: ")
+                .and_then(|line| line.rsplit_once(" (sha256: "))
+                .and_then(|(_, sha256)| sha256.strip_suffix(')'))
+        })
+        .expect("human doctor report names the Engine SHA-256");
+    assert_eq!(
+        reported.len(),
+        64,
+        "the human report carries all 64 lowercase SHA-256 hexadecimal characters: {report}"
+    );
+    assert!(
+        reported
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f')),
+        "the Engine SHA-256 is lowercase hexadecimal: {reported}"
+    );
+    assert_eq!(
+        reported, expected,
+        "the report fingerprint is the independent SHA-256 of the exact test-built Engine"
+    );
+    assert_eq!(
+        boot.whole_snapshot(),
+        before,
+        "argument-free doctor writes nothing in the complete fixture"
+    );
+}
+
 /// HT-053-02: nothing can be smuggled into the diagnosis.
 ///
 /// t-053 read this as "no arguments at all". DRD-005 (t-056) is the later

@@ -188,3 +188,9 @@ Requirement records distilled from the accepted decisions. Sources cite the deci
 | FDC-010 | Judge independence lands child-as-reviewer first; the witnessed verdict verb remains deferred. | [issue FDC-010](../issue/archive/i-018-machine-composition/spec.md#requirement-records) |
 | FDC-011 | The spawn-ledger contract, at the per-run path `FDC-004` reserves under the parent Run's directory: Scheduler-owned, append/annotate-only — agents never write it. `rtm spawn` appends one entry carrying the child run id, child class, binding values, the git revision at spawn, and the child workspace path when one is created. Human-confirmed abandon flips only that entry's abandoned mark; human-confirmed respawn appends the successor entry recording the superseded id (`FDC-006`'s remainder). The ledger fixes the join's expected set: an entry whose child Run is missing on disk refuses loudly, never silently shrinks the set. | [issue FDC-011](../issue/archive/i-018-machine-composition/spec.md#requirement-records) |
 | FDC-012 | Composition is capped at one level: a spawned child Run may not itself spawn, and the Engine refuses a spawn addressed to a Run recorded as a child in any spawn ledger, naming the cap. | [issue FDC-012](../issue/archive/i-018-machine-composition/spec.md#requirement-records) |
+
+## Integrated full doctor executable fingerprint requirement
+
+| Req ID | Requirement | Source |
+|---|---|---|
+| DFP-001 | Argument-free `rtm doctor` reports the complete 64-character lowercase hexadecimal SHA-256 of the exact executable being run and remains write-free. Executable selection, pin/trust behavior, state reporting, Runbook findings, and `--json` behavior remain unchanged. | [issue DFP-001](../issue/archive/i-023-doctor-full-fingerprint/spec.md#requirement-records) |
