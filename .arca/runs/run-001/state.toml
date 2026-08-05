@@ -1,0 +1,7 @@
+phase = "build"
+status = "planned"
+goal_revision = ""
+input_revision = ""
+output_revision = ""
+active_refs = []
+blocker = ""

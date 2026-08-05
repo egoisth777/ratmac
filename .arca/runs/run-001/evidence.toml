@@ -1,0 +1,10 @@
+[engine]
+resolved = "E:/repos/projs/skill-dev/ratmac-trial-002-doctor-full-fingerprint/target/debug/rtm.exe"
+sha256 = "947fb4b2e9ad732ea7f70a0a4056b39825d00e3f61be0fcdbe8f481ba73c831b"
+
+[goal]
+baseline = "850d91b1a54f099ed8d9d41ff0214a122597e4379652744a52d62a543797f658"
+frozen = ""
+
+[runbook]
+sha256 = "841a22a694d41caaa0d5d55723d8751d24fae1b785bae056c283e65cf75485e7"
