@@ -664,7 +664,7 @@ fn environment_report<W: Write>(project_root: &Path, writer: &mut W) -> Result<(
         writer,
         "Engine: {} (sha256: {})",
         engine_path.display(),
-        &engine_hash[..16]
+        engine_hash
     )?;
 
     let arca = project_root.join(".arca");

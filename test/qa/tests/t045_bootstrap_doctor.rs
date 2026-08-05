@@ -399,7 +399,10 @@ fn doctor_reports_complete_engine_fingerprint_and_is_write_free() {
 
     let doctor = boot.rtm(&["doctor"]);
     let report = text(&doctor);
-    assert!(doctor.status.success(), "argument-free doctor succeeds: {report}");
+    assert!(
+        doctor.status.success(),
+        "argument-free doctor succeeds: {report}"
+    );
     let reported = report
         .lines()
         .find_map(|line| {
