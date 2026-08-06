@@ -1,12 +1,12 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fs::{self, OpenOptions};
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::thread;
 
 use crate::graph::{MachineGraph, Phase};
 use crate::ledger::LedgerEntry;
+use crate::lock::{RootLock, RunLock};
 use crate::machine::{GuardKind, MachineClass, PhaseDefinition};
 use crate::model::{Run, RunState, Status};
 use crate::state::{PhasePrompt, StateError, StateStore, StatusReport};
@@ -135,87 +135,6 @@ pub struct Scheduler {
     engine_root: Option<PathBuf>,
     run_id: Option<String>,
     store: Option<StateStore>,
-}
-
-struct InvocationLock {
-    path: PathBuf,
-}
-
-impl InvocationLock {
-    fn legacy_lock_path(path: &Path) -> Option<PathBuf> {
-        path.parent()
-            .and_then(Path::parent)
-            .map(|engine_root| engine_root.join("schd.lock"))
-    }
-
-    fn refuse_legacy(path: &Path) -> Result<(), StateError> {
-        let Some(legacy_path) = Self::legacy_lock_path(path) else {
-            return Ok(());
-        };
-        match fs::symlink_metadata(&legacy_path) {
-            Ok(_) => Err(StateError::new(format!(
-                "refusing to run: legacy lock {} exists; explicitly migrate or remove that lock, then retry; it was not modified",
-                legacy_path.display()
-            ))),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(StateError::new(format!(
-                "inspect legacy lock {}: {error}",
-                legacy_path.display()
-            ))),
-        }
-    }
-
-    fn try_acquire(path: &Path) -> std::io::Result<Self> {
-        OpenOptions::new().write(true).create_new(true).open(path)?;
-        Ok(Self {
-            path: path.to_path_buf(),
-        })
-    }
-
-    fn acquire_with_retry(path: &Path) -> Result<Self, StateError> {
-        const MAX_ATTEMPTS: usize = 4_096;
-        let parent = path
-            .parent()
-            .ok_or_else(|| StateError::new("root lock has no parent directory"))?;
-        fs::create_dir_all(parent)
-            .map_err(|error| StateError::new(format!("create locks directory: {error}")))?;
-        Self::refuse_legacy(path)?;
-        for attempt in 0..MAX_ATTEMPTS {
-            match Self::try_acquire(path) {
-                Ok(lock) => {
-                    if let Err(error) = Self::refuse_legacy(path) {
-                        drop(lock);
-                        return Err(error);
-                    }
-                    return Ok(lock);
-                }
-                Err(error)
-                    if matches!(
-                        error.kind(),
-                        std::io::ErrorKind::AlreadyExists | std::io::ErrorKind::PermissionDenied
-                    ) =>
-                {
-                    Self::refuse_legacy(path)?;
-                    if attempt + 1 < MAX_ATTEMPTS {
-                        thread::yield_now();
-                    } else {
-                        return Err(StateError::new(format!(
-                            "acquire root.lock: lock remained held after {MAX_ATTEMPTS} attempts"
-                        )));
-                    }
-                }
-                Err(error) => {
-                    return Err(StateError::new(format!("create root.lock: {error}")));
-                }
-            }
-        }
-        unreachable!("lock retry loop returns on every attempt");
-    }
-}
-impl Drop for InvocationLock {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
-    }
 }
 
 impl Scheduler {
@@ -533,8 +452,7 @@ impl Scheduler {
         } else {
             Status::Passed
         };
-        let lock_path = engine_root.join("locks").join("root.lock");
-        let _lock = InvocationLock::acquire_with_retry(&lock_path)?;
+        let _root_lock = RootLock::acquire(&engine_root)?;
         // FDC-005: flat-layout residue refuses before any run id is minted,
         // so the refusal names the residue and no run directory is created.
         Self::refuse_flat_residue(&root)?;
@@ -707,8 +625,10 @@ composition is capped at one level (FDC-012)"
             StateError::new("spawn requires an addressed parent: open one with Scheduler::open_run")
         })?;
         let run_dir = self.run_dir()?;
-        let lock_path = engine_root.join("locks").join("root.lock");
-        let _lock = InvocationLock::acquire_with_retry(&lock_path)?;
+        // Spawn changes the shared mint and ledger domain as well as making
+        // parent-Run motion, so the required order is root before Run.
+        let _root_lock = RootLock::acquire(&engine_root)?;
+        let _run_lock = RunLock::acquire(&engine_root, &parent_id)?;
         // FDC-012: composition is capped at one level. A parent that is
         // itself a ledger-recorded child anywhere refuses before any read of
         // its state - provenance, not liveness, so an abandoned child and a
@@ -892,8 +812,7 @@ composition is capped at one level (FDC-012)"
         // Mint the successor first: an interrupted respawn leaves either the
         // superseded Run or a fully minted successor, never a half-made pair.
         let successor = {
-            let lock_path = engine_root.join("locks").join("root.lock");
-            let _lock = InvocationLock::acquire_with_retry(&lock_path)?;
+            let _root_lock = RootLock::acquire(&engine_root)?;
             Self::refuse_flat_residue(root)?;
             let class = Self::load_class(root)?;
             // FDC-011: a ledger-recorded child re-instantiates class-
@@ -936,8 +855,8 @@ composition is capped at one level (FDC-012)"
             };
             let runbook_pin = Self::runbook_sha256(root)?;
             Self::mint_run(&engine_root, root, phase.as_str(), status, &runbook_pin)?
-            // The invocation lock releases here, before the abandon path
-            // plans its own retirement set.
+            // The root lock releases here, before the abandon path plans its
+            // own Run retirement.
         };
         // Retire the superseded Run by the abandon path: durable terminal
         // event first, then all-or-none retirement of admission state,
@@ -958,6 +877,7 @@ composition is capped at one level (FDC-012)"
             )));
         }
         if let Some((ledger_path, entry)) = recorded {
+            let _root_lock = RootLock::acquire(&engine_root)?;
             // FDC-011: the successor entry names the superseded id and
             // inherits the recorded class and binding values.
             let successor_entry = LedgerEntry {
@@ -989,9 +909,14 @@ composition is capped at one level (FDC-012)"
             .ok_or_else(|| StateError::new("step requires Scheduler::open"))?
             .clone();
         let engine_root = self.engine_root()?.to_path_buf();
+        let run_id = self
+            .run_id
+            .clone()
+            .ok_or_else(|| StateError::new("step requires an addressed Run"))?;
+        // ENS-005: one Run's entire motion, including long guard evaluation,
+        // is serialized by its own lock; the root lock is never taken here.
+        let _run_lock = RunLock::acquire(&engine_root, &run_id)?;
         let run_dir = self.run_dir()?;
-        let lock_path = engine_root.join("locks").join("root.lock");
-        let _lock = InvocationLock::acquire_with_retry(&lock_path)?;
         let class = Self::load_class(&root)?;
         // FDC-005: no transition may proceed on a drifted class — the pin
         // check refuses before any guard of the drifted class is evaluated.
@@ -1080,27 +1005,14 @@ composition is capped at one level (FDC-012)"
         let consumes_verdict = transition_input.is_some();
         let freezes_goal = transition.freezes_goal();
         let to = transition.to().clone();
-        let prior = state.clone();
         let log_path = engine_root.join("log.md");
+        // Different Runs may advance together, so their transition records
+        // use one append write rather than retaining the root lock to inspect
+        // or serialize the shared history.
         let mut log = OpenOptions::new()
             .append(true)
-            .read(true)
             .open(&log_path)
             .map_err(|error| StateError::new(format!("open log.md: {error}")))?;
-        let old_log_len = log
-            .metadata()
-            .map_err(|error| StateError::new(format!("stat log.md: {error}")))?
-            .len();
-        let needs_separator = if old_log_len == 0 {
-            false
-        } else {
-            log.seek(SeekFrom::End(-1))
-                .map_err(|error| StateError::new(format!("seek log.md: {error}")))?;
-            let mut last = [0_u8; 1];
-            log.read_exact(&mut last)
-                .map_err(|error| StateError::new(format!("read log.md: {error}")))?;
-            last[0] != b'\n'
-        };
 
         // Resolve every ordinary fallible prerequisite before the irreversible
         // Verdict rename. Freeze evidence is still written only after
@@ -1134,69 +1046,40 @@ composition is capped at one level (FDC-012)"
             let mut frozen_evidence = crate::pin::Evidence::load(&run_dir);
             frozen_evidence.goal_frozen = Some(frozen.clone());
             if let Err(error) = frozen_evidence.write(&run_dir) {
-                drop(log);
                 return Err(StateError::new(format!(
                     "freeze goal revision: write evidence.toml: {error}"
                 )));
             }
             next.goal_revision = frozen;
         }
-        if let Err(state_error) = self.store()?.write(&next) {
-            drop(log);
-            return Err(state_error);
-        }
+        self.store()?.write(&next)?;
         if consumes_verdict {
             inject_step_fault("after-state-replace")?;
         }
 
         let append_result = (|| {
-            if needs_separator {
-                log.write_all(b"\n")?;
-            }
-            writeln!(log, "- Transition: {from} -> {to}")?;
-            log.flush()?;
+            let entry = format!("\n- Transition: {from} -> {to}\n");
+            log.write_all(entry.as_bytes())?;
             log.sync_all()
         })();
         if let Err(append_error) = append_result {
-            let mut rollback_errors = Vec::new();
-            if let Err(error) = log.set_len(old_log_len) {
-                rollback_errors.push(format!("truncate log.md: {error}"));
-            }
-            if let Err(error) = log.sync_all() {
-                rollback_errors.push(format!("sync log.md rollback: {error}"));
-            }
-            drop(log);
-            // FDC-003: after Verdict consumption and successor replacement,
-            // advancing is durable even when the later history append fails.
-            // Restoring the old Phase here would make the archived judgment
-            // look replayable while its live slot is already gone.
-            if !consumes_verdict {
-                if let Err(error) = self.store()?.write(&prior) {
-                    rollback_errors.push(format!("restore state.toml: {error}"));
-                }
-            }
-            let message = if consumes_verdict {
-                let durable = format!(
+            // FDC-003: once a successor State File is durable, restoring the
+            // old State would make an archived verdict look replayable.  A
+            // concurrent Run may have appended too, so this caller never
+            // truncates the shared log to attempt a rollback.
+            let durable = if consumes_verdict {
+                format!(
                     "the verdict was consumed and the Run advanced {from} -> {to}; \
                      the transition history line is missing and must be appended after restoring log.md"
-                );
-                if rollback_errors.is_empty() {
-                    format!("append log.md failed: {append_error}; {durable}")
-                } else {
-                    format!(
-                        "append log.md failed: {append_error}; {durable}; log cleanup failed: {}",
-                        rollback_errors.join("; ")
-                    )
-                }
-            } else if rollback_errors.is_empty() {
-                format!("append log.md failed: {append_error}")
+                )
             } else {
                 format!(
-                    "append log.md failed: {append_error}; rollback failed: {}",
-                    rollback_errors.join("; ")
+                    "the Run advanced {from} -> {to}; the transition history line is missing and must be appended after restoring log.md"
                 )
             };
-            return Err(StateError::new(message));
+            return Err(StateError::new(format!(
+                "append log.md failed: {append_error}; {durable}"
+            )));
         }
         Ok(StepOutcome::Advanced { from, to })
     }
@@ -1667,9 +1550,13 @@ composition is capped at one level (FDC-012)"
         run
     }
 
-    fn invocation_lock_with_retry(&self) -> Result<InvocationLock, StateError> {
+    fn run_lock(&self) -> Result<RunLock, StateError> {
         let engine_root = self.engine_root()?;
-        InvocationLock::acquire_with_retry(&engine_root.join("locks").join("root.lock"))
+        let run_id = self
+            .run_id
+            .as_deref()
+            .ok_or_else(|| StateError::new("state mutation requires an addressed Run"))?;
+        RunLock::acquire(engine_root, run_id)
     }
 
     fn store(&self) -> Result<&StateStore, StateError> {
@@ -1682,7 +1569,7 @@ composition is capped at one level (FDC-012)"
 
     /// Scheduler-owned initialization of a complete State File.
     pub fn initialize_state(&mut self, state: RunState) -> Result<(), StateError> {
-        let _lock = self.invocation_lock_with_retry()?;
+        let _run_lock = self.run_lock()?;
         self.store()?.write(&state)
     }
 
@@ -1692,7 +1579,7 @@ composition is capped at one level (FDC-012)"
         mut state: RunState,
         prerequisite: impl AsRef<str>,
     ) -> Result<(), StateError> {
-        let _lock = self.invocation_lock_with_retry()?;
+        let _run_lock = self.run_lock()?;
         let prerequisite = prerequisite.as_ref();
 
         state.status = Status::Blocked;
@@ -1700,8 +1587,8 @@ composition is capped at one level (FDC-012)"
         self.store()?.write(&state)
     }
 
+    /// Read the addressed State File without serializing on either lock.
     pub fn load_state(&self) -> Result<RunState, StateError> {
-        let _lock = self.invocation_lock_with_retry()?;
         self.load_state_unlocked()
     }
 
@@ -1721,11 +1608,13 @@ composition is capped at one level (FDC-012)"
 
     /// Read-only status; it loads state and reports labels from the current class.
     pub fn status(&self) -> Result<StatusReport, StateError> {
-        let _lock = self.invocation_lock_with_retry()?;
         let root = self
             .root
             .as_ref()
             .ok_or_else(|| StateError::new("status requires Scheduler::open"))?;
+        // ENS-005 leaves status outside both new lock domains, but the
+        // explicitly refused pre-split lock remains a global entry preflight.
+        crate::lock::refuse_legacy(self.engine_root()?)?;
         let class = Self::load_class(root)?;
         // FDC-005: status reads the class too; an addressed run's recorded
         // pin is compared on every such read.

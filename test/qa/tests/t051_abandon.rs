@@ -17,6 +17,11 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Output};
 
+fn stale_lock_token(guard: &str) -> String {
+    // This PID is deliberately outside the practical process-id range on the
+    // supported test hosts, so the token models an owner that has exited.
+    format!("ratmac-lock-v1\npid=2000000000\nguard={guard}\nnonce=0\n")
+}
 struct Fixture {
     root: PathBuf,
     /// FDC-004: the started run's id, read off the plural roster.
@@ -165,6 +170,7 @@ impl Fixture {
             self.state_rel(),
             ".ratmac/log.md".to_owned(),
             ".ratmac/locks/root.lock".to_owned(),
+            format!(".ratmac/locks/runs/{}.lock", self.run_id),
         ]
         .iter()
         .map(|relative| (relative.clone(), fs::read(self.path(relative)).ok()))
@@ -279,17 +285,84 @@ fn unauthorized_abandon_refuses_atomically() {
     );
 }
 
-/// PT-049-03: a stale lock is retired through this path, never bypassed.
+/// PT-049-03 / ENS-005: only the addressed Run lock serializes motion; a
+/// stale root lock still serializes minting and roster work.
 #[test]
 fn stale_lock_retired_not_bypassed() {
     let fixture = Fixture::new("stale-lock");
-    fs::write(fixture.path(".ratmac/locks/root.lock"), b"stale\n").expect("seed a stale lock");
-
     let id = fixture.run_id.clone();
-    let blocked = fixture.rtm(&["step", "--run", &id]);
+    let engine_root = fixture.path(".ratmac");
+    let root_lock = ratmac::lock::root_path(&engine_root);
+    fs::write(&root_lock, stale_lock_token("root")).expect("seed a stale root lock");
+
+    // Move the existing Run under the root residue.  This is deliberately a
+    // real motion, not `status`: ENS-005 says root-domain residue never blocks
+    // a different lock domain.
+    let state_path = fixture.path(&fixture.state_rel());
+    let build_state = fs::read_to_string(&state_path).expect("read build state");
     assert!(
-        !blocked.status.success(),
-        "an ordinary command cannot proceed past a stale lock"
+        build_state.contains("phase = \"build\""),
+        "fixture reached build before the root-domain check"
+    );
+    fs::write(
+        &state_path,
+        build_state.replacen("phase = \"build\"", "phase = \"intake\"", 1),
+    )
+    .expect("restore a movable intake state");
+    let motion = fixture.rtm(&["step", "--run", &id]);
+    assert!(
+        motion.status.success(),
+        "an existing Run moves while only the root domain is stale: {}",
+        String::from_utf8_lossy(&motion.stderr)
+    );
+    assert!(
+        root_lock.exists(),
+        "Run motion never consumes a root-domain lock"
+    );
+
+    let roster_before = fs::read_dir(fixture.path(".ratmac/runs"))
+        .expect("list roster before blocked mint")
+        .count();
+    let blocked_mint = fixture.rtm(&["start"]);
+    let blocked_mint_text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&blocked_mint.stdout),
+        String::from_utf8_lossy(&blocked_mint.stderr)
+    );
+    assert!(
+        !blocked_mint.status.success(),
+        "minting remains in the root domain"
+    );
+    assert!(
+        blocked_mint_text.contains(root_lock.to_string_lossy().as_ref()),
+        "the root-domain refusal names its exact lock: {blocked_mint_text:?}"
+    );
+    assert_eq!(
+        fs::read_dir(fixture.path(".ratmac/runs"))
+            .expect("list roster after blocked mint")
+            .count(),
+        roster_before,
+        "a blocked root-domain mint changes no roster entry"
+    );
+
+    let run_lock = ratmac::lock::run_path(&engine_root, &id);
+    fs::create_dir_all(run_lock.parent().expect("Run lock has parent"))
+        .expect("create Run lock directory");
+    fs::write(&run_lock, stale_lock_token(&format!("run:{id}")))
+        .expect("seed an addressed stale Run lock");
+    let blocked_motion = fixture.rtm(&["step", "--run", &id]);
+    let blocked_motion_text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&blocked_motion.stdout),
+        String::from_utf8_lossy(&blocked_motion.stderr)
+    );
+    assert!(
+        !blocked_motion.status.success(),
+        "motion must serialize on the addressed Run lock"
+    );
+    assert!(
+        blocked_motion_text.contains(run_lock.to_string_lossy().as_ref()),
+        "the motion refusal names its exact Run lock: {blocked_motion_text:?}"
     );
 
     for bypass in [
@@ -304,20 +377,22 @@ fn stale_lock_retired_not_bypassed() {
         );
     }
     assert!(
-        fixture.exists(".ratmac/locks/root.lock"),
-        "a refused bypass leaves the stale lock in place"
+        root_lock.exists(),
+        "a refused bypass leaves root residue in place"
+    );
+    assert!(
+        run_lock.exists(),
+        "a refused bypass leaves Run residue in place"
     );
 
     let retired = fixture.abandon(&["--confirm", &fixture.phrase()]);
     assert!(
         retired.status.success(),
-        "the confirmed path retires the stale lock: {}",
+        "the confirmed path retires checked stale locks: {}",
         String::from_utf8_lossy(&retired.stderr)
     );
-    assert!(
-        !fixture.exists(".ratmac/locks/root.lock"),
-        "the stale lock is gone"
-    );
+    assert!(!root_lock.exists(), "the stale root lock is gone");
+    assert!(!run_lock.exists(), "the addressed stale Run lock is gone");
     assert!(
         fixture.rtm(&["start"]).status.success(),
         "the project is usable again"
@@ -467,8 +542,11 @@ fn interrupted_retirement_completes_idempotently() {
 
     // A tree interrupted between the terminal event and lock retirement:
     // re-running finishes it rather than refusing.
-    fs::write(fixture.path(".ratmac/locks/root.lock"), b"left behind\n")
-        .expect("seed a leftover lock");
+    fs::write(
+        fixture.path(".ratmac/locks/root.lock"),
+        stale_lock_token("root"),
+    )
+    .expect("seed a checked leftover lock");
     let history_before = fixture.read(".ratmac/log.md");
     let completing = fixture.abandon(&["--confirm", &fixture.phrase()]);
     assert!(

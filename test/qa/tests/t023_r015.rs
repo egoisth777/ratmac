@@ -31,8 +31,11 @@ fn fixture_root() -> PathBuf {
 #[test]
 fn concurrent_steps_are_arbitrated_by_lockfile() {
     let root = fixture_root();
-    let lock_path = root.join(".ratmac/locks/root.lock");
-    assert!(!lock_path.exists(), "lock starts transient and absent");
+    // ENS-005: same-Run motion serializes on its addressed lock, not root.
+    let engine_root = root.join(".ratmac");
+    let lock_path = ratmac::lock::run_path(&engine_root, "run-001");
+    let root_lock_path = ratmac::lock::root_path(&engine_root);
+    assert!(!lock_path.exists(), "Run lock starts transient and absent");
 
     let barrier = Arc::new(Barrier::new(2));
     let root_a = root.clone();
@@ -68,7 +71,11 @@ fn concurrent_steps_are_arbitrated_by_lockfile() {
     );
     assert!(
         !lock_path.exists(),
-        "transient lock is removed after both invocations"
+        "ENS-005 Run lock is removed after both same-Run motions"
+    );
+    assert!(
+        !root_lock_path.exists(),
+        "ENS-005 same-Run motion leaves no root lock behind"
     );
 
     let state: toml::Value = fs::read_to_string(root.join(".ratmac/runs/run-001/state.toml"))

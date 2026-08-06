@@ -678,14 +678,14 @@ mod t010 {
             "start must choose the unique Phase with no incoming transition"
         );
 
+        let run_id = run.id().expect("start mints a run id");
         assert_eq!(
             run.lock_path().expect("started Run owns lock path"),
-            engine.join("locks/root.lock"),
-            "Run must own the root lock path"
+            engine.join("locks/runs").join(format!("{run_id}.lock")),
+            "Run must own its addressed motion-lock path"
         );
         // FDC-004: the State File resides in the minted run's directory; the
         // history log stays Engine-root-level.
-        let run_id = run.id().expect("start mints a run id");
         assert!(
             engine
                 .join("runs")

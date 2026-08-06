@@ -262,16 +262,36 @@ fn non_newline_log_gets_separator_before_record() {
 }
 
 #[test]
-fn state_mutators_and_status_honor_existing_lock() {
+fn state_mutators_honor_run_lock_while_status_is_read_only() {
     let (project, state_path, _log_path) = isolated_project("r026-transition-log");
-    let lock = project.0.join(".ratmac/locks/root.lock");
-    fs::create_dir_all(lock.parent().expect("lock has parent")).expect("create lock directory");
-    fs::write(&lock, b"held").expect("create held invocation lock");
-    let state_before = fs::read(&state_path).expect("read state before lock checks");
-    let mut scheduler =
+    let engine_root = project.0.join(".ratmac");
+    let root_lock = ratmac::lock::root_path(&engine_root);
+    fs::create_dir_all(root_lock.parent().expect("root lock has parent"))
+        .expect("create lock directory");
+    fs::write(&root_lock, b"held").expect("create held root lock");
+    let scheduler =
         Scheduler::open_run(&project.0, "run-001").expect("open transition-log fixture");
-    assert!(scheduler.status().is_err());
-    assert!(scheduler.load_state().is_err());
+    // ENS-005 supersedes the old global-lock expectation: `status` is
+    // read-only and therefore serializes on neither the root nor Run lock.
+    assert!(
+        scheduler.status().is_ok(),
+        "status remains available while a root-domain mutation lock is held"
+    );
+    fs::remove_file(&root_lock).expect("remove held root lock");
+
+    let lock = ratmac::lock::run_path(&engine_root, "run-001");
+    fs::create_dir_all(lock.parent().expect("Run lock has parent"))
+        .expect("create Run lock directory");
+    fs::write(&lock, b"held").expect("create held Run lock");
+    let state_before = fs::read(&state_path).expect("read state before lock checks");
+    assert!(
+        scheduler.status().is_ok(),
+        "ENS-005 keeps read-only status available while the addressed Run is locked"
+    );
+    assert!(
+        scheduler.load_state().is_ok(),
+        "a read-only State File load does not claim a motion lock"
+    );
 
     let state = RunState {
         phase: "prepare".to_owned(),
@@ -282,10 +302,25 @@ fn state_mutators_and_status_honor_existing_lock() {
         active_refs: Vec::new(),
         blocker: String::new(),
     };
-    assert!(scheduler.initialize_state(state.clone()).is_err());
-    assert!(scheduler
+    let initialize = scheduler
+        .clone()
+        .initialize_state(state.clone())
+        .expect_err("a state mutation must wait on the addressed Run lock");
+    let expected_refusal = format!("lock wait expired: {}", lock.display());
+    assert_eq!(
+        initialize.to_string(),
+        expected_refusal,
+        "the refusal names exactly the addressed Run lock"
+    );
+    let missing = scheduler
+        .clone()
         .record_missing_prerequisite(state, "input_revision")
-        .is_err());
+        .expect_err("a state mutation must wait on the addressed Run lock");
+    assert_eq!(
+        missing.to_string(),
+        expected_refusal,
+        "the refusal names exactly the addressed Run lock"
+    );
     assert_eq!(
         state_before,
         fs::read(&state_path).expect("read state after lock checks")

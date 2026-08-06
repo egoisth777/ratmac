@@ -304,7 +304,13 @@ impl LongGuardObservation {
             && self.guard_advanced
             && !self.guard_timed_out
             && self.start.as_ref().is_some_and(|start| {
-                start.success && start.release_written && !start.barrier_timed_out_before_release
+                start.success
+                    && start.release_written
+                    && !start.barrier_timed_out_before_release
+                    // The concurrent mint must report a minted Run, not merely
+                    // exit zero: a start that printed nothing would satisfy the
+                    // flags above while proving no root-domain progress.
+                    && start.output.contains("run-")
             })
             && minted_one_run(&self.roster_before, &self.roster_after)
     }
@@ -338,6 +344,12 @@ impl RootDomainObservation {
             && self.step_finished_while_root_held
             && self.step.completed_before_timeout
             && self.step.success
+            // The start held off by the foreign root lock may either wait or
+            // refuse; it may never succeed, and if it does report, it must name
+            // the root lock rather than fail for some unrelated reason.
+            && !self.blocked_start.success
+            && (!self.blocked_start.completed_before_timeout
+                || normalized(&self.blocked_start.output).contains("locks/root.lock"))
             && self.foreign_root_lock_removed
             && self.fresh_start_success
             && self.fresh_start_minted
@@ -615,7 +627,7 @@ fn observe_same_run_serialization(fixture: &Fixture, run_id: &str) -> SameRunObs
     let second_marker = barrier.marker("same-run-second");
     let state_before = state_bytes(&fixture.root, run_id);
     let log_entries_before = transition_log_entries(&fixture.root);
-    let mut first = fixture.step_at_barrier(run_id, &first_marker, &barrier);
+    let first = fixture.step_at_barrier(run_id, &first_marker, &barrier);
 
     let first_marker_observed = wait_for_files(&[&first_marker], MARKER_ARRIVAL_TIMEOUT);
     let second = fixture.step_at_barrier(run_id, &second_marker, &barrier);

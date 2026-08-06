@@ -102,6 +102,9 @@ pub struct AbandonPlan {
     /// mark flipped (FDC-011) - only that mark, inside the same all-or-none
     /// transaction.
     pub annotate: Vec<PathBuf>,
+    /// Stale lock files checked by their owner tokens and retired only if the
+    /// same bytes remain at apply time.
+    lock_retire: Vec<crate::lock::LockRetirement>,
 }
 
 /// Decide whether this project's Run may be retired. Writes nothing.
@@ -122,7 +125,8 @@ pub fn plan_abandon(root: &Path, request: &AbandonRequest) -> Result<AbandonPlan
     }
 
     let engine_root = crate::root::resolve(root).engine_root().to_path_buf();
-    let lock_path = engine_root.join("locks").join("root.lock");
+    let root_lock = crate::lock::stale_root_retirement(&engine_root)
+        .map_err(|error| refusal(error.to_string()))?;
     // FDC-004: abandon acts on an existing Run through `--run <id>`. Only the
     // leftover-lock retirement — no live run anywhere on the roster — may
     // proceed unaddressed, because it retires transient invocation machinery,
@@ -163,6 +167,11 @@ pub fn plan_abandon(root: &Path, request: &AbandonRequest) -> Result<AbandonPlan
         }
         None => None,
     };
+    let run_lock = match run_id.as_deref() {
+        Some(run_id) => crate::lock::stale_run_retirement(&engine_root, run_id)
+            .map_err(|error| refusal(error.to_string()))?,
+        None => None,
+    };
 
     let run_dir = run_id
         .as_deref()
@@ -173,7 +182,7 @@ pub fn plan_abandon(root: &Path, request: &AbandonRequest) -> Result<AbandonPlan
         .map(|dir| dir.join(crate::pin::EVIDENCE_FILE));
 
     let admitted = state_path.as_ref().is_some_and(|path| path.exists());
-    if !admitted && !lock_path.exists() {
+    if !admitted && root_lock.is_none() && run_lock.is_none() {
         // FDC-006: runs are plural, so the refusal speaks about the addressed
         // run — or the empty project — never about "the" project-wide Run.
         return Err(match run_id.as_deref() {
@@ -211,9 +220,6 @@ pub fn plan_abandon(root: &Path, request: &AbandonRequest) -> Result<AbandonPlan
             retire.push(evidence_path);
         }
     }
-    if lock_path.exists() {
-        retire.push(lock_path);
-    }
 
     // FDC-011: a retired child's ledger entry keeps its address; only its
     // abandoned mark flips. A corrupt ledger that names the run in its raw
@@ -248,6 +254,13 @@ pub fn plan_abandon(root: &Path, request: &AbandonRequest) -> Result<AbandonPlan
             }
         }
     }
+    let mut lock_retire = Vec::new();
+    if let Some(lock) = run_lock {
+        lock_retire.push(lock);
+    }
+    if let Some(lock) = root_lock {
+        lock_retire.push(lock);
+    }
 
     Ok(AbandonPlan {
         event,
@@ -255,6 +268,7 @@ pub fn plan_abandon(root: &Path, request: &AbandonRequest) -> Result<AbandonPlan
         retire,
         run: run_id,
         annotate,
+        lock_retire,
     })
 }
 
@@ -270,15 +284,48 @@ fn revision_or_none(revision: &str) -> String {
 pub fn apply_abandon(root: &Path, plan: &AbandonPlan) -> Result<(), AbandonRefusal> {
     let engine_root = crate::root::resolve(root).engine_root().to_path_buf();
     let log_path = engine_root.join("log.md");
-    let lock_path = engine_root.join("locks").join("root.lock");
-    // lock is excluded deliberately: it is transient invocation machinery,
-    // retired last, with no content worth restoring. An unreadable Run file is
-    // refused here, before the first write, rather than silently treated as
-    // absent - restoring "absent" would delete the very file it claims to
-    // protect.
+    // Re-check every stale lock before the first write.  Lock retirement is
+    // deliberately kept out of the byte snapshot: its owner token is the
+    // authority for deletion, not a pathname that abandonment may recreate.
+    for lock in &plan.lock_retire {
+        lock.verify().map_err(|error| refusal(error.to_string()))?;
+    }
+
+    // A live abandonment is motion on one Run.  Ledger annotation additionally
+    // needs the root domain, so acquire that first whenever it is needed.
+    // A checked stale lock already excludes standard acquirers; it remains in
+    // place until this transaction completes and is then retired by token.
+    let root_lock_path = crate::lock::root_path(&engine_root);
+    let root_is_stale = plan
+        .lock_retire
+        .iter()
+        .any(|lock| lock.path() == root_lock_path);
+    let _root_lock = if plan.annotate.is_empty() || root_is_stale {
+        None
+    } else {
+        Some(
+            crate::lock::RootLock::acquire(&engine_root)
+                .map_err(|error| refusal(error.to_string()))?,
+        )
+    };
+    let run_lock_path = plan
+        .run
+        .as_deref()
+        .map(|run_id| crate::lock::run_path(&engine_root, run_id));
+    let run_is_stale = run_lock_path
+        .as_ref()
+        .is_some_and(|path| plan.lock_retire.iter().any(|lock| lock.path() == path));
+    let _run_lock = match plan.run.as_deref() {
+        Some(run_id) if !run_is_stale => Some(
+            crate::lock::RunLock::acquire(&engine_root, run_id)
+                .map_err(|error| refusal(error.to_string()))?,
+        ),
+        _ => None,
+    };
+
     let mut snapshot: Vec<(PathBuf, Option<Vec<u8>>)> = Vec::new();
     for path in std::iter::once(&log_path)
-        .chain(plan.retire.iter().filter(|p| **p != lock_path))
+        .chain(plan.retire.iter())
         .chain(plan.annotate.iter())
     {
         match fs::read(path) {
@@ -352,6 +399,11 @@ pub fn apply_abandon(root: &Path, plan: &AbandonPlan) -> Result<(), AbandonRefus
                     path.display()
                 ))));
             }
+        }
+    }
+    for lock in &plan.lock_retire {
+        if let Err(error) = lock.retire() {
+            return Err(restore(refusal(error.to_string())));
         }
     }
     Ok(())

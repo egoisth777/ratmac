@@ -212,6 +212,9 @@ fn verify_blocker(root: &Path, blocker: &str) -> Result<(), HoldRefusal> {
 /// All or nothing. Every file touched is snapshotted first and restored if any
 /// write fails, so an interrupted hold leaves the Run pre-route.
 pub fn apply_hold(root: &Path, plan: &HoldPlan) -> Result<(), HoldRefusal> {
+    let engine_root = crate::root::resolve(root).engine_root().to_path_buf();
+    let _run_lock = crate::lock::RunLock::acquire(&engine_root, &plan.run_id)
+        .map_err(|error| refusal(error.to_string()))?;
     let state_path = crate::Scheduler::runs_dir(root)
         .join(&plan.run_id)
         .join("state.toml");
