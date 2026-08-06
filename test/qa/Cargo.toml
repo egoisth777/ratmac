@@ -15,6 +15,10 @@ name = "snapshot-manifest"
 path = "src/bin/snapshot_manifest.rs"
 
 [[bin]]
+name = "lock-barrier"
+path = "src/bin/lock_barrier.rs"
+
+[[bin]]
 name = "rtm"
 path = "../../src/bin/rtm.rs"
 
