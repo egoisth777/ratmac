@@ -2,8 +2,9 @@
 
 Dispositions below record the author's proposed decision; P1 confirms or revises them at integration.
 
-`PCR` expands to **P-Cycle Runbook** - this issue's requirement-ID prefix, defined in
-[ubi-lang.md](ubi-lang.md) as the ID convention now requires.
+The formal artifact name is **Plan-Build Runbook**. `PCR` remains this
+issue's stable requirement-ID prefix, coined from the earlier working name
+**P-Cycle Runbook** and defined in [ubi-lang.md](ubi-lang.md).
 
 ## Requirement Records
 
@@ -13,7 +14,7 @@ Dispositions below record the author's proposed decision; P1 confirms or revises
 | `PCR-002` | `rtm status` answers “where are we”; the tree-derived lookup becomes only the no-live-Run fallback or is retired. | deferred | One stage oracle is required, but the real cycle Run must exist first. | — (deferred 2026-07-30) |
 | `PCR-003` | “Open ticket” is machine-checkable, distinguishing landed work from executing work without prose inference. | deferred | The current tree misclassifies landed active-folder tickets; the mechanism belongs with the real cycle. | — (deferred 2026-07-30) |
 | `PCR-004` | Once a Run is live, `rtm`, not a contributor, appends the landing line to `.arca/log.md`. | deferred | The cycle needs an Engine-owned close operation that does not yet exist. | — (deferred 2026-07-30) |
-| `PCR-005` | The cycle runbook is doctor-clean, with no gate whose verdict rests on content writable by the agent under test. | deferred | Honest self-hosting follows the missing execution layers. | — (deferred 2026-07-30) |
+| `PCR-005` | The Plan-Build Runbook is doctor-clean, with no gate whose verdict rests on content writable by the agent under test. | deferred | Honest self-hosting follows the missing execution layers. | — (deferred 2026-07-30) |
 | `PCR-007` | The P4/P5 loop keeps per-ticket sensitivity and completion gates while the runbook stays read-only and free of literal ticket ids. | deferred | The ticket-binding mechanism remains a planning decision for the self-hosting pass. | — (deferred 2026-07-30) |
 
 `PCR-006` was dropped at review on 2026-07-28: extracting the hard-coded `.arca/issue|ticket|residual|goal`
@@ -22,10 +23,10 @@ defers it. The numbering keeps its hole so the decision stays legible.
 
 ## Acceptance criteria
 
-- `.arca/ratmac.toml` describes the P1-P5 cycle, and `rtm start` plus `rtm step` drive it without a human
+- The Plan-Build Runbook describes the P1-P5 cycle, and `rtm start` plus `rtm step` drive it without a human
   restating a rule the runbook should have carried.
 - `rtm status` names the current stage of this repository, and any second answer to that question is either
   derived from it or explicitly labelled a no-Run fallback.
-- `rtm doctor` exits `0` on the cycle runbook.
+- `rtm doctor` exits `0` on the Plan-Build Runbook.
 - No Phase Prompt and no gate contract in it instructs an agent to write a Scheduler-owned file.
 - Every guarantee `PGE-003` and `PGE-005` already carry per ticket is still carried per ticket.

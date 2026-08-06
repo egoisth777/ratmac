@@ -1,4 +1,4 @@
-# The P-cycle as the real runbook
+# The Plan-Build Runbook
 
 ```yaml
 issue-id: "i-015-cycle-as-runbook"
@@ -11,10 +11,10 @@ status: "deferred"
 The sprint route landed the Machine Class as first-class data - written specification, one typed reader,
 deep doctor, authoring loop - but the endpoint the sprint was aimed at is not reached, and the frozen goal
 never carried a requirement for it. `.arca/ratmac.toml` is still a demonstration machine (`build` ->
-`build-review` -> `build-done`); the P1-P5 cycle this repository actually runs lives as prose in
-`.arca/schema.md`, and "where are we" is answered by a human reading a lookup table in `.arca/index.md`
-rather than by `rtm status`. Making the cycle the real runbook is the point of the engine: until then
-ratmac is a state machine that has never been asked to run the one process it exists for.
+`build-review` -> `build-done`). The **Plan-Build Runbook** - the Machine Class for the P1-P5 cycle
+this repository actually follows - still lives only as prose in `.arca/schema.md`, and "where are we" is
+answered by a human reading a lookup table in `.arca/index.md` rather than by `rtm status`. Until RatMac
+runs this runbook, the engine has not run the first real process it was built to support.
 
 Closing that gap surfaced four sub-gaps that are not cosmetic - they are the reason it has not happened
 yet. They are recorded here as requirements, not as intentions.

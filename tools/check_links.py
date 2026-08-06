@@ -129,9 +129,10 @@ def main() -> int:
                 failures.append(
                     f"{shown}: deferred asks require .arca/issue/deferred and status deferred"
                 )
-            if status not in {"integrated", "rejected"}:
+            if status not in {"pending", "integrated", "rejected"}:
                 failures.append(
-                    f"{shown}: intake status {status!r} is neither integrated nor rejected"
+                    f"{shown}: intake status {status!r} is not pending,"
+                    f" integrated, or rejected"
                 )
         elif location == "deferred":
             if status != "deferred":

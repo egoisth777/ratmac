@@ -94,7 +94,7 @@ place and derive "open" from evidence: a ticket is open while any residual it ow
 matches the issue rule and keeps the directory small. P1 picks one - the requirement is that a guard, not a
 reader, can tell the difference.
 
-**4. Write the cycle runbook (`PCR-001`, `PCR-002`, `PCR-005`).** Phases follow the working rules already
+**4. Write the Plan-Build Runbook (`PCR-001`, `PCR-002`, `PCR-005`).** Phases follow the working rules already
 written down: intake and integration (P1), freeze and gap check (P2), cut tickets (P3), tests-first (P4),
 implementation and close (P5), with the loop edge from P5 back to P4 while tickets remain and the exit edge
 to a rest state when the gap check comes back clean. Guards are the ones that already exist -
@@ -111,7 +111,7 @@ and so actually retires the second oracle. Recorded as an open decision, not ass
 
 **Sequencing note.** Parts 1-3 are prerequisites discovered by trying to write part 4; each is small and
 independently provable. Part 4 is the only one that produces the endpoint, and it is worth nothing if the
-first three are skipped - a cycle runbook that cannot name the ticket it is gating, fails its own ownership
+first three are skipped - a Plan-Build Runbook that cannot name the ticket it is gating, fails its own ownership
 lint, and cannot say whether a ticket is open is a demonstration, which is what exists today.
 
 ## Non-goals

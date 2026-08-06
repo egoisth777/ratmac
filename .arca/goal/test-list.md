@@ -223,3 +223,21 @@ Behavior checks derived from [spec.md](spec.md). Each is a testable one-liner.
 | DFPV-004 | Workspace formatting passes. | DFP-001 |
 | DFPV-005 | Workspace Clippy passes for all targets and features with warnings denied. | DFP-001 |
 | DFPV-006 | All six hidden lanes are assessed: Regression and Output/Filesystem require coverage; Input/Routing, Lifecycle/Model, Durability/Recovery, and Cross-Feature each record coverage or a specific public not-applicable rationale. | DFP-001 |
+
+## Integrated Engine-namespace verification
+
+| ID | Check | Requirement |
+|---|---|---|
+| ENSV-001 | A fixture with `.ratmac/ratmac.toml` starts, steps, and reports; the Engine writes no file under `.arca/`, and the Engine root contains the Machine Class, runs, mint record, locks, transition log, and run-scoped receipts. | ENS-001 |
+| ENSV-002 | A primary-checkout and linked-worktree fixture resolves runtime from the primary checkout's `.ratmac/`; the linked invocation reads its own tracked `ratmac.toml`, and an edit that changes a live Run's pin refuses under `FDC-005` rather than silently doing nothing. | ENS-002 |
+| ENSV-003 | With Git absent, the Engine resolves and reports `.ratmac/` at the current checkout root rather than failing or guessing. | ENS-002 |
+| ENSV-004 | Spawn in the primary checkout, step the child from a linked worktree, then join in the primary checkout: one roster, one addressable Run, and no duplicated id. | ENS-003 |
+| ENSV-005 | Mint a Run, delete its directory, then mint again: the durable mint record yields the next id rather than reissuing the deleted id. | ENS-004 |
+| ENSV-006 | Two Runs move concurrently while two motions on one Run serialize; a long-running guard holds no root lock. | ENS-005 |
+| ENSV-007 | `rtm spawn --workspace` records the canonical path in the child ledger entry; an absent flag inherits the parent workspace, and the child's guards and motion use the recorded workspace. | ENS-006 |
+| ENSV-008 | The Scheduler is the only Engine writer of `.ratmac/log.md`; a full Run leaves `.arca/log.md` byte-identical. | ENS-007 |
+| ENSV-009 | An undeclared `[roots]` name, a missing root path, and a root overlapping the Engine root each fail static validation with a distinct diagnostic; a source scan finds no `.arca` literal in `src/`. | ENS-008 |
+| ENSV-010 | Each of `.arca/ratmac.toml`, `.arca/runs/`, `.arca/rtm.lock`, and flat `.arca/state.toml`, present alone, makes every entry point refuse with instructions and leave the tree byte-identical; archived `.arca/evidence/` receipts remain inert. | ENS-009 |
+| ENSV-011 | `rtm status` and `rtm doctor` report the resolved Engine-root path. | ENS-010 |
+| ENSV-012 | A Git fixture proves that `.ratmac/runs/`, `.ratmac/mint.toml`, `.ratmac/locks/`, and `.ratmac/log.md` are ignored, while `.ratmac/ratmac.toml` and receipts under `.ratmac/evidence/<run-id>/` are tracked, so a ticket-branch commit contains no Run state. | ENS-001 |
+| ENSV-013 | Two parallel sibling child Runs write receipts under distinct `.ratmac/evidence/<run-id>/` paths; their tracked receipts merge without collision. | ENS-001, ENS-006 |

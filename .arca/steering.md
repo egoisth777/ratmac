@@ -26,8 +26,9 @@ folded in at P1 names the property it advances; one that advances none is
 rejected, or it is a pivot and this section changes first.
 
 1. **Self-hosted.** The process a project follows is a runbook `rtm` runs -
-   starting with this repository's own P1-P5 cycle. The tool's first governed
-   project is its own construction, and `rtm status` answers "where are we".
+   starting with this repository's **Plan-Build Runbook**, the Machine
+   Class for its P1-P5 cycle. The tool's first governed project is its own
+   construction, and `rtm status` answers "where are we".
 2. **Every boundary machine-checked.** In a governed process no stage advances
    on narration. Every boundary that matters has a guard reading artifacts.
 3. **Authored, not imitated.** An agent writes a runbook from the written
@@ -84,8 +85,9 @@ An authored ordering of directions beyond the current sprint, in direction
 and issue terms only. Binds nothing; nothing here is chosen; an item enters
 work only by going through P1 like any other issue. The ordering below is
 the forecast route from the landed routing, delivery, completion, and
-composition contracts to the Self-hosted property in Ideal shape: this
-repository's own P1-P5 cycle run as a ratmac runbook. Each item names an
+composition contracts to the Self-hosted property in Ideal shape: the
+**Plan-Build Runbook** running this repository's P1-P5 cycle through
+ratmac. Each item names an
 entry condition - what must already be landed or ruled before selecting it
 at P1 is safe - and an exit - the direction-level fact its integration would
 make true. Conditions forecast what selection would require and deliver;
@@ -106,14 +108,14 @@ they select nothing.
    root. Before the cycle because a self-hosting runbook freezes every path
    it reads: splitting afterwards would re-path the live machine governing
    this repository and churn the namespace twice.
-2. **The cycle as the real runbook** - the cycle-as-runbook issue
+2. **The Plan-Build Runbook** - the cycle-as-runbook issue
    (`i-015-cycle-as-runbook`), waiting whole in the deferred buffer:
    self-hosting this repository's P1-P5 loop. Entry: routing, delivery,
    completion, and composition are all integrated and landed, because the
-   cycle consumes all four; and the engine-namespace split above, because
-   the cycle runbook welds in whatever namespace exists when it is authored.
-   The four contracts are landed; the split is the remaining entry
-   condition. Exit - the Self-hosted property itself: the real cycle's
+   runbook consumes all four; and the engine-namespace split above, because
+   the Plan-Build Runbook welds in whatever namespace exists when it is
+   authored. The four contracts are landed; the split is the remaining entry
+   condition. Exit - the Self-hosted property itself: the Plan-Build Runbook's
    Machine Class declares the cycle and is doctor-clean, `rtm status`
    answers "where are we" with the tree-derived lookup demoted to a
    no-live-Run fallback, the landing line is Engine-appended while a Run is
@@ -127,7 +129,7 @@ they select nothing.
    entry conditions are unchanged.
    The State-not-Phase wishlist entry is neither promoted nor an entry
    condition here. If a human promotes it, settle it before this item, or
-   the real cycle runbook will first be authored with `Phase` and later need
+   the Plan-Build Runbook will first be authored with `Phase` and later need
    a runbook format migration.
 3. **The `failed`-outcome contract** - a blocked, independent side path that
    names the concrete Engine-observable failure event granting the third
@@ -135,9 +137,9 @@ they select nothing.
    concrete event; a judgment value, a transition input, and a guard refusal
    do not qualify. Until that ruling, this item is blocked. Exit: `failed`
    has exactly one Engine-observable trigger. It is independent because the
-   cycle-as-runbook issue does not depend on it, so it blocks no
-   critical-path item; it becomes relevant only if the cycle runbook's
-   terminal vocabulary turns out to need the third outcome.
+   Plan-Build Runbook does not depend on it, so it blocks no
+   critical-path item; it becomes relevant only if the runbook's terminal
+   vocabulary turns out to need the third outcome.
 
 ## Open questions
 
@@ -215,7 +217,7 @@ lowercase SHA-256 of the exact executable it runs, remains write-free, and
 changes no executable selection, pin or trust behavior, state report,
 Runbook finding, arbitrary-path diagnosis, or `--json` behavior.
 
-Deferred: the real cycle runbook (`i-015-cycle-as-runbook`) follows the
+Deferred: the Plan-Build Runbook (`i-015-cycle-as-runbook`) follows the
 engine-namespace split and now also carries the machine enforcement of the
 discard guard - the dirty-tree refusal before any deliberate-damage step
 and the intake gate's acceptance of working-authority requirement headings

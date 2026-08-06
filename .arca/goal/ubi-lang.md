@@ -5,21 +5,21 @@ Glossary of ubiquitous language. One term, one meaning. Terms not listed here mu
 | Term | Definition |
 |---|---|
 | Machine | The state machine as a whole — Phases, transitions, Exit Guards — pure data declared by a Machine Class, never run by agents; an agent sees only its Phase Prompt, never the graph (ADR-0009). |
-| Machine Class | The state-machine definition in `ratmac.toml`. Data, not code. A template: declares Phases, transitions, Exit Guards. Human-written and reviewed, never agent-authored. |
-| `ratmac.toml` | The Machine Class file, TOML (ADR-0004), at `.arca/ratmac.toml` (ADR-0008). One per project. |
-| Run | A live instance of a Machine Class, created by `rtm start` (class vs instantiation, ADR-0005). Each Run owns its State File and Transition Log. |
+| Machine Class | The state-machine definition in the tracked `ratmac.toml` of the invoking checkout. Data, not code. A template: declares Phases, transitions, Exit Guards. Human-written and reviewed, never agent-authored. |
+| `ratmac.toml` | The tracked Machine Class file, TOML (ADR-0004), under `.ratmac/`. A linked-worktree invocation reads its invoking checkout's tracked file while runtime resolves through the shared Engine root. |
+| Run | A live instance of a Machine Class, created by `rtm start` (class vs instantiation, ADR-0005). Each Run owns its State File and run-local artifacts; the Engine transition log is shared. |
 | Scheduler | The generic engine — Rust CLI, binary `rtm`. Sole writer of State Files. Holds no project-specific knowledge. |
 | Phase | A node of the Machine where agent work happens. The ONLY dimension of machine state (ADR-0001). Always say "Phase", never "state", for machine nodes. |
 | Status | Phase-local lifecycle (`planned\|executing\|blocked\|passed\|failed`) recorded by the Scheduler. Not part of the Machine graph (ADR-0001). |
 | Exit Guard | A predicate over the working tree, evaluated by the Scheduler at `rtm step`. Checks artifacts, never agent claims; passing ALL of a Phase's Exit Guards is the only way to leave it. The closed guard-kind vocabulary — each kind's semantics, required fields, and forbidden fields — is defined once in `.arca/runbook-spec.md` and restated nowhere else (RBS-002, RBS-004). |
-| State File | `.arca/state.toml` (ADR-0008). Per-Run machine-readable current state. Written ONLY by the Scheduler; all agents read, never write (ADR-0003). |
-| Transition Log | `.arca/log.md` (ADR-0008). Per-Run append-only record of every transition the Scheduler performs. |
+| State File | `runs/<run-id>/state.toml` under the Engine root. Per-Run machine-readable current state. Written ONLY by the Scheduler; all agents read, never write (ADR-0003). |
+| Transition Log | `.ratmac/log.md`: the append-only record of Engine transitions. The Scheduler is its only Engine writer; `.arca/log.md` is human-only. |
 | Phase Prompt | What an agent receives for a Phase: inline prose from `ratmac.toml` + the Scheduler-generated Exit Guard list (ADR-0009). The ONLY machine information ever shown to an agent. |
 | Main-Agent | The orchestrating agent in the main checkout. May invoke `rtm step`; changes state only through the Scheduler (ADR-0003). |
 | Subagent | A worker agent in a ticket worktree. Reads state; never invokes `rtm` (ADR-0003). |
 | `rtm start` | Instantiate a Run. A human may invoke it directly; the Main-Agent only after explicit human Run-start sign-off; a Subagent never (ORS-001). |
 | `rtm step` | Transition request for a Run (replaces the handoff's `next`). Requesting is not deciding (ADR-0002); Exit Guards decide. A refused `step` changes nothing (ADR-0006). |
-| `rtm status` | Read-only report of a Run's Phase, Status, and pending guards. |
+| `rtm status` | Read-only report of a Run's Phase, Status, pending guards, and resolved Engine root. |
 | Legacy identity | The superseded spellings `arca-scheduler` and `schd`, retained only in the historical allowlist or explicit migration records. |
 | Clean cutover | `ratmac` and `rtm` are the only active product and command spellings; no compatibility alias or package fallback is shipped. |
 | External repository identity | The GitHub slug, canonical `origin` URL, checkout directory, `.git` metadata, and active repository-facing links that identify this project outside its Rust code. |
@@ -51,7 +51,7 @@ Glossary of ubiquitous language. One term, one meaning. Terms not listed here mu
 | Default suite | What plain `cargo test --workspace` runs with no opt-in environment configured. |
 | Run-start sign-off | Explicit human authorization for the Main-Agent to invoke argument-free `rtm start` for the current target project; conversational instruction suffices, and no token, file, or Engine state encodes it. |
 | Project-local bootstrap | One documented command run from the project root that locates or builds the Stable Engine binary, verifies its recorded identity, and reports the resolved path without global installation or PATH mutation. |
-| Doctor report | Read-only diagnosis output naming the resolved Engine identity, distinguishing the human-authored Runbook from Scheduler-owned runtime state, and stating the next legitimate action. |
+| Doctor report | Read-only diagnosis output naming the resolved Engine identity and Engine root, distinguishing the human-authored Runbook from Scheduler-owned runtime state, and stating the next legitimate action. |
 | Behavioral evidence | Proof derived from recorded attempted commands or tool calls in role scenarios — what a caller actually invoked or refrained from invoking. |
 | Guidance-consistency evidence | Proof that active guidance texts agree with each other; never a substitute for behavioral evidence on invocation claims. |
 | Experiment base | The long-lived local branch `exp/ratmac-deterministic`: every trial starts from its clean committed tip; a finish adds only the durable log, while fixes arrive from local `main` only through explicit merge/sync. |
@@ -79,11 +79,11 @@ Glossary of ubiquitous language. One term, one meaning. Terms not listed here mu
 | Guard lint | The doctor checks on guards beyond parseability: a `command_exit` guard neither `exempt` nor pinnable, and a guard whose verdict rests on agent-writable content. |
 | Scaffold | The minimal doctor-clean runbook `rtm scaffold <path>` writes, so authoring begins from valid rather than from blank. |
 | Authoring loop | write → `rtm doctor --json` → repair by code, repeated until the doctor reports clean. |
-| `runs` path | The canonical plural directory every Run resides under, one directory per run id. Listing it IS the run registry — run identity is read off artifacts, never off a narrated roster. |
-| Run id namespace | The single namespace all run ids are minted from. An id is never reissued after its Run is abandoned, so a past Run keeps its address and its evidence cannot be overwritten by a later Run. |
+| `runs` path | The canonical plural `runs/` directory under the Engine root where every Run resides, one directory per run id. Listing it IS the run registry — run identity is read off artifacts, never off a narrated roster. |
+| Run id namespace | The single repository-scoped namespace all run ids are minted from. An id is never reissued after its Run is abandoned, so a past Run keeps its address and its evidence cannot be overwritten by a later Run. |
 | Verdict slot | The per-run location where a typed verdict lands, nested under its own Run's directory. |
 | Spawn-ledger path | The per-run path reserved by name under a Run's directory for that Run's spawn ledger. Location only: what the ledger records, when it is written, and what an entry means are the machine-composition issue's contract, not this goal's. |
-| Flat-layout residue | A leftover pre-plural run directory found on disk. Meeting one, the Engine refuses and instructs; it never auto-migrates and modifies nothing. |
+| Flat-layout residue | A leftover pre-split live Engine artifact at an old `.arca/` address. Meeting one, the Engine refuses and instructs; it never auto-migrates and modifies nothing. |
 | Legal transition input list | The closed set of exact values a branching Phase declares under `inputs`; complete unique coverage means each value labels one ordinary outgoing transition and every such transition carries one listed value. |
 | Transition input | The single value selected by external evidence review for one addressed Run at one current Phase. It selects an ordinary transition but never bypasses readiness guards. |
 | Input-only selection | Ordinary guards decide whether movement is ready; the transition input alone decides which ordinary outgoing transition is selected. |
@@ -101,3 +101,9 @@ Glossary of ubiquitous language. One term, one meaning. Terms not listed here mu
 | Child-as-reviewer | The first-increment judge-independence mechanism: a spawned child machine produces the judgment a parent's branching Phase consumes. |
 | Recursion depth cap | One level: a spawned child Run may not itself spawn; the Engine refuses the attempt naming the cap. Lifting the cap is additive and needs a new ruling or issue. |
 | Witnessed verdict verb | The deferred judge-independence verb; it needs signer identity, which stays outside the Engine (`ORS-001`). Its deferral is recorded, never silently dropped. |
+| Engine root | The single `.ratmac/` folder at the primary checkout root. It holds the Machine Class, runs, the mint record, locks, the Engine transition log, and run-scoped receipts; a linked worktree resolves the primary root, while a checkout without Git resolves its own root. |
+| Mint record | The durable `mint.toml` record of the highest Run id issued. The Engine advances it under the root lock so deleting a Run directory cannot make that id available again. |
+| Root lock | The short lock for minting and roster or spawn-ledger mutation. It is taken before a per-Run lock and is never held while guards run. |
+| Per-Run lock | The lock that protects motion on one addressed Run. It permits different Runs to move independently while serializing concurrent motion on that Run. |
+| Workspace binding | The canonical path recorded in a child ledger entry. A child without an explicit binding inherits its parent's workspace, and its guards and motion resolve files there. |
+| Roots table | The top-level runbook `[roots]` table mapping role names to repository-relative paths. Guards name a root rather than a hard-coded workflow path. |

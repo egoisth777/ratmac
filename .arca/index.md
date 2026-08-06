@@ -1,11 +1,11 @@
 # ratmac
 
 ratmac (`rtm`) is a Rust engine that runs agent work as an explicit state
-machine. A runbook (`.arca/ratmac.toml`, plain TOML) declares phases,
-prompts, guards, and transitions; the Engine instantiates it into a Run and
-is the only writer of run state. Progress is proven by machine-checked
-guards over artifacts on disk - never by an agent's claim. Deterministic and
-offline: no network, no installs, no hidden global state.
+machine. Its shared runtime root is the primary checkout's `.ratmac/`; the Machine Class
+(`.ratmac/ratmac.toml`, plain TOML) is read from the invoking checkout and declares phases,
+prompts, guards, and transitions; the Engine instantiates it into a Run and is the only writer
+of run state. Progress is proven by machine-checked guards over artifacts on disk - never by an
+agent's claim. Deterministic and offline: no network, no installs, no hidden global state.
 
 Consult this file first, every time: the map below orients you; the routes
 table locates every file; then read the file itself. The map is orientation
@@ -17,9 +17,9 @@ residuals without tickets -> P3; goal frozen but residuals stale -> P2; a
 `pending` issue bundle directly under `.arca/issue/` -> P1; none of the above
 -> Idle. Bundles in `.arca/issue/deferred/` are live waiting work but do not
 force P1. Selecting one visibly moves that same complete bundle to the intake
-work area and changes its status to `pending`. (`.arca/state.toml` answers only
-for a live `rtm` Run; until the P-cycle is the real runbook - see steering.md,
-Current sprint endpoint - the tree is the oracle.)
+work area and changes its status to `pending`. (`.ratmac/runs/<run-id>/state.toml` answers only
+for a live `rtm` Run; until the **Plan-Build Runbook** is this project's
+Machine Class, the tree is the oracle - see steering.md, Current sprint endpoint.)
 
 ## Map - how ratmac hangs together
 
@@ -39,9 +39,9 @@ each cycle close (gap check green).
 ```mermaid
 flowchart LR
     CLI["rtm CLI<br/>cli.rs: mint or address a Run"] --> SCH["scheduler.rs<br/>open/open_run/start/step/status"]
-    RB[".arca/ratmac.toml<br/>runbook - plain TOML data"] --> MC["machine.rs<br/>the one reader<br/>typed guards + input contracts"]
+    RB[".ratmac/ratmac.toml<br/>runbook - plain TOML data"] --> MC["machine.rs<br/>the one reader<br/>typed guards + input contracts"]
     MC --> SCH
-    SCH <--> ST["state.rs + model.rs<br/>.arca/runs/&lt;id&gt;/state.toml<br/>strict seven-field State File"]
+    SCH <--> ST["state.rs + model.rs<br/>.ratmac/runs/&lt;run-id&gt;/state.toml<br/>strict seven-field State File"]
     SCH --> PIN["pin.rs<br/>Run evidence + hash-only runbook pin"]
     SCH --> VER["verdict.rs<br/>live input -> immutable Run-local archive"]
     SCH --> LED["ledger.rs<br/>spawn ledger - append/annotate only"]
@@ -72,7 +72,7 @@ preflight, and retiring a live Run requires its roster id. `spawn` creates a
 declared child from a parent's spawning Phase as ordinary checked motion;
 `respawn` and live-run `abandon` demand `--confirm` phrases naming the run id
 (FDC-007). Only leftover-lock retirement may be unaddressed;
-missing or unknown addresses report the `.arca/runs/` roster. `doctor` is
+missing or unknown addresses report the `.ratmac/runs/` roster. `doctor` is
 read-only and deep: its argument-free human report identifies the exact
 running Engine with the complete 64-character lowercase SHA-256, then reports
 parse, graph, guard-lint, and ownership findings over `MachineClass`; `--json`
@@ -91,9 +91,9 @@ runbook that starts clean.
 | `scheduler.rs` | Project/Run binding and ordinary execution. `open` has no Run; `open_run` binds one canonical live roster member. `open`/`open_run` and `start` refuse flat residue, while pinned reads reject runbook drift. `start` mints an uncapped never-reused id and writes `passed` when the initial Phase is terminal; `step` refuses a passed Run by name, evaluates guards before verdict routing/consumption, and writes `passed` beside a terminal successor in one replacement; `status` reloads and reports read-only. `resolve_phase_scope` reads a child Run through its own class's view for step and status alike (FDC-010/FDC-011); `spawn` mints a declared child as an ordinary flat Run and appends its ledger entry, refusing any parent that is itself a recorded child (FDC-012); `respawn` supersedes by confirmed phrase; the `join` guard reads the ledger's live children's terminal facts. |
 | `ledger.rs` | The Scheduler-owned per-run spawn ledger (FDC-011): append at spawn, successor entries at respawn, abandoned-mark flips at retirement - never rewritten; strict read refuses malformed entries by name. |
 | `verdict.rs` | Strict Run-local transition-input delivery. A branch validates exact `phase`/`input`/`rationale`; a straight Phase requires an absent live slot. Valid bytes rename to monotonic `verdicts/NNNNNN.toml` evidence before State File advance; refusals consume nothing. |
-| `model.rs` | `Run`, `RunArtifacts`, plural `Runs`, and serde `RunState`/`Status`; persisted state belongs to `.arca/runs/<id>/state.toml`. |
-| `state.rs` | Strictly parses and atomically replaces the addressed `.arca/runs/<id>/state.toml`. The write path is crate-private, centralizing Engine writes without filesystem-enforcing ownership, and it renders the report behind `rtm status`. |
-| `pin.rs` | Run evidence: stable Engine identity, gate-artifact pins, goal baseline/freeze, and the hash-only SHA-256 pin of canonical `.arca/ratmac.toml`. Non-exempt command guards run pinned code. |
+| `model.rs` | `Run`, `RunArtifacts`, plural `Runs`, and serde `RunState`/`Status`; persisted state belongs to `.ratmac/runs/<run-id>/state.toml`. |
+| `state.rs` | Strictly parses and atomically replaces the addressed `.ratmac/runs/<run-id>/state.toml`. The write path is crate-private, centralizing Engine writes without filesystem-enforcing ownership, and it renders the report behind `rtm status`. |
+| `pin.rs` | Run evidence: stable Engine identity, gate-artifact pins, goal baseline/freeze, and the hash-only SHA-256 pin of canonical `.ratmac/ratmac.toml`. Non-exempt command guards run pinned code. |
 | `receipt.rs` | Sensitivity receipts; digests re-derived, self-verifying. |
 | `completion.rs` | Completion gate: green + fresh via tree digest. |
 | `contract.rs` | Intake/record contract gates; the intake gate parses ask dispositions across intake, deferred, and archive as one issue-id namespace, while the record gate receives the addressed Run id for frozen-goal evidence. Project-specific `.arca/issue`, `.arca/residual`, `.arca/ticket`, and `.arca/goal` paths remain R-016 debt. |
@@ -104,7 +104,7 @@ runbook that starts clean.
 | `doctor.rs` | DRD-001..007: findings as data. Diagnoses through `machine.rs` and never walks runbook TOML itself; owns the graph, guard-lint, and cycle-termination passes (FDC-008: every cycle carries a guard-kind-checked out-edge), JSON rendering, and exit-code mapping. |
 | `scaffold.rs` | AAL-002: the smallest doctor-clean runbook, written at a path that does not exist yet. One file, no options, never overwrites. |
 
-### Runbook shape (`.arca/ratmac.toml`)
+### Runbook shape (`.ratmac/ratmac.toml`)
 
 Defined once, in [runbook-spec.md](runbook-spec.md): top level, Phase and
 transition fields, the closed guard-kind vocabulary with each kind's required
@@ -166,8 +166,9 @@ All agent routing and documentation must use these paths.
 | `.arca/issue/archive/<issue-id>/` | Completed issue history: the same five-file shape, no `deferred` ask, and `index.md` status `rejected` or `integrated`; an integrated bundle has at least one accepted-or-duplicate ask, and duplicate-only integration adds no new goal row. |
 | `.arca/residual/` | Gap records, one per requirement - proven yet? |
 | `.arca/ticket/` | Small self-contained work units, cut from gap records. |
-| `.arca/state.toml` | Run state - written ONLY by `rtm`; everyone else reads. |
-| `.arca/log.md` | Append-only history; every landing leaves a line. |
+| `.ratmac/` | Shared Engine runtime root at the primary checkout: Git-ignored `runs/`, `mint.toml`, `locks/`, and `log.md`; the invoking checkout's Machine Class `ratmac.toml` and receipts under `evidence/<run-id>/` stay tracked. |
+| `.ratmac/runs/<run-id>/state.toml` | Per-Run State File - written ONLY by `rtm`; everyone else reads. |
+| `.arca/log.md` | Human-only append-only history; every human landing leaves a line. `rtm` logs transitions in `.ratmac/log.md`. |
 | `.arca/tpl/` | Blank forms; a form filled in at its proper path is the real thing. |
 | `.arca/vis/` | Shared pictures and graphs. |
 | `.arca-private/` | Hidden test code, out of git, listed by its owning ticket. |

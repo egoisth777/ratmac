@@ -70,7 +70,8 @@ without prompting. Return to Idle when no gap record says `missing` or `partial`
 2. **Pick the safest reasonable value**; log `assumed: <what> — <why>`; keep going. A guess can be undone:
    if the user corrects it, redo the affected pieces — don't start over.
 3. **Ask** — put every open question into one message, and meanwhile keep doing all work that does not
-   depend on the answers. Put the open question in that one message; when entry prerequisites are missing, `rtm` records them in `blocker` in `state.toml`.
+   depend on the answers. Put the open question in that one message; when entry prerequisites are missing,
+   `rtm` records them in `blocker` in the addressed Run's `.ratmac/runs/<run-id>/state.toml`.
 
 An unanswered question pauses only the piece that needs it, never the whole.
 
@@ -210,8 +211,8 @@ A fork nobody wrote down is drift.
 - The schema gate is mechanized by `rtm` Exit Guards; agents don't hand-run it. See .arca/goal/design.md,
   ADR-0006 and ADR-0009. A failed check is a **fix you do right away**, not a stop; log the check and the fix.
 - Creating an issue is a direct act: write the five files from the blanks under `.arca/issue/<issue-id>/`
-  with status `pending`, run the shape check, done. It enters no loop step and touches neither
-  `.arca/state.toml` nor `.arca/log.md`; the next planning pass folds it in.
+  with status `pending`, run the shape check, done. It enters no loop step and touches neither the
+  Engine root `.ratmac/` nor `.arca/log.md`; the next planning pass folds it in.
 
 ## The steps (P1–P5)
 
@@ -261,10 +262,39 @@ contradicts another gets a log line plus a follow-up ticket, not a stop):
 
 # State
 
-- `.arca/state.toml`: `phase`, `status: planned|executing|blocked|passed|failed`, versions in play,
-  `blocker` (the missing entry prerequisite recorded by `rtm` — nothing else).
-- `.arca/log.md`: new lines only, never edited; one line per step change, guess, rule-clash
-  decision, or fix.
+- **Engine root.** The shared runtime root is the primary checkout's `.ratmac/`; its
+  Git-ignored runtime is `runs/`, `mint.toml`, `locks/`, and `log.md`.
+- **Machine Class.** The invoking checkout reads its tracked `.ratmac/ratmac.toml`;
+  receipts under `.ratmac/evidence/<run-id>/` stay tracked.
+- **Per-Run State File.** `.ratmac/runs/<run-id>/state.toml` records `phase`,
+  `status: planned|executing|blocked|passed|failed`, versions in play, and `blocker`
+  (the missing entry prerequisite recorded by `rtm` — nothing else).
+- `.arca/log.md` is human-only append-only history: new lines only, never edited; one line per
+  step change, guess, rule-clash decision, or fix.
+
+## Engine namespace
+
+`ENS-011`–`ENS-012` are working-authority requirements: accepted asks resolve to the headings
+below and bind at integration while minting no goal row, gap record, or ticket.
+
+### ENS-011 — current Engine addresses
+
+Integrated from [issue i-024](issue/archive/i-024-engine-namespace-split/spec.md#requirement-records).
+
+The working rules name no pre-split Engine path or flat State File. `.arca/schema.md` and
+[index.md](index.md) name the Engine root `.ratmac/`, its runtime contents, and the per-Run
+State File `.ratmac/runs/<run-id>/state.toml`. Archived and frozen records stay byte-for-byte
+unchanged.
+
+### ENS-012 — Engine-root tracking policy
+
+Integrated from [issue i-024](issue/archive/i-024-engine-namespace-split/spec.md#requirement-records).
+
+Runtime files under `.ratmac/` — `runs/`, `mint.toml`, `locks/`, and `log.md` — are ignored by
+Git, while the Machine Class `.ratmac/ratmac.toml` and receipts under
+`.ratmac/evidence/<run-id>/` stay tracked. Live Run state can therefore never enter a ticket
+branch or a merge, and run-scoped receipt paths keep two parallel child Runs from colliding on
+the same receipt filename.
 
 # Caller policy for `rtm`
 
@@ -273,8 +303,9 @@ One policy, and the same one on every surface (goal `ORS-001`, which supersedes 
 - A human may invoke argument-free `rtm start` directly.
 - The Main-Agent may invoke `rtm start` only after explicit human Run-start sign-off for the current target project;
   conversational sign-off is enough, and nothing in the Engine records it.
-- A Subagent never invokes any `rtm` command; it reads state and does the ticket work.
-- Only the Main-Agent or the human invokes `rtm step`; the Scheduler stays the sole writer of `.arca/state.toml`.
+- A Subagent never invokes any `rtm` command; it reads its assigned Run's State File and does the ticket work.
+- Only the Main-Agent or the human invokes `rtm step`; the Scheduler stays the sole writer of
+  `.ratmac/runs/<run-id>/state.toml`.
 
 # Evidence and archive rules
 
@@ -316,11 +347,11 @@ These are durable working rules; the goal's `AOI-001`–`AOI-003` bind the progr
   staged; anything untracked or unstaged is either committed, staged, or declared as an explicit exception in the
   record. Store the snapshot manifest — path, tracking state, SHA-256 — beside the evidence that cites it
   (`ratmac_qa::snapshot::record_snapshot`).
-- **Append-only history.** `.arca/log.md` is the one history file that changes in place, and only by appending: its
-  recorded prefix must survive byte for byte. A rewrite of any earlier line is a preservation failure, exactly like an
-  edit to an archived issue file. Who appends depends on who is driving: while no `rtm` Run drives this repository -
-  no `.arca/state.toml` - the contributor loop appends one line per closure. Once a Run is active the Engine owns the
-  file (see [Evidence receipts](#evidence-receipts)); then no agent writes it, and `rtm` records every entry.
+- **Append-only history.** `.arca/log.md` is the human-only history file that changes in place, and
+  only by appending: its recorded prefix must survive byte for byte. A rewrite of any earlier line is a
+  preservation failure, exactly like an edit to an archived issue file. A human contributor appends one
+  line per closure. `rtm` never writes it; while a Run is active it records transitions only in
+  `.ratmac/log.md`, which no agent writes.
 - **Out-of-ticket trace.** Work landed outside the ticketed system — docs, config, tooling, harness edits — still
   appends one `- YYYY-MM-DD: <what landed, where, why>` line to `.arca/log.md` before the session ends. Subsequent
   sessions read the log first instead of reconstructing changes from `git diff`/history.
@@ -429,12 +460,12 @@ A Run that cannot be repaired is retired by `rtm`, never by hand:
 rtm abandon --confirm "abandon <project directory name>"
 ```
 
-Agents never delete or edit `.arca/state.toml`, `.arca/log.md`,
-`.arca/evidence.toml`, or `.arca/rtm.lock`; this command is the only path that
-retires them. On the exact phrase - typed at invocation, never read from a file
-- `rtm` records a terminal abandoned event naming the retired Phase, status,
-and goal revision, then retires the admission state, the Run evidence, and the
-lock, so a fresh `rtm start` can begin and records its own baseline and pins.
+Agents never delete or edit `.ratmac/runs/<run-id>/state.toml`, a Run lock under
+`.ratmac/locks/`, or the Engine transition log `.ratmac/log.md`; `rtm abandon` is the only
+path that retires its state, Run evidence, and lock. On the exact phrase - typed at invocation,
+never read from a file - `rtm` records a terminal abandoned event naming the retired Phase, status,
+and goal revision, then retires the admission state, the Run evidence, and the lock, so a fresh
+`rtm start` can begin and records its own baseline and pins.
 
 With multi-run addressing, authorization splits by motion kind (`FDC-007`):
 `rtm spawn` is ordinary motion and takes no confirmation phrase, while
@@ -451,8 +482,8 @@ lock with no admission state is retired without a second terminal event.
 
 Passing a ticket is evidence, not a status edit. `completion_gate` reads the
 ticket's declared work - its planned tests, its hidden lanes, and every
-backticked command in its Merge Gate - and requires one receipt per check at
-`.arca/evidence/<ticket-id>/completion/<check>.toml`, recording the command,
+backticked command in its Merge Gate - and requires one receipt per check for the addressed Run at
+`.ratmac/evidence/<run-id>/<ticket-id>/completion/<check>.toml`, recording the command,
 working directory, exit status, output digest, and the source roots with their
 digest at the time the check ran.
 
@@ -494,9 +525,9 @@ A refusal names the offending artifact and what it found.
 
 ## Evidence receipts
 
-`.arca/evidence/` is agent-writable. When a Run drives the loop, agents record
+`.ratmac/evidence/<run-id>/` is agent-writable and tracked. When a Run drives the loop, agents record
 one structured receipt per executed check at
-`.arca/evidence/<ticket-id>/<planned-test-id>.toml` (planned-test ID, ticket,
+`.ratmac/evidence/<run-id>/<ticket-id>/<planned-test-id>.toml` (planned-test ID, ticket,
 sensitivity kind, command, working directory, test file and name, exit status,
 recorded output, and a SHA-256 over that output). The P4 gate
 (`kind = "sensitivity_receipts"`) resolves every planned test the ticket
@@ -512,17 +543,15 @@ either loop. The mutation kills a residual cites are produced from the safety co
 tests are green, live solely in that record's `mutation-kill` list, and the green landing that carries
 them is created after every check ([Deliberate damage and discard safety](#deliberate-damage-and-discard-safety)).
 
-Scheduler-owned files - `.arca/state.toml`, `.arca/log.md`, `.arca/rtm.lock` -
-belong to `rtm` for as long as a Run is active: while one exists, `rtm` writes
+Scheduler-owned runtime files - `.ratmac/runs/`, `.ratmac/mint.toml`, `.ratmac/locks/`, and
+`.ratmac/log.md` - belong to `rtm` for as long as a Run is active: while one exists, `rtm` writes
 them and no agent does. Independently of any Run, no Phase Prompt and no gate
 contract may ever instruct an agent to write them - that is the unconditional
 rule `ratmac::ownership::audit_ownership` enforces, and it is why an
-agent-authored note belongs in `.arca/evidence/` instead.
+agent-authored note belongs in `.ratmac/evidence/<run-id>/` instead.
 
-With no active Run in a repository - no `.arca/state.toml` - the
-[append-only history](#defaults) rule governs `.arca/log.md`: the contributor
-loop appends one line per closure. That is the only condition under which
-anything but `rtm` appends to it.
+With or without an active Run, the [append-only history](#defaults) rule governs
+`.arca/log.md` as human-only history; `rtm` writes Run transitions only in `.ratmac/log.md`.
 
 ## Evidence kinds
 
@@ -542,10 +571,9 @@ pwsh -File tools/rtm.ps1
 ```
 
 It resolves the Engine from the project-local build - building it there when
-absent - hashes it, compares it against the `[engine]` pin in
-`.arca/evidence.toml` when a Run recorded one, and prints the resolved path and
-SHA-256. A pin mismatch refuses naming observed and expected identity instead
-of reporting success.
+absent - hashes it, compares it against the `[engine]` pin recorded for a Run
+when one exists, and prints the resolved path and SHA-256. A pin mismatch refuses
+naming observed and expected identity instead of reporting success.
 
 Nothing is installed, no PATH or global configuration is written, and no
 network is used: the build runs offline, and the only paths it may write are
@@ -631,7 +659,8 @@ Do:
 Don't:
 
 - Don't apply `.arca/goal/` product rules to working files — decide by rule set and keep going.
-- Don't write state yourself — only `rtm` writes `state.toml`; `blocked` marks missing entry prerequisites only (.arca/goal/design.md, ADR-0006).
+- Don't write state yourself — only `rtm` writes the addressed Run's
+  `.ratmac/runs/<run-id>/state.toml`; `blocked` marks missing entry prerequisites only (.arca/goal/design.md, ADR-0006).
 - Don't mark a gap record `satisfied` without proof.
 - Don't edit the frozen goal while tickets are open.
 - Don't stop on failed checks or rule clashes — fix, log, keep going.

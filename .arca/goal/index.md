@@ -4,6 +4,8 @@
 
 ratmac (`rtm`) is a thin, deterministic Rust CLI that owns state-machine transitions so agents never run state machines themselves. The Machine is data in a per-project definition file (`ratmac.toml`); the Scheduler is the only engine that steps it. The LLM is a pattern-completer, never a controller: agents read state, never write it, and receive only their Phase Prompt.
 
+The Engine runtime is one shared `.ratmac/` Engine root at the primary checkout root: `ratmac.toml`, `runs/`, `mint.toml`, `locks/`, `log.md`, and receipts under `evidence/<run-id>/`. A linked worktree resolves that runtime root while reading its invoking checkout's tracked Machine Class; without Git, the current checkout's `.ratmac/` is the root. Runtime state is Git-ignored, while the Machine Class and run-scoped receipts remain tracked; workflow folders under `.arca/` are reached only through declared `[roots]`.
+
 ## Scope (v1)
 
 - Print-first: `rtm` prints the Phase Prompt to stdout; the Main-Agent or human feeds it into the working session.
@@ -22,6 +24,7 @@ ratmac (`rtm`) is a thin, deterministic Rust CLI that owns state-machine transit
 | Required behavior | [Specification](spec.md) |
 | Decisions and mechanics | [Design](design.md) |
 | Verification | [Test list](test-list.md) |
+| Engine root and runtime | `.ratmac/` at the primary checkout root: `ratmac.toml`, `runs/`, `mint.toml`, `locks/`, `log.md`, and `evidence/<run-id>/`. |
 
 ## Integrated issue
 
@@ -83,3 +86,7 @@ Machine composition is integrated from [i-018-machine-composition](../issue/arch
 ## Integrated full doctor executable fingerprint
 
 Complete Engine-identity reporting is integrated from [i-023-doctor-full-fingerprint](../issue/archive/i-023-doctor-full-fingerprint/index.md): `DFP-001`. It refines, rather than replaces, `ORS-002` and `DRD-005`: argument-free `rtm doctor` reports the complete SHA-256 of the exact executable it runs while executable selection, write-free diagnosis, trust, state, Runbook findings, and `--json` behavior remain unchanged. The carrying Ideal-shape property is **Every boundary machine-checked**.
+
+## Integrated Engine-namespace split
+
+Engine-root, repository-wide Run identity, split locking, workspace binding, declared workflow roots, residue refusal, and root reporting are integrated from [i-024-engine-namespace-split](../issue/archive/i-024-engine-namespace-split/index.md): `ENS-001` through `ENS-010`. The shared root keeps runtime out of ticket branches while run-scoped tracked receipts let parallel sibling work merge without collision.
