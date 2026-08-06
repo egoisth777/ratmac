@@ -26,24 +26,24 @@ fn isolated_project() -> (TempProject, PathBuf, PathBuf) {
         .expect("system clock must be after the Unix epoch")
         .as_nanos();
     let root = env::temp_dir().join(format!("ratmac-pt-018-{}-{}", std::process::id(), nonce));
-    let arca = root.join(".arca");
-    fs::create_dir_all(&arca).expect("create isolated .arca directory");
+    let engine = root.join(".ratmac");
+    fs::create_dir_all(&engine).expect("create isolated .ratmac directory");
     for name in ["ratmac.toml", "log.md"] {
-        fs::copy(fixture_root().join(".arca").join(name), arca.join(name))
+        fs::copy(fixture_root().join(".ratmac").join(name), engine.join(name))
             .expect("copy failed-guard fixture file");
     }
     // FDC-004: the State File resides in the addressed run's directory.
-    let run_dir = arca.join("runs/run-001");
+    let run_dir = engine.join("runs/run-001");
     fs::create_dir_all(&run_dir).expect("create run directory");
     fs::copy(
-        fixture_root().join(".arca/state.toml"),
+        fixture_root().join(".ratmac/state.toml"),
         run_dir.join("state.toml"),
     )
     .expect("copy failed-guard fixture file");
     (
         TempProject(root),
         run_dir.join("state.toml"),
-        arca.join("log.md"),
+        engine.join("log.md"),
     )
 }
 
@@ -64,8 +64,8 @@ fn phase_and_status(state_bytes: &[u8]) -> (String, String) {
     (phase, status)
 }
 
-fn assert_no_retry_counter(arca: &Path) {
-    for entry in fs::read_dir(arca).expect("read scheduler-owned directory") {
+fn assert_no_retry_counter(engine: &Path) {
+    for entry in fs::read_dir(engine).expect("read scheduler-owned directory") {
         let name = entry
             .expect("read scheduler-owned directory entry")
             .file_name()

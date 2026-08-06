@@ -37,6 +37,7 @@ impl Fixture {
         ));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join(".arca/goal")).expect("create fixture project");
+        fs::create_dir_all(root.join(".ratmac")).expect("create Engine directory");
         let class = format!(
             "[phases.intake]\n\
              prompt = \"Integrate the issues.\"\n\
@@ -57,7 +58,7 @@ impl Fixture {
              from = \"gaps\"\n\
              to = \"tickets\"\n"
         );
-        fs::write(root.join(".arca/ratmac.toml"), class).expect("write machine class");
+        fs::write(root.join(".ratmac/ratmac.toml"), class).expect("write machine class");
         let fixture = Fixture { root };
         fixture.write_goal("spec.md", "# Spec\n\nrequirement one\n");
         fixture.write_goal("test-list.md", "# Test list\n\ncheck one\n");
@@ -86,7 +87,7 @@ impl Fixture {
 
     /// FDC-004: the live run's id, read off the plural roster.
     fn run_id(&self) -> String {
-        let mut ids: Vec<String> = fs::read_dir(self.root.join(".arca/runs"))
+        let mut ids: Vec<String> = fs::read_dir(self.root.join(".ratmac/runs"))
             .expect("list the runs roster")
             .map(|entry| entry.expect("roster entry is readable"))
             .filter(|entry| entry.path().is_dir())
@@ -97,7 +98,7 @@ impl Fixture {
     }
 
     fn run_dir(&self) -> PathBuf {
-        self.root.join(".arca/runs").join(self.run_id())
+        self.root.join(".ratmac/runs").join(self.run_id())
     }
 
     fn step_text(&self) -> String {
@@ -119,7 +120,7 @@ impl Fixture {
     }
 
     fn log(&self) -> Vec<u8> {
-        fs::read(self.root.join(".arca/log.md")).unwrap_or_default()
+        fs::read(self.root.join(".ratmac/log.md")).unwrap_or_default()
     }
 }
 
@@ -374,7 +375,7 @@ fn drift_and_pin_tamper_are_both_reported() {
     fs::create_dir_all(gate.parent().expect("gate parent")).expect("create gate directory");
     fs::copy(&gate_source, &gate).expect("install gate artifact");
     let escaped = gate.to_string_lossy().replace('\\', "\\\\");
-    let class = fixture.root.join(".arca/ratmac.toml");
+    let class = fixture.root.join(".ratmac/ratmac.toml");
     let source = fs::read_to_string(&class).expect("read class");
     fs::write(
         &class,

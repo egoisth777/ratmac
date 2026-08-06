@@ -4,7 +4,7 @@
 //! PT-059-02 `flat_layout_residue_refuses_and_instructs`
 //! PT-059-03 `hold_applies_residue_and_runbook_pin_preflight`
 //! The runbook pin is a recorded hash and nothing more: `rtm start` records
-//! the SHA-256 of the canonical `.arca/ratmac.toml` in the run's evidence,
+//! the SHA-256 of the canonical `.ratmac/ratmac.toml` in the run's evidence,
 //! every later Scheduler read of the class compares against it, and a
 //! mismatch refuses naming observed and expected identity — the Engine-pin
 //! refusal shape — while no code path ever copies the runbook anywhere.
@@ -41,18 +41,18 @@ impl Fixture {
                 .as_nanos()
         ));
         let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(root.join(".arca")).expect("create fixture tree");
+        fs::create_dir_all(root.join(".ratmac")).expect("create Engine tree");
         fs::create_dir_all(root.join("src")).expect("create source tree");
         fs::write(root.join("src/lib.rs"), "pub fn work() {}\n").expect("write source");
         fs::create_dir_all(root.join(".arca/goal")).expect("create goal tree");
         fs::write(root.join(".arca/goal/spec.md"), "# Spec\n").expect("write goal");
         fs::write(
-            root.join(".arca/ratmac.toml"),
+            root.join(".ratmac/ratmac.toml"),
             "[phases.intake]\nprompt = \"Integrate the issues.\"\n\n\
              [phases.build]\nprompt = \"Build the ticket.\"\n\n\
              [[transitions]]\nfrom = \"intake\"\nto = \"build\"\n",
         )
-        .expect("write runbook");
+        .expect("write machine class");
         Fixture { root }
     }
 
@@ -68,12 +68,12 @@ impl Fixture {
         self.root.join(relative)
     }
 
-    /// Listing `.arca/runs/` IS the roster: the run ids, read off artifacts.
+    /// Listing `.ratmac/runs/` IS the roster: the run ids, read off artifacts.
     fn roster(&self) -> Vec<String> {
-        let runs = self.path(".arca/runs");
+        let runs = self.path(".ratmac/runs");
         assert!(
             runs.is_dir(),
-            "FDC-005: runs must reside under the plural .arca/runs/ path — listing it IS the roster"
+            "FDC-005: runs must reside under the plural .ratmac/runs/ path — listing it IS the roster"
         );
         let mut ids: Vec<String> = fs::read_dir(&runs)
             .expect("the runs directory must be listable")
@@ -148,13 +148,13 @@ fn assert_trees_equal(
 
 /// PT-059-01 (RRV-003): after `rtm start`, the run's evidence records the
 /// canonical runbook's SHA-256; no copy of the runbook exists under
-/// `.arca/runs/<id>/` or anywhere else; editing the runbook then stepping
+/// `.ratmac/runs/<id>/` or anywhere else; editing the runbook then stepping
 /// refuses naming observed and expected hash and modifies nothing.
 #[test]
 fn pin_is_hash_only_with_no_per_run_copy() {
     let fixture = Fixture::new("hash-only-pin");
-    let runbook_bytes =
-        fs::read(fixture.path(".arca/ratmac.toml")).expect("the canonical runbook is readable");
+    let runbook_bytes = fs::read(fixture.path(".ratmac/ratmac.toml"))
+        .expect("the canonical machine class is readable");
     let expected_hash = sha256_hex(&runbook_bytes);
 
     let start = fixture.rtm(&["start"]);
@@ -172,41 +172,41 @@ fn pin_is_hash_only_with_no_per_run_copy() {
     );
     let id = roster[0].clone();
 
-    // The pin: the run's evidence records the runbook's SHA-256 at start.
-    let evidence_rel = format!(".arca/runs/{id}/evidence.toml");
+    // The pin: the run's evidence records the machine class's SHA-256 at start.
+    let evidence_rel = format!(".ratmac/runs/{id}/evidence.toml");
     let evidence = fs::read_to_string(fixture.path(&evidence_rel)).unwrap_or_else(|error| {
         panic!("FDC-005: the run's evidence must exist at {evidence_rel}: {error}")
     });
     assert!(
         evidence.contains(&expected_hash),
-        "FDC-005: rtm start must record the canonical runbook's SHA-256 \
+        "FDC-005: rtm start must record the canonical machine class's SHA-256 \
          ({expected_hash}) in the run's evidence; it is absent from {evidence_rel}:\n{evidence}"
     );
 
     // Hash-only: no per-run copy — no file anywhere in the project carries
-    // the runbook's bytes besides the canonical `.arca/ratmac.toml`.
+    // the class's bytes besides the canonical `.ratmac/ratmac.toml`.
     let copies: Vec<String> = tree_snapshot(&fixture.root)
         .into_iter()
-        .filter(|(path, bytes)| bytes == &runbook_bytes && path != ".arca/ratmac.toml")
+        .filter(|(path, bytes)| bytes == &runbook_bytes && path != ".ratmac/ratmac.toml")
         .map(|(path, _)| path)
         .collect();
     assert!(
         copies.is_empty(),
-        "FDC-005: the pin stays hash-only — no copy of the runbook may exist, found {copies:?}"
+        "FDC-005: the pin stays hash-only — no copy of the machine class may exist, found {copies:?}"
     );
     assert!(
         !fixture
-            .path(&format!(".arca/runs/{id}/ratmac.toml"))
+            .path(&format!(".ratmac/runs/{id}/ratmac.toml"))
             .exists(),
-        "FDC-005: no per-run runbook file may exist under the run's directory"
+        "FDC-005: no per-run machine-class file may exist under the run's directory"
     );
 
-    // Drift the runbook by one appended comment: still valid TOML, so a
+    // Drift the machine class by one appended comment: still valid TOML, so a
     // refusal is attributable to the pin, never to a parse error.
     let mut drifted_bytes = runbook_bytes.clone();
     drifted_bytes.extend_from_slice(b"\n# drift: one appended comment\n");
-    fs::write(fixture.path(".arca/ratmac.toml"), &drifted_bytes)
-        .expect("drift the canonical runbook");
+    fs::write(fixture.path(".ratmac/ratmac.toml"), &drifted_bytes)
+        .expect("drift the canonical machine class");
     let observed_hash = sha256_hex(&drifted_bytes);
 
     let before = tree_snapshot(&fixture.root);
@@ -299,7 +299,6 @@ fn flat_layout_residue_refuses_and_instructs() {
         );
     }
 }
-
 /// PT-059-03 (RRV-003): a confirmed blocked-route hold is an existing-Run
 /// operation that loads the Machine Class. It must apply the flat-residue and
 /// runbook-pin preflight before changing the State File, log, or ticket; after
@@ -339,7 +338,7 @@ fn hold_applies_residue_and_runbook_pin_preflight() {
     )
     .expect("write unproven residual");
     fs::write(
-        fixture.path(".arca/ratmac.toml"),
+        fixture.path(".ratmac/ratmac.toml"),
         "[phases.intake]\nprompt = \"Integrate the issues.\"\n\n\
          [phases.build]\nprompt = \"Build the ticket.\"\n\n\
          [phases.review]\nprompt = \"Review the ticket.\"\n\n\
@@ -347,8 +346,9 @@ fn hold_applies_residue_and_runbook_pin_preflight() {
          [[transitions]]\nfrom = \"build\"\nto = \"intake\"\nblocked-route = true\n\n\
          [[transitions]]\nfrom = \"build\"\nto = \"review\"\n",
     )
-    .expect("write blocked-route runbook");
-    let runbook = fs::read(fixture.path(".arca/ratmac.toml")).expect("read canonical runbook");
+    .expect("write blocked-route machine class");
+    let runbook =
+        fs::read(fixture.path(".ratmac/ratmac.toml")).expect("read canonical machine class");
     let expected_hash = sha256_hex(&runbook);
 
     let start = fixture.rtm(&["start"]);
@@ -382,7 +382,7 @@ fn hold_applies_residue_and_runbook_pin_preflight() {
 
     let mut drifted = runbook.clone();
     drifted.extend_from_slice(b"\n# drift before hold\n");
-    fs::write(fixture.path(".arca/ratmac.toml"), &drifted).expect("drift runbook");
+    fs::write(fixture.path(".ratmac/ratmac.toml"), &drifted).expect("drift machine class");
     let observed_hash = sha256_hex(&drifted);
     let before_drift_hold = tree_snapshot(&fixture.root);
     let drift_refusal = fixture.rtm(&hold_args);
@@ -404,7 +404,7 @@ fn hold_applies_residue_and_runbook_pin_preflight() {
         "FDC-005: a runbook-pin hold refusal must precede every mutation",
     );
 
-    fs::write(fixture.path(".arca/ratmac.toml"), &runbook).expect("restore pinned runbook");
+    fs::write(fixture.path(".ratmac/ratmac.toml"), &runbook).expect("restore pinned machine class");
     fs::write(
         fixture.path(".arca/state.toml"),
         "phase = \"build\"\nstatus = \"executing\"\n",
@@ -441,8 +441,8 @@ fn hold_applies_residue_and_runbook_pin_preflight() {
         "FDC-005: after both repairs, the same hold request must proceed: {}",
         combined(&held)
     );
-    let state = fs::read_to_string(fixture.path(&format!(".arca/runs/{id}/state.toml")))
-        .expect("read routed State File");
+    let state = fs::read_to_string(fixture.path(&format!(".ratmac/runs/{id}/state.toml")))
+        .expect("read state");
     assert!(
         state.contains("phase = \"intake\""),
         "the repaired hold must take the declared blocked route: {state}"

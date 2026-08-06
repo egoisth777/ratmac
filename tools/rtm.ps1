@@ -101,7 +101,7 @@ if (-not $engine) {
 
 $engine = (Resolve-Path -LiteralPath $engine).Path
 $observed = Get-Sha256 -Path $engine
-$evidencePath = Join-Path $root '.arca/evidence.toml'
+$evidencePath = Join-Path $root '.ratmac/evidence.toml'
 $pin = Get-EnginePin -EvidencePath $evidencePath
 
 if ($null -ne $pin -and $pin.Sha256 -ne $observed) {
@@ -110,16 +110,16 @@ if ($null -ne $pin -and $pin.Sha256 -ne $observed) {
         "sha256 (observed) = $observed",
         "resolved (expected) = $($pin.Resolved)",
         "sha256 (expected) = $($pin.Sha256)",
-        'the pin was recorded by the active Run in .arca/evidence.toml [engine]',
+        'the pin was recorded by the active Run in .ratmac/evidence.toml [engine]',
         'rebuild the pinned revision, or retire the Run with: rtm abandon --confirm "abandon <project>"')
 }
 
 Write-Report "Engine: $engine"
 Write-Report "sha256: $observed"
 if ($null -eq $pin) {
-    Write-Report 'Pin: no pin recorded in .arca/evidence.toml'
+    Write-Report 'Pin: no pin recorded in .ratmac/evidence.toml'
 } else {
-    Write-Report 'Pin: matches .arca/evidence.toml [engine]'
+    Write-Report 'Pin: matches .ratmac/evidence.toml [engine]'
 }
 Write-Report "Diagnose: $engine doctor"
 exit 0

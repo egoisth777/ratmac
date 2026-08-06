@@ -27,11 +27,11 @@ fn setup_project() -> Project {
         "ratmac-t029-{}-{unique}-{stamp}",
         std::process::id()
     ));
-    let arca = root.join(".arca");
-    fs::create_dir_all(&arca).expect("create isolated help project");
+    let engine = root.join(".ratmac");
+    fs::create_dir_all(&engine).expect("create isolated help project");
     let fixture =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../fixtures/r007-start-policy/ratmac.toml");
-    fs::copy(fixture, arca.join("ratmac.toml")).expect("copy start-policy fixture");
+    fs::copy(fixture, engine.join("ratmac.toml")).expect("copy start-policy fixture");
     Project { root }
 }
 
@@ -45,7 +45,7 @@ fn run_rtm(project: &Project, args: &[&str]) -> Output {
 
 /// FDC-004: the run ids read off the plural roster.
 fn roster(project: &Project) -> Vec<String> {
-    let runs = project.root.join(".arca/runs");
+    let runs = project.root.join(".ratmac/runs");
     let mut ids: Vec<String> = fs::read_dir(&runs)
         .expect("list the runs roster")
         .map(|entry| entry.expect("roster entry is readable"))
@@ -57,7 +57,11 @@ fn roster(project: &Project) -> Vec<String> {
 }
 
 fn run_state_path(project: &Project, id: &str) -> PathBuf {
-    project.root.join(".arca/runs").join(id).join("state.toml")
+    project
+        .root
+        .join(".ratmac/runs")
+        .join(id)
+        .join("state.toml")
 }
 
 #[test]
@@ -66,7 +70,7 @@ fn start_help_states_the_one_caller_policy() {
     // invoke start, under what sign-off, and who never may - without
     // claiming the Engine authenticates anyone.
     let project = setup_project();
-    let class_path = project.root.join(".arca/ratmac.toml");
+    let class_path = project.root.join(".ratmac/ratmac.toml");
     let before = fs::read(&class_path).expect("read class before help");
     let mut output = Vec::new();
     cli::run_from(["rtm", "start", "--help"], &project.root, &mut output)
@@ -104,8 +108,8 @@ fn start_help_states_the_one_caller_policy() {
         "help must not rewrite the Machine Class"
     );
     assert!(
-        !project.root.join(".arca/state.toml").exists()
-            && !project.root.join(".arca/runs").exists(),
+        !project.root.join(".ratmac/state.toml").exists()
+            && !project.root.join(".ratmac/runs").exists(),
         "help must not instantiate a Run"
     );
 }
@@ -113,7 +117,7 @@ fn start_help_states_the_one_caller_policy() {
 #[test]
 fn binary_start_creates_owned_artifacts_and_releases_lock() {
     let project = setup_project();
-    let class_path = project.root.join(".arca/ratmac.toml");
+    let class_path = project.root.join(".ratmac/ratmac.toml");
     let before = fs::read(&class_path).expect("read class before start");
     let output = run_rtm(&project, &["start"]);
     assert!(
@@ -126,9 +130,9 @@ fn binary_start_creates_owned_artifacts_and_releases_lock() {
     let ids = roster(&project);
     assert_eq!(ids.len(), 1, "start must mint exactly one run");
     assert!(run_state_path(&project, &ids[0]).is_file());
-    assert!(!project.root.join(".arca/state.toml").exists());
-    assert!(project.root.join(".arca/log.md").is_file());
-    assert!(!project.root.join(".arca/rtm.lock").exists());
+    assert!(!project.root.join(".ratmac/state.toml").exists());
+    assert!(project.root.join(".ratmac/log.md").is_file());
+    assert!(!project.root.join(".ratmac/locks/root.lock").exists());
     assert_eq!(
         before,
         fs::read(class_path).expect("read class after start")
@@ -146,8 +150,8 @@ fn binary_second_start_mints_sibling_without_mutating_run() {
     let ids = roster(&project);
     let state_path = run_state_path(&project, &ids[0]);
     let state = fs::read(&state_path).expect("read initial state");
-    let log = fs::read(project.root.join(".arca/log.md")).expect("read initial log");
-    let class = fs::read(project.root.join(".arca/ratmac.toml")).expect("read initial class");
+    let log = fs::read(project.root.join(".ratmac/log.md")).expect("read initial log");
+    let class = fs::read(project.root.join(".ratmac/ratmac.toml")).expect("read initial class");
 
     let second = run_rtm(&project, &["start"]);
     assert!(
@@ -169,10 +173,10 @@ fn binary_second_start_mints_sibling_without_mutating_run() {
         fs::read(&state_path).unwrap(),
         "the sibling start leaves the first run byte-identical"
     );
-    assert_eq!(log, fs::read(project.root.join(".arca/log.md")).unwrap());
+    assert_eq!(log, fs::read(project.root.join(".ratmac/log.md")).unwrap());
     assert_eq!(
         class,
-        fs::read(project.root.join(".arca/ratmac.toml")).unwrap()
+        fs::read(project.root.join(".ratmac/ratmac.toml")).unwrap()
     );
 }
 

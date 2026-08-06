@@ -8,15 +8,15 @@ fn fixture_root() -> PathBuf {
 }
 
 fn copy_fixture(project: &Path) {
-    fs::create_dir_all(project.join(".arca")).expect("temporary project should be creatable");
-    let fixture = fixture_root().join(".arca");
+    fs::create_dir_all(project.join(".ratmac")).expect("temporary project should be creatable");
+    let fixture = fixture_root().join(".ratmac");
     fs::copy(
         fixture.join("ratmac.toml"),
-        project.join(".arca/ratmac.toml"),
+        project.join(".ratmac/ratmac.toml"),
     )
     .expect("phase-scope fixture should be copied");
     // FDC-004: the State File resides in the addressed run's directory.
-    let run_dir = project.join(".arca/runs/run-001");
+    let run_dir = project.join(".ratmac/runs/run-001");
     fs::create_dir_all(&run_dir).expect("create run directory");
     fs::copy(fixture.join("state.toml"), run_dir.join("state.toml"))
         .expect("phase-scope fixture should be copied");

@@ -507,6 +507,118 @@ fn linked_worktree_shares_primary_runtime_but_reads_its_own_class() {
     );
 }
 
+/// A bare Git store precedes its linked worktrees in porcelain output, but it
+/// is never a checkout that can own the shared Engine runtime.
+#[test]
+fn bare_repository_worktrees_share_a_non_bare_engine_root() {
+    let fixture = Fixture::new("bare-repository-worktrees", false);
+    let bare = fixture.sandbox.join("bare");
+    let first = fixture.sandbox.join("first");
+    let second = fixture.sandbox.join("second");
+    let bare_text = bare.to_string_lossy().into_owned();
+    let first_text = first.to_string_lossy().into_owned();
+    let second_text = second.to_string_lossy().into_owned();
+
+    git_success(&fixture.sandbox, &["init", "--bare", &bare_text]);
+    git_success(&fixture.root, &["init"]);
+    git_success(&fixture.root, &["config", "core.autocrlf", "false"]);
+    git_success(
+        &fixture.root,
+        &["config", "user.email", "qa@example.invalid"],
+    );
+    git_success(&fixture.root, &["config", "user.name", "Ratmac QA"]);
+    git_success(&fixture.root, &["add", "--", ".ratmac/ratmac.toml"]);
+    git_success(&fixture.root, &["commit", "-m", "fixture base"]);
+    git_success(&fixture.root, &["remote", "add", "bare", &bare_text]);
+    git_success(&fixture.root, &["push", "bare", "HEAD:refs/heads/main"]);
+    git_success(
+        &bare,
+        &[
+            "worktree",
+            "add",
+            "-b",
+            "t071-bare-first",
+            &first_text,
+            "main",
+        ],
+    );
+    git_success(
+        &bare,
+        &[
+            "worktree",
+            "add",
+            "-b",
+            "t071-bare-second",
+            &second_text,
+            "main",
+        ],
+    );
+    assert!(
+        !bare.join(".ratmac").exists(),
+        "ENS-003: fixture setup must not create an Engine root in the bare Git store"
+    );
+
+    let start = rtm_at(&second, &["start"]);
+    assert!(
+        start.status.success(),
+        "ENS-003: the second linked worktree must start through the first non-bare Engine root: {}",
+        combined(&start)
+    );
+    assert!(
+        !bare.join(".ratmac").exists(),
+        "ENS-003: the bare Git store must never receive an Engine root"
+    );
+
+    let first_roster = roster_at(&first);
+    assert_eq!(
+        first_roster.len(),
+        1,
+        "ENS-003: the first non-bare worktree must hold the shared Run, found {first_roster:?}"
+    );
+    let run_id = first_roster[0].clone();
+    assert_runtime_layout(&first, &run_id);
+    assert!(
+        !second.join(".ratmac/runs").exists(),
+        "ENS-003: the second linked worktree must not receive a private runtime"
+    );
+
+    let first_status = rtm_at(&first, &["status", "--run", &run_id]);
+    assert!(
+        first_status.status.success(),
+        "ENS-003: the first linked worktree must open the shared Run: {}",
+        combined(&first_status)
+    );
+    assert!(
+        combined(&first_status).contains("Integrate the issues."),
+        "ENS-003: the first linked worktree must observe the shared Run's current Phase: {}",
+        combined(&first_status)
+    );
+    let second_status = rtm_at(&second, &["status", "--run", &run_id]);
+    assert!(
+        second_status.status.success(),
+        "ENS-003: the second linked worktree must open the same shared Run: {}",
+        combined(&second_status)
+    );
+    assert!(
+        combined(&second_status).contains("Integrate the issues."),
+        "ENS-003: the second linked worktree must observe the shared Run's current Phase: {}",
+        combined(&second_status)
+    );
+    assert_eq!(
+        roster_at(&first),
+        first_roster,
+        "ENS-003: both linked worktrees must resolve to the first non-bare runtime roster"
+    );
+    assert!(
+        !second.join(".ratmac/runs").exists(),
+        "ENS-003: both resolutions must retain the first non-bare Engine root"
+    );
+    assert!(
+        !bare.join(".ratmac").exists(),
+        "ENS-003: neither worktree resolution may create .ratmac/ in the bare Git store"
+    );
+}
+
 /// ENSV-003: with no Git metadata, resolution is exactly the current
 /// checkout.  An alternate `.ratmac/` in the parent is a sentinel that must
 /// not be selected by a resolver that is allowed no Git-derived primary.

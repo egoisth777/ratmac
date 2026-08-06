@@ -29,6 +29,7 @@ impl Drop for Fixture {
 
 const TICKET: &str = "t-900";
 const TICKET_PATH: &str = ".arca/ticket/t-900.md";
+const RUN_ID: &str = "run-001";
 const GREEN: &str = "test result: ok. 3 passed; 0 failed\n";
 
 impl Fixture {
@@ -42,7 +43,7 @@ impl Fixture {
                 .as_nanos()
         ));
         let _ = fs::remove_dir_all(&root);
-        for dir in [".arca/ticket", ".arca/evidence/t-900/completion", "src"] {
+        for dir in [".arca/ticket", ".ratmac/evidence/run-001/completion", "src"] {
             fs::create_dir_all(root.join(dir)).expect("create fixture tree");
         }
         fs::write(root.join("src/lib.rs"), "pub fn work() {}\n").expect("write source");
@@ -109,10 +110,11 @@ impl Fixture {
         self.write_receipt("cargo --version", "quality", "cargo --version", 0, &digest);
     }
 
-    /// A Runbook whose one transition is guarded by the completion gate.
+    /// A Machine Class whose one transition is guarded by the completion gate.
     fn write_runbook(&self) {
+        fs::create_dir_all(self.root.join(".ratmac")).expect("create Engine tree");
         fs::write(
-            self.root.join(".arca/ratmac.toml"),
+            self.root.join(".ratmac/ratmac.toml"),
             format!(
                 "[phases.implement]\nprompt = \"Implement the ticket.\"\n\
                  guards = [{{ kind = \"completion_gate\", ticket = \"{TICKET_PATH}\" }}]\n\n\
@@ -120,7 +122,7 @@ impl Fixture {
                  [[transitions]]\nfrom = \"implement\"\nto = \"done\"\n"
             ),
         )
-        .expect("write runbook");
+        .expect("write machine class");
     }
 
     fn rtm(&self, args: &[&str]) -> String {
@@ -138,12 +140,12 @@ impl Fixture {
 
     fn completion_path(&self, check: &str) -> PathBuf {
         self.root
-            .join(".arca/evidence/t-900/completion")
+            .join(format!(".ratmac/evidence/{RUN_ID}/completion"))
             .join(format!("{}.toml", slug(check)))
     }
 
     fn gate(&self) -> Result<(), Vec<CompletionDefect>> {
-        gate_completion(&self.root, TICKET_PATH)
+        gate_completion(&self.root, &self.root.join(".ratmac"), RUN_ID, TICKET_PATH)
     }
 }
 
@@ -224,7 +226,7 @@ fn completion_requires_receipts() {
     engine.write_runbook();
     engine.rtm(&["start"]);
     // FDC-004: run addressing is always required.
-    let live = std::fs::read_dir(engine.root.join(".arca/runs"))
+    let live = std::fs::read_dir(engine.root.join(".ratmac/runs"))
         .expect("list the runs roster")
         .map(|entry| entry.expect("roster entry is readable"))
         .find(|entry| entry.path().join("state.toml").is_file())

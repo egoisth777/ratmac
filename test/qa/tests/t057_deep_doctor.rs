@@ -59,11 +59,11 @@ impl Bench {
         path
     }
 
-    /// A project root whose `.arca/ratmac.toml` holds `source`.
+    /// A project root whose `.ratmac/ratmac.toml` holds `source`.
     fn project(&self, name: &str, source: &str) -> PathBuf {
         let root = self.root.join(name);
-        fs::create_dir_all(root.join(".arca")).expect("create project");
-        fs::write(root.join(".arca/ratmac.toml"), source).expect("write runbook");
+        fs::create_dir_all(root.join(".ratmac")).expect("create project");
+        fs::write(root.join(".ratmac/ratmac.toml"), source).expect("write machine class");
         root
     }
 }
@@ -253,7 +253,7 @@ fn defect_catalogue() -> Vec<(&'static str, &'static str, &'static str)> {
         (
             "rb401",
             "RB401",
-            "[phases.a]\nprompt = \"Write .arca/state.toml when you are done.\"\n",
+            "[phases.a]\nprompt = \"Write .ratmac/runs/run-1/state.toml when you are done.\"\n",
         ),
         (
             "rb501",
@@ -475,7 +475,7 @@ fn ownership_violations_surface_through_the_doctor() {
     let bench = Bench::new("ownership");
     let path = bench.runbook(
         "owned",
-        "[phases.a]\nprompt = \"Record your progress in .arca/runs/run-1/state.toml before you finish.\"\n",
+        "[phases.a]\nprompt = \"Record your progress in .ratmac/runs/run-1/state.toml before you finish.\"\n",
     );
     let finding = doctor::diagnose(&path)
         .into_iter()
@@ -555,11 +555,11 @@ fn the_environment_report_survives_the_deepening() {
         "idle doctor is actionable: {report}"
     );
 
-    // FDC-004: the State File resides in the run's directory.
+    // FDC-004: the State File resides in the Engine run directory.
     let active = bench.project("active", runbook);
-    fs::create_dir_all(active.join(".arca/runs/run-001")).expect("create run directory");
+    fs::create_dir_all(active.join(".ratmac/runs/run-001")).expect("create run directory");
     fs::write(
-        active.join(".arca/runs/run-001/state.toml"),
+        active.join(".ratmac/runs/run-001/state.toml"),
         "phase = \"a\"\nstatus = \"executing\"\ngoal_revision = \"\"\ninput_revision = \"\"\noutput_revision = \"\"\nactive_refs = []\nblocker = \"\"\n",
     )
     .expect("write state");
@@ -570,9 +570,9 @@ fn the_environment_report_survives_the_deepening() {
     );
 
     let corrupt = bench.project("corrupt", runbook);
-    fs::create_dir_all(corrupt.join(".arca/runs/run-001")).expect("create run directory");
+    fs::create_dir_all(corrupt.join(".ratmac/runs/run-001")).expect("create run directory");
     fs::write(
-        corrupt.join(".arca/runs/run-001/state.toml"),
+        corrupt.join(".ratmac/runs/run-001/state.toml"),
         "not = = toml\n",
     )
     .expect("write corrupt state");
@@ -638,7 +638,7 @@ fn every_invocation_is_write_free() {
         "tree",
         "[phases.a]\nprompt = \"p\"\nguards = [{ kind = \"files_exact\", path = \"out\" }]\n",
     );
-    let runbook = project.join(".arca/ratmac.toml");
+    let runbook = project.join(".ratmac/ratmac.toml");
     let shown = runbook.to_string_lossy().into_owned();
 
     let snapshot = |root: &Path| {
@@ -708,7 +708,7 @@ fn emitted_codes_and_documented_codes_are_one_set() {
 /// or reports only warnings this ticket accepted in writing.
 #[test]
 fn the_projects_own_runbook_passes_its_own_doctor() {
-    let findings = doctor::diagnose(&repo_root().join(".arca/ratmac.toml"));
+    let findings = doctor::diagnose(&repo_root().join(".ratmac/ratmac.toml"));
     let errors = findings
         .iter()
         .filter(|finding| finding.severity() == Severity::Error)

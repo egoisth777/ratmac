@@ -42,7 +42,7 @@ fn fixture(label: &str, mode: &str, extra: Option<&str>) -> Fixture {
             .as_nanos()
     ));
     let _ = fs::remove_dir_all(&root);
-    fs::create_dir_all(root.join(".arca")).expect("create fixture project");
+    fs::create_dir_all(root.join(".ratmac")).expect("create fixture project");
 
     let probe = env!("CARGO_BIN_EXE_guard-probe").replace('\\', "\\\\");
     let args = match extra {
@@ -61,7 +61,7 @@ fn fixture(label: &str, mode: &str, extra: Option<&str>) -> Fixture {
          from = \"prepare\"\n\
          to = \"done\"\n"
     );
-    fs::write(root.join(".arca/ratmac.toml"), class).expect("write machine class");
+    fs::write(root.join(".ratmac/ratmac.toml"), class).expect("write machine class");
     Fixture { root }
 }
 
@@ -75,7 +75,7 @@ fn rtm(fixture: &Fixture, args: &[&str]) -> Output {
 
 /// FDC-004: the started run's id, read off the plural roster.
 fn run_id(fixture: &Fixture) -> String {
-    fs::read_dir(fixture.root.join(".arca/runs"))
+    fs::read_dir(fixture.root.join(".ratmac/runs"))
         .expect("list the runs roster")
         .map(|entry| entry.expect("roster entry is readable"))
         .find(|entry| entry.path().is_dir())
@@ -179,7 +179,11 @@ fn repeated_refusal_is_identical() {
         "start must succeed"
     );
     let id = run_id(&fixture);
-    let state_path = fixture.root.join(".arca/runs").join(&id).join("state.toml");
+    let state_path = fixture
+        .root
+        .join(".ratmac/runs")
+        .join(&id)
+        .join("state.toml");
     let mut outputs = Vec::new();
     let mut states = Vec::new();
     for _ in 0..5 {
@@ -222,5 +226,5 @@ fn guard_death_reports_partial_and_releases_lock() {
 }
 
 fn lock_path(root: &Path) -> PathBuf {
-    root.join(".arca/rtm.lock")
+    root.join(".ratmac/locks/root.lock")
 }

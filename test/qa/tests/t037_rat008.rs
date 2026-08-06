@@ -33,10 +33,10 @@ fn temporary_project(root: &Path) -> PathBuf {
         .expect("system clock is after the Unix epoch")
         .as_nanos();
     let project = std::env::temp_dir().join(format!("ratmac-t037-{}-{stamp}", std::process::id()));
-    fs::create_dir_all(project.join(".arca")).expect("create isolated .arca directory");
+    fs::create_dir_all(project.join(".ratmac")).expect("create isolated .ratmac directory");
     fs::copy(
-        root.join("test/qa/fixtures/rebrand-smoke/.arca/ratmac.toml"),
-        project.join(".arca/ratmac.toml"),
+        root.join("test/qa/fixtures/rebrand-smoke/.ratmac/ratmac.toml"),
+        project.join(".ratmac/ratmac.toml"),
     )
     .expect("copy isolated Machine Class fixture");
     project
@@ -196,7 +196,7 @@ fn full_rebrand_acceptance() {
     metadata_and_paths(&root);
 
     let project = temporary_project(&root);
-    let arca = project.join(".arca");
+    let engine = project.join(".ratmac");
     let help = run(&project, &["--help"]);
     assert!(help.status.success(), "rtm --help failed: {help:?}");
     let help_stdout = String::from_utf8_lossy(&help.stdout);
@@ -206,7 +206,7 @@ fn full_rebrand_acceptance() {
     let start = run(&project, &["start"]);
     assert!(start.status.success(), "rtm start failed: {start:?}");
     // FDC-004: the started run's State File resides under the plural path.
-    let run_id = fs::read_dir(arca.join("runs"))
+    let run_id = fs::read_dir(engine.join("runs"))
         .expect("list the runs roster")
         .map(|entry| entry.expect("roster entry is readable"))
         .find(|entry| entry.path().is_dir())
@@ -214,15 +214,15 @@ fn full_rebrand_acceptance() {
         .file_name()
         .to_string_lossy()
         .into_owned();
-    let state_path = arca.join("runs").join(&run_id).join("state.toml");
-    let class_before = fs::read(arca.join("ratmac.toml")).expect("read Machine Class");
+    let state_path = engine.join("runs").join(&run_id).join("state.toml");
+    let class_before = fs::read(engine.join("ratmac.toml")).expect("read Machine Class");
     let state_before = fs::read(&state_path).expect("read state");
-    let log_before = fs::read(arca.join("log.md")).expect("read transition log");
+    let log_before = fs::read(engine.join("log.md")).expect("read transition log");
     let status = run(&project, &["status", "--run", &run_id]);
     assert!(status.status.success(), "rtm status failed: {status:?}");
     assert!(String::from_utf8_lossy(&status.stdout).contains("Phase: prepare"));
 
-    let legacy_lock = arca.join("schd.lock");
+    let legacy_lock = engine.join("schd.lock");
     fs::write(&legacy_lock, b"operator-held legacy lock\n").expect("write legacy-lock fixture");
     let commands: [&[&str]; 3] = [
         &["status", "--run", run_id.as_str()],
@@ -241,10 +241,10 @@ fn full_rebrand_acceptance() {
         assert!(stderr.contains("migrate or remove"));
     }
     assert!(legacy_lock.is_file());
-    assert!(!arca.join("rtm.lock").exists());
-    assert_eq!(class_before, fs::read(arca.join("ratmac.toml")).unwrap());
+    assert!(!engine.join("locks/root.lock").exists());
+    assert_eq!(class_before, fs::read(engine.join("ratmac.toml")).unwrap());
     assert_eq!(state_before, fs::read(&state_path).unwrap());
-    assert_eq!(log_before, fs::read(arca.join("log.md")).unwrap());
+    assert_eq!(log_before, fs::read(engine.join("log.md")).unwrap());
     fs::remove_file(&legacy_lock).expect("remove isolated legacy-lock fixture");
 
     let legacy = run(&project, &[LEGACY_COMMAND, "status"]);
@@ -264,13 +264,13 @@ fn full_rebrand_acceptance() {
     assert!(stepped.status.success(), "passing step failed: {stepped:?}");
     let final_state = fs::read_to_string(&state_path).expect("read final state");
     assert!(final_state.contains("phase = \"review\""));
-    let final_log = fs::read_to_string(arca.join("log.md")).expect("read final log");
+    let final_log = fs::read_to_string(engine.join("log.md")).expect("read final log");
     assert_eq!(
         final_log.matches("- Transition: prepare -> review").count(),
         1
     );
-    assert_eq!(class_before, fs::read(arca.join("ratmac.toml")).unwrap());
-    assert!(!arca.join("rtm.lock").exists());
+    assert_eq!(class_before, fs::read(engine.join("ratmac.toml")).unwrap());
+    assert!(!engine.join("locks/root.lock").exists());
     let invalid = run(&project, &["unknown"]);
     assert!(!invalid.status.success());
     assert!(String::from_utf8_lossy(&invalid.stderr).starts_with("rtm: "));

@@ -7,7 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const CLI_RATMAC: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../fixtures/cli/.arca/ratmac.toml"
+    "/../fixtures/cli/.ratmac/ratmac.toml"
 ));
 
 struct Project {
@@ -26,8 +26,8 @@ fn project() -> Project {
         .expect("system clock is after the Unix epoch")
         .as_nanos();
     let root = std::env::temp_dir().join(format!("ratmac-t032-{}-{stamp}", std::process::id()));
-    fs::create_dir_all(root.join(".arca")).expect("create isolated .arca directory");
-    fs::write(root.join(".arca/ratmac.toml"), CLI_RATMAC).expect("write CLI fixture");
+    fs::create_dir_all(root.join(".ratmac")).expect("create isolated .ratmac directory");
+    fs::write(root.join(".ratmac/ratmac.toml"), CLI_RATMAC).expect("write CLI fixture");
     Project { root }
 }
 
@@ -58,7 +58,7 @@ fn rtm_cli_surface() {
     let start = rtm(&project.root, &["start"]);
     assert!(start.status.success(), "rtm start failed: {start:?}");
     // FDC-004: start mints a run under the plural path; commands address it.
-    let run_id = std::fs::read_dir(project.root.join(".arca/runs"))
+    let run_id = std::fs::read_dir(project.root.join(".ratmac/runs"))
         .expect("list the runs roster")
         .map(|entry| entry.expect("roster entry is readable"))
         .find(|entry| entry.path().is_dir())
@@ -68,11 +68,10 @@ fn rtm_cli_surface() {
         .into_owned();
     assert!(project
         .root
-        .join(".arca/runs")
+        .join(".ratmac/runs")
         .join(&run_id)
         .join("state.toml")
         .exists());
-
     let status = rtm(&project.root, &["status", "--run", &run_id]);
     assert!(status.status.success(), "rtm status failed: {status:?}");
     let status_stdout = String::from_utf8_lossy(&status.stdout);

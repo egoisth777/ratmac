@@ -7,7 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const RATMAC: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../fixtures/t020-refusal-report/.arca/ratmac.toml"
+    "/../fixtures/t020-refusal-report/.ratmac/ratmac.toml"
 ));
 const OBSERVED_ARTIFACT: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -21,9 +21,9 @@ fn temporary_project() -> PathBuf {
         .as_nanos();
     let project = std::env::temp_dir().join(format!("ratmac-t020-{unique}"));
     fs::create_dir(&project).unwrap();
-    fs::create_dir(project.join(".arca")).unwrap();
+    fs::create_dir(project.join(".ratmac")).unwrap();
     fs::create_dir(project.join("artifacts")).unwrap();
-    fs::write(project.join(".arca/ratmac.toml"), RATMAC).unwrap();
+    fs::write(project.join(".ratmac/ratmac.toml"), RATMAC).unwrap();
     fs::write(project.join("artifacts/status.txt"), OBSERVED_ARTIFACT).unwrap();
     project
 }

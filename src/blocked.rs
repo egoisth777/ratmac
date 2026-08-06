@@ -215,7 +215,7 @@ pub fn apply_hold(root: &Path, plan: &HoldPlan) -> Result<(), HoldRefusal> {
     let state_path = crate::Scheduler::runs_dir(root)
         .join(&plan.run_id)
         .join("state.toml");
-    let log_path = root.join(".arca/log.md");
+    let log_path = crate::root::resolve(root).engine_root().join("log.md");
     let touched = [
         state_path.clone(),
         log_path.clone(),

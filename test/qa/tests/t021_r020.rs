@@ -15,14 +15,14 @@ fn isolated_project() -> PathBuf {
         .expect("system clock is before the Unix epoch")
         .as_nanos();
     let root = std::env::temp_dir().join(format!("ratmac-r020-{}-{nonce}", std::process::id()));
-    let arca = root.join(".arca");
+    let engine = root.join(".ratmac");
     fs::create_dir_all(root.join("artifacts")).expect("create failing artifact directory");
-    fs::create_dir_all(&arca).expect("create Scheduler directory");
+    fs::create_dir_all(&engine).expect("create Engine directory");
     for file in ["ratmac.toml", "log.md"] {
-        fs::copy(fixture_root().join(file), arca.join(file)).expect("copy refusal fixture");
+        fs::copy(fixture_root().join(file), engine.join(file)).expect("copy refusal fixture");
     }
     // FDC-004: the State File resides in the addressed run's directory.
-    let run_dir = arca.join("runs/run-001");
+    let run_dir = engine.join("runs/run-001");
     fs::create_dir_all(&run_dir).expect("create run directory");
     fs::copy(
         fixture_root().join("state.toml"),
@@ -34,8 +34,8 @@ fn isolated_project() -> PathBuf {
 
 fn state_and_log(root: &Path) -> (Vec<u8>, Vec<u8>) {
     (
-        fs::read(root.join(".arca/runs/run-001/state.toml")).expect("read State File"),
-        fs::read(root.join(".arca/log.md")).expect("read Transition Log"),
+        fs::read(root.join(".ratmac/runs/run-001/state.toml")).expect("read State File"),
+        fs::read(root.join(".ratmac/log.md")).expect("read Transition Log"),
     )
 }
 

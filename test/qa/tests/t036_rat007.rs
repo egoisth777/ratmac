@@ -9,7 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const CLASS: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../fixtures/lock-migration/.arca/ratmac.toml"
+    "/../fixtures/lock-migration/.ratmac/ratmac.toml"
 ));
 
 struct Project {
@@ -28,8 +28,8 @@ fn project() -> Project {
         .expect("system clock is after the Unix epoch")
         .as_nanos();
     let root = std::env::temp_dir().join(format!("ratmac-t036-{}-{stamp}", std::process::id()));
-    fs::create_dir_all(root.join(".arca")).expect("create isolated .arca directory");
-    fs::write(root.join(".arca/ratmac.toml"), CLASS).expect("write Machine Class fixture");
+    fs::create_dir_all(root.join(".ratmac")).expect("create isolated .ratmac directory");
+    fs::write(root.join(".ratmac/ratmac.toml"), CLASS).expect("write Machine Class fixture");
     Project { root }
 }
 
@@ -47,9 +47,9 @@ fn lock_and_compatibility_policy() {
     let started = rtm(&project.root, &["start"]);
     assert!(started.status.success(), "rtm start failed: {started:?}");
 
-    let arca = project.root.join(".arca");
+    let engine = project.root.join(".ratmac");
     // FDC-004: the started run's State File resides under the plural path.
-    let run_id = fs::read_dir(arca.join("runs"))
+    let run_id = fs::read_dir(engine.join("runs"))
         .expect("list the runs roster")
         .map(|entry| entry.expect("roster entry is readable"))
         .find(|entry| entry.path().is_dir())
@@ -57,13 +57,13 @@ fn lock_and_compatibility_policy() {
         .file_name()
         .to_string_lossy()
         .into_owned();
-    let state_path = arca.join("runs").join(&run_id).join("state.toml");
-    let class_before = fs::read(arca.join("ratmac.toml")).expect("read class before refusal");
+    let state_path = engine.join("runs").join(&run_id).join("state.toml");
+    let class_before = fs::read(engine.join("ratmac.toml")).expect("read class before refusal");
     let state_before = fs::read(&state_path).expect("read state before refusal");
-    let log_before = fs::read(arca.join("log.md")).expect("read log before refusal");
+    let log_before = fs::read(engine.join("log.md")).expect("read log before refusal");
 
     // HT-036-02/04/05: legacy state is never deleted, bypassed, or mutated.
-    let legacy_lock = arca.join("schd.lock");
+    let legacy_lock = engine.join("schd.lock");
     fs::write(&legacy_lock, b"operator-held legacy lock\n").expect("create legacy lock");
     // FDC-004: status/step address the run; start still takes no --run.
     let commands: [&[&str]; 3] = [
@@ -92,11 +92,11 @@ fn lock_and_compatibility_policy() {
         );
         assert!(legacy_lock.is_file(), "legacy lock must remain untouched");
     }
-    assert_eq!(class_before, fs::read(arca.join("ratmac.toml")).unwrap());
+    assert_eq!(class_before, fs::read(engine.join("ratmac.toml")).unwrap());
     assert_eq!(state_before, fs::read(&state_path).unwrap());
-    assert_eq!(log_before, fs::read(arca.join("log.md")).unwrap());
+    assert_eq!(log_before, fs::read(engine.join("log.md")).unwrap());
     assert!(
-        !arca.join("rtm.lock").exists(),
+        !engine.join("locks/root.lock").exists(),
         "refusal must release no new lock"
     );
 
@@ -135,10 +135,10 @@ fn lock_and_compatibility_policy() {
         state.contains("phase = \"review\""),
         "exactly one transition must advance the Run: {state}"
     );
-    let log = fs::read_to_string(arca.join("log.md")).expect("read transition log");
+    let log = fs::read_to_string(engine.join("log.md")).expect("read transition log");
     assert_eq!(log.matches("- Transition: prepare -> review").count(), 1);
     assert!(
-        !arca.join("rtm.lock").exists(),
+        !engine.join("locks/root.lock").exists(),
         "transient canonical lock must be released"
     );
 }

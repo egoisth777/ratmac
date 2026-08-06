@@ -4,7 +4,7 @@
 //! PT-060-02 `abandoned_ids_are_never_reissued`
 //!
 //! Multi-run is uncapped: `rtm start` no longer refuses while another Run is
-//! live, and any number of runs coexist under `.arca/runs/`, each addressed
+//! live, and any number of runs coexist under `.ratmac/runs/`, each addressed
 //! by its own id. Within the one run-id namespace an id is never reissued
 //! after abandon: the retired run's directory keeps its address, and minting
 //! skips every existing run directory — live or retired — so no later Run
@@ -42,18 +42,18 @@ impl Fixture {
                 .as_nanos()
         ));
         let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(root.join(".arca")).expect("create fixture tree");
+        fs::create_dir_all(root.join(".ratmac")).expect("create Engine tree");
         fs::create_dir_all(root.join("src")).expect("create source tree");
         fs::write(root.join("src/lib.rs"), "pub fn work() {}\n").expect("write source");
         fs::create_dir_all(root.join(".arca/goal")).expect("create goal tree");
         fs::write(root.join(".arca/goal/spec.md"), "# Spec\n").expect("write goal");
         fs::write(
-            root.join(".arca/ratmac.toml"),
+            root.join(".ratmac/ratmac.toml"),
             "[phases.intake]\nprompt = \"Integrate the issues.\"\n\n\
              [phases.build]\nprompt = \"Build the ticket.\"\n\n\
              [[transitions]]\nfrom = \"intake\"\nto = \"build\"\n",
         )
-        .expect("write runbook");
+        .expect("write machine class");
         Fixture { root }
     }
 
@@ -69,12 +69,12 @@ impl Fixture {
         self.root.join(relative)
     }
 
-    /// Listing `.arca/runs/` IS the roster: the run ids, read off artifacts.
+    /// Listing `.ratmac/runs/` IS the roster: the run ids, read off artifacts.
     fn roster(&self) -> Vec<String> {
-        let runs = self.path(".arca/runs");
+        let runs = self.path(".ratmac/runs");
         assert!(
             runs.is_dir(),
-            "FDC-006: runs must reside under the plural .arca/runs/ path — listing it IS the roster"
+            "FDC-006: runs must reside under the plural .ratmac/runs/ path — listing it IS the roster"
         );
         let mut ids: Vec<String> = fs::read_dir(&runs)
             .expect("the runs directory must be listable")
@@ -125,12 +125,12 @@ fn state_phase(state: &str) -> String {
 
 /// PT-060-01 (RRV-004): three consecutive `rtm start` invocations on one
 /// project each succeed with no cap refusal, each minting a distinct id and
-/// its own `.arca/runs/<id>/`; each run is independently addressable and
+/// its own `.ratmac/runs/<id>/`; each run is independently addressable and
 /// steppable via `--run <id>`.
 #[test]
 fn no_active_run_cap_is_enforced() {
     let fixture = Fixture::new("uncapped");
-    let state_rel = |id: &str| format!(".arca/runs/{id}/state.toml");
+    let state_rel = |id: &str| format!(".ratmac/runs/{id}/state.toml");
 
     let mut ids: Vec<String> = Vec::new();
     for nth in 1..=3 {
@@ -143,7 +143,7 @@ fn no_active_run_cap_is_enforced() {
         let minted = fixture.newly_minted(&ids);
         assert!(
             fixture.path(&state_rel(&minted)).is_file(),
-            "FDC-006: the minted run {minted} must carry its own State File under .arca/runs/{minted}/"
+            "FDC-006: the minted run {minted} must carry its own State File under .ratmac/runs/{minted}/"
         );
         ids.push(minted);
     }
@@ -233,7 +233,7 @@ fn abandoned_ids_are_never_reissued() {
     );
 
     // The retired id's directory still occupies its address, terminal.
-    let first_dir = fixture.path(&format!(".arca/runs/{first}"));
+    let first_dir = fixture.path(&format!(".ratmac/runs/{first}"));
     assert!(
         first_dir.is_dir(),
         "FDC-006: the retired run's directory must keep its address on disk"
@@ -307,7 +307,7 @@ fn abandoned_ids_are_never_reissued() {
         "FDC-006: later minting must not write into the retired run's spawn-ledger"
     );
     for id in [&first, &second, &third] {
-        let ledger = fs::read(fixture.path(&format!(".arca/runs/{id}/spawn-ledger")))
+        let ledger = fs::read(fixture.path(&format!(".ratmac/runs/{id}/spawn-ledger")))
             .expect("each run's reserved spawn-ledger path exists by name");
         assert!(
             ledger.is_empty(),

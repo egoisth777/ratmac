@@ -78,9 +78,10 @@ impl Fixture {
         ));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join(".arca/goal")).expect("create fixture goal tree");
+        fs::create_dir_all(root.join(".ratmac")).expect("create fixture Engine tree");
         fs::create_dir_all(root.join("src")).expect("create fixture source tree");
         fs::write(root.join(".arca/goal/spec.md"), "# Fixture goal\n").expect("write fixture goal");
-        fs::write(root.join(".arca/ratmac.toml"), runbook).expect("write fixture runbook");
+        fs::write(root.join(".ratmac/ratmac.toml"), runbook).expect("write fixture machine class");
         fs::write(root.join("src/lib.rs"), "pub fn fixture() {}\n").expect("write fixture source");
         Self { root }
     }
@@ -93,9 +94,10 @@ impl Fixture {
             .expect("invoke rtm")
     }
 
-    /// Rewrite the runbook in place.
+    /// Rewrite the machine class in place.
     fn write_runbook(&self, runbook: &str) {
-        fs::write(self.root.join(".arca/ratmac.toml"), runbook).expect("rewrite fixture runbook");
+        fs::write(self.root.join(".ratmac/ratmac.toml"), runbook)
+            .expect("rewrite fixture machine class");
     }
 }
 
@@ -136,7 +138,7 @@ fn composed_declaration_parses_and_is_doctor_clean() {
         "start on a composed runbook proceeds ordinarily, got:\n{}",
         combined(&start)
     );
-    let runs = fs::read_dir(fixture.root.join(".arca/runs"))
+    let runs = fs::read_dir(fixture.root.join(".ratmac/runs"))
         .expect("started fixture has a runs roster")
         .map(|entry| entry.expect("read roster entry").path())
         .filter(|path| path.is_dir())

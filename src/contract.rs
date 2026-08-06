@@ -290,33 +290,36 @@ pub fn gate_intake(root: &Path) -> Result<(), Vec<ContractDefect>> {
 
 /// PGE-002: verify residual and ticket record contracts.
 ///
-/// `run_id` addresses the run whose evidence carries the frozen goal revision
-/// (FDC-004: Run evidence resides under `.arca/runs/<id>/`).
-pub fn gate_records(root: &Path, run_id: &str) -> Result<(), Vec<ContractDefect>> {
+/// `workflow_root` supplies every workflow record. `engine_root` supplies the
+/// addressed Run's frozen evidence under `.ratmac/runs/<id>/`.
+pub fn gate_records(
+    workflow_root: &Path,
+    engine_root: &Path,
+    run_id: &str,
+) -> Result<(), Vec<ContractDefect>> {
     let mut defects = Vec::new();
-    let run_dir = root.join(".arca/runs").join(run_id);
+    let run_dir = engine_root.join("runs").join(run_id);
     let frozen = crate::pin::Evidence::load(&run_dir).goal_frozen;
     if frozen.is_none() {
         defects.push(defect(
-            format!(".arca/runs/{run_id}/evidence.toml"),
+            format!(".ratmac/runs/{run_id}/evidence.toml"),
             "the goal is not frozen, so no residual can cite a frozen revision",
         ));
     }
-
-    let unmechanized = unproven_mechanization(root);
-    let goal = fs::read_to_string(root.join(".arca/goal/spec.md")).unwrap_or_default();
+    let unmechanized = unproven_mechanization(workflow_root);
+    let goal = fs::read_to_string(workflow_root.join(".arca/goal/spec.md")).unwrap_or_default();
     let goal_ids = requirement_ids(&goal);
 
     // Active and archived residuals are one namespace.
     let mut by_requirement: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut gaps: Vec<(String, String)> = Vec::new();
-    let mut residual_paths = files_in(root.join(".arca/residual"), "md");
-    residual_paths.extend(files_in(root.join(".arca/residual/archive"), "md"));
+    let mut residual_paths = files_in(workflow_root.join(".arca/residual"), "md");
+    residual_paths.extend(files_in(workflow_root.join(".arca/residual/archive"), "md"));
     residual_paths.sort();
     for path in residual_paths {
         let id = stem(&path);
         let shown = path
-            .strip_prefix(root)
+            .strip_prefix(workflow_root)
             .map(|relative| relative.to_string_lossy().replace('\\', "/"))
             .unwrap_or_else(|_| path.to_string_lossy().replace('\\', "/"));
         let text = fs::read_to_string(&path).unwrap_or_default();
@@ -400,7 +403,7 @@ pub fn gate_records(root: &Path, run_id: &str) -> Result<(), Vec<ContractDefect>
     // Tickets.
     let mut owners: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut dependencies: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for path in files_in(root.join(".arca/ticket"), "md") {
+    for path in files_in(workflow_root.join(".arca/ticket"), "md") {
         let id = stem(&path);
         let shown = format!(".arca/ticket/{id}.md");
         let text = fs::read_to_string(&path).unwrap_or_default();

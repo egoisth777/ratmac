@@ -31,9 +31,12 @@ impl Drop for Fixture {
 }
 
 fn restore_writable(root: &std::path::Path) {
-    let mut paths = vec![root.join(".arca/log.md"), root.join(".arca/rtm.lock")];
+    let mut paths = vec![
+        root.join(".ratmac/log.md"),
+        root.join(".ratmac/locks/root.lock"),
+    ];
     // FDC-004: each run carries its own State File and evidence.
-    if let Ok(entries) = fs::read_dir(root.join(".arca/runs")) {
+    if let Ok(entries) = fs::read_dir(root.join(".ratmac/runs")) {
         for entry in entries.flatten() {
             paths.push(entry.path().join("state.toml"));
             paths.push(entry.path().join("evidence.toml"));
@@ -62,18 +65,19 @@ impl Fixture {
                 .as_nanos()
         ));
         let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(root.join(".arca")).expect("create fixture tree");
+        fs::create_dir_all(root.join(".arca")).expect("create workflow tree");
+        fs::create_dir_all(root.join(".ratmac")).expect("create Engine tree");
         fs::create_dir_all(root.join("src")).expect("create source tree");
         fs::write(root.join("src/lib.rs"), "pub fn work() {}\n").expect("write source");
         fs::create_dir_all(root.join(".arca/goal")).expect("create goal tree");
         fs::write(root.join(".arca/goal/spec.md"), "# Spec\n").expect("write goal");
         fs::write(
-            root.join(".arca/ratmac.toml"),
+            root.join(".ratmac/ratmac.toml"),
             "[phases.intake]\nprompt = \"Integrate the issues.\"\n\n\
              [phases.build]\nprompt = \"Build the ticket.\"\n\n\
              [[transitions]]\nfrom = \"intake\"\nto = \"build\"\n",
         )
-        .expect("write runbook");
+        .expect("write machine class");
 
         let mut fixture = Fixture {
             root,
@@ -83,8 +87,8 @@ impl Fixture {
             fixture.rtm(&["start"]).status.success(),
             "the fixture Run starts"
         );
-        // FDC-004: read the minted id off the roster and address it.
-        fixture.run_id = fs::read_dir(fixture.root.join(".arca/runs"))
+        // FDC-004: read the minted id off the Engine roster and address it.
+        fixture.run_id = fs::read_dir(fixture.root.join(".ratmac/runs"))
             .expect("list the runs roster")
             .map(|entry| entry.expect("roster entry is readable"))
             .find(|entry| entry.path().is_dir())
@@ -102,12 +106,12 @@ impl Fixture {
 
     /// The addressed run's State File, relative to the project root.
     fn state_rel(&self) -> String {
-        format!(".arca/runs/{}/state.toml", self.run_id)
+        format!(".ratmac/runs/{}/state.toml", self.run_id)
     }
 
     /// The addressed run's evidence record, relative to the project root.
     fn evidence_rel(&self) -> String {
-        format!(".arca/runs/{}/evidence.toml", self.run_id)
+        format!(".ratmac/runs/{}/evidence.toml", self.run_id)
     }
 
     fn rtm(&self, args: &[&str]) -> Output {
@@ -159,8 +163,8 @@ impl Fixture {
     fn owned_bytes(&self) -> Vec<(String, Option<Vec<u8>>)> {
         [
             self.state_rel(),
-            ".arca/log.md".to_owned(),
-            ".arca/rtm.lock".to_owned(),
+            ".ratmac/log.md".to_owned(),
+            ".ratmac/locks/root.lock".to_owned(),
         ]
         .iter()
         .map(|relative| (relative.clone(), fs::read(self.path(relative)).ok()))
@@ -172,7 +176,7 @@ impl Fixture {
 #[test]
 fn authorized_abandon_retires_run() {
     let fixture = Fixture::new("retires");
-    let log_before = fixture.read(".arca/log.md");
+    let log_before = fixture.read(".ratmac/log.md");
     assert!(fixture.exists(&fixture.state_rel()), "the Run is admitted");
 
     let output = fixture.abandon(&["--confirm", &fixture.phrase()]);
@@ -182,7 +186,7 @@ fn authorized_abandon_retires_run() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let log = fixture.read(".arca/log.md");
+    let log = fixture.read(".ratmac/log.md");
     assert!(
         log.starts_with(&log_before),
         "history is append-only across abandonment"
@@ -203,7 +207,10 @@ fn authorized_abandon_retires_run() {
         !fixture.exists(&fixture.state_rel()),
         "the admission state is retired"
     );
-    assert!(!fixture.exists(".arca/rtm.lock"), "the lock is retired");
+    assert!(
+        !fixture.exists(".ratmac/locks/root.lock"),
+        "the lock is retired"
+    );
 
     let restart = fixture.rtm(&["start"]);
     assert!(
@@ -211,8 +218,8 @@ fn authorized_abandon_retires_run() {
         "a fresh Run starts in the same project: {}",
         String::from_utf8_lossy(&restart.stderr)
     );
-    // FDC-004: the fresh Run mints a new id on the roster.
-    let fresh = fs::read_dir(fixture.path(".arca/runs"))
+    // FDC-004: the fresh Run mints a new id on the Engine roster.
+    let fresh = fs::read_dir(fixture.path(".ratmac/runs"))
         .expect("list the runs roster")
         .map(|entry| entry.expect("roster entry is readable"))
         .find(|entry| entry.path().join("state.toml").is_file())
@@ -222,12 +229,12 @@ fn authorized_abandon_retires_run() {
         .into_owned();
     assert!(
         fixture
-            .read(&format!(".arca/runs/{fresh}/state.toml"))
+            .read(&format!(".ratmac/runs/{fresh}/state.toml"))
             .contains("intake"),
         "the fresh Run begins at the initial Phase"
     );
     assert!(
-        fixture.read(".arca/log.md").contains(event.trim()),
+        fixture.read(".ratmac/log.md").contains(event.trim()),
         "the terminal event survives the fresh Run's history"
     );
 }
@@ -276,7 +283,7 @@ fn unauthorized_abandon_refuses_atomically() {
 #[test]
 fn stale_lock_retired_not_bypassed() {
     let fixture = Fixture::new("stale-lock");
-    fs::write(fixture.path(".arca/rtm.lock"), b"stale\n").expect("seed a stale lock");
+    fs::write(fixture.path(".ratmac/locks/root.lock"), b"stale\n").expect("seed a stale lock");
 
     let id = fixture.run_id.clone();
     let blocked = fixture.rtm(&["step", "--run", &id]);
@@ -297,7 +304,7 @@ fn stale_lock_retired_not_bypassed() {
         );
     }
     assert!(
-        fixture.exists(".arca/rtm.lock"),
+        fixture.exists(".ratmac/locks/root.lock"),
         "a refused bypass leaves the stale lock in place"
     );
 
@@ -307,7 +314,10 @@ fn stale_lock_retired_not_bypassed() {
         "the confirmed path retires the stale lock: {}",
         String::from_utf8_lossy(&retired.stderr)
     );
-    assert!(!fixture.exists(".arca/rtm.lock"), "the stale lock is gone");
+    assert!(
+        !fixture.exists(".ratmac/locks/root.lock"),
+        "the stale lock is gone"
+    );
     assert!(
         fixture.rtm(&["start"]).status.success(),
         "the project is usable again"
@@ -352,7 +362,7 @@ fn interrupted_retirement_completes_idempotently() {
 
     // The terminal event cannot be recorded: nothing is retired.
     let before = fixture.owned_bytes();
-    let log_path = fixture.path(".arca/log.md");
+    let log_path = fixture.path(".ratmac/log.md");
     let metadata = fs::metadata(&log_path).expect("read log metadata");
     let mut permissions = metadata.permissions();
     permissions.set_readonly(true);
@@ -409,12 +419,12 @@ fn interrupted_retirement_completes_idempotently() {
 
     // The promised interruption point: the terminal event is recorded and the
     // admission state is gone, but the lock cannot be retired.
-    let lock_path = fixture.path(".arca/rtm.lock");
+    let lock_path = fixture.path(".ratmac/locks/root.lock");
     let _ = fs::remove_file(&lock_path);
     fs::create_dir(&lock_path).expect("obstruct lock retirement");
     let before_lock_failure = fixture.owned_bytes();
     let evidence_before = fixture.read(&fixture.evidence_rel());
-    let log_before = fixture.read(".arca/log.md");
+    let log_before = fixture.read(".ratmac/log.md");
 
     let half = fixture.abandon(&["--confirm", &fixture.phrase()]);
     assert!(
@@ -432,7 +442,7 @@ fn interrupted_retirement_completes_idempotently() {
         "Run evidence is restored when the retirement cannot finish"
     );
     assert_eq!(
-        fixture.read(".arca/log.md"),
+        fixture.read(".ratmac/log.md"),
         log_before,
         "no terminal event survives a retirement that did not happen"
     );
@@ -457,8 +467,9 @@ fn interrupted_retirement_completes_idempotently() {
 
     // A tree interrupted between the terminal event and lock retirement:
     // re-running finishes it rather than refusing.
-    fs::write(fixture.path(".arca/rtm.lock"), b"left behind\n").expect("seed a leftover lock");
-    let history_before = fixture.read(".arca/log.md");
+    fs::write(fixture.path(".ratmac/locks/root.lock"), b"left behind\n")
+        .expect("seed a leftover lock");
+    let history_before = fixture.read(".ratmac/log.md");
     let completing = fixture.abandon(&["--confirm", &fixture.phrase()]);
     assert!(
         completing.status.success(),
@@ -466,11 +477,11 @@ fn interrupted_retirement_completes_idempotently() {
         String::from_utf8_lossy(&completing.stderr)
     );
     assert!(
-        !fixture.exists(".arca/rtm.lock"),
+        !fixture.exists(".ratmac/locks/root.lock"),
         "the leftover lock is gone"
     );
     assert_eq!(
-        fixture.read(".arca/log.md"),
+        fixture.read(".ratmac/log.md"),
         history_before,
         "completing retirement records no second terminal event"
     );
@@ -530,8 +541,8 @@ fn fresh_run_after_abandonment_records_its_own_pin() {
         fixture.rtm(&["start"]).status.success(),
         "a fresh Run starts"
     );
-    // FDC-004: the fresh Run's evidence lives in its own run directory.
-    let fresh = fs::read_dir(fixture.path(".arca/runs"))
+    // FDC-004: the fresh Run's evidence lives in its own Engine run directory.
+    let fresh = fs::read_dir(fixture.path(".ratmac/runs"))
         .expect("list the runs roster")
         .map(|entry| entry.expect("roster entry is readable"))
         .find(|entry| entry.path().join("state.toml").is_file())
@@ -539,7 +550,7 @@ fn fresh_run_after_abandonment_records_its_own_pin() {
         .file_name()
         .to_string_lossy()
         .into_owned();
-    let evidence = fixture.read(&format!(".arca/runs/{fresh}/evidence.toml"));
+    let evidence = fixture.read(&format!(".ratmac/runs/{fresh}/evidence.toml"));
     assert!(
         evidence.contains("[engine]"),
         "the fresh Run records its own Engine pin: {evidence:?}"

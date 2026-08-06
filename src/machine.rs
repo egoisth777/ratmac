@@ -301,14 +301,19 @@ impl fmt::Display for MachineClassParseError {
 impl std::error::Error for MachineClassParseError {}
 
 impl MachineClass {
-    /// Load the reviewed Machine Class at the canonical project path.
+    /// The tracked file name a checkout's Machine Class always carries.
+    pub const FILE_NAME: &'static str = "ratmac.toml";
+
+    /// Load the reviewed Machine Class from the invoking checkout.
     ///
-    /// Loading is deliberately read-only: this method only reads
-    /// `.arca/ratmac.toml` and never creates or replaces a class file.
+    /// Loading is deliberately read-only: it only reads
+    /// `.ratmac/ratmac.toml` from that checkout and never creates or replaces
+    /// a class file.
     pub fn load_from_project_root(
         project_root: impl AsRef<Path>,
     ) -> Result<Self, MachineClassParseError> {
-        let path = project_root.as_ref().join(".arca").join("ratmac.toml");
+        let roots = crate::root::resolve(project_root);
+        let path = roots.machine_class_path();
         let source = std::fs::read_to_string(&path).map_err(|error| {
             MachineClassParseError::at(
                 "RB101",

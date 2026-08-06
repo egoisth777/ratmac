@@ -14,12 +14,12 @@
 //!
 //! 1. records a terminal abandoned event in the append-only history, naming
 //!    the retired Run's Phase, status, and revisions;
-//! 2. retires the admission state (`.arca/runs/<id>/state.toml`) so a fresh
+//! 2. retires the admission state (`.ratmac/runs/<id>/state.toml`) so a fresh
 //!    Run can start;
-//! 3. retires the Run-scoped evidence (`.arca/runs/<id>/evidence.toml`) so
+//! 3. retires the Run-scoped evidence (`.ratmac/runs/<id>/evidence.toml`) so
 //!    the next Run records its own baseline and pins rather than inheriting
 //!    them;
-//! 4. retires the invocation lock (`.arca/rtm.lock`) - retired through this
+//! 4. retires the root lock (`.ratmac/locks/root.lock`) - retired through this
 //!    path, never bypassed by a flag.
 //!
 //! Every check runs before the first write, so an unconfirmed request leaves
@@ -121,9 +121,8 @@ pub fn plan_abandon(root: &Path, request: &AbandonRequest) -> Result<AbandonPlan
         Some(_) => {}
     }
 
-    let arca = root.join(".arca");
-    let lock_path = arca.join("rtm.lock");
-
+    let engine_root = crate::root::resolve(root).engine_root().to_path_buf();
+    let lock_path = engine_root.join("locks").join("root.lock");
     // FDC-004: abandon acts on an existing Run through `--run <id>`. Only the
     // leftover-lock retirement — no live run anywhere on the roster — may
     // proceed unaddressed, because it retires transient invocation machinery,
@@ -269,10 +268,9 @@ fn revision_or_none(revision: &str) -> String {
 
 /// Perform the planned retirement, all of it or none of it.
 pub fn apply_abandon(root: &Path, plan: &AbandonPlan) -> Result<(), AbandonRefusal> {
-    let log_path = root.join(".arca/log.md");
-    let lock_path = root.join(".arca/rtm.lock");
-
-    // Snapshot every file whose bytes rollback must be able to put back. The
+    let engine_root = crate::root::resolve(root).engine_root().to_path_buf();
+    let log_path = engine_root.join("log.md");
+    let lock_path = engine_root.join("locks").join("root.lock");
     // lock is excluded deliberately: it is transient invocation machinery,
     // retired last, with no content worth restoring. An unreadable Run file is
     // refused here, before the first write, rather than silently treated as

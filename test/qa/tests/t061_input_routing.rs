@@ -154,8 +154,8 @@ fn selection_is_input_only_and_prompt_discloses_values() {
         std::thread::current().id()
     ));
     let _ = fs::remove_dir_all(&root);
-    fs::create_dir_all(root.join(".arca")).expect("create prompt project");
-    fs::write(root.join(".arca/ratmac.toml"), &source).expect("write branching runbook");
+    fs::create_dir_all(root.join(".ratmac")).expect("create prompt project");
+    fs::write(root.join(".ratmac/ratmac.toml"), &source).expect("write branching machine class");
     let mut scheduler = Scheduler::open(&root).expect("open branching project");
     scheduler.start().expect("start branching Run");
     let rendered = scheduler
@@ -175,13 +175,13 @@ fn selection_is_input_only_and_prompt_discloses_values() {
         std::thread::current().id()
     ));
     let _ = fs::remove_dir_all(&straight_root);
-    fs::create_dir_all(straight_root.join(".arca")).expect("create straight project");
+    fs::create_dir_all(straight_root.join(".ratmac")).expect("create straight project");
     fs::write(
-        straight_root.join(".arca/ratmac.toml"),
+        straight_root.join(".ratmac/ratmac.toml"),
         "[phases.a]\nprompt = \"A.\"\n[phases.b]\nprompt = \"B.\"\n\
          [[transitions]]\nfrom = \"a\"\nto = \"b\"\n",
     )
-    .expect("write straight runbook");
+    .expect("write straight machine class");
     let mut straight_scheduler = Scheduler::open(&straight_root).expect("open straight project");
     straight_scheduler.start().expect("start straight Run");
     let outcome = straight_scheduler

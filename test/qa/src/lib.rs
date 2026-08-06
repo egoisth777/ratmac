@@ -187,7 +187,7 @@ mod tests {
 
     fn sorted_entries(path: &Path) -> Vec<String> {
         let mut entries = fs::read_dir(path)
-            .expect("fixture/project .arca directory should be readable")
+            .expect("fixture/project .ratmac directory should be readable")
             .map(|entry| {
                 entry
                     .expect("directory entry should be readable")
@@ -203,18 +203,18 @@ mod tests {
     #[test]
     fn test_ratmac_toml_is_human_authored_reviewed_input() {
         let fixture = fixture_root();
-        let source_class = fixture.join(".arca/ratmac.toml");
+        let source_class = fixture.join(".ratmac/ratmac.toml");
         let source_bytes = fs::read(&source_class).expect("canonical ratmac fixture should exist");
 
         let project = std::env::temp_dir().join(format!("ratmac-pt-004-01-{}", std::process::id()));
         if project.exists() {
             fs::remove_dir_all(&project).expect("stale PT-004-01 directory should be removable");
         }
-        fs::create_dir_all(project.join(".arca")).expect("temporary project should be creatable");
-        let class_path = project.join(".arca/ratmac.toml");
+        fs::create_dir_all(project.join(".ratmac")).expect("temporary project should be creatable");
+        let class_path = project.join(".ratmac/ratmac.toml");
         fs::write(&class_path, &source_bytes).expect("fixture class should be copied verbatim");
 
-        let before_entries = sorted_entries(&project.join(".arca"));
+        let before_entries = sorted_entries(&project.join(".ratmac"));
         let before_bytes = fs::read(&class_path).expect("copied class should be readable");
         assert_eq!(
             before_bytes, source_bytes,
@@ -222,9 +222,9 @@ mod tests {
         );
 
         let _class = MachineClass::load_from_project_root(&project)
-            .expect("scheduler should consume .arca/ratmac.toml as reviewed input");
+            .expect("scheduler should consume .ratmac/ratmac.toml as reviewed input");
 
-        let after_entries = sorted_entries(&project.join(".arca"));
+        let after_entries = sorted_entries(&project.join(".ratmac"));
         let after_bytes = fs::read(&class_path).expect("canonical class should remain readable");
         assert_eq!(
             after_bytes, source_bytes,
@@ -243,7 +243,7 @@ mod tests {
             .join("fixtures")
             .join("run")
             .join("class-read-only")
-            .join(".arca")
+            .join(".ratmac")
             .join("ratmac.toml")
     }
 
@@ -256,9 +256,9 @@ mod tests {
             .as_nanos();
         let project =
             std::env::temp_dir().join(format!("ratmac-pt-009-{}-{}", std::process::id(), nonce));
-        let arca = project.join(".arca");
-        fs::create_dir_all(&arca).expect("create isolated .arca fixture");
-        let class_path = arca.join("ratmac.toml");
+        let engine = project.join(".ratmac");
+        fs::create_dir_all(&engine).expect("create isolated .ratmac fixture");
+        let class_path = engine.join("ratmac.toml");
         fs::copy(fixture_class, &class_path).expect("copy ratmac.toml fixture");
         (project, class_path)
     }
@@ -413,7 +413,7 @@ mod t007_state_file {
 
         fn state_bytes(&self) -> Vec<u8> {
             // FDC-004: the State File resides in the addressed run's directory.
-            fs::read(self.0.join(".arca/runs/run-001/state.toml"))
+            fs::read(self.0.join(".ratmac/runs/run-001/state.toml"))
                 .expect("read Scheduler-owned state")
         }
     }
@@ -440,10 +440,10 @@ mod t007_state_file {
 
     fn install_machine_class(project: &IsolatedProject) {
         let fixture_root = Path::new(env!("CARGO_MANIFEST_DIR")).join(STATUS_FIXTURE);
-        fs::create_dir_all(project.root().join(".arca")).expect("create class directory");
+        fs::create_dir_all(project.root().join(".ratmac")).expect("create class directory");
         fs::copy(
-            fixture_root.join(".arca/ratmac.toml"),
-            project.root().join(".arca/ratmac.toml"),
+            fixture_root.join(".ratmac/ratmac.toml"),
+            project.root().join(".ratmac/ratmac.toml"),
         )
         .expect("copy human-authored Machine Class fixture");
     }
@@ -451,7 +451,7 @@ mod t007_state_file {
     #[test]
     fn test_state_file_records_blocked_and_blocker_fields() {
         let project = IsolatedProject::new();
-        fs::create_dir_all(project.root().join(".arca")).expect("create state directory");
+        fs::create_dir_all(project.root().join(".ratmac")).expect("create state directory");
         // TRP-005: a Scheduler opens against a declared Machine Class or not at all.
         install_machine_class(&project);
         let mut scheduler = scheduler(&project);
@@ -562,7 +562,7 @@ mod t008_state_writer_tests {
             .as_nanos();
         let root =
             std::env::temp_dir().join(format!("ratmac-{label}-{}-{nonce}", std::process::id()));
-        fs::create_dir_all(root.join(".arca")).expect("create isolated project");
+        fs::create_dir_all(root.join(".ratmac")).expect("create isolated project");
         root
     }
 
@@ -579,10 +579,10 @@ mod t008_state_writer_tests {
     }
 
     fn setup_project(root: &Path, sentinel: &[u8]) -> PathBuf {
-        let arca = root.join(".arca");
-        fs::write(arca.join("ratmac.toml"), RATMAC).expect("write isolated Machine Class");
+        let engine = root.join(".ratmac");
+        fs::write(engine.join("ratmac.toml"), RATMAC).expect("write isolated Machine Class");
         // FDC-004: the State File resides in the addressed run's directory.
-        let run_dir = arca.join("runs/run-001");
+        let run_dir = engine.join("runs/run-001");
         fs::create_dir_all(&run_dir).expect("create run directory");
         let state = run_dir.join("state.toml");
         fs::write(&state, sentinel).expect("install sentinel state in isolated project");
@@ -654,19 +654,19 @@ mod t010 {
             .as_nanos();
         let root =
             std::env::temp_dir().join(format!("ratmac-pt010-{}-{stamp}", std::process::id()));
-        let arca = root.join(".arca");
-        fs::create_dir_all(&arca).expect("create isolated PT-010 project");
+        let engine = root.join(".ratmac");
+        fs::create_dir_all(&engine).expect("create isolated PT-010 project");
         let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../fixtures/run/empty-project/.arca/ratmac.toml");
-        fs::copy(fixture, arca.join("ratmac.toml")).expect("copy PT-010 class fixture");
+            .join("../fixtures/run/empty-project/.ratmac/ratmac.toml");
+        fs::copy(fixture, engine.join("ratmac.toml")).expect("copy PT-010 class fixture");
         root
     }
 
     #[test]
     fn test_start_instantiates_run_owned_state_log_and_lock() {
         let project = setup_project();
-        let arca = project.join(".arca");
-        let class_path = arca.join("ratmac.toml");
+        let engine = project.join(".ratmac");
+        let class_path = engine.join("ratmac.toml");
         let before = fs::read(&class_path).expect("read class before start");
         let run = Scheduler::open(&project)
             .expect("open project")
@@ -680,26 +680,30 @@ mod t010 {
 
         assert_eq!(
             run.lock_path().expect("started Run owns lock path"),
-            arca.join("rtm.lock"),
-            "Run must own the flat lock path"
+            engine.join("locks/root.lock"),
+            "Run must own the root lock path"
         );
         // FDC-004: the State File resides in the minted run's directory; the
-        // history log stays project-level.
+        // history log stays Engine-root-level.
         let run_id = run.id().expect("start mints a run id");
         assert!(
-            arca.join("runs").join(run_id).join("state.toml").is_file(),
-            "start must create .arca/runs/{run_id}/state.toml"
+            engine
+                .join("runs")
+                .join(run_id)
+                .join("state.toml")
+                .is_file(),
+            "start must create .ratmac/runs/{run_id}/state.toml"
         );
         assert!(
-            !arca.join("state.toml").exists(),
-            "start must not write the flat .arca/state.toml"
+            !engine.join("state.toml").exists(),
+            "start must not write the flat .ratmac/state.toml"
         );
         assert!(
-            arca.join("log.md").is_file(),
-            "start must create the project-level .arca/log.md"
+            engine.join("log.md").is_file(),
+            "start must create the Engine transition log at .ratmac/log.md"
         );
         assert!(
-            !arca.join("rtm.lock").exists(),
+            !engine.join("locks/root.lock").exists(),
             "start must release the invocation lock before returning"
         );
         assert_eq!(
@@ -861,9 +865,9 @@ to = "missing"
             .unwrap()
             .as_nanos();
         let root = std::env::temp_dir().join(format!("arca-t005-review-{nonce}"));
-        fs::create_dir_all(root.join(".arca")).unwrap();
+        fs::create_dir_all(root.join(".ratmac")).unwrap();
         fs::write(
-            root.join(".arca/ratmac.toml"),
+            root.join(".ratmac/ratmac.toml"),
             "[phases.prepare]\nprompt = \"Prepare\"\n",
         )
         .unwrap();
@@ -876,7 +880,7 @@ to = "missing"
         let mut scheduler = Scheduler::open(&root).unwrap();
         scheduler.start().unwrap();
         fs::write(
-            root.join(".arca/ratmac.toml"),
+            root.join(".ratmac/ratmac.toml"),
             "unknown = true\n[phases.prepare]\nprompt = \"Prepare\"\n",
         )
         .unwrap();
@@ -894,7 +898,7 @@ to = "missing"
         // write the terminal `passed` fact and step would refuse before the
         // guard under test is ever evaluated.
         fs::write(
-            root.join(".arca/ratmac.toml"),
+            root.join(".ratmac/ratmac.toml"),
             "[phases.prepare]\nprompt = \"Prepare\"\nguards = [{ kind = \"file_contains\", path = \"../arca-t005-outside.txt\", contains = \"SECRET\" }]\n\n[phases.done]\nprompt = \"Done\"\n\n[[transitions]]\nfrom = \"prepare\"\nto = \"done\"\n",
         )
         .unwrap();
@@ -913,7 +917,7 @@ to = "missing"
         let absolute_root = revalidation_project();
         let absolute_path = format!("{outside:?}");
         fs::write(
-            absolute_root.join(".arca/ratmac.toml"),
+            absolute_root.join(".ratmac/ratmac.toml"),
             format!(
                 "[phases.prepare]\nprompt = \"Prepare\"\nguards = [{{ kind = \"file_contains\", path = {absolute_path}, contains = \"SECRET\" }}]\n\n[phases.done]\nprompt = \"Done\"\n\n[[transitions]]\nfrom = \"prepare\"\nto = \"done\"\n"
             ),
@@ -934,9 +938,10 @@ to = "missing"
     #[test]
     fn test_status_with_active_state_but_missing_class_is_hard_error() {
         let root = revalidation_project();
-        fs::remove_file(root.join(".arca/ratmac.toml")).unwrap();
+        fs::remove_file(root.join(".ratmac/ratmac.toml")).unwrap();
+        fs::create_dir_all(root.join(".ratmac/runs/run-001")).unwrap();
         fs::write(
-            root.join(".arca/state.toml"),
+            root.join(".ratmac/runs/run-001/state.toml"),
             "phase = \"prepare\"\nstatus = \"executing\"\ngoal_revision = \"\"\ninput_revision = \"\"\noutput_revision = \"\"\nactive_refs = []\nblocker = \"\"\n",
         )
         .unwrap();
@@ -949,7 +954,7 @@ to = "missing"
     #[test]
     fn test_start_with_missing_class_is_actionable_error() {
         let root = revalidation_project();
-        fs::remove_file(root.join(".arca/ratmac.toml")).unwrap();
+        fs::remove_file(root.join(".ratmac/ratmac.toml")).unwrap();
         let error = Scheduler::open(&root).expect_err("start must reject missing ratmac");
         assert!(error.to_string().to_ascii_lowercase().contains("ratmac"));
         let _ = fs::remove_dir_all(root);

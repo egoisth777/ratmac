@@ -174,10 +174,10 @@ fn walk_rust_sources(directory: &Path) -> Vec<PathBuf> {
 fn fixture_project(label: &str) -> PathBuf {
     let root = std::env::temp_dir().join(format!("ratmac-{label}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&root);
-    fs::create_dir_all(root.join(".arca")).expect("create fixture project");
+    fs::create_dir_all(root.join(".ratmac")).expect("create fixture project");
     let class =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../fixtures/r007-start-policy/ratmac.toml");
-    fs::copy(class, root.join(".arca/ratmac.toml")).expect("install machine class");
+    fs::copy(class, root.join(".ratmac/ratmac.toml")).expect("install machine class");
     root
 }
 
@@ -191,7 +191,7 @@ fn run_rtm(project: &Path, args: &[&str]) -> std::process::Output {
 
 /// FDC-004: the started run's State File path, read off the plural roster.
 fn run_state_path(project: &Path) -> PathBuf {
-    let run_dir = fs::read_dir(project.join(".arca/runs"))
+    let run_dir = fs::read_dir(project.join(".ratmac/runs"))
         .expect("list the runs roster")
         .map(|entry| entry.expect("roster entry is readable").path())
         .find(|path| path.is_dir())
@@ -201,7 +201,7 @@ fn run_state_path(project: &Path) -> PathBuf {
 
 /// FDC-004: the started run's id.
 fn started_run_id(project: &Path) -> String {
-    fs::read_dir(project.join(".arca/runs"))
+    fs::read_dir(project.join(".ratmac/runs"))
         .expect("list the runs roster")
         .map(|entry| entry.expect("roster entry is readable"))
         .find(|entry| entry.path().is_dir())

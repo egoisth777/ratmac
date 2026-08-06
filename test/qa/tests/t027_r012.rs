@@ -15,17 +15,17 @@ fn copy_fixture_to_temp() -> PathBuf {
         .expect("clock is after the Unix epoch")
         .as_nanos();
     let root = std::env::temp_dir().join(format!("ratmac-t027-{nonce}"));
-    let arca = root.join(".arca");
-    fs::create_dir_all(&arca).expect("create isolated .arca directory");
+    let engine = root.join(".ratmac");
+    fs::create_dir_all(&engine).expect("create isolated .ratmac directory");
     for file in ["ratmac.toml", "log.md"] {
-        fs::copy(fixture_root().join(".arca").join(file), arca.join(file))
+        fs::copy(fixture_root().join(".ratmac").join(file), engine.join(file))
             .expect("copy comment fixture");
     }
     // FDC-004: the State File resides in the addressed run's directory.
-    let run_dir = arca.join("runs/run-001");
+    let run_dir = engine.join("runs/run-001");
     fs::create_dir_all(&run_dir).expect("create run directory");
     fs::copy(
-        fixture_root().join(".arca/state.toml"),
+        fixture_root().join(".ratmac/state.toml"),
         run_dir.join("state.toml"),
     )
     .expect("copy comment fixture");

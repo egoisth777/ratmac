@@ -28,18 +28,21 @@ fn isolated_project(fixture: &str) -> (TempProject, PathBuf, PathBuf) {
         .expect("system clock must be after the Unix epoch")
         .as_nanos();
     let root = env::temp_dir().join(format!("ratmac-pt-022-{}-{}", std::process::id(), nonce));
-    let arca = root.join(".arca");
-    fs::create_dir_all(&arca).expect("create isolated .arca directory");
+    let engine = root.join(".ratmac");
+    fs::create_dir_all(&engine).expect("create isolated .ratmac directory");
     let source = fixture_root(fixture);
     for name in ["ratmac.toml", "log.md"] {
-        fs::copy(source.join(".arca").join(name), arca.join(name))
+        fs::copy(source.join(".ratmac").join(name), engine.join(name))
             .expect("copy transition-log fixture file");
     }
     // FDC-004: the State File resides in the addressed run's directory.
-    let run_dir = arca.join("runs/run-001");
+    let run_dir = engine.join("runs/run-001");
     fs::create_dir_all(&run_dir).expect("create run directory");
-    fs::copy(source.join(".arca/state.toml"), run_dir.join("state.toml"))
-        .expect("copy transition-log fixture file");
+    fs::copy(
+        source.join(".ratmac/state.toml"),
+        run_dir.join("state.toml"),
+    )
+    .expect("copy transition-log fixture file");
     fs::create_dir_all(root.join("required")).expect("create passing guard directory");
     fs::copy(
         source.join("required").join("output.txt"),
@@ -49,7 +52,7 @@ fn isolated_project(fixture: &str) -> (TempProject, PathBuf, PathBuf) {
     (
         TempProject(root),
         run_dir.join("state.toml"),
-        arca.join("log.md"),
+        engine.join("log.md"),
     )
 }
 
@@ -63,11 +66,11 @@ fn start_project() -> TempProject {
         std::process::id(),
         nonce
     ));
-    let arca = root.join(".arca");
-    fs::create_dir_all(&arca).expect("create start fixture directory");
+    let engine = root.join(".ratmac");
+    fs::create_dir_all(&engine).expect("create start fixture directory");
     fs::copy(
-        fixture_root("r026-transition-log").join(".arca/ratmac.toml"),
-        arca.join("ratmac.toml"),
+        fixture_root("r026-transition-log").join(".ratmac/ratmac.toml"),
+        engine.join("ratmac.toml"),
     )
     .expect("copy start class fixture");
     TempProject(root)
@@ -191,7 +194,7 @@ fn refused_step_does_not_append_transition_record() {
 #[test]
 fn log_open_failure_leaves_state_unchanged() {
     let (project, state_path, _log_path) = isolated_project("r026-transition-log");
-    let log_path = project.0.join(".arca/log.md");
+    let log_path = project.0.join(".ratmac/log.md");
     fs::remove_file(&log_path).expect("remove log file to induce open failure");
     fs::create_dir(&log_path).expect("replace log file with directory");
     let state_before = fs::read(&state_path).expect("read state before log failure");
@@ -210,21 +213,21 @@ fn log_open_failure_leaves_state_unchanged() {
 #[test]
 fn start_log_open_failure_leaves_no_state_and_lock() {
     let project = start_project();
-    let arca = project.0.join(".arca");
-    fs::create_dir(arca.join("log.md")).expect("make log path an open failure");
+    let engine = project.0.join(".ratmac");
+    fs::create_dir(engine.join("log.md")).expect("make log path an open failure");
     let mut scheduler = Scheduler::open(&project.0).expect("open start fixture");
 
     assert!(scheduler.start().is_err());
     // FDC-004: a failed start leaves neither a flat State File nor a run-owned one.
-    assert!(!arca.join("state.toml").exists());
-    let no_run_state = match fs::read_dir(arca.join("runs")) {
+    assert!(!engine.join("state.toml").exists());
+    let no_run_state = match fs::read_dir(engine.join("runs")) {
         Ok(entries) => entries
             .map(|entry| entry.expect("roster entry is readable").path())
             .all(|path| !path.join("state.toml").exists()),
         Err(_) => true,
     };
     assert!(no_run_state, "failed start must leave no run-owned state");
-    assert!(!arca.join("rtm.lock").exists());
+    assert!(!engine.join("locks/root.lock").exists());
 }
 
 #[test]
@@ -261,7 +264,8 @@ fn non_newline_log_gets_separator_before_record() {
 #[test]
 fn state_mutators_and_status_honor_existing_lock() {
     let (project, state_path, _log_path) = isolated_project("r026-transition-log");
-    let lock = project.0.join(".arca/rtm.lock");
+    let lock = project.0.join(".ratmac/locks/root.lock");
+    fs::create_dir_all(lock.parent().expect("lock has parent")).expect("create lock directory");
     fs::write(&lock, b"held").expect("create held invocation lock");
     let state_before = fs::read(&state_path).expect("read state before lock checks");
     let mut scheduler =
@@ -289,7 +293,7 @@ fn state_mutators_and_status_honor_existing_lock() {
 }
 
 #[test]
-fn status_on_missing_arca_does_not_create_metadata() {
+fn status_on_missing_engine_does_not_create_metadata() {
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("system clock must be after the Unix epoch")
@@ -299,11 +303,11 @@ fn status_on_missing_arca_does_not_create_metadata() {
         std::process::id(),
         nonce
     ));
-    fs::create_dir_all(&project).expect("create project without .arca");
+    fs::create_dir_all(&project).expect("create project without .ratmac");
     // TRP-005: a project with no runbook refuses where the runbook is read;
     // R-026 still holds - the refusal creates no metadata.
     let error = Scheduler::open(&project).expect_err("a project without metadata has no machine");
     assert!(error.to_string().contains("ratmac.toml"));
-    assert!(!project.join(".arca").exists());
+    assert!(!project.join(".ratmac").exists());
     fs::remove_dir_all(project).expect("clean missing-metadata project");
 }

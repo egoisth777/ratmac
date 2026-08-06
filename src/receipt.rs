@@ -1,11 +1,11 @@
 //! PGE-003: sensitivity receipts and the P4 gate predicate.
 //!
 //! Test-first completion is evidenced by executable receipts, never by prose.
-//! `.arca/evidence/` is agent-writable: agents record one structured receipt
+//! `.ratmac/evidence/` is agent-writable: agents record one structured receipt
 //! per executed check, and the gate resolves every planned test the ticket
 //! declares to a receipt that proves the test can fail.
 //!
-//! Receipt file: `.arca/evidence/<ticket-id>/<planned-test-id>.toml`
+//! Receipt file: `.ratmac/evidence/<ticket-id>/<planned-test-id>.toml`
 //!
 //! ```toml
 //! planned-test-id = "PT-045-01"
@@ -32,8 +32,8 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
-/// Agent-writable evidence directory, relative to the project root.
-pub const EVIDENCE_DIR: &str = ".arca/evidence";
+/// Agent-writable evidence directory, expressed relative to a checkout root.
+pub const EVIDENCE_DIR: &str = ".ratmac/evidence";
 
 /// What a receipt proves about a planned test.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -104,9 +104,9 @@ pub fn sha256_text(text: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-/// The directory holding one ticket's receipts.
-pub fn ticket_evidence_dir(root: &Path, ticket: &str) -> PathBuf {
-    root.join(EVIDENCE_DIR).join(ticket)
+/// The agent-writable evidence directory for one addressed Run.
+pub fn run_evidence_dir(engine_root: &Path, run_id: &str) -> PathBuf {
+    engine_root.join("evidence").join(run_id)
 }
 
 /// Read one receipt file, refusing anything that is not self-consistent.
@@ -240,13 +240,17 @@ pub fn planned_tests(ticket_source: &str) -> Vec<String> {
 }
 
 /// The P4 gate predicate: every planned test the ticket declares resolves to a
-/// receipt that proves it can fail, and every receipt filed under the ticket
-/// belongs to a planned test the ticket declares.
-///
-/// Prose satisfies nothing: only `.toml` receipts are read, and a planned test
-/// with no receipt is refused by name.
-pub fn gate_sensitivity(root: &Path, ticket_relative: &str) -> Result<(), Vec<ReceiptDefect>> {
-    let ticket_path = root.join(ticket_relative);
+/// receipt that proves it can fail. Receipts for another ticket in the same
+/// addressed Run are ignored; a receipt for this ticket must name a declared
+/// test. Workflow records are read from `workflow_root`; receipts are read only
+/// from the addressed Run's resolved Engine-root evidence directory.
+pub fn gate_sensitivity(
+    workflow_root: &Path,
+    engine_root: &Path,
+    run_id: &str,
+    ticket_relative: &str,
+) -> Result<(), Vec<ReceiptDefect>> {
+    let ticket_path = workflow_root.join(ticket_relative);
     let Ok(ticket_source) = fs::read_to_string(&ticket_path) else {
         return Err(vec![ReceiptDefect {
             planned_test: String::new(),
@@ -266,7 +270,7 @@ pub fn gate_sensitivity(root: &Path, ticket_relative: &str) -> Result<(), Vec<Re
         });
     }
 
-    let dir = ticket_evidence_dir(root, &ticket_id);
+    let dir = run_evidence_dir(engine_root, run_id);
     let mut receipts = Vec::new();
     let mut files: Vec<PathBuf> = fs::read_dir(&dir)
         .map(|entries| {
@@ -280,7 +284,8 @@ pub fn gate_sensitivity(root: &Path, ticket_relative: &str) -> Result<(), Vec<Re
     files.sort();
     for file in &files {
         match load_receipt(file) {
-            Ok(receipt) => receipts.push(receipt),
+            Ok(receipt) if receipt.ticket == ticket_id => receipts.push(receipt),
+            Ok(_) => {}
             Err(defect) => defects.push(defect),
         }
     }
@@ -293,12 +298,12 @@ pub fn gate_sensitivity(root: &Path, ticket_relative: &str) -> Result<(), Vec<Re
             None => defects.push(ReceiptDefect {
                 planned_test: planned.clone(),
                 reason: format!(
-                    "no sensitivity receipt in {}/{ticket_id}; prose and file names are not evidence",
+                    "no sensitivity receipt in {}/{run_id}; prose and file names are not evidence",
                     EVIDENCE_DIR
                 ),
             }),
             Some(receipt) => {
-                if let Err(defect) = verify_receipt(root, receipt) {
+                if let Err(defect) = verify_receipt(workflow_root, receipt) {
                     defects.push(defect);
                 }
             }
@@ -311,15 +316,6 @@ pub fn gate_sensitivity(root: &Path, ticket_relative: &str) -> Result<(), Vec<Re
                 planned_test: receipt.planned_test.clone(),
                 reason: format!(
                     "receipt names a planned test that ticket {ticket_id} does not declare"
-                ),
-            });
-        }
-        if receipt.ticket != ticket_id {
-            defects.push(ReceiptDefect {
-                planned_test: receipt.planned_test.clone(),
-                reason: format!(
-                    "receipt is filed under {ticket_id} but claims ticket {}",
-                    receipt.ticket
                 ),
             });
         }

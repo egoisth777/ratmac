@@ -6,9 +6,10 @@ and the authoring instructions link to it. Nothing else in this repository
 defines a runbook key, a guard kind, or a diagnostic code — where another
 document needs one, it cites this one (RBS-004).
 
-A runbook is plain TOML data at `.arca/ratmac.toml`, one per project,
-human-reviewed and read-only at runtime (R-010, R-013). It declares Phases and
-transitions and nothing else: `status` is runtime lifecycle the Scheduler owns
+A runbook is plain TOML data at `.ratmac/ratmac.toml` in the invoking checkout,
+one per project, human-reviewed and read-only at runtime (R-010, R-013). It
+declares Phases and transitions and nothing else: `status` is runtime lifecycle
+the Scheduler owns
 and may not appear anywhere in the file (R-002, R-003). Parsing is strict —
 an unknown key is a hard error, never an ignored one (R-011).
 
@@ -103,7 +104,7 @@ is not listed for the selected kind is `RB107`; a missing required field is
 | `files_exact` | The listing of a directory equals the declared entry set; with no entry set, only that the path exists. | `path` | `entries` (array of strings; `files` is an accepted alias and must agree when both appear) |
 | `file_contains` | A substring is present in a file. | `path`, `contains` | none |
 | `command_exit` | A spawned program's exit code equals `expected`. The child's stderr is captured and rendered as a bounded diagnostic on refusal (ETB-002). Unless `exempt`, the program must resolve to a pinnable regular file whose hash is recorded in Run evidence (ETB-001). | `program`, `expected` | `args` (array of strings), `exempt` (boolean; marks a toolchain probe that reads no project state) |
-| `sensitivity_receipts` | Every planned test the named ticket declares has a sensitivity receipt under `.arca/evidence/` (PGE-003). | `ticket` | none |
+| `sensitivity_receipts` | Every planned test the named ticket declares has a sensitivity receipt under `.ratmac/evidence/` (PGE-003). | `ticket` | none |
 | `completion_gate` | Every check the named ticket declares has a green, fresh completion receipt (PGE-005). | `ticket` | none |
 | `intake_contract` | `.arca/issue/<issue-id>/` (intake), `.arca/issue/deferred/<issue-id>/`, and `.arca/issue/archive/<issue-id>/` form one issue-id namespace of exact five-file bundles. The guard parses each ask's exact `accepted\|rejected\|duplicate\|deferred` disposition from `spec.md`, never from status alone; enforces at the intake-completion boundary that the whole bundle is under `deferred/` with status `deferred` if and only if at least one ask remains deferred, while archived bundles are `integrated\|rejected` and contain no deferred ask; requires every accepted requirement ID verbatim in the goal; permits a duplicate ask to reuse the goal's existing representation without adding its proposed ID as a new row; requires every integrated bundle to have no deferred ask and at least one accepted-or-duplicate disposition; and resolves links from live intake and deferred bundles in both directions (PGE-001). | none | none |
 | `join` | FDC-009/FDC-011: the composition join. Satisfied only when the spawn ledger's live children carry Engine-written terminal `passed` facts - at least `min` of them. Until a ledger records children, a join guard honestly refuses. `require` accepts only `"all_passed"`; any other value is `RB506`, as is `min` below 1. | `require` | `min` (integer >= 1; default 1) |
@@ -116,18 +117,19 @@ failing guard refuses, reports, and leaves Phase and Status untouched (R-017).
 
 Who may write what. A rule with a named enforcer is mechanically checked; a
 rule marked prose-only is a convention this file states and no code enforces.
-The Machine Class, history, and invocation lock are project-level; mutable
-state and Run evidence are scoped to one named Run.
+The Machine Class is tracked in each checkout; history, the invocation lock,
+mutable state, and Run evidence live under the resolved Engine root, which one
+repository shares across its worktrees.
 
 | Rule | Enforcer |
 | :--- | :--- |
-| The project Machine Class stays at `.arca/ratmac.toml`. It is human-reviewed and read-only during Run lifecycle commands; scaffolding may create a runbook only at a caller-selected path that does not exist. | prose-only for human review and runtime immutability; `scaffold::write_scaffold` is the real create-only scaffold writer |
-| A Phase Prompt or guard contract never directs an agent to write `.arca/runs/<id>/state.toml`, `.arca/runs/<id>/evidence.toml`, `.arca/log.md`, or `.arca/rtm.lock` (PGE-004). | `ownership::audit_ownership` |
-| Each Run's State File is `.arca/runs/<id>/state.toml`; it is Engine-owned and has no project-level alias. | `state::StateStore` |
-| Project history stays at `.arca/log.md` and is Engine-owned. | `scheduler::Scheduler`, `blocked::apply_hold`, and `abandon::apply_abandon` are the lifecycle write paths |
-| The transient invocation lock stays at `.arca/rtm.lock` and is Engine-owned. | `scheduler::InvocationLock`; `abandon::apply_abandon` retires a leftover lock through the confirmed retirement path |
-| Run evidence is Scheduler-owned at `.arca/runs/<id>/evidence.toml`. | `pin::Evidence::write` resolves the file through `pin::evidence_path` |
-| Agent-authored test receipts live under `.arca/evidence/<ticket>/`, separate from Run evidence. | `receipt::ticket_evidence_dir` |
+| The project Machine Class stays at `.ratmac/ratmac.toml` in the invoking checkout. It is human-reviewed and read-only during Run lifecycle commands; scaffolding may create a runbook only at a caller-selected path that does not exist. | prose-only for human review and runtime immutability; `scaffold::write_scaffold` is the real create-only scaffold writer |
+| A Phase Prompt or guard contract never directs an agent to write `.ratmac/runs/<id>/state.toml`, `.ratmac/runs/<id>/evidence.toml`, `.ratmac/mint.toml`, `.ratmac/log.md`, or `.ratmac/locks/root.lock` (PGE-004). | `ownership::audit_ownership` |
+| Each Run's State File is `.ratmac/runs/<id>/state.toml`; it is Engine-owned and has no project-level alias. | `state::StateStore` |
+| Project history stays at `.ratmac/log.md` and is Engine-owned. | `scheduler::Scheduler`, `blocked::apply_hold`, and `abandon::apply_abandon` are the lifecycle write paths |
+| The transient invocation lock stays at `.ratmac/locks/root.lock` and is Engine-owned. | `scheduler::InvocationLock`; `abandon::apply_abandon` retires a leftover lock through the confirmed retirement path |
+| Run evidence is Scheduler-owned at `.ratmac/runs/<id>/evidence.toml`. | `pin::Evidence::write` resolves the file through `pin::evidence_path` |
+| Agent-authored test receipts live under `.ratmac/evidence/<run-id>/`, separate from Run evidence. | `receipt::run_evidence_dir` |
 | A guard whose verdict rests on content the agent under test can write proves less than one that does not; declaring such a guard is allowed but reported as `RB302`. | `doctor::lint_guards` |
 | A runbook is reviewed by a human before it becomes the project's Machine Class. | prose-only |
 

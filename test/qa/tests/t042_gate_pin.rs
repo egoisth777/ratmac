@@ -39,7 +39,7 @@ impl Fixture {
                 .as_nanos()
         ));
         let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(root.join(".arca")).expect("create fixture project");
+        fs::create_dir_all(root.join(".ratmac")).expect("create fixture project");
         let class = format!(
             "[phases.prepare]\n\
              prompt = \"Prepare the run.\"\n\
@@ -52,7 +52,7 @@ impl Fixture {
              from = \"prepare\"\n\
              to = \"done\"\n"
         );
-        fs::write(root.join(".arca/ratmac.toml"), class).expect("write machine class");
+        fs::write(root.join(".ratmac/ratmac.toml"), class).expect("write machine class");
         Fixture { root }
     }
 
@@ -74,7 +74,7 @@ impl Fixture {
 
     /// FDC-004: the live run's id — the newest roster entry carrying a State File.
     fn run_id(&self) -> String {
-        let mut ids: Vec<String> = fs::read_dir(self.root.join(".arca/runs"))
+        let mut ids: Vec<String> = fs::read_dir(self.root.join(".ratmac/runs"))
             .expect("list the runs roster")
             .map(|entry| entry.expect("roster entry is readable"))
             .filter(|entry| entry.path().join("state.toml").is_file())
@@ -86,7 +86,7 @@ impl Fixture {
 
     fn state_path(&self) -> PathBuf {
         self.root
-            .join(".arca/runs")
+            .join(".ratmac/runs")
             .join(self.run_id())
             .join("state.toml")
     }
@@ -103,7 +103,7 @@ impl Fixture {
 
     /// FDC-004: Run evidence resides beside the run's State File.
     fn evidence(&self) -> String {
-        let mut ids: Vec<String> = fs::read_dir(self.root.join(".arca/runs"))
+        let mut ids: Vec<String> = fs::read_dir(self.root.join(".ratmac/runs"))
             .into_iter()
             .flatten()
             .map(|entry| entry.expect("roster entry is readable"))
@@ -113,8 +113,13 @@ impl Fixture {
         ids.sort();
         ids.pop()
             .map(|id| {
-                fs::read_to_string(self.root.join(".arca/runs").join(id).join("evidence.toml"))
-                    .unwrap_or_default()
+                fs::read_to_string(
+                    self.root
+                        .join(".ratmac/runs")
+                        .join(id)
+                        .join("evidence.toml"),
+                )
+                .unwrap_or_default()
             })
             .unwrap_or_default()
     }
@@ -124,7 +129,7 @@ impl Fixture {
     }
 
     fn log(&self) -> Vec<u8> {
-        fs::read(self.root.join(".arca/log.md")).unwrap_or_default()
+        fs::read(self.root.join(".ratmac/log.md")).unwrap_or_default()
     }
 }
 
@@ -140,7 +145,7 @@ fn guard_for(program: &Path, mode: &str) -> String {
 fn pin_is_recorded() {
     let fixture = Fixture::new("record", "");
     let gate = fixture.install_gate("gate/probe.exe");
-    let class = fixture.root.join(".arca/ratmac.toml");
+    let class = fixture.root.join(".ratmac/ratmac.toml");
     let source = fs::read_to_string(&class).expect("read class");
     fs::write(
         &class,
@@ -182,7 +187,7 @@ fn pin_is_recorded() {
 fn tamper_refuses_and_restore_proceeds() {
     let fixture = Fixture::new("tamper", "");
     let gate = fixture.install_gate("gate/probe.exe");
-    let class = fixture.root.join(".arca/ratmac.toml");
+    let class = fixture.root.join(".ratmac/ratmac.toml");
     let source = fs::read_to_string(&class).expect("read class");
     fs::write(
         &class,
@@ -306,7 +311,7 @@ fn symlink_and_directory_programs_refuse() {
     let directory = Fixture::new("directory", "");
     let dir_path = directory.root.join("gate");
     fs::create_dir_all(&dir_path).expect("create directory gate");
-    let class = directory.root.join(".arca/ratmac.toml");
+    let class = directory.root.join(".ratmac/ratmac.toml");
     let source = fs::read_to_string(&class).expect("read class");
     fs::write(
         &class,
@@ -334,7 +339,7 @@ fn symlink_and_directory_programs_refuse() {
         created,
         "this lane requires symlink creation (Windows Developer Mode)"
     );
-    let class = linked.root.join(".arca/ratmac.toml");
+    let class = linked.root.join(".ratmac/ratmac.toml");
     let source = fs::read_to_string(&class).expect("read class");
     fs::write(
         &class,
@@ -360,7 +365,7 @@ fn symlink_and_directory_programs_refuse() {
 fn recorded_pin_survives_a_crashed_run() {
     let fixture = Fixture::new("crash", "");
     let gate = fixture.install_gate("gate/probe.exe");
-    let class = fixture.root.join(".arca/ratmac.toml");
+    let class = fixture.root.join(".ratmac/ratmac.toml");
     let source = fs::read_to_string(&class).expect("read class");
     fs::write(
         &class,
@@ -376,7 +381,7 @@ fn recorded_pin_survives_a_crashed_run() {
     // FDC-004: Run evidence resides beside the run's State File.
     let evidence_path = fixture
         .root
-        .join(".arca/runs")
+        .join(".ratmac/runs")
         .join(fixture.run_id())
         .join("evidence.toml");
     let engine_pin = fs::read_to_string(&evidence_path).expect("read evidence");
@@ -400,7 +405,7 @@ fn recorded_pin_survives_a_crashed_run() {
 fn pin_refusal_carries_identity_and_diagnostic_framing() {
     let fixture = Fixture::new("framing", "");
     let gate = fixture.install_gate("gate/probe.exe");
-    let class = fixture.root.join(".arca/ratmac.toml");
+    let class = fixture.root.join(".ratmac/ratmac.toml");
     let source = fs::read_to_string(&class).expect("read class");
     fs::write(
         &class,

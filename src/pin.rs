@@ -3,17 +3,17 @@
 //! Guard evaluation must not compile, fetch, or rebuild project source. A
 //! guard command that runs project-derived logic runs a *pinned gate
 //! artifact*: its resolved path and SHA-256 are recorded in Run evidence
-//! (`.arca/runs/<id>/evidence.toml`) no later than first guard use, and re-verified at
-//! every later evaluation. A command that reads no project state (a toolchain
-//! probe) is exempt, but only if the Runbook marks it `exempt = true`.
+//! (`.ratmac/runs/<id>/evidence.toml`) no later than first guard use, and
+//! re-verified at every later evaluation. A command that reads no project
+//! state (a toolchain probe) is exempt, but only if the Runbook marks it
+//! `exempt = true`.
 
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
-
-/// Run-evidence file name, relative to the run's `.arca/runs/<id>/` directory.
+/// Run-evidence file name, relative to the run's `.ratmac/runs/<id>/` directory.
 pub const EVIDENCE_FILE: &str = "evidence.toml";
 
 /// The recorded identity of one executable: where it resolved and what it is.
@@ -50,8 +50,9 @@ pub struct Evidence {
     pub goal_baseline: Option<String>,
     /// Goal revision frozen at the intake-completion boundary (ETB-003).
     pub goal_frozen: Option<String>,
-    /// FDC-005: SHA-256 of the canonical `.arca/ratmac.toml` recorded at Run
-    /// start — the runbook pin is this hash and nothing more, never a copy.
+    /// FDC-005: SHA-256 of the invoking checkout's `.ratmac/ratmac.toml`
+    /// recorded at Run start — the runbook pin is this hash and nothing more,
+    /// never a copy.
     pub runbook_sha256: Option<String>,
 }
 

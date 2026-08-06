@@ -24,11 +24,14 @@ fn isolated_project() -> PathBuf {
         .expect("system clock is before the Unix epoch")
         .as_nanos();
     let root = std::env::temp_dir().join(format!("ratmac-t017-{}-{nonce}", std::process::id()));
-    let arca = root.join(".arca");
+    let engine = root.join(".ratmac");
     fs::create_dir_all(root.join("artifacts")).expect("create artifact directory");
-    fs::create_dir_all(&arca).expect("create Scheduler directory");
-    fs::copy(fixture_root().join("ratmac.toml"), arca.join("ratmac.toml"))
-        .expect("copy Machine Class fixture");
+    fs::create_dir_all(&engine).expect("create Engine directory");
+    fs::copy(
+        fixture_root().join("ratmac.toml"),
+        engine.join("ratmac.toml"),
+    )
+    .expect("copy Machine Class fixture");
     fs::copy(
         fixture_root().join("artifacts/marker.txt"),
         root.join("artifacts/marker.txt"),
@@ -40,10 +43,10 @@ fn isolated_project() -> PathBuf {
     )
     .expect("copy content fixture");
     // FDC-004: the State File resides in the addressed run's directory.
-    let run_dir = arca.join("runs/run-001");
+    let run_dir = engine.join("runs/run-001");
     fs::create_dir_all(&run_dir).expect("create run directory");
     fs::write(run_dir.join("state.toml"), STATE).expect("write isolated State File");
-    fs::write(arca.join("log.md"), "").expect("write isolated Transition Log");
+    fs::write(engine.join("log.md"), "").expect("write isolated Transition Log");
     root
 }
 
@@ -52,7 +55,7 @@ fn request() -> StepRequest {
 }
 
 fn state_bytes(root: &Path) -> Vec<u8> {
-    fs::read(root.join(".arca/runs/run-001/state.toml")).expect("read isolated State File")
+    fs::read(root.join(".ratmac/runs/run-001/state.toml")).expect("read isolated State File")
 }
 
 fn assert_stayed(root: &Path, before: &[u8], reason: &str) {
@@ -107,9 +110,9 @@ fn guards_use_artifacts_not_agent_claims() {
     // Correct files, then use a deterministic failing command. No shell-specific syntax is
     // needed: rustc is available in the Rust test environment and this option is invalid.
     fs::write(root.join("artifacts/result.yaml"), "result: ok\n").expect("correct result content");
-    let ratmac = fs::read_to_string(root.join(".arca/ratmac.toml")).expect("read class");
+    let ratmac = fs::read_to_string(root.join(".ratmac/ratmac.toml")).expect("read class");
     fs::write(
-        root.join(".arca/ratmac.toml"),
+        root.join(".ratmac/ratmac.toml"),
         ratmac.replace(
             "args = [\"--version\"]",
             "args = [\"--definitely-invalid-option\"]",
@@ -122,9 +125,9 @@ fn guards_use_artifacts_not_agent_claims() {
     assert_stayed(&root, &before_command, "command_exit nonzero exit");
 
     // Correct every artifact while keeping the exact same claim: the guard set now passes.
-    let ratmac = fs::read_to_string(root.join(".arca/ratmac.toml")).expect("read class");
+    let ratmac = fs::read_to_string(root.join(".ratmac/ratmac.toml")).expect("read class");
     fs::write(
-        root.join(".arca/ratmac.toml"),
+        root.join(".ratmac/ratmac.toml"),
         ratmac.replace(
             "args = [\"--definitely-invalid-option\"]",
             "args = [\"--version\"]",

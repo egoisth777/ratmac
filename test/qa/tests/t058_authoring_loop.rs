@@ -716,7 +716,7 @@ fn seeds(scaffold: &str) -> Vec<(&'static str, String)> {
             "RB401",
             scaffold.replace(
                 "prompt = \"Review the work against the ticket and report the verdict.\"",
-                "prompt = \"Record the verdict in .arca/state.toml when you are done.\"",
+                "prompt = \"Record the verdict in .ratmac/runs/run-1/state.toml when you are done.\"",
             ),
         ),
         ("RB501", format!("classes = 1\n\n{scaffold}")),
@@ -967,16 +967,16 @@ fn scaffold_refuses_every_hostile_path() {
 fn the_scaffold_is_a_runnable_machine() {
     let bench = Bench::new("runnable");
     let project = bench.path("project");
-    fs::create_dir_all(project.join(".arca")).expect("create the project");
-    let runbook = project.join(".arca/ratmac.toml");
+    fs::create_dir_all(project.join(".ratmac")).expect("create the project");
+    let runbook = project.join(".ratmac/ratmac.toml");
     let shown = runbook.to_string_lossy().into_owned();
     let (code, report) = rtm(&repo_root(), &["scaffold", &shown]);
-    assert_eq!(code, 0, "scaffolding the project runbook: {report}");
+    assert_eq!(code, 0, "scaffolding the project machine class: {report}");
 
     let (code, report) = rtm(&project, &["start"]);
     assert_eq!(code, 0, "AAL-002: the scaffold starts: {report}");
-    // FDC-004: address the minted run, read off the plural roster.
-    let run_id = fs::read_dir(project.join(".arca/runs"))
+    // FDC-004: address the minted run, read off the Engine roster.
+    let run_id = fs::read_dir(project.join(".ratmac/runs"))
         .expect("list the runs roster")
         .map(|entry| entry.expect("roster entry is readable"))
         .find(|entry| entry.path().is_dir())

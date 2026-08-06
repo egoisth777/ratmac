@@ -44,7 +44,7 @@ impl Fixture {
                 .as_nanos()
         ));
         let _ = fs::remove_dir_all(&root);
-        for dir in [".arca/ticket", ".arca/residual", BLOCKER, "src"] {
+        for dir in [".arca/ticket", ".arca/residual", BLOCKER, ".ratmac", "src"] {
             fs::create_dir_all(root.join(dir)).expect("create fixture tree");
         }
         fs::write(root.join("src/lib.rs"), "pub fn work() {}\n").expect("write source");
@@ -62,7 +62,7 @@ impl Fixture {
             .expect("write blocker issue file");
         }
         fs::write(
-            root.join(".arca/ratmac.toml"),
+            root.join(".ratmac/ratmac.toml"),
             "[phases.intake]\nprompt = \"Integrate the issues.\"\n\n\
              [phases.build]\nprompt = \"Build the ticket.\"\n\n\
              [phases.build-review]\nprompt = \"Review the ticket.\"\n\n\
@@ -70,7 +70,7 @@ impl Fixture {
              [[transitions]]\nfrom = \"build\"\nto = \"intake\"\nblocked-route = true\n\n\
              [[transitions]]\nfrom = \"build\"\nto = \"build-review\"\n",
         )
-        .expect("write runbook");
+        .expect("write machine class");
         fs::write(
             root.join(".arca/ticket/t-900.md"),
             "---\nticket-id: t-900\nresidual-ids:\n  - \"res-900\"\n\
@@ -93,8 +93,8 @@ impl Fixture {
             fixture.rtm(&["start"]).status.success(),
             "the fixture Run starts"
         );
-        // FDC-004: read the minted id off the roster and address it.
-        fixture.run_id = fs::read_dir(fixture.root.join(".arca/runs"))
+        // FDC-004: read the minted id off the Engine roster and address it.
+        fixture.run_id = fs::read_dir(fixture.root.join(".ratmac/runs"))
             .expect("list the runs roster")
             .map(|entry| entry.expect("roster entry is readable"))
             .find(|entry| entry.path().is_dir())
@@ -130,7 +130,7 @@ impl Fixture {
 
     fn state_path(&self) -> PathBuf {
         self.root
-            .join(".arca/runs")
+            .join(".ratmac/runs")
             .join(&self.run_id)
             .join("state.toml")
     }
@@ -155,11 +155,11 @@ impl Fixture {
     /// The bytes of every Scheduler-owned file, so a refusal can be proven
     /// to have written nothing.
     fn owned_bytes(&self) -> Vec<(String, Vec<u8>)> {
-        // FDC-004: state and evidence reside in the run's directory.
-        let run = format!(".arca/runs/{}", self.run_id);
+        // FDC-004: state and evidence reside in the Engine's run directory.
+        let run = format!(".ratmac/runs/{}", self.run_id);
         [
             format!("{run}/state.toml"),
-            ".arca/log.md".to_owned(),
+            ".ratmac/log.md".to_owned(),
             format!("{run}/evidence.toml"),
         ]
         .iter()
@@ -194,10 +194,10 @@ impl Fixture {
 fn restore_writable(root: &Path) -> std::io::Result<()> {
     let mut paths = vec![
         root.join(".arca/ticket/t-900.md"),
-        root.join(".arca/log.md"),
+        root.join(".ratmac/log.md"),
     ];
     // FDC-004: each run carries its own State File.
-    if let Ok(entries) = fs::read_dir(root.join(".arca/runs")) {
+    if let Ok(entries) = fs::read_dir(root.join(".ratmac/runs")) {
         for entry in entries.flatten() {
             paths.push(entry.path().join("state.toml"));
         }
@@ -225,8 +225,7 @@ fn set_readonly(path: &Path, readonly: bool) {
 #[test]
 fn held_with_blocker_routes_onward() {
     let fixture = Fixture::new("routes");
-    let log_before = fs::read_to_string(fixture.root.join(".arca/log.md")).expect("read log");
-
+    let log_before = fs::read_to_string(fixture.root.join(".ratmac/log.md")).expect("read log");
     let output = fixture.hold(&[TICKET, "--blocker", BLOCKER, "--confirm", "hold t-900"]);
     assert!(
         output.status.success(),
@@ -254,7 +253,7 @@ fn held_with_blocker_routes_onward() {
         fixture.residual()
     );
 
-    let log = fs::read_to_string(fixture.root.join(".arca/log.md")).expect("read log");
+    let log = fs::read_to_string(fixture.root.join(".ratmac/log.md")).expect("read log");
     assert!(
         log.starts_with(&log_before),
         "history is appended, never rewritten"
@@ -413,8 +412,13 @@ fn held_ticket_cannot_be_passed() {
     );
 
     // And the completion gate still refuses the held ticket.
-    let defects = ratmac::completion::gate_completion(&fixture.root, ".arca/ticket/t-900.md")
-        .expect_err("a held ticket cannot be completed");
+    let defects = ratmac::completion::gate_completion(
+        &fixture.root,
+        &fixture.root.join(".ratmac"),
+        &fixture.run_id,
+        ".arca/ticket/t-900.md",
+    )
+    .expect_err("a held ticket cannot be completed");
     let text = defects
         .iter()
         .map(ToString::to_string)

@@ -11,7 +11,7 @@
 //! - *declared*: its check ID is one the ticket asks for, and no stray receipt
 //!   sits beside it.
 //!
-//! Completion receipt: `.arca/evidence/<ticket-id>/completion/<check>.toml`
+//! Completion receipt: `.ratmac/evidence/<run-id>/completion/<check>.toml`
 //!
 //! ```toml
 //! ticket-id = "t-047"
@@ -40,7 +40,7 @@ use sha2::{Digest, Sha256};
 
 use crate::receipt::sha256_text;
 
-/// Where one ticket's completion receipts live, under the evidence directory.
+/// Completion receipts live below one addressed Run's evidence directory.
 pub const COMPLETION_DIR: &str = "completion";
 
 /// What a declared check proves about the ticket.
@@ -322,13 +322,19 @@ pub fn load_completion(path: &Path) -> Result<CompletionReceipt, CompletionDefec
 }
 
 /// PGE-005: the P5 gate. A ticket may be passed only when every declared check
-/// carries a green, self-consistent, fresh receipt.
+/// carries a green, self-consistent, fresh receipt in the addressed Run's
+/// resolved Engine-root evidence directory.
 ///
 /// Defects are reported in declaration order, so the first one names the first
 /// missing receipt. The gate writes nothing: a refusal leaves the ticket
 /// executing and its residuals unproven.
-pub fn gate_completion(root: &Path, ticket_relative: &str) -> Result<(), Vec<CompletionDefect>> {
-    let ticket_path = root.join(ticket_relative);
+pub fn gate_completion(
+    workflow_root: &Path,
+    engine_root: &Path,
+    run_id: &str,
+    ticket_relative: &str,
+) -> Result<(), Vec<CompletionDefect>> {
+    let ticket_path = workflow_root.join(ticket_relative);
     let source = fs::read_to_string(&ticket_path).map_err(|error| {
         vec![defect(
             "",
@@ -339,7 +345,7 @@ pub fn gate_completion(root: &Path, ticket_relative: &str) -> Result<(), Vec<Com
         .file_stem()
         .map(|stem| stem.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let directory = crate::receipt::ticket_evidence_dir(root, &ticket_id).join(COMPLETION_DIR);
+    let directory = crate::receipt::run_evidence_dir(engine_root, run_id).join(COMPLETION_DIR);
 
     let checks = declared_checks(&source);
     let mut defects: Vec<CompletionDefect> = Vec::new();
@@ -369,6 +375,9 @@ pub fn gate_completion(root: &Path, ticket_relative: &str) -> Result<(), Vec<Com
     let mut receipts: BTreeMap<String, (PathBuf, CompletionReceipt)> = BTreeMap::new();
     for path in receipt_files(&directory) {
         match load_completion(&path) {
+            // A Run may retain evidence for more than one ticket. Only the
+            // addressed ticket's receipts participate in this gate.
+            Ok(receipt) if receipt.ticket != ticket_id => {}
             Ok(receipt) => {
                 if let Some((existing, _)) = receipts.get(&receipt.check) {
                     defects.push(defect(
@@ -399,7 +408,7 @@ pub fn gate_completion(root: &Path, ticket_relative: &str) -> Result<(), Vec<Com
             ));
             continue;
         };
-        if let Err(problem) = verify_completion(root, &ticket_id, check, receipt) {
+        if let Err(problem) = verify_completion(workflow_root, &ticket_id, check, receipt) {
             defects.push(problem);
             continue;
         }

@@ -65,9 +65,11 @@ impl Fixture {
         ));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join(".arca/goal")).expect("create fixture goal tree");
+        fs::create_dir_all(root.join(".ratmac")).expect("create fixture Engine tree");
         fs::create_dir_all(root.join("src")).expect("create fixture source tree");
         fs::write(root.join(".arca/goal/spec.md"), "# Fixture goal\n").expect("write fixture goal");
-        fs::write(root.join(".arca/ratmac.toml"), COMPOSED_RUNBOOK).expect("write fixture runbook");
+        fs::write(root.join(".ratmac/ratmac.toml"), COMPOSED_RUNBOOK)
+            .expect("write fixture machine class");
         fs::write(root.join("src/lib.rs"), "pub fn fixture() {}\n").expect("write fixture source");
         Self { root }
     }
@@ -107,7 +109,7 @@ impl Fixture {
     }
 
     fn runs_dir(&self) -> PathBuf {
-        self.root.join(".arca/runs")
+        self.root.join(".ratmac/runs")
     }
 
     fn roster(&self) -> Vec<String> {
@@ -142,7 +144,7 @@ fn combined(output: &Output) -> String {
     )
 }
 
-/// Every file under `.arca/runs/`, keyed by relative path, with exact bytes.
+/// Every file under `.ratmac/runs/`, keyed by relative path, with exact bytes.
 fn runs_snapshot(runs: &Path) -> BTreeMap<String, Vec<u8>> {
     let mut files = BTreeMap::new();
     fn walk(base: &Path, dir: &Path, files: &mut BTreeMap<String, Vec<u8>>) {

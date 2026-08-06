@@ -122,14 +122,17 @@ impl fmt::Display for StepOutcome {
 
 /// Scheduler-owned machine, lifecycle, and optional project state access.
 ///
-/// Runs reside under the plural `.arca/runs/<id>/` path (FDC-004). Commands
-/// that act on an existing Run address it explicitly: the Scheduler binds to
-/// one run via [`Scheduler::open_run`] or by minting one in
-/// [`Scheduler::start`].
+/// Runs reside under the resolved Engine root's plural
+/// `.ratmac/runs/<id>/` path. Commands that act on an existing Run address it
+/// explicitly: the Scheduler binds to one run via [`Scheduler::open_run`] or
+/// by minting one in [`Scheduler::start`].
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Scheduler {
     machine: MachineGraph,
+    /// The invoking checkout: Machine Class, workflows, guards, and goals live here.
     root: Option<PathBuf>,
+    /// The resolved runtime root, shared by linked worktrees.
+    engine_root: Option<PathBuf>,
     run_id: Option<String>,
     store: Option<StateStore>,
 }
@@ -140,7 +143,9 @@ struct InvocationLock {
 
 impl InvocationLock {
     fn legacy_lock_path(path: &Path) -> Option<PathBuf> {
-        path.parent().map(|parent| parent.join("schd.lock"))
+        path.parent()
+            .and_then(Path::parent)
+            .map(|engine_root| engine_root.join("schd.lock"))
     }
 
     fn refuse_legacy(path: &Path) -> Result<(), StateError> {
@@ -169,6 +174,11 @@ impl InvocationLock {
 
     fn acquire_with_retry(path: &Path) -> Result<Self, StateError> {
         const MAX_ATTEMPTS: usize = 4_096;
+        let parent = path
+            .parent()
+            .ok_or_else(|| StateError::new("root lock has no parent directory"))?;
+        fs::create_dir_all(parent)
+            .map_err(|error| StateError::new(format!("create locks directory: {error}")))?;
         Self::refuse_legacy(path)?;
         for attempt in 0..MAX_ATTEMPTS {
             match Self::try_acquire(path) {
@@ -190,12 +200,12 @@ impl InvocationLock {
                         thread::yield_now();
                     } else {
                         return Err(StateError::new(format!(
-                            "acquire rtm.lock: lock remained held after {MAX_ATTEMPTS} attempts"
+                            "acquire root.lock: lock remained held after {MAX_ATTEMPTS} attempts"
                         )));
                     }
                 }
                 Err(error) => {
-                    return Err(StateError::new(format!("create rtm.lock: {error}")));
+                    return Err(StateError::new(format!("create root.lock: {error}")));
                 }
             }
         }
@@ -214,6 +224,7 @@ impl Scheduler {
         Self {
             machine,
             root: None,
+            engine_root: None,
             run_id: None,
             store: None,
         }
@@ -224,7 +235,9 @@ impl Scheduler {
     /// No run is addressed yet: `start` mints one, and `open_run` binds to an
     /// existing one. State operations refuse until a run is addressed.
     pub fn open(root: impl AsRef<Path>) -> Result<Self, StateError> {
-        let root = root.as_ref().to_path_buf();
+        let roots = crate::root::resolve(root);
+        let root = roots.invoking_checkout_root().to_path_buf();
+        let engine_root = roots.engine_root().to_path_buf();
         let machine = Self::graph_of(&Self::load_class(&root)?);
         Self::refuse_flat_residue(&root)?;
         Ok(Self {
@@ -232,20 +245,23 @@ impl Scheduler {
             run_id: None,
             store: None,
             root: Some(root),
+            engine_root: Some(engine_root),
         })
     }
 
     /// Open a project addressed at one canonical, minted roster member under
-    /// `.arca/runs/<run_id>/`.
+    /// `.ratmac/runs/<run_id>/`.
     pub fn open_run(root: impl AsRef<Path>, run_id: impl AsRef<str>) -> Result<Self, StateError> {
         let run_id = run_id.as_ref();
-        let root = root.as_ref().to_path_buf();
+        let roots = crate::root::resolve(root);
+        let root = roots.invoking_checkout_root().to_path_buf();
+        let engine_root = roots.engine_root().to_path_buf();
         // FDC-004: caller input is proved to be one canonical direct-child
         // name on the roster before it participates in any path join.
         Self::validate_run_address(&root, run_id)?;
         let machine = Self::graph_of(&Self::load_class(&root)?);
         Self::refuse_flat_residue(&root)?;
-        let run_dir = Self::runs_dir(&root).join(run_id);
+        let run_dir = Self::runs_dir_at(&engine_root).join(run_id);
         // FDC-006: a roster entry without a State File is a retired run —
         // terminal, never resurrected. The refusal names the run as terminal,
         // distinct from an unknown id (refused with the roster listing).
@@ -260,37 +276,47 @@ impl Scheduler {
         Ok(Self {
             machine,
             run_id: Some(run_id.to_owned()),
-            store: Some(StateStore::for_run(&root, run_id)),
+            store: Some(StateStore::for_engine_root(&engine_root, run_id)),
             root: Some(root),
+            engine_root: Some(engine_root),
         })
     }
 
-    /// FDC-005: a pre-plural flat `.arca/state.toml` is residue, never
-    /// adopted. Meeting one refuses, names the observed fact and the repair,
-    /// and modifies nothing — the legacy-lock precedent, never an
-    /// auto-migration. The check runs at open and again at the top of
-    /// `start`, before any run is minted: `start` on a residue-carrying
-    /// project names the residue and mints nothing.
+    /// FDC-005: a pre-plural flat `.ratmac/state.toml` or pre-split flat
+    /// `.arca/state.toml` is residue, never adopted. Meeting one refuses,
+    /// names the observed fact and the repair, and modifies nothing — the
+    /// legacy-lock precedent, never an auto-migration. The check runs at open
+    /// and again at the top of `start`, before any run is minted: `start` on a
+    /// residue-carrying project names the residue and mints nothing.
     fn refuse_flat_residue(root: &Path) -> Result<(), StateError> {
-        let flat = root.join(".arca").join("state.toml");
-        if fs::symlink_metadata(&flat).is_ok() {
-            return Err(StateError::new(format!(
-                "refusing to run: flat-layout residue {} exists; runs reside under \
-                 .arca/runs/<id>/ — explicitly migrate that file into its run's directory \
-                 or remove it, then retry; it was not modified",
-                flat.display()
-            )));
+        let roots = crate::root::resolve(root);
+        for flat in [
+            roots.engine_root().join("state.toml"),
+            roots
+                .invoking_checkout_root()
+                .join(".arca")
+                .join("state.toml"),
+        ] {
+            if fs::symlink_metadata(&flat).is_ok() {
+                return Err(StateError::new(format!(
+                    "refusing to run: flat-layout residue {} exists; runs reside under \
+                     .ratmac/runs/<id>/ — explicitly migrate that file into its run's directory \
+                     or remove it, then retry; it was not modified",
+                    flat.display()
+                )));
+            }
         }
         Ok(())
     }
 
-    /// FDC-005: SHA-256 of the canonical runbook, lowercase hex. The runbook
-    /// pin is this hash and nothing more; no code path copies the runbook.
+    /// FDC-005: SHA-256 of the canonical invoking-checkout runbook, lowercase
+    /// hex. The runbook pin is this hash and nothing more; no code path copies
+    /// the runbook.
     fn runbook_sha256(root: &Path) -> Result<String, StateError> {
-        let path = root.join(".arca/ratmac.toml");
+        let path = crate::root::resolve(root).machine_class_path();
         crate::pin::sha256_file(&path).map_err(|error| {
             StateError::new(format!(
-                "hash .arca/ratmac.toml: {error} ({})",
+                "hash .ratmac/ratmac.toml: {error} ({})",
                 path.display()
             ))
         })
@@ -307,7 +333,7 @@ impl Scheduler {
         let observed = Self::runbook_sha256(root)?;
         if observed != expected {
             return Err(StateError::new(format!(
-                "runbook pin mismatch: .arca/ratmac.toml drifted since rtm start — \
+                "runbook pin mismatch: .ratmac/ratmac.toml drifted since rtm start — \
                  observed sha256={observed}; expected sha256={expected}; restore the \
                  pinned runbook bytes or retire the run (rtm abandon); nothing was modified"
             )));
@@ -320,16 +346,26 @@ impl Scheduler {
         self.run_id.as_deref()
     }
 
-    /// The plural runs directory for a project root.
+    /// The plural runs directory for an invoking checkout.
     pub fn runs_dir(root: impl AsRef<Path>) -> PathBuf {
-        root.as_ref().join(".arca").join("runs")
+        let engine_root = crate::root::resolve(root).engine_root().to_path_buf();
+        Self::runs_dir_at(&engine_root)
     }
 
-    /// Listing `.arca/runs/` IS the roster: direct run-directory artifacts,
-    /// sorted. Symlinks are not Run directories and cannot put a roster member
-    /// outside the plural residency path.
+    fn runs_dir_at(engine_root: &Path) -> PathBuf {
+        engine_root.join("runs")
+    }
+
+    /// Listing the resolved `.ratmac/runs/` is the roster: direct
+    /// run-directory artifacts, sorted. Symlinks are not Run directories and
+    /// cannot put a roster member outside the plural residency path.
     pub fn run_roster(root: impl AsRef<Path>) -> Vec<String> {
-        let Ok(entries) = fs::read_dir(Self::runs_dir(root)) else {
+        let engine_root = crate::root::resolve(root).engine_root().to_path_buf();
+        Self::run_roster_at(&engine_root)
+    }
+
+    fn run_roster_at(engine_root: &Path) -> Vec<String> {
+        let Ok(entries) = fs::read_dir(Self::runs_dir_at(engine_root)) else {
             return Vec::new();
         };
         let mut ids: Vec<String> = entries
@@ -352,7 +388,8 @@ impl Scheduler {
     /// and exactly equals one direct roster member. Every refusal carries the
     /// roster so command surfaces can report it without probing a candidate.
     pub(crate) fn validate_run_address(root: &Path, run_id: &str) -> Result<(), StateError> {
-        let roster = Self::run_roster(root);
+        let engine_root = crate::root::resolve(root).engine_root().to_path_buf();
+        let roster = Self::run_roster_at(&engine_root);
         let roster_line = if roster.is_empty() {
             "none".to_owned()
         } else {
@@ -386,8 +423,8 @@ impl Scheduler {
     /// Mint the next run id in the single id namespace: one more than the
     /// highest canonical ordinal on the roster — live or retired — so an
     /// abandoned run's id is never reissued (FDC-006).
-    fn mint_run_id(root: &Path) -> String {
-        let next = Self::run_roster(root)
+    fn mint_run_id(engine_root: &Path) -> String {
+        let next = Self::run_roster_at(engine_root)
             .iter()
             .filter_map(|id| Self::canonical_run_ordinal(id))
             .max()
@@ -396,31 +433,34 @@ impl Scheduler {
         format!("run-{next:03}")
     }
 
+    fn engine_root(&self) -> Result<&Path, StateError> {
+        self.engine_root
+            .as_deref()
+            .ok_or_else(|| StateError::new("operation requires Scheduler::open"))
+    }
+
     fn run_dir(&self) -> Result<PathBuf, StateError> {
-        let root = self
-            .root
-            .as_ref()
-            .ok_or_else(|| StateError::new("run addressing requires Scheduler::open"))?;
+        let engine_root = self.engine_root()?;
         let run_id = self.run_id.as_deref().ok_or_else(|| {
             StateError::new(
                 "no run addressed: open one with Scheduler::open_run or mint one with start",
             )
         })?;
-        Ok(Self::runs_dir(root).join(run_id))
+        Ok(Self::runs_dir_at(engine_root).join(run_id))
     }
 
     /// TRP-001, TRP-005: the one reader. An absent or unreadable runbook is a
     /// refusal that names the path, never an empty machine.
     fn load_class(root: &Path) -> Result<MachineClass, StateError> {
-        let path = root.join(".arca/ratmac.toml");
+        let path = crate::root::resolve(root).machine_class_path();
         let source = fs::read_to_string(&path).map_err(|error| {
             StateError::new(format!(
-                "read .arca/ratmac.toml: {error} ({})",
+                "read .ratmac/ratmac.toml: {error} ({})",
                 path.display()
             ))
         })?;
         MachineClass::from_toml(&source)
-            .map_err(|error| StateError::new(format!("parse .arca/ratmac.toml: {error}")))
+            .map_err(|error| StateError::new(format!("parse .ratmac/ratmac.toml: {error}")))
     }
 
     fn graph_of(class: &MachineClass) -> MachineGraph {
@@ -480,10 +520,10 @@ impl Scheduler {
     /// Instantiate a Run from the canonical, human-authored Machine Class.
     ///
     /// FDC-004: start mints a run id in the single namespace and creates
-    /// `.arca/runs/<id>/` with its durable State File and Run evidence.
+    /// `.ratmac/runs/<id>/` with its durable State File and Run evidence.
     /// FDC-003: the `verdict.toml` live slot is absent when empty; the
     /// `spawn-ledger` path remains reserved by name only for machine
-    /// composition. No flat `.arca/state.toml` is written.
+    /// composition. No flat `.ratmac/state.toml` is written.
     ///
     /// State and log persist after return. The lock is held only for this
     /// invocation and is released by the RAII guard before the Run is observed.
@@ -495,6 +535,7 @@ impl Scheduler {
             .as_ref()
             .ok_or_else(|| StateError::new("start requires Scheduler::open"))?
             .clone();
+        let engine_root = self.engine_root()?.to_path_buf();
         self.machine = Self::graph_of(&Self::load_class(&root)?);
         let phase = self.initial_phase()?;
         // FDC-002: a Run beginning in a terminal Phase — no ordinary outgoing
@@ -505,10 +546,7 @@ impl Scheduler {
         } else {
             Status::Passed
         };
-        let arca = root.join(".arca");
-        fs::create_dir_all(&arca)
-            .map_err(|error| StateError::new(format!("create .arca: {error}")))?;
-        let lock_path = arca.join("rtm.lock");
+        let lock_path = engine_root.join("locks").join("root.lock");
         let _lock = InvocationLock::acquire_with_retry(&lock_path)?;
         // FDC-005: flat-layout residue refuses before any run id is minted,
         // so the refusal names the residue and no run directory is created.
@@ -517,10 +555,16 @@ impl Scheduler {
         // SHA-256 of the canonical runbook — a hash and nothing more.
         let runbook_pin = Self::runbook_sha256(&root)?;
         // FDC-006: no active-Run cap. Any number of runs coexist under
-        // .arca/runs/, each addressed by its own id; start only mints the
+        // .ratmac/runs/, each addressed by its own id; start only mints the
         // next id over the unfiltered roster — live or retired.
-        let run_id = Self::mint_run(&root, phase.as_str(), initial_status, &runbook_pin)?;
-        let store = StateStore::for_run(&root, &run_id);
+        let run_id = Self::mint_run(
+            &engine_root,
+            &root,
+            phase.as_str(),
+            initial_status,
+            &runbook_pin,
+        )?;
+        let store = StateStore::for_engine_root(&engine_root, &run_id);
         self.store = Some(store);
         self.run_id = Some(run_id.clone());
 
@@ -528,21 +572,21 @@ impl Scheduler {
     }
 
     /// Mint the next run id and create its directory, State File, evidence,
-    /// and reserved spawn-ledger path - all of it or none of it. Used by
-    /// `start` for the project machine and by `spawn`/`respawn` for children
-    /// and successors: every minted Run is an ordinary flat top-level Run in
-    /// the single namespace (FDC-004/FDC-006).
+    /// mint record, and reserved spawn-ledger path - all of it or none of it.
+    /// Used by `start` for the project machine and by `spawn`/`respawn` for
+    /// children and successors: every minted Run is an ordinary flat top-level
+    /// Run in the single namespace (FDC-004/FDC-006).
     fn mint_run(
-        root: &Path,
+        engine_root: &Path,
+        workflow_root: &Path,
         phase: &str,
         status: Status,
         runbook_pin: &str,
     ) -> Result<String, StateError> {
-        let arca = root.join(".arca");
-        let run_id = Self::mint_run_id(root);
-        let runs_dir = Self::runs_dir(root);
+        let run_id = Self::mint_run_id(engine_root);
+        let runs_dir = Self::runs_dir_at(engine_root);
         fs::create_dir_all(&runs_dir)
-            .map_err(|error| StateError::new(format!("create .arca/runs: {error}")))?;
+            .map_err(|error| StateError::new(format!("create .ratmac/runs: {error}")))?;
         let run_dir = runs_dir.join(&run_id);
         fs::create_dir(&run_dir)
             .map_err(|error| StateError::new(format!("create run directory {run_id}: {error}")))?;
@@ -556,9 +600,9 @@ impl Scheduler {
             active_refs: Vec::new(),
             blocker: String::new(),
         };
-        let log_path = arca.join("log.md");
+        let log_path = engine_root.join("log.md");
         let log_existed = log_path.exists();
-        let store = StateStore::for_run(root, &run_id);
+        let store = StateStore::for_engine_root(engine_root, &run_id);
         let create_run = || -> Result<(), StateError> {
             let log = OpenOptions::new()
                 .create(true)
@@ -593,7 +637,7 @@ impl Scheduler {
             }
             // ETB-003: Run start records the baseline goal revision. The
             // freeze happens later, at the intake-completion boundary.
-            evidence.goal_baseline = crate::goal::revision(root);
+            evidence.goal_baseline = crate::goal::revision(workflow_root);
             evidence.goal_frozen = None;
             // FDC-005: record the runbook pin — hash only, never a copy.
             evidence.runbook_sha256 = Some(runbook_pin.to_owned());
@@ -610,6 +654,7 @@ impl Scheduler {
                 .map_err(|error| {
                     StateError::new(format!("reserve spawn-ledger under {run_id}: {error}"))
                 })?;
+            Self::write_mint_record(engine_root, &run_id)?;
             Ok(())
         };
         if let Err(error) = create_run() {
@@ -619,6 +664,17 @@ impl Scheduler {
         }
 
         Ok(run_id)
+    }
+
+    /// Keep the Engine-root mint record present and truthful for every
+    /// successful mint. Durable high-water allocation is deliberately owned by
+    /// the later minting ticket.
+    fn write_mint_record(engine_root: &Path, run_id: &str) -> Result<(), StateError> {
+        fs::write(
+            engine_root.join("mint.toml"),
+            format!("highest-issued = {run_id:?}\n"),
+        )
+        .map_err(|error| StateError::new(format!("write mint.toml: {error}")))
     }
 
     /// FDC-007: `rtm spawn` is ordinary checked motion - no confirmation
@@ -670,18 +726,19 @@ composition is capped at one level (FDC-012)"
             .as_ref()
             .ok_or_else(|| StateError::new("spawn requires Scheduler::open_run"))?
             .clone();
+        let engine_root = self.engine_root()?.to_path_buf();
         let parent_id = self.run_id.clone().ok_or_else(|| {
             StateError::new("spawn requires an addressed parent: open one with Scheduler::open_run")
         })?;
         let run_dir = self.run_dir()?;
-        let lock_path = root.join(".arca/rtm.lock");
+        let lock_path = engine_root.join("locks").join("root.lock");
         let _lock = InvocationLock::acquire_with_retry(&lock_path)?;
         // FDC-012: composition is capped at one level. A parent that is
         // itself a ledger-recorded child anywhere refuses before any read of
         // its state - provenance, not liveness, so an abandoned child and a
         // respawned successor (its State File retired or fresh) refuse by
         // the same name, before any write.
-        if crate::ledger::is_recorded_child(&Self::runs_dir(&root), &parent_id)
+        if crate::ledger::is_recorded_child(&Self::runs_dir_at(&engine_root), &parent_id)
             .map_err(|error| StateError::new(format!("spawn cap check refused: {error}")))?
         {
             return Err(StateError::new(format!(
@@ -768,7 +825,13 @@ composition is capped at one level (FDC-012)"
             Status::Passed
         };
         let runbook_pin = Self::runbook_sha256(&root)?;
-        let child = Self::mint_run(&root, child_phase.as_str(), child_status, &runbook_pin)?;
+        let child = Self::mint_run(
+            &engine_root,
+            &root,
+            child_phase.as_str(),
+            child_status,
+            &runbook_pin,
+        )?;
         // FDC-011: the entry lands in the same turn that mints the child; a
         // blocked append rolls the mint back so no child exists unrecorded.
         let entry = LedgerEntry {
@@ -781,7 +844,7 @@ composition is capped at one level (FDC-012)"
             supersedes: None,
         };
         if let Err(error) = crate::ledger::append_entry(&run_dir.join("spawn-ledger"), &entry) {
-            let _ = fs::remove_dir_all(Self::runs_dir(&root).join(&child));
+            let _ = fs::remove_dir_all(Self::runs_dir_at(&engine_root).join(&child));
             return Err(StateError::new(format!(
                 "spawn cannot record the ledger entry for {child}: {error}; the child mint was rolled back"
             )));
@@ -799,7 +862,8 @@ composition is capped at one level (FDC-012)"
     /// (FDC-011, a later increment).
     pub fn respawn(root: impl AsRef<Path>, request: &RespawnRequest) -> Result<String, StateError> {
         let root = root.as_ref();
-        let roster = Self::run_roster(root);
+        let engine_root = crate::root::resolve(root).engine_root().to_path_buf();
+        let roster = Self::run_roster_at(&engine_root);
         let roster_line = if roster.is_empty() {
             "none".to_owned()
         } else {
@@ -837,7 +901,7 @@ composition is capped at one level (FDC-012)"
                 "respawn names no run: {superseded:?} is not on the roster; runs: {roster_line}"
             )));
         }
-        if !Self::runs_dir(root)
+        if !Self::runs_dir_at(&engine_root)
             .join(&superseded)
             .join("state.toml")
             .is_file()
@@ -852,10 +916,7 @@ composition is capped at one level (FDC-012)"
         // Mint the successor first: an interrupted respawn leaves either the
         // superseded Run or a fully minted successor, never a half-made pair.
         let successor = {
-            let arca = root.join(".arca");
-            fs::create_dir_all(&arca)
-                .map_err(|error| StateError::new(format!("create .arca: {error}")))?;
-            let lock_path = arca.join("rtm.lock");
+            let lock_path = engine_root.join("locks").join("root.lock");
             let _lock = InvocationLock::acquire_with_retry(&lock_path)?;
             Self::refuse_flat_residue(root)?;
             let class = Self::load_class(root)?;
@@ -898,7 +959,7 @@ composition is capped at one level (FDC-012)"
                 }
             };
             let runbook_pin = Self::runbook_sha256(root)?;
-            Self::mint_run(root, phase.as_str(), status, &runbook_pin)?
+            Self::mint_run(&engine_root, root, phase.as_str(), status, &runbook_pin)?
             // The invocation lock releases here, before the abandon path
             // plans its own retirement set.
         };
@@ -915,7 +976,7 @@ composition is capped at one level (FDC-012)"
             // Converge: never leave both the superseded Run and its
             // successor live. The half of the pair minted this invocation is
             // the one rolled back; a retry starts over.
-            let _ = fs::remove_dir_all(Self::runs_dir(root).join(&successor));
+            let _ = fs::remove_dir_all(Self::runs_dir_at(&engine_root).join(&successor));
             return Err(StateError::new(format!(
                 "respawn interrupted retiring {superseded}: {refusal}; the successor mint was rolled back"
             )));
@@ -933,7 +994,7 @@ composition is capped at one level (FDC-012)"
                 supersedes: Some(superseded.clone()),
             };
             if let Err(error) = crate::ledger::append_entry(&ledger_path, &successor_entry) {
-                let _ = fs::remove_dir_all(Self::runs_dir(root).join(&successor));
+                let _ = fs::remove_dir_all(Self::runs_dir_at(&engine_root).join(&successor));
                 return Err(StateError::new(format!(
                     "respawn cannot record the successor entry for {successor}: {error}; the successor mint was rolled back"
                 )));
@@ -951,8 +1012,9 @@ composition is capped at one level (FDC-012)"
             .as_ref()
             .ok_or_else(|| StateError::new("step requires Scheduler::open"))?
             .clone();
+        let engine_root = self.engine_root()?.to_path_buf();
         let run_dir = self.run_dir()?;
-        let lock_path = root.join(".arca/rtm.lock");
+        let lock_path = engine_root.join("locks").join("root.lock");
         let _lock = InvocationLock::acquire_with_retry(&lock_path)?;
         let class = Self::load_class(&root)?;
         // FDC-005: no transition may proceed on a drifted class — the pin
@@ -1043,7 +1105,7 @@ composition is capped at one level (FDC-012)"
         let freezes_goal = transition.freezes_goal();
         let to = transition.to().clone();
         let prior = state.clone();
-        let log_path = root.join(".arca/log.md");
+        let log_path = engine_root.join("log.md");
         let mut log = OpenOptions::new()
             .append(true)
             .read(true)
@@ -1180,6 +1242,7 @@ composition is capped at one level (FDC-012)"
                 )])
             }
         };
+        let engine_root = self.engine_root()?;
 
         let mut failures = Vec::new();
         for guard in definition.guards() {
@@ -1210,7 +1273,11 @@ composition is capped at one level (FDC-012)"
                 GuardKind::Join { min, .. } => self.evaluate_join(*min),
                 GuardKind::RecordContract => self.evaluate_contract(
                     "record_contract",
-                    crate::contract::gate_records(root, self.run_id.as_deref().unwrap_or_default()),
+                    crate::contract::gate_records(
+                        root,
+                        engine_root,
+                        self.run_id.as_deref().unwrap_or_default(),
+                    ),
                     "one residual per requirement citing the frozen revision, evidence behind every satisfied, one owning ticket per gap, acyclic dependencies, complete tickets",
                 ),
             };
@@ -1231,10 +1298,9 @@ composition is capped at one level (FDC-012)"
         let run_dir = self
             .run_dir()
             .map_err(|error| refuse(format!("the addressed run is unresolved: {error}")))?;
-        let root = self
-            .root
-            .clone()
-            .ok_or_else(|| refuse("the join needs an opened run".to_owned()))?;
+        let engine_root = self
+            .engine_root()
+            .map_err(|error| refuse(format!("the Engine root is unresolved: {error}")))?;
         let entries = crate::ledger::read_entries(&run_dir.join("spawn-ledger"))
             .map_err(|error| refuse(error.to_string()))?;
         let live: Vec<&crate::ledger::LedgerEntry> =
@@ -1248,7 +1314,9 @@ composition is capped at one level (FDC-012)"
         let mut unfinished = Vec::new();
         let mut passed: i64 = 0;
         for entry in &live {
-            let state_path = Self::runs_dir(&root).join(&entry.id).join("state.toml");
+            let state_path = Self::runs_dir_at(engine_root)
+                .join(&entry.id)
+                .join("state.toml");
             if !state_path.is_file() {
                 missing.push(entry.id.as_str());
                 continue;
@@ -1291,12 +1359,27 @@ composition is capped at one level (FDC-012)"
     }
 
     /// PGE-003: the P4 gate. Every planned test the ticket declares must
-    /// resolve to a sensitivity receipt under `.arca/evidence/`; prose,
-    /// filenames, and status fields satisfy nothing. The predicate runs
-    /// in-process, inside the pinned gate boundary, so no external program is
-    /// trusted to decide whether the work was done.
+    /// resolve to a sensitivity receipt under the addressed Run's
+    /// `.ratmac/evidence/<run-id>/`; prose, filenames, and status fields
+    /// satisfy nothing.
     fn evaluate_sensitivity_receipts(&self, root: &Path, ticket: &str) -> Result<(), GuardFailure> {
-        crate::receipt::gate_sensitivity(root, ticket).map_err(|defects| {
+        let engine_root = self.engine_root().map_err(|error| {
+            guard_failure(
+                "sensitivity_receipts",
+                ticket,
+                error.to_string(),
+                "an addressed Run with a resolved Engine root",
+            )
+        })?;
+        let run_id = self.run_id().ok_or_else(|| {
+            guard_failure(
+                "sensitivity_receipts",
+                ticket,
+                "no addressed Run",
+                "an addressed Run",
+            )
+        })?;
+        crate::receipt::gate_sensitivity(root, engine_root, run_id, ticket).map_err(|defects| {
             let observed = defects
                 .iter()
                 .map(ToString::to_string)
@@ -1316,7 +1399,23 @@ composition is capped at one level (FDC-012)"
     /// verifies receipts rather than running the checks, because ETB-001
     /// forbids rebuilding project source at evaluation time.
     fn evaluate_completion_gate(&self, root: &Path, ticket: &str) -> Result<(), GuardFailure> {
-        crate::completion::gate_completion(root, ticket).map_err(|defects| {
+        let engine_root = self.engine_root().map_err(|error| {
+            guard_failure(
+                "completion_gate",
+                ticket,
+                error.to_string(),
+                "an addressed Run with a resolved Engine root",
+            )
+        })?;
+        let run_id = self.run_id().ok_or_else(|| {
+            guard_failure(
+                "completion_gate",
+                ticket,
+                "no addressed Run",
+                "an addressed Run",
+            )
+        })?;
+        crate::completion::gate_completion(root, engine_root, run_id, ticket).map_err(|defects| {
             let observed = defects
                 .iter()
                 .map(ToString::to_string)
@@ -1593,12 +1692,8 @@ composition is capped at one level (FDC-012)"
     }
 
     fn invocation_lock_with_retry(&self) -> Result<InvocationLock, StateError> {
-        let root = self
-            .root
-            .as_ref()
-            .ok_or_else(|| StateError::new("operation requires Scheduler::open"))?;
-        let arca = root.join(".arca");
-        InvocationLock::acquire_with_retry(&arca.join("rtm.lock"))
+        let engine_root = self.engine_root()?;
+        InvocationLock::acquire_with_retry(&engine_root.join("locks").join("root.lock"))
     }
 
     fn store(&self) -> Result<&StateStore, StateError> {

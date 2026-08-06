@@ -48,7 +48,7 @@ impl Project {
             std::thread::current().id()
         ));
         let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(root.join(".arca")).expect("create project");
+        fs::create_dir_all(root.join(".ratmac")).expect("create project");
         Self { root }
     }
 
@@ -59,7 +59,7 @@ impl Project {
     }
 
     fn write_runbook(&self, source: &str) {
-        fs::write(self.root.join(".arca/ratmac.toml"), source).expect("write runbook");
+        fs::write(self.root.join(".ratmac/ratmac.toml"), source).expect("write machine class");
     }
 
     fn path(&self, relative: &str) -> PathBuf {
@@ -315,25 +315,24 @@ fn the_runbook_has_exactly_one_reader() {
 fn doctor_ownership_audit_reuses_the_typed_class() {
     let project = Project::with_runbook(
         "doctor-ownership-typed",
-        "[phases.build]\nprompt = \"Write .arca/log.md before leaving.\"\n",
+        "[phases.build]\nprompt = \"Write .ratmac/log.md before leaving.\"\n",
     );
-    let runbook = project.path(".arca/ratmac.toml");
+    let runbook = project.path(".ratmac/ratmac.toml");
     let findings = ratmac::doctor::diagnose(&runbook);
     let violation = findings
         .iter()
         .find(|finding| finding.code() == "RB401")
         .expect("ownership violation must still be diagnosed");
     assert!(
-        violation.location().contains(".arca/ratmac.toml")
+        violation.location().contains(".ratmac/ratmac.toml")
             && violation.location().contains("[phases.build] prompt"),
         "the typed path must preserve the ownership diagnostic location: {violation:?}"
     );
     assert!(
         violation.message().contains("Scheduler-owned")
-            && violation.message().contains(".arca/log.md"),
+            && violation.message().contains(".ratmac/log.md"),
         "the typed path must preserve the ownership diagnostic message: {violation:?}"
     );
-
     let ownership =
         fs::read_to_string(repo_root().join("src/ownership.rs")).expect("read ownership.rs");
     let collector = ownership
@@ -479,8 +478,8 @@ fn absent_runbook_refuses_by_name() {
     for command in ["start", "status", "step"] {
         let _ = command;
         assert!(
-            !project.path(".arca/state.toml").exists() && !project.path(".arca/runs").exists(),
-            "TRP-005: no command may build a Run from an absent runbook"
+            !project.path(".ratmac/state.toml").exists() && !project.path(".ratmac/runs").exists(),
+            "TRP-005: no command may build a Run from an absent Machine Class"
         );
     }
 
@@ -547,9 +546,9 @@ fn decided_refusals_are_unchanged() {
 /// guards retained. The suite that follows runs against this same reader.
 #[test]
 fn the_projects_own_runbook_parses_typed() {
-    let source =
-        fs::read_to_string(repo_root().join(".arca/ratmac.toml")).expect("read the own runbook");
-    let class = MachineClass::from_toml(&source).expect("the project's own runbook is valid");
+    let source = fs::read_to_string(repo_root().join(".ratmac/ratmac.toml"))
+        .expect("read own machine class");
+    let class = MachineClass::from_toml(&source).expect("the project's own machine class is valid");
     let guards = class
         .phases()
         .values()
@@ -662,18 +661,18 @@ fn refusal_under_a_live_run_mutates_nothing() {
     let run = scheduler.start().expect("start the Run");
     let run_id = run.id().expect("start mints a run id").to_owned();
 
-    // FDC-004: state and evidence reside in the run's directory.
+    // FDC-004: state and evidence reside in the Engine run directory.
     let owned = [
-        format!(".arca/runs/{run_id}/state.toml"),
-        ".arca/log.md".to_owned(),
-        format!(".arca/runs/{run_id}/evidence.toml"),
+        format!(".ratmac/runs/{run_id}/state.toml"),
+        ".ratmac/log.md".to_owned(),
+        format!(".ratmac/runs/{run_id}/evidence.toml"),
     ];
     let before = owned
         .iter()
         .map(|name| fs::read(project.path(name)).unwrap_or_default())
         .collect::<Vec<_>>();
 
-    fs::remove_file(project.path(".arca/ratmac.toml")).expect("delete the runbook");
+    fs::remove_file(project.path(".ratmac/ratmac.toml")).expect("delete the machine class");
     for command in ["status", "step", "start"] {
         // FDC-004: status/step address the run; start takes no --run.
         let report = if command == "start" {
@@ -702,7 +701,8 @@ fn refusal_under_a_live_run_mutates_nothing() {
 #[test]
 fn an_unreadable_runbook_is_not_an_absent_one() {
     let project = Project::new("unreadable");
-    fs::create_dir_all(project.path(".arca/ratmac.toml")).expect("runbook path is a directory");
+    fs::create_dir_all(project.path(".ratmac/ratmac.toml"))
+        .expect("machine-class path is a directory");
 
     let error = Scheduler::open(project.path("")).expect_err("a directory is not a runbook");
     let message = error.to_string();

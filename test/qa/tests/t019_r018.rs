@@ -21,17 +21,17 @@ fn setup_project() -> Project {
         .expect("system clock is after the Unix epoch")
         .as_nanos();
     let root = std::env::temp_dir().join(format!("ratmac-t019-{}-{stamp}", std::process::id()));
-    let arca = root.join(".arca");
-    fs::create_dir_all(&arca).expect("create isolated guard-failure project");
+    let engine = root.join(".ratmac");
+    fs::create_dir_all(&engine).expect("create isolated guard-failure project");
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../fixtures/t019-guard-failure-status/ratmac.toml");
-    fs::copy(fixture, arca.join("ratmac.toml")).expect("copy guard-failure fixture");
+    fs::copy(fixture, engine.join("ratmac.toml")).expect("copy guard-failure fixture");
     Project { root }
 }
 
 fn read_status_and_blocker(project: &Project) -> StatusAndBlocker {
     // FDC-004: the State File resides in the started run's directory.
-    let runs = project.root.join(".arca/runs");
+    let runs = project.root.join(".ratmac/runs");
     let run_dir = fs::read_dir(&runs)
         .expect("list the runs roster")
         .map(|entry| entry.expect("roster entry is readable").path())

@@ -54,7 +54,7 @@ pub fn help(command: impl AsRef<str>) -> &'static str {
             "Usage: rtm start\n\nA human may invoke rtm start directly. The Main-Agent may invoke it only after explicit human Run-start sign-off for the current target project. A Subagent never invokes any rtm command and only reads state.\n"
         }
         "status" => {
-            "Usage: rtm status --run <id>\n\nReport the named Run without changing it. Run addressing is always required; a missing --run refuses and prints the roster (the listing of .arca/runs/).\n"
+            "Usage: rtm status --run <id>\n\nReport the named Run without changing it. Run addressing is always required; a missing --run refuses and prints the roster (the listing of .ratmac/runs/).\n"
         }
         "step" => {
             "Usage: rtm step --run <id> [--help]\n\nAdvance exactly the named Run. Run addressing is always required; a missing --run refuses and prints the roster. Only the Main-Agent or a human invokes rtm step. Subagents only read state and never invoke rtm.\n"
@@ -90,11 +90,11 @@ fn is_help(args: &[String]) -> bool {
 }
 
 /// The roster line printed by every run-addressing refusal: the listing of
-/// `.arca/runs/`, read off artifacts.
+/// the resolved `.ratmac/runs/`, read off artifacts.
 fn roster_line(project_root: &Path) -> String {
     let roster = Scheduler::run_roster(project_root);
     if roster.is_empty() {
-        "runs: none (.arca/runs/ lists no run; rtm start mints one)".to_owned()
+        "runs: none (.ratmac/runs/ lists no run; rtm start mints one)".to_owned()
     } else {
         format!("runs: {}", roster.join(", "))
     }
@@ -147,7 +147,7 @@ fn addressed_run(command: &str, args: &[String], project_root: &Path) -> Result<
 ///
 /// FDC-004: `status` and `step` act on an existing Run, so `--run <id>` is
 /// always required; a missing value refuses and prints the roster (the
-/// listing of `.arca/runs/`) without touching any Run. `start` takes no
+/// listing of `.ratmac/runs/`) without touching any Run. `start` takes no
 /// run-id: it mints one.
 pub fn run_from<I, S, W>(
     args: I,
@@ -216,7 +216,7 @@ where
             .start()
             .map_err(|error| CliError::new(format!("start: {error}")))?;
         if let Some(id) = run.id() {
-            writeln!(writer, "rtm: started run {id} at .arca/runs/{id}/")?;
+            writeln!(writer, "rtm: started run {id} at .ratmac/runs/{id}/")?;
         }
         return Ok(0);
     }
@@ -427,7 +427,7 @@ fn spawn<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Resu
         .map_err(|error| CliError::new(format!("spawn: {error}")))?;
     writeln!(
         writer,
-        "rtm: spawned run {child} (spawn {name}) from run {run}; the child is an ordinary Run at .arca/runs/{child}/"
+        "rtm: spawned run {child} (spawn {name}) from run {run}; the child is an ordinary Run at .ratmac/runs/{child}/"
     )?;
     Ok(())
 }
@@ -476,7 +476,7 @@ fn respawn<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Re
         .map_err(|error| CliError::new(format!("respawn refused; {error}")))?;
     writeln!(
         writer,
-        "rtm: run superseded; successor run {successor} minted at .arca/runs/{successor}/"
+        "rtm: run superseded; successor run {successor} minted at .ratmac/runs/{successor}/"
     )?;
     Ok(())
 }
@@ -593,7 +593,7 @@ fn doctor<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Res
         return Ok(crate::doctor::exit_code(&findings));
     }
 
-    let runbook_path = project_root.join(".arca").join("ratmac.toml");
+    let runbook_path = crate::root::resolve(project_root).machine_class_path();
     if json {
         let findings = crate::doctor::diagnose(&runbook_path);
         write_findings(&findings, true, writer)?;
@@ -667,44 +667,46 @@ fn environment_report<W: Write>(project_root: &Path, writer: &mut W) -> Result<(
         engine_hash
     )?;
 
-    let arca = project_root.join(".arca");
-    let runbook_path = arca.join("ratmac.toml");
+    let roots = crate::root::resolve(project_root);
+    let runbook_path = roots.machine_class_path();
 
     if runbook_path.is_file() {
         match std::fs::read_to_string(&runbook_path) {
             // TRP-001: the doctor judges the runbook with the parser that runs
             // it, never with a looser second reader.
             Ok(source) => match crate::machine::MachineClass::from_toml(&source) {
-                Ok(_) => writeln!(writer, "Runbook: .arca/ratmac.toml (valid)")?,
-                Err(error) => writeln!(writer, "Runbook: .arca/ratmac.toml (INVALID: {error})")?,
+                Ok(_) => writeln!(writer, "Runbook: .ratmac/ratmac.toml (valid)")?,
+                Err(error) => writeln!(writer, "Runbook: .ratmac/ratmac.toml (INVALID: {error})")?,
             },
-            Err(error) => writeln!(writer, "Runbook: .arca/ratmac.toml (unreadable: {error})")?,
+            Err(error) => writeln!(writer, "Runbook: .ratmac/ratmac.toml (unreadable: {error})")?,
         }
     } else {
         writeln!(
             writer,
-            "Runbook: .arca/ratmac.toml (absent — no Machine Class declared)"
+            "Runbook: .ratmac/ratmac.toml (absent — no Machine Class declared)"
         )?;
     }
 
-    // FDC-004: listing .arca/runs/ IS the roster; each run's State File lives
-    // in its own directory.
+    // FDC-004: listing the resolved .ratmac/runs/ is the roster; each Run's
+    // State File lives in its own directory.
     let roster = crate::Scheduler::run_roster(project_root);
+    let runs_dir = roots.engine_root().join("runs");
     if roster.is_empty() {
-        writeln!(writer, "State: .arca/runs/ (empty — no Run on the roster)")?;
         writeln!(
             writer,
-            "Next: .arca/ratmac.toml is the human-authored Machine Class; \
-             .arca/runs/<id>/state.toml is Scheduler-owned runtime state created only by \
+            "State: .ratmac/runs/ (empty — no Run on the roster)"
+        )?;
+        writeln!(
+            writer,
+            "Next: .ratmac/ratmac.toml is the human-authored Machine Class; \
+             .ratmac/runs/<id>/state.toml is Scheduler-owned runtime state created only by \
              `rtm start`, which mints the run id. To begin a Run, invoke `rtm start`; \
              address it afterwards with --run <id>."
         )?;
     } else {
         for id in roster {
-            let state_path = crate::Scheduler::runs_dir(project_root)
-                .join(&id)
-                .join("state.toml");
-            let shown = format!(".arca/runs/{id}/state.toml");
+            let state_path = runs_dir.join(&id).join("state.toml");
+            let shown = format!(".ratmac/runs/{id}/state.toml");
             if state_path.is_file() {
                 match std::fs::read_to_string(&state_path) {
                     Ok(source) => {

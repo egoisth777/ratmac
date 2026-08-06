@@ -7,9 +7,9 @@
 //! HT-045-02 `no_scheduler_owned_path_in_any_instruction`
 //! HT-045-03 `unknown_planned_test_id_refuses`
 //!
-//! `.arca/evidence/` is agent-writable and holds one structured receipt per
-//! executed check. The P4 gate reads receipts, never prose; prompts and gate
-//! contracts never hand an agent a Scheduler-owned file.
+//! `.ratmac/evidence/<run-id>/` is agent-writable and holds one structured
+//! receipt per executed check. The P4 gate reads receipts, never prose; prompts
+//! and gate contracts never hand an agent a Scheduler-owned file.
 
 use ratmac::machine::MachineClass;
 use ratmac::ownership::{
@@ -43,10 +43,10 @@ impl Fixture {
         ));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join(".arca/ticket")).expect("create fixture project");
-        fs::create_dir_all(root.join(".arca/evidence/t-900")).expect("create evidence directory");
+        fs::create_dir_all(root.join(".ratmac")).expect("create Engine directory");
         fs::create_dir_all(root.join("test/qa/tests")).expect("create test tree");
         fs::write(
-            root.join(".arca/ratmac.toml"),
+            root.join(".ratmac/ratmac.toml"),
             "[phases.build]\n\
              prompt = \"Write the test, then the code.\"\n\
              guards = [{ kind = \"sensitivity_receipts\", ticket = \".arca/ticket/t-900.md\" }]\n\
@@ -79,6 +79,25 @@ impl Fixture {
         Fixture { root }
     }
 
+    fn start(&self) {
+        assert!(self.rtm(&["start"]).status.success(), "start succeeds");
+    }
+
+    fn run_id(&self) -> String {
+        fs::read_dir(self.root.join(".ratmac/runs"))
+            .expect("list the runs roster")
+            .map(|entry| entry.expect("roster entry is readable"))
+            .find(|entry| entry.path().is_dir())
+            .expect("the started run appears on the roster")
+            .file_name()
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    fn evidence_dir(&self) -> PathBuf {
+        self.root.join(EVIDENCE_DIR).join(self.run_id())
+    }
+
     /// Write a receipt whose digest is computed from its own output.
     fn write_receipt(&self, planned_test: &str, output: &str, exit_status: i64) {
         self.write_receipt_with_digest(planned_test, output, exit_status, &sha256_text(output));
@@ -103,21 +122,14 @@ impl Fixture {
              output-sha256 = \"{digest}\"\n\
              output = \"\"\"\n{output}\"\"\"\n"
         );
-        fs::write(
-            self.root
-                .join(EVIDENCE_DIR)
-                .join("t-900")
-                .join(format!("{planned_test}.toml")),
-            body,
-        )
-        .expect("write receipt");
+        let path = self.evidence_dir().join(format!("{planned_test}.toml"));
+        fs::create_dir_all(path.parent().expect("receipt has an evidence directory"))
+            .expect("create run-scoped evidence directory");
+        fs::write(path, body).expect("write receipt");
     }
 
     fn receipt_path(&self, planned_test: &str) -> PathBuf {
-        self.root
-            .join(EVIDENCE_DIR)
-            .join("t-900")
-            .join(format!("{planned_test}.toml"))
+        self.evidence_dir().join(format!("{planned_test}.toml"))
     }
 
     fn rtm(&self, args: &[&str]) -> Output {
@@ -130,14 +142,7 @@ impl Fixture {
 
     fn step_text(&self) -> String {
         // FDC-004: run addressing is always required.
-        let id = fs::read_dir(self.root.join(".arca/runs"))
-            .expect("list the runs roster")
-            .map(|entry| entry.expect("roster entry is readable"))
-            .find(|entry| entry.path().is_dir())
-            .expect("the started run appears on the roster")
-            .file_name()
-            .to_string_lossy()
-            .into_owned();
+        let id = self.run_id();
         let step = self.rtm(&["step", "--run", &id]);
         format!(
             "{}{}",
@@ -168,8 +173,8 @@ const BASELINE_OUTPUT: &str = "test planned_behavior_is_checked ... FAILED\n\
 #[test]
 fn sensitivity_receipt_required() {
     let fixture = Fixture::new("required");
+    fixture.start();
     fixture.write_receipt("PT-900-01", BASELINE_OUTPUT, 101);
-    assert!(fixture.rtm(&["start"]).status.success(), "start succeeds");
     let accepted = fixture.step_text();
     assert!(
         !accepted.contains("step refused"),
@@ -178,13 +183,14 @@ fn sensitivity_receipt_required() {
 
     // Same fixture, receipt replaced by the prose line the old loop wrote.
     let fixture = Fixture::new("prose");
-    fs::remove_file(fixture.receipt_path("PT-900-01")).ok();
+    fixture.start();
+    let evidence_dir = fixture.evidence_dir();
+    fs::create_dir_all(&evidence_dir).expect("create run-scoped evidence directory");
     fs::write(
-        fixture.root.join(EVIDENCE_DIR).join("t-900/notes.md"),
+        evidence_dir.join("notes.md"),
         "- PT-900-01 failed before implementation, honest.\n",
     )
     .expect("write prose");
-    assert!(fixture.rtm(&["start"]).status.success(), "start succeeds");
     let refusal = fixture.step_text();
     assert!(
         refusal.contains("step refused") && refusal.contains("PT-900-01"),
@@ -197,10 +203,7 @@ fn sensitivity_receipt_required() {
 
     // A file named like the planned test is not a receipt either.
     fs::write(
-        fixture
-            .root
-            .join(EVIDENCE_DIR)
-            .join("t-900/PT-900-01.baseline-failure.md"),
+        fixture.evidence_dir().join("PT-900-01.baseline-failure.md"),
         "PT-900-01 baseline failure\n",
     )
     .expect("write filename-convention evidence");
@@ -215,8 +218,8 @@ fn sensitivity_receipt_required() {
 #[test]
 fn digest_binds_receipt_to_output() {
     let fixture = Fixture::new("digest");
+    fixture.start();
     fixture.write_receipt_with_digest("PT-900-01", BASELINE_OUTPUT, 101, &"0".repeat(64));
-    assert!(fixture.rtm(&["start"]).status.success(), "start succeeds");
     let refusal = fixture.step_text();
     assert!(
         refusal.contains("step refused") && refusal.contains("digest does not re-derive"),
@@ -229,6 +232,7 @@ fn digest_binds_receipt_to_output() {
 
     // Editing the output after the fact breaks the same binding.
     let fixture = Fixture::new("edited");
+    fixture.start();
     fixture.write_receipt("PT-900-01", BASELINE_OUTPUT, 101);
     let path = fixture.receipt_path("PT-900-01");
     let source = fs::read_to_string(&path).expect("read receipt");
@@ -237,7 +241,6 @@ fn digest_binds_receipt_to_output() {
         source.replace("0 passed; 1 failed", "1 passed; 0 failed"),
     )
     .expect("edit the recorded output");
-    assert!(fixture.rtm(&["start"]).status.success(), "start succeeds");
     let refusal = fixture.step_text();
     assert!(
         refusal.contains("digest does not re-derive"),
@@ -246,8 +249,8 @@ fn digest_binds_receipt_to_output() {
 
     // A receipt that records a passing run proves no sensitivity at all.
     let fixture = Fixture::new("passing");
+    fixture.start();
     fixture.write_receipt("PT-900-01", "test result: ok. 1 passed\n", 0);
-    assert!(fixture.rtm(&["start"]).status.success(), "start succeeds");
     let refusal = fixture.step_text();
     assert!(
         refusal.contains("proves no sensitivity"),
@@ -260,7 +263,7 @@ fn digest_binds_receipt_to_output() {
 #[test]
 fn ownership_audit_is_sensitive() {
     let root = repo_root();
-    let mut instructions = typed_runbook_instructions(&root.join(".arca/ratmac.toml"));
+    let mut instructions = typed_runbook_instructions(&root.join(".ratmac/ratmac.toml"));
     instructions.extend(template_instructions(&root.join(".arca/tpl")));
     assert!(
         !instructions.is_empty(),
@@ -288,10 +291,10 @@ fn ownership_audit_is_sensitive() {
     // A gate contract pointing at a Scheduler-owned path is the same defect.
     let fixture = Fixture::new("ownership");
     fs::write(
-        fixture.root.join(".arca/ratmac.toml"),
+        fixture.root.join(".ratmac/ratmac.toml"),
         "[phases.build]\n\
          prompt = \"Do the work.\"\n\
-         guards = [{ kind = \"file_contains\", path = \".arca/runs/run-1/state.toml\", contains = \"passed\" }]\n\
+         guards = [{ kind = \"file_contains\", path = \".ratmac/runs/run-1/state.toml\", contains = \"passed\" }]\n\
          \n\
          [phases.review]\n\
          prompt = \"Review.\"\n\
@@ -302,20 +305,20 @@ fn ownership_audit_is_sensitive() {
     )
     .expect("write violating class");
     let violations = audit_ownership(&typed_runbook_instructions(
-        &fixture.root.join(".arca/ratmac.toml"),
+        &fixture.root.join(".ratmac/ratmac.toml"),
     ))
     .expect_err("a guard contract on an Engine-owned path must fail the audit");
     assert!(
         violations
             .iter()
-            .any(|violation| violation.path == ".arca/runs/<id>/state.toml"),
+            .any(|violation| violation.path == ".ratmac/runs/<id>/state.toml"),
         "the audit names the canonical Engine-owned path: {violations:?}"
     );
 
     // Prose that merely mentions the file is not an instruction to write it.
     let mention = Instruction {
         source: "fixture note".to_owned(),
-        text: "The Scheduler owns .arca/state.toml; read it, never touch it. Write your notes to .arca/evidence/.".to_owned(),
+        text: "The Scheduler owns .ratmac/state.toml; read it, never touch it. Write your notes to .ratmac/evidence/.".to_owned(),
     };
     assert!(
         audit_ownership(std::slice::from_ref(&mention)).is_ok(),
@@ -327,13 +330,13 @@ fn ownership_audit_is_sensitive() {
 #[test]
 fn truncated_receipt_is_rejected() {
     let fixture = Fixture::new("truncated");
+    fixture.start();
     fixture.write_receipt("PT-900-01", BASELINE_OUTPUT, 101);
     let path = fixture.receipt_path("PT-900-01");
     let source = fs::read_to_string(&path).expect("read receipt");
     let cut = source.len() * 2 / 3;
     fs::write(&path, &source[..cut]).expect("truncate the receipt mid-write");
 
-    assert!(fixture.rtm(&["start"]).status.success(), "start succeeds");
     let refusal = fixture.step_text();
     assert!(
         refusal.contains("step refused"),
@@ -406,9 +409,9 @@ fn no_scheduler_owned_path_in_any_instruction() {
 #[test]
 fn unknown_planned_test_id_refuses() {
     let fixture = Fixture::new("unknown");
+    fixture.start();
     fixture.write_receipt("PT-900-01", BASELINE_OUTPUT, 101);
     fixture.write_receipt("PT-999-99", BASELINE_OUTPUT, 101);
-    assert!(fixture.rtm(&["start"]).status.success(), "start succeeds");
     let refusal = fixture.step_text();
     assert!(
         refusal.contains("step refused") && refusal.contains("PT-999-99"),

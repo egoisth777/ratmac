@@ -9,7 +9,7 @@ const RATMAC: &str = include_str!(concat!(
 ));
 const STATE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../fixtures/r028-phase-prompt/.arca/state.toml"
+    "/../fixtures/r028-phase-prompt/.ratmac/state.toml"
 ));
 
 fn fixture_project() -> PathBuf {
@@ -17,11 +17,11 @@ fn fixture_project() -> PathBuf {
     if root.exists() {
         fs::remove_dir_all(&root).expect("remove stale R-028 fixture project");
     }
-    fs::create_dir_all(root.join(".arca")).expect("create R-028 fixture project");
-    fs::write(root.join(".arca/ratmac.toml"), RATMAC).expect("write R-028 class");
+    fs::create_dir_all(root.join(".ratmac")).expect("create R-028 fixture project");
+    fs::write(root.join(".ratmac/ratmac.toml"), RATMAC).expect("write R-028 class");
     // FDC-004: the State File resides in the addressed run's directory.
-    fs::create_dir_all(root.join(".arca/runs/run-001")).expect("create run directory");
-    fs::write(root.join(".arca/runs/run-001/state.toml"), STATE).expect("write R-028 state");
+    fs::create_dir_all(root.join(".ratmac/runs/run-001")).expect("create run directory");
+    fs::write(root.join(".ratmac/runs/run-001/state.toml"), STATE).expect("write R-028 state");
     root
 }
 

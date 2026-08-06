@@ -9,26 +9,29 @@ fn fixture_root() -> PathBuf {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../fixtures/r015-concurrent-run");
     let root = std::env::temp_dir().join(format!("ratmac-r015-{}", std::process::id()));
     let _ = fs::remove_dir_all(&root);
-    fs::create_dir_all(root.join(".arca")).expect("create isolated project root");
+    fs::create_dir_all(root.join(".ratmac")).expect("create isolated project root");
     for name in ["ratmac.toml", "log.md"] {
         fs::copy(
-            fixture.join(".arca").join(name),
-            root.join(".arca").join(name),
+            fixture.join(".ratmac").join(name),
+            root.join(".ratmac").join(name),
         )
         .expect("copy concurrent-run fixture");
     }
     // FDC-004: the State File resides in the addressed run's directory.
-    let run_dir = root.join(".arca/runs/run-001");
+    let run_dir = root.join(".ratmac/runs/run-001");
     fs::create_dir_all(&run_dir).expect("create run directory");
-    fs::copy(fixture.join(".arca/state.toml"), run_dir.join("state.toml"))
-        .expect("copy concurrent-run fixture");
+    fs::copy(
+        fixture.join(".ratmac/state.toml"),
+        run_dir.join("state.toml"),
+    )
+    .expect("copy concurrent-run fixture");
     root
 }
 
 #[test]
 fn concurrent_steps_are_arbitrated_by_lockfile() {
     let root = fixture_root();
-    let lock_path = root.join(".arca/rtm.lock");
+    let lock_path = root.join(".ratmac/locks/root.lock");
     assert!(!lock_path.exists(), "lock starts transient and absent");
 
     let barrier = Arc::new(Barrier::new(2));
@@ -68,7 +71,7 @@ fn concurrent_steps_are_arbitrated_by_lockfile() {
         "transient lock is removed after both invocations"
     );
 
-    let state: toml::Value = fs::read_to_string(root.join(".arca/runs/run-001/state.toml"))
+    let state: toml::Value = fs::read_to_string(root.join(".ratmac/runs/run-001/state.toml"))
         .expect("state remains readable")
         .parse()
         .expect("state remains parseable");
@@ -76,7 +79,7 @@ fn concurrent_steps_are_arbitrated_by_lockfile() {
         state.get("phase").and_then(toml::Value::as_str),
         Some("review")
     );
-    let log = fs::read_to_string(root.join(".arca/log.md")).expect("log remains readable");
+    let log = fs::read_to_string(root.join(".ratmac/log.md")).expect("log remains readable");
     assert_eq!(log.lines().filter(|line| !line.is_empty()).count(), 1);
     let _ = fs::remove_dir_all(root);
 }

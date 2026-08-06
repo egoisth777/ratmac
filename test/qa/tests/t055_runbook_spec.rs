@@ -283,9 +283,9 @@ fn ownership_rules_name_their_enforcer() {
     }
 }
 
-/// PT-054-06 / RBSV-004: ownership uses the canonical split between
-/// project-level Machine Class/history/lock files and per-Run state/evidence.
-/// It also names the enforcers that superseded the original prose-only claims.
+/// PT-054-06 / RBSV-004: ownership uses the canonical Engine root for Machine
+/// Class/history/lock files and per-Run state/evidence. It also names the
+/// enforcers that superseded the original prose-only claims.
 #[test]
 fn ownership_paths_match_canonical_run_residency() {
     let text = spec_text();
@@ -297,21 +297,27 @@ fn ownership_paths_match_canonical_run_residency() {
         .join("\n");
 
     for path in [
-        ".arca/ratmac.toml",
-        ".arca/log.md",
-        ".arca/rtm.lock",
-        ".arca/runs/<id>/state.toml",
-        ".arca/runs/<id>/evidence.toml",
+        ".ratmac/ratmac.toml",
+        ".ratmac/log.md",
+        ".ratmac/locks/root.lock",
+        ".ratmac/runs/<id>/state.toml",
+        ".ratmac/runs/<id>/evidence.toml",
+        ".ratmac/evidence/<run-id>/",
     ] {
         assert!(
             ownership.contains(path),
             "RBSV-004: ownership must name the canonical path {path}"
         );
     }
-    for stale in ["`.arca/state.toml`", "`.arca/evidence.toml`"] {
+    for stale in [
+        "`.arca/state.toml`",
+        "`.arca/evidence.toml`",
+        "`.arca/runs/<id>/state.toml`",
+        "`.arca/ratmac.toml`",
+    ] {
         assert!(
             !ownership.contains(stale),
-            "RBSV-004: ownership must not claim the superseded flat path {stale}"
+            "RBSV-004: ownership must not claim the superseded path {stale}"
         );
     }
 

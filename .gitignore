@@ -24,6 +24,7 @@ target
 .arca-private/
 
 # Engine root: runtime ignored, Machine Class and receipts tracked (ENS-012)
-.ratmac/*
-!.ratmac/ratmac.toml
-!.ratmac/evidence/
+.ratmac/runs/
+.ratmac/mint.toml
+.ratmac/locks/
+.ratmac/log.md

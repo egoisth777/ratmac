@@ -74,10 +74,11 @@ impl FromStr for Status {
     }
 }
 
-/// Paths owned by a started Run under its `.arca/runs/<id>/` directory.
+/// Paths owned by a started Run under the resolved Engine root's
+/// `.ratmac/runs/<id>/` directory.
 ///
-/// The State File and Run evidence reside in the run directory (FDC-004); the
-/// history log and the transient invocation lock stay project-level.
+/// The State File and Run evidence reside in the run directory; the history
+/// log and transient root lock stay at the Engine root.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RunArtifacts {
     run_dir: PathBuf,
@@ -88,13 +89,13 @@ pub struct RunArtifacts {
 
 impl RunArtifacts {
     fn for_run(root: &Path, run_id: &str) -> Self {
-        let arca = root.join(".arca");
-        let run_dir = arca.join("runs").join(run_id);
+        let engine_root = crate::root::resolve(root).engine_root().to_path_buf();
+        let run_dir = engine_root.join("runs").join(run_id);
         Self {
             state_path: run_dir.join("state.toml"),
             run_dir,
-            log_path: arca.join("log.md"),
-            lock_path: arca.join("rtm.lock"),
+            log_path: engine_root.join("log.md"),
+            lock_path: engine_root.join("locks").join("root.lock"),
         }
     }
 

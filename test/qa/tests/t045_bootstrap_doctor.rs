@@ -46,7 +46,7 @@ impl Boot {
                 .as_nanos()
         ));
         let _ = fs::remove_dir_all(&root);
-        for dir in [".arca", "src", "tools"] {
+        for dir in [".ratmac", "src", "tools"] {
             fs::create_dir_all(root.join(dir)).expect("create fixture tree");
         }
         fs::write(
@@ -58,7 +58,7 @@ impl Boot {
         .expect("write fixture manifest");
         fs::write(root.join("src/main.rs"), "fn main() {}\n").expect("write fixture source");
         fs::write(
-            root.join(".arca/ratmac.toml"),
+            root.join(".ratmac/ratmac.toml"),
             "[phases.build]\nprompt = \"Build the selected artifact.\"\n",
         )
         .expect("write runbook");
@@ -277,15 +277,15 @@ fn bootstrap_refuses_pin_mismatch() {
     let binary = boot.prebuild();
     let pinned = sha256_file(&binary);
 
-    // The bootstrap reads the project-level `.arca/evidence.toml` pin;
+    // The bootstrap reads the Engine `.ratmac/evidence.toml` pin;
     // Evidence::load/write take the directory holding `evidence.toml`.
-    let mut evidence = Evidence::load(&boot.root.join(".arca"));
+    let mut evidence = Evidence::load(&boot.root.join(".ratmac"));
     evidence.set_engine(Identity {
         resolved: binary.to_string_lossy().into_owned(),
         sha256: pinned.clone(),
     });
     evidence
-        .write(&boot.root.join(".arca"))
+        .write(&boot.root.join(".ratmac"))
         .expect("record the Engine pin");
 
     let mut bytes = fs::read(&binary).expect("read the pinned Engine");
@@ -311,7 +311,7 @@ fn bootstrap_refuses_pin_mismatch() {
         "the refusal says which hash is which: {report}"
     );
     // HT-053-06: the same field names the Engine writes into its pin record.
-    let recorded = fs::read_to_string(boot.root.join(".arca/evidence.toml")).expect("read pin");
+    let recorded = fs::read_to_string(boot.root.join(".ratmac/evidence.toml")).expect("read pin");
     for field in ["resolved", "sha256"] {
         assert!(
             recorded.contains(&format!("{field} = ")),
@@ -323,7 +323,7 @@ fn bootstrap_refuses_pin_mismatch() {
         );
     }
     assert!(
-        report.contains(".arca/evidence.toml"),
+        report.contains(".ratmac/evidence.toml"),
         "the refusal names where the pin lives: {report}"
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -346,7 +346,7 @@ fn doctor_is_actionable_and_write_free() {
     assert!(idle.status.success(), "doctor runs read-only: {report}");
     // FDC-004: the Scheduler-owned State File is named by its run-directory path.
     assert!(
-        report.contains(".arca/ratmac.toml") && report.contains(".arca/runs/<id>/state.toml"),
+        report.contains(".ratmac/ratmac.toml") && report.contains(".ratmac/runs/<id>/state.toml"),
         "the report distinguishes the two files by name: {report}"
     );
     assert!(
@@ -363,7 +363,7 @@ fn doctor_is_actionable_and_write_free() {
         "the idle doctor writes nothing at all"
     );
     assert!(
-        !boot.root.join(".arca/state.toml").exists() && !boot.root.join(".arca/runs").exists(),
+        !boot.root.join(".ratmac/state.toml").exists() && !boot.root.join(".ratmac/runs").exists(),
         "the doctor creates no Run"
     );
 
@@ -457,7 +457,7 @@ fn doctor_rejects_extra_arguments() {
             "doctor accepts --json and one runbook path",
         ),
         (
-            vec!["doctor", ".arca/ratmac.toml", ".arca/ratmac.toml"],
+            vec!["doctor", ".ratmac/ratmac.toml", ".ratmac/ratmac.toml"],
             "doctor accepts --json and one runbook path",
         ),
         (vec!["doctor", "extra"], "RB101"),
@@ -487,17 +487,15 @@ fn doctor_rejects_extra_arguments() {
 fn doctor_survives_corrupt_state_and_held_lock() {
     let boot = Boot::new("corrupt");
     // FDC-004: the State File resides in the run's directory.
-    fs::create_dir_all(boot.root.join(".arca/runs/run-001")).expect("create run directory");
+    fs::create_dir_all(boot.root.join(".ratmac/runs/run-001")).expect("create run directory");
     fs::write(
-        boot.root.join(".arca/runs/run-001/state.toml"),
+        boot.root.join(".ratmac/runs/run-001/state.toml"),
         "phase = \"build\nnot toml",
     )
     .expect("write a corrupt state file");
-    fs::write(
-        boot.root.join(".arca/rtm.lock"),
-        "held by another process\n",
-    )
-    .expect("hold the lock");
+    let lock = boot.root.join(".ratmac/locks/root.lock");
+    fs::create_dir_all(lock.parent().expect("lock has parent")).expect("create lock directory");
+    fs::write(&lock, "held by another process\n").expect("hold the lock");
     let before = boot.whole_snapshot();
 
     let started = std::time::Instant::now();
@@ -506,7 +504,7 @@ fn doctor_survives_corrupt_state_and_held_lock() {
     let report = text(&output);
 
     assert!(
-        report.contains(".arca/runs/run-001/state.toml") && report.contains("unreadable"),
+        report.contains(".ratmac/runs/run-001/state.toml") && report.contains("unreadable"),
         "the defect is reported: {report}"
     );
     assert!(

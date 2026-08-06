@@ -7,27 +7,27 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const STATUS_RATMAC: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../fixtures/r030-status-print/.arca/ratmac.toml"
+    "/../fixtures/r030-status-print/.ratmac/ratmac.toml"
 ));
 const STATUS_STATE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../fixtures/r030-status-print/.arca/state.toml"
+    "/../fixtures/r030-status-print/.ratmac/state.toml"
 ));
 const STATUS_LOG: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../fixtures/r030-status-print/.arca/log.md"
+    "/../fixtures/r030-status-print/.ratmac/log.md"
 ));
 const STEP_RATMAC: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../fixtures/r030-step-print/.arca/ratmac.toml"
+    "/../fixtures/r030-step-print/.ratmac/ratmac.toml"
 ));
 const STEP_STATE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../fixtures/r030-step-print/.arca/state.toml"
+    "/../fixtures/r030-step-print/.ratmac/state.toml"
 ));
 const STEP_LOG: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../fixtures/r030-step-print/.arca/log.md"
+    "/../fixtures/r030-step-print/.ratmac/log.md"
 ));
 
 fn temporary_project(ratmac: &str, state: &str, log: &str) -> PathBuf {
@@ -37,16 +37,16 @@ fn temporary_project(ratmac: &str, state: &str, log: &str) -> PathBuf {
         .as_nanos();
     let project = std::env::temp_dir().join(format!("ratmac-t026-{unique}"));
     fs::create_dir(&project).expect("temporary project must be creatable");
-    fs::create_dir(project.join(".arca")).expect("project .arca directory must be creatable");
+    fs::create_dir(project.join(".ratmac")).expect("project .ratmac directory must be creatable");
     fs::create_dir(project.join("artifacts")).expect("artifact directory must be creatable");
-    fs::write(project.join(".arca/ratmac.toml"), ratmac)
+    fs::write(project.join(".ratmac/ratmac.toml"), ratmac)
         .expect("fixture ratmac.toml must be writable");
     // FDC-004: the State File resides in the addressed run's directory.
-    fs::create_dir_all(project.join(".arca/runs/run-001"))
+    fs::create_dir_all(project.join(".ratmac/runs/run-001"))
         .expect("run directory must be creatable");
-    fs::write(project.join(".arca/runs/run-001/state.toml"), state)
+    fs::write(project.join(".ratmac/runs/run-001/state.toml"), state)
         .expect("fixture state.toml must be writable");
-    fs::write(project.join(".arca/log.md"), log).expect("fixture log.md must be writable");
+    fs::write(project.join(".ratmac/log.md"), log).expect("fixture log.md must be writable");
     fs::write(project.join("artifacts/proof.txt"), "proof\n")
         .expect("passing guard artifact must be writable");
     project
@@ -55,11 +55,11 @@ fn temporary_project(ratmac: &str, state: &str, log: &str) -> PathBuf {
 #[test]
 fn status_prints_current_phase_prompt() {
     let project = temporary_project(STATUS_RATMAC, STATUS_STATE, STATUS_LOG);
-    let arca = project.join(".arca");
+    let engine = project.join(".ratmac");
     let before = [
-        fs::read(arca.join("ratmac.toml")).unwrap(),
-        fs::read(arca.join("runs/run-001/state.toml")).unwrap(),
-        fs::read(arca.join("log.md")).unwrap(),
+        fs::read(engine.join("ratmac.toml")).unwrap(),
+        fs::read(engine.join("runs/run-001/state.toml")).unwrap(),
+        fs::read(engine.join("log.md")).unwrap(),
     ];
     let mut stdout = Vec::new();
     run_from(
@@ -91,12 +91,12 @@ fn status_prints_current_phase_prompt() {
         !output.contains("Complete the run."),
         "status must not print another Phase: {output}"
     );
-    assert_eq!(fs::read(arca.join("ratmac.toml")).unwrap(), before[0]);
+    assert_eq!(fs::read(engine.join("ratmac.toml")).unwrap(), before[0]);
     assert_eq!(
-        fs::read(arca.join("runs/run-001/state.toml")).unwrap(),
+        fs::read(engine.join("runs/run-001/state.toml")).unwrap(),
         before[1]
     );
-    assert_eq!(fs::read(arca.join("log.md")).unwrap(), before[2]);
+    assert_eq!(fs::read(engine.join("log.md")).unwrap(), before[2]);
 
     let _ = fs::remove_dir_all(project);
 }
@@ -104,7 +104,7 @@ fn status_prints_current_phase_prompt() {
 #[test]
 fn successful_step_prints_prompt_without_spawning() {
     let project = temporary_project(STEP_RATMAC, STEP_STATE, STEP_LOG);
-    let arca = project.join(".arca");
+    let engine = project.join(".ratmac");
     let mut stdout = Vec::new();
     let args = vec![
         "rtm".to_owned(),
@@ -128,7 +128,7 @@ fn successful_step_prints_prompt_without_spawning() {
         "print-first output must not advertise a spawn path: {output}"
     );
     assert!(
-        !arca.join("spawn-sentinel").exists(),
+        !engine.join("spawn-sentinel").exists(),
         "successful step must not create the spawn sentinel"
     );
     assert!(

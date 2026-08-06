@@ -66,9 +66,11 @@ impl Fixture {
         ));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join(".arca/goal")).expect("create fixture goal tree");
+        fs::create_dir_all(root.join(".ratmac")).expect("create fixture Engine tree");
         fs::create_dir_all(root.join("src")).expect("create fixture source tree");
         fs::write(root.join(".arca/goal/spec.md"), "# Fixture goal\n").expect("write fixture goal");
-        fs::write(root.join(".arca/ratmac.toml"), COMPOSED_RUNBOOK).expect("write fixture runbook");
+        fs::write(root.join(".ratmac/ratmac.toml"), COMPOSED_RUNBOOK)
+            .expect("write fixture machine class");
         fs::write(root.join("src/lib.rs"), "pub fn fixture() {}\n").expect("write fixture source");
         Self { root }
     }
@@ -119,7 +121,7 @@ impl Fixture {
     }
 
     fn run_dir(&self, id: &str) -> PathBuf {
-        self.root.join(".arca/runs").join(id)
+        self.root.join(".ratmac/runs").join(id)
     }
 
     fn ledger_path(&self, parent: &str) -> PathBuf {

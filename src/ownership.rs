@@ -2,8 +2,8 @@
 //!
 //! A Phase Prompt or gate contract may not instruct an agent to write an
 //! Engine-owned file. Per-Run state and evidence live under
-//! `.arca/runs/<id>/`; project history and the invocation lock remain directly
-//! under `.arca/`. Agent-authored receipts stay in `.arca/evidence/`.
+//! `.ratmac/runs/<id>/`; project history and the root lock remain under the
+//! Engine root. Agent-authored receipts stay in `.ratmac/evidence/`.
 //!
 //! The audit is executable so the property cannot quietly regress: it takes
 //! the already parsed Machine Class and refuses any instruction that pairs a
@@ -16,11 +16,12 @@ use std::path::Path;
 use crate::machine::{GuardKind, MachineClass};
 
 /// Files only the Engine writes (ADR-0003, R-009).
-pub const SCHEDULER_OWNED: [&str; 4] = [
-    ".arca/runs/<id>/state.toml",
-    ".arca/runs/<id>/evidence.toml",
-    ".arca/log.md",
-    ".arca/rtm.lock",
+pub const SCHEDULER_OWNED: [&str; 5] = [
+    ".ratmac/runs/<id>/state.toml",
+    ".ratmac/runs/<id>/evidence.toml",
+    ".ratmac/mint.toml",
+    ".ratmac/log.md",
+    ".ratmac/locks/root.lock",
 ];
 
 /// Verbs that turn a mention into an instruction to write.
@@ -62,7 +63,7 @@ pub fn audit_ownership(instructions: &[Instruction]) -> Result<(), Vec<Ownership
         for sentence in sentences(&instruction.text) {
             let lowered = sentence.to_ascii_lowercase();
             for owned in SCHEDULER_OWNED {
-                let bare = owned.trim_start_matches(".arca/");
+                let bare = owned.trim_start_matches(".ratmac/");
                 let basename = owned.rsplit('/').next().unwrap_or(owned);
                 if !lowered.contains(owned)
                     && !lowered.contains(bare)
@@ -125,10 +126,13 @@ pub fn runbook_instructions(class: &MachineClass, shown: &str) -> Vec<Instructio
 /// Whether a concrete path names an Engine-owned project or per-Run artifact.
 pub fn is_scheduler_owned_path(path: &str) -> bool {
     let normalized = path.replace('\\', "/");
-    if normalized.ends_with(".arca/log.md") || normalized.ends_with(".arca/rtm.lock") {
+    if normalized.ends_with(".ratmac/mint.toml")
+        || normalized.ends_with(".ratmac/log.md")
+        || normalized.ends_with(".ratmac/locks/root.lock")
+    {
         return true;
     }
-    let Some((_, run_relative)) = normalized.rsplit_once(".arca/runs/") else {
+    let Some((_, run_relative)) = normalized.rsplit_once(".ratmac/runs/") else {
         return false;
     };
     let mut segments = run_relative.split('/');
@@ -172,7 +176,7 @@ fn collect_markdown(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
 
 /// Split text into sentences, so a mention and a verb only pair up when they
 /// belong to the same statement. A period is a boundary only when it ends a
-/// word, never inside a path like `.arca/state.toml`.
+/// word, never inside a path like `.ratmac/runs/run-001/state.toml`.
 fn sentences(text: &str) -> Vec<&str> {
     let bytes = text.as_bytes();
     let mut parts = Vec::new();

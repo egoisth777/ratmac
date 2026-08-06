@@ -4,7 +4,7 @@
 //! PT-058-02 `runs_reside_under_the_plural_path`
 //! PT-058-03 `run_addressing_is_always_required`
 //! PT-058-04 `run_addressing_refuses_noncanonical_or_escaping_values`
-//! Runs must reside canonically under the plural `.arca/runs/<id>/` path so
+//! Runs must reside canonically under the plural `.ratmac/runs/<id>/` path so
 //! that listing the directory IS the roster: run identity is read off
 //! artifacts, never off a narrated index. Every command that acts on an
 //! existing Run takes `--run <id>`, always required; a missing value refuses
@@ -61,18 +61,18 @@ impl Fixture {
                 .as_nanos()
         ));
         let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(root.join(".arca")).expect("create fixture tree");
+        fs::create_dir_all(root.join(".ratmac")).expect("create Engine tree");
         fs::create_dir_all(root.join("src")).expect("create source tree");
         fs::write(root.join("src/lib.rs"), "pub fn work() {}\n").expect("write source");
         fs::create_dir_all(root.join(".arca/goal")).expect("create goal tree");
         fs::write(root.join(".arca/goal/spec.md"), "# Spec\n").expect("write goal");
         fs::write(
-            root.join(".arca/ratmac.toml"),
+            root.join(".ratmac/ratmac.toml"),
             "[phases.intake]\nprompt = \"Integrate the issues.\"\n\n\
              [phases.build]\nprompt = \"Build the ticket.\"\n\n\
              [[transitions]]\nfrom = \"intake\"\nto = \"build\"\n",
         )
-        .expect("write runbook");
+        .expect("write machine class");
         Fixture { root }
     }
 
@@ -88,12 +88,12 @@ impl Fixture {
         self.root.join(relative)
     }
 
-    /// Listing `.arca/runs/` IS the roster: the run ids, read off artifacts.
+    /// Listing `.ratmac/runs/` IS the roster: the run ids, read off artifacts.
     fn roster(&self) -> Vec<String> {
-        let runs = self.path(".arca/runs");
+        let runs = self.path(".ratmac/runs");
         assert!(
             runs.is_dir(),
-            "FDC-004: runs must reside under the plural .arca/runs/ path — listing it IS the roster"
+            "FDC-004: runs must reside under the plural .ratmac/runs/ path — listing it IS the roster"
         );
         let mut ids: Vec<String> = fs::read_dir(&runs)
             .expect("the runs directory must be listable")
@@ -243,10 +243,10 @@ fn requirements_trace_to_seed_and_research() {
     }
 }
 
-/// PT-058-02 (RRV-002): `rtm start` creates `.arca/runs/<id>/` carrying the
+/// PT-058-02 (RRV-002): `rtm start` creates `.ratmac/runs/<id>/` carrying the
 /// run's State File and reserved spawn-ledger path. The verdict lifecycle is
 /// exercised by FDC-003; no flat `.arca/state.toml` is written; listing
-/// `.arca/runs/` yields the roster.
+/// `.ratmac/runs/` yields the roster.
 #[test]
 fn runs_reside_under_the_plural_path() {
     let fixture = Fixture::new("plural-path");
@@ -269,7 +269,7 @@ fn runs_reside_under_the_plural_path() {
         "FDC-004: the minted run id must be non-empty"
     );
 
-    let run_dir = fixture.path(&format!(".arca/runs/{id}"));
+    let run_dir = fixture.path(&format!(".ratmac/runs/{id}"));
     let state = fs::read_to_string(run_dir.join("state.toml")).unwrap_or_else(|error| {
         panic!("FDC-004: the run directory must carry the run's State File: {error}")
     });
@@ -311,7 +311,7 @@ fn run_addressing_is_always_required() {
         .first()
         .expect("FDC-004: the started run must appear on the roster")
         .clone();
-    let state_rel = format!(".arca/runs/{id}/state.toml");
+    let state_rel = format!(".ratmac/runs/{id}/state.toml");
     let before = fs::read(fixture.path(&state_rel))
         .expect("FDC-004: the named run's State File must be readable");
 
@@ -419,16 +419,16 @@ fn run_addressing_refuses_noncanonical_or_escaping_values() {
         .first()
         .expect("FDC-004: the started run must appear on the roster")
         .clone();
-    let source = fixture.path(&format!(".arca/runs/{minted}"));
+    let source = fixture.path(&format!(".ratmac/runs/{minted}"));
 
     let absolute_candidate = fixture.path("absolute-candidate");
     copy_tree(&source, &absolute_candidate);
     copy_tree(&source, &fixture.path("traversal-candidate"));
     copy_tree(
         &source,
-        &fixture.path(&format!(".arca/runs/nested/{minted}")),
+        &fixture.path(&format!(".ratmac/runs/nested/{minted}")),
     );
-    copy_tree(&source, &fixture.path(".arca/runs/run-1"));
+    copy_tree(&source, &fixture.path(".ratmac/runs/run-1"));
 
     let absolute = absolute_candidate.to_string_lossy().into_owned();
     let nested = format!("nested/{minted}");
