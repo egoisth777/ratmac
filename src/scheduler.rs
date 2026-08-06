@@ -420,19 +420,6 @@ impl Scheduler {
         Some(ordinal)
     }
 
-    /// Mint the next run id in the single id namespace: one more than the
-    /// highest canonical ordinal on the roster — live or retired — so an
-    /// abandoned run's id is never reissued (FDC-006).
-    fn mint_run_id(engine_root: &Path) -> String {
-        let next = Self::run_roster_at(engine_root)
-            .iter()
-            .filter_map(|id| Self::canonical_run_ordinal(id))
-            .max()
-            .unwrap_or(0)
-            + 1;
-        format!("run-{next:03}")
-    }
-
     fn engine_root(&self) -> Result<&Path, StateError> {
         self.engine_root
             .as_deref()
@@ -554,9 +541,9 @@ impl Scheduler {
         // FDC-005: the runbook pin recorded in the run's evidence is the
         // SHA-256 of the canonical runbook — a hash and nothing more.
         let runbook_pin = Self::runbook_sha256(&root)?;
-        // FDC-006: no active-Run cap. Any number of runs coexist under
-        // .ratmac/runs/, each addressed by its own id; start only mints the
-        // next id over the unfiltered roster — live or retired.
+        // FDC-006/ENS-004: no active-Run cap. Every allocation advances the
+        // durable high-water record while this root lock is held, then creates
+        // an independently addressed member of .ratmac/runs/.
         let run_id = Self::mint_run(
             &engine_root,
             &root,
@@ -571,11 +558,12 @@ impl Scheduler {
         Ok(Run::new(phase, initial_status).with_artifacts(&root, &run_id))
     }
 
-    /// Mint the next run id and create its directory, State File, evidence,
-    /// mint record, and reserved spawn-ledger path - all of it or none of it.
-    /// Used by `start` for the project machine and by `spawn`/`respawn` for
-    /// children and successors: every minted Run is an ordinary flat top-level
-    /// Run in the single namespace (FDC-004/FDC-006).
+    /// Reserve the next durable id, then create its directory, State File,
+    /// evidence, and reserved spawn-ledger path.  Used by `start` for the
+    /// project machine and by `spawn`/`respawn` for children and successors:
+    /// every minted Run is an ordinary flat top-level Run in the single
+    /// namespace (FDC-004/FDC-006).  A later creation failure removes the
+    /// half-made directory but deliberately leaves its reserved ordinal.
     fn mint_run(
         engine_root: &Path,
         workflow_root: &Path,
@@ -583,7 +571,7 @@ impl Scheduler {
         status: Status,
         runbook_pin: &str,
     ) -> Result<String, StateError> {
-        let run_id = Self::mint_run_id(engine_root);
+        let run_id = crate::mint::next(engine_root)?;
         let runs_dir = Self::runs_dir_at(engine_root);
         fs::create_dir_all(&runs_dir)
             .map_err(|error| StateError::new(format!("create .ratmac/runs: {error}")))?;
@@ -654,7 +642,6 @@ impl Scheduler {
                 .map_err(|error| {
                     StateError::new(format!("reserve spawn-ledger under {run_id}: {error}"))
                 })?;
-            Self::write_mint_record(engine_root, &run_id)?;
             Ok(())
         };
         if let Err(error) = create_run() {
@@ -664,17 +651,6 @@ impl Scheduler {
         }
 
         Ok(run_id)
-    }
-
-    /// Keep the Engine-root mint record present and truthful for every
-    /// successful mint. Durable high-water allocation is deliberately owned by
-    /// the later minting ticket.
-    fn write_mint_record(engine_root: &Path, run_id: &str) -> Result<(), StateError> {
-        fs::write(
-            engine_root.join("mint.toml"),
-            format!("highest-issued = {run_id:?}\n"),
-        )
-        .map_err(|error| StateError::new(format!("write mint.toml: {error}")))
     }
 
     /// FDC-007: `rtm spawn` is ordinary checked motion - no confirmation
