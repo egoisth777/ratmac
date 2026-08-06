@@ -229,23 +229,41 @@ fn ledger_child_ids(path: &Path) -> Vec<String> {
         .collect()
 }
 
-/// Read and parse the durable record without depending on a private Scheduler
-/// representation.  The record must name the minted id it claims is the
-/// high-water mark.
+/// Read the durable record without depending on a private Scheduler
+/// representation.
 fn mint_record_text(path: &Path) -> String {
-    let text = fs::read_to_string(path).unwrap_or_else(|error| {
+    fs::read_to_string(path).unwrap_or_else(|error| {
         panic!(
             "ENSV-005: durable mint record missing at {}: {error}",
             path.display()
         )
-    });
-    let _: toml::Value = text.parse().unwrap_or_else(|error| {
+    })
+}
+
+/// The durable record has one numeric high-water key, not a Run-id string or
+/// a directory-derived allocation hint.
+fn mint_record_highest(path: &Path) -> u64 {
+    let text = mint_record_text(path);
+    let document: toml::Value = text.parse().unwrap_or_else(|error| {
         panic!(
             "ENSV-005: durable mint record at {} must be valid TOML: {error}\n{text}",
             path.display()
         )
     });
-    text
+    let table = document
+        .as_table()
+        .expect("ENSV-005: durable mint record must be a top-level table");
+    assert_eq!(
+        table.len(),
+        1,
+        "ENSV-005: durable mint record has exactly one key: {text}"
+    );
+    let highest = table
+        .get("highest")
+        .and_then(toml::Value::as_integer)
+        .expect("ENSV-005: durable mint record has numeric highest = <u64>");
+    u64::try_from(highest)
+        .expect("ENSV-005: durable mint record highest must be a non-negative u64")
 }
 
 /// ENSV-004: `rtm spawn` in the primary checkout, `rtm step --run <child>` in
@@ -412,9 +430,10 @@ fn mint_record_never_reissues_a_deleted_run_id() {
     let first_ordinal = canonical_ordinal(&first);
     let mint_path = fixture.primary.join(".ratmac/mint.toml");
     let first_record = mint_record_text(&mint_path);
-    assert!(
-        first_record.contains(&first),
-        "ENSV-005: first mint record must name its high-water id {first}: {first_record}"
+    assert_eq!(
+        mint_record_highest(&mint_path),
+        first_ordinal,
+        "ENSV-005: first mint record must persist numeric high-water ordinal {first_ordinal}"
     );
 
     let deleted_dir = fixture.primary.join(".ratmac/runs").join(&first);
@@ -455,9 +474,10 @@ fn mint_record_never_reissues_a_deleted_run_id() {
     );
 
     let second_record = mint_record_text(&mint_path);
-    assert!(
-        second_record.contains(&second),
-        "ENSV-005: mint record must name the advanced high-water id {second}: {second_record}"
+    assert_eq!(
+        mint_record_highest(&mint_path),
+        second_ordinal,
+        "ENSV-005: mint record must advance to numeric high-water ordinal {second_ordinal}"
     );
     assert_ne!(
         second_record, first_record,
