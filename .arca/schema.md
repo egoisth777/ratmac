@@ -214,6 +214,34 @@ A fork nobody wrote down is drift.
   with status `pending`, run the shape check, done. It enters no loop step and touches neither the
   Engine root `.ratmac/` nor `.arca/log.md`; the next planning pass folds it in.
 
+## The wishlist
+
+`.arca/wishlist.md` is the capture side of planning: unordered ideas with zero commitment, and only a
+human promotes one. Filing is deliberately cheap, so nothing an observer notices has to wait for a
+human to ask for it.
+
+- **The Advisor files its own wishes.** An Advisor that sees the build system itself misbehave — wasted
+  rework, a rule nothing enforces, a defect class found by hand twice — records it when it sees it, by
+  dispatching one Subagent whose whole job is to append the wish to `.arca/wishlist.md` on `main`. It
+  never parks the note in conversation and waits to be polled. Wishes accumulated during a ticket turn
+  are flushed at the next turn boundary at the latest: a ticket landing, a review verdict, or the end
+  of the session.
+- **One wish per actionable observation**, one line, in the file's existing shape:
+  `- **<desired end, in plain words>** — <author>, <YYYY-MM-DD>. Evidence: <what makes it checkable>.
+  Desired end: <what good looks like>.` No fix design, no requirement ID, no ticket, no ordering.
+- **Evidence, not claim.** A Run status, an agent's assertion, or content writable by the agent under
+  test is never evidence by itself; cite the command, receipt, review, artifact, or file and line.
+- **Append only, and read before you write.** The Subagent reads the whole file first: if a live wish
+  already covers the observation, it strengthens that entry with the new evidence instead of adding a
+  second carrier. Other authors' wishes are never reordered, reworded, or deleted. Several observations
+  go in one append, not one per message.
+- **Subagent scope.** That Subagent writes `.arca/wishlist.md` and nothing else — no code, no tests, no
+  issue, no ticket, no goal edit, no `rtm`, no branch or worktree operation.
+- **Filing is not promotion.** Appending a wish starts no step, mints no issue, and forces no P1; it
+  earns no `.arca/log.md` line and rides the session's next ordinary commit. A human promoting a wish
+  marks it in place, and a wish whose work has landed is marked `fulfilled` with links to its archived
+  issue and ticket.
+
 ## The steps (P1–P5)
 
 **Planning — straight through, once per batch of issues:**
