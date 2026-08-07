@@ -545,14 +545,14 @@ fn contract_roots(workspace: &Path, roles: &[&str]) -> Result<Vec<PathBuf>, Vec<
                 format!("{}: {}", error.code(), error.message()),
             )]
         })?;
-    class
+    let roots = class
         .validate_roots(engine.invoking_checkout_root(), engine.engine_root())
         .map_err(|error| vec![defect("runbook", error.to_string())])?;
     roles
         .iter()
         .map(|role| {
-            class
-                .resolve_root(role, engine.invoking_checkout_root(), engine.engine_root())
+            roots
+                .resolve(role)
                 .map_err(|error| vec![defect("runbook", error.to_string())])
         })
         .collect()

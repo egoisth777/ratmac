@@ -8,18 +8,64 @@
 //! closure, every transition request re-computes the revision and refuses on
 //! a mismatch.
 
+use std::fmt;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
-/// Content hash of the resolved goal directory, or `None` when it is absent.
+/// A failure while reading a declared goal directory.
+#[derive(Debug)]
+pub struct RevisionError {
+    operation: &'static str,
+    path: PathBuf,
+    detail: String,
+}
+
+impl RevisionError {
+    fn io(operation: &'static str, path: &Path, error: std::io::Error) -> Self {
+        Self {
+            operation,
+            path: path.to_path_buf(),
+            detail: error.to_string(),
+        }
+    }
+
+    fn other(operation: &'static str, path: &Path, detail: impl Into<String>) -> Self {
+        Self {
+            operation,
+            path: path.to_path_buf(),
+            detail: detail.into(),
+        }
+    }
+}
+
+impl fmt::Display for RevisionError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "cannot {} declared goal {}: {}",
+            self.operation,
+            self.path.display(),
+            self.detail
+        )
+    }
+}
+
+impl std::error::Error for RevisionError {}
+
+/// Content hash of the resolved goal directory.
 ///
-/// The digest covers every file's path and bytes in sorted order, so it is
-/// stable across runs and platforms and sensitive to the directory's shape.
-pub fn revision(goal: &Path) -> Option<String> {
-    if !goal.is_dir() {
-        return None;
+/// `Ok(None)` means the goal directory is absent. Any directory traversal or
+/// file-read failure is an error, never an absent-goal result.
+pub fn revision(goal: &Path) -> Result<Option<String>, RevisionError> {
+    let metadata = match fs::metadata(goal) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(RevisionError::io("inspect", goal, error)),
+    };
+    if !metadata.is_dir() {
+        return Ok(None);
     }
     let mut files = Vec::new();
     collect(goal, goal, &mut files)?;
@@ -32,25 +78,29 @@ pub fn revision(goal: &Path) -> Option<String> {
         hasher.update(bytes);
         hasher.update(b"\n");
     }
-    Some(format!("{:x}", hasher.finalize()))
+    Ok(Some(format!("{:x}", hasher.finalize())))
 }
 
 /// Gather `(relative path, bytes)` for every file under `dir`.
-fn collect(base: &Path, dir: &Path, out: &mut Vec<(String, Vec<u8>)>) -> Option<()> {
-    for entry in fs::read_dir(dir).ok()? {
-        let entry = entry.ok()?;
+fn collect(base: &Path, dir: &Path, out: &mut Vec<(String, Vec<u8>)>) -> Result<(), RevisionError> {
+    let entries = fs::read_dir(dir).map_err(|error| RevisionError::io("read", dir, error))?;
+    for entry in entries {
+        let entry = entry.map_err(|error| RevisionError::io("enumerate", dir, error))?;
         let path = entry.path();
-        let kind = entry.file_type().ok()?;
+        let kind = entry
+            .file_type()
+            .map_err(|error| RevisionError::io("inspect", &path, error))?;
         if kind.is_dir() {
             collect(base, &path, out)?;
         } else {
             let relative = path
                 .strip_prefix(base)
-                .ok()?
+                .map_err(|error| RevisionError::other("relativize", &path, error.to_string()))?
                 .to_string_lossy()
                 .replace('\\', "/");
-            out.push((relative, fs::read(&path).ok()?));
+            let bytes = fs::read(&path).map_err(|error| RevisionError::io("read", &path, error))?;
+            out.push((relative, bytes));
         }
     }
-    Some(())
+    Ok(())
 }

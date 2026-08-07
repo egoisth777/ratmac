@@ -3,7 +3,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 use crate::graph::{Phase, Transition};
-use crate::roots::{RootValidationError, WorkflowRoots};
+use crate::roots::{RootValidationError, ValidatedWorkflowRoots, WorkflowRoots};
 
 /// A parsed, status-free Machine Class declaration.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -484,12 +484,13 @@ impl MachineClass {
     }
 
     /// Validate every declared role once the workspace and Engine root are
-    /// known, before a lifecycle entry point can change state.
+    /// known, before a lifecycle entry point can change state. The returned
+    /// canonical mapping must travel with that operation.
     pub fn validate_roots(
         &self,
         workspace: &Path,
         engine_root: &Path,
-    ) -> Result<(), RootValidationError> {
+    ) -> Result<ValidatedWorkflowRoots, RootValidationError> {
         self.roots.validate(workspace, engine_root)
     }
 

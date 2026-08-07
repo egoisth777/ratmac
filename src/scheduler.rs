@@ -7,12 +7,14 @@ use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use sha2::{Digest, Sha256};
+
 use crate::graph::{MachineGraph, Phase};
 use crate::ledger::LedgerEntry;
 use crate::lock::{RootLock, RunLock};
 use crate::machine::{GuardKind, MachineClass, PhaseDefinition};
 use crate::model::{Run, RunState, Status};
-use crate::roots::WorkflowRoots;
+use crate::roots::ValidatedWorkflowRoots;
 use crate::state::{PhasePrompt, StateError, StateStore, StateWriteOutcome, StatusReport};
 
 static ROLLBACK_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -263,9 +265,13 @@ impl fmt::Display for StepOutcome {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Scheduler {
     machine: MachineGraph,
-    /// Parsed workflow-root declarations for the currently loaded Machine
-    /// Class. They are resolved only against the addressed Run's workspace.
-    workflow_roots: WorkflowRoots,
+    /// Canonical workflow-root mapping validated from the exact runbook
+    /// snapshot used by the current lifecycle operation.
+    workflow_roots: ValidatedWorkflowRoots,
+    /// Exact bytes and derived mapping loaded when this Scheduler was opened.
+    /// External plan/apply callers can revalidate this same snapshot under
+    /// their mutation lock instead of mixing a fresh class with stale roots.
+    runbook_snapshot: Option<RunbookSnapshot>,
     /// The addressed Run's workspace. For a top-level Run this is the
     /// invoking checkout; for a child it is the durable ledger binding.
     /// Guards, goal reads, and gate-program resolution use this root.
@@ -328,6 +334,34 @@ pub(crate) struct TransitionLog {
     file: fs::File,
 }
 
+/// The exact runbook bytes that govern one lifecycle operation.
+///
+/// The parsed class, its canonical root mapping, and its pin hash all derive
+/// from these same bytes. The operation keeps this snapshot until it owns its
+/// mutation lock, when it reads the runbook once more to prove that no swap
+/// occurred while guards or planning ran.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct RunbookSnapshot {
+    bytes: Vec<u8>,
+    sha256: String,
+    class: MachineClass,
+    roots: ValidatedWorkflowRoots,
+}
+
+impl RunbookSnapshot {
+    fn class(&self) -> &MachineClass {
+        &self.class
+    }
+
+    fn roots(&self) -> &ValidatedWorkflowRoots {
+        &self.roots
+    }
+
+    fn pin(&self) -> &str {
+        &self.sha256
+    }
+}
+
 /// Evidence changed while completing a transition that must be put back if
 /// the following transition-log append lands no complete record.
 #[derive(Debug)]
@@ -363,9 +397,10 @@ impl Scheduler {
     pub fn new(machine: MachineGraph) -> Self {
         Self {
             machine,
+            workflow_roots: ValidatedWorkflowRoots::default(),
+            runbook_snapshot: None,
             root: None,
             invoking_root: None,
-            workflow_roots: WorkflowRoots::default(),
             engine_root: None,
             run_id: None,
             child_class: None,
@@ -476,14 +511,14 @@ impl Scheduler {
         let roots = crate::root::resolve(root);
         let root = roots.invoking_checkout_root().to_path_buf();
         let engine_root = roots.engine_root().to_path_buf();
-        let class = Self::load_class(&root)?;
-        Self::validate_declared_roots(&class, &root, &engine_root)?;
-        let workflow_roots = class.roots().clone();
-        let machine = Self::graph_of(&class);
+        let snapshot = Self::load_runbook_snapshot(&root, &root, &engine_root)?;
+        let workflow_roots = snapshot.roots().clone();
+        let machine = Self::graph_of(snapshot.class());
         Self::refuse_flat_residue(&root)?;
         Ok(Self {
             machine,
             workflow_roots,
+            runbook_snapshot: Some(snapshot),
             run_id: None,
             child_class: None,
             store: None,
@@ -513,10 +548,9 @@ impl Scheduler {
             ),
             None => (invoking_root.clone(), None),
         };
-        let class = Self::load_class(&invoking_root)?;
-        Self::validate_declared_roots(&class, &workspace, &engine_root)?;
-        let workflow_roots = class.roots().clone();
-        let machine = Self::graph_of(&class);
+        let snapshot = Self::load_runbook_snapshot(&invoking_root, &workspace, &engine_root)?;
+        let workflow_roots = snapshot.roots().clone();
+        let machine = Self::graph_of(snapshot.class());
         Self::refuse_flat_residue(&invoking_root)?;
         let run_dir = Self::runs_dir_at(&engine_root).join(run_id);
         // FDC-006: a roster entry without a State File is a retired run —
@@ -529,10 +563,11 @@ impl Scheduler {
                  one with rtm start"
             )));
         }
-        Self::verify_runbook_pin(&invoking_root, &run_dir)?;
+        Self::verify_runbook_pin_hash(&run_dir, snapshot.pin())?;
         Ok(Self {
             machine,
             workflow_roots,
+            runbook_snapshot: Some(snapshot),
             run_id: Some(run_id.to_owned()),
             child_class,
             store: Some(StateStore::for_run(&workspace, run_id)),
@@ -569,26 +604,79 @@ impl Scheduler {
         Ok(())
     }
 
-    /// FDC-005: SHA-256 of the canonical invoking-checkout runbook, lowercase
-    /// hex. The runbook pin is this hash and nothing more; no code path copies
-    /// the runbook.
-    fn runbook_sha256(root: &Path) -> Result<String, StateError> {
+    fn read_runbook_bytes(root: &Path) -> Result<Vec<u8>, StateError> {
         let path = root.join(".ratmac").join("ratmac.toml");
-        crate::pin::sha256_file(&path).map_err(|error| {
+        fs::read(&path).map_err(|error| {
             StateError::new(format!(
-                "hash .ratmac/ratmac.toml: {error} ({})",
+                "read .ratmac/ratmac.toml: {error} ({})",
                 path.display()
             ))
         })
     }
 
-    /// FDC-005: every Scheduler read of the class compares the on-disk
-    /// runbook against the run's recorded pin; a mismatch refuses naming
-    /// observed and expected identity, and writes nothing. A run whose
-    /// evidence records no runbook pin predates the pin and is not checked.
-    fn verify_runbook_pin(root: &Path, run_dir: &Path) -> Result<(), StateError> {
-        let observed = Self::runbook_sha256(root)?;
-        Self::verify_runbook_pin_hash(run_dir, &observed)
+    fn sha256_bytes(bytes: &[u8]) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(bytes);
+        format!("{:x}", hasher.finalize())
+    }
+
+    /// Read, parse, hash, and resolve one runbook exactly once. Every fact
+    /// returned by this function therefore comes from the same bytes.
+    fn load_runbook_snapshot(
+        invoking_root: &Path,
+        workspace: &Path,
+        engine_root: &Path,
+    ) -> Result<RunbookSnapshot, StateError> {
+        let bytes = Self::read_runbook_bytes(invoking_root)?;
+        let source = std::str::from_utf8(&bytes).map_err(|error| {
+            StateError::new(format!(
+                "read .ratmac/ratmac.toml: invalid UTF-8: {error} ({})",
+                invoking_root.join(".ratmac").join("ratmac.toml").display()
+            ))
+        })?;
+        let class = MachineClass::from_toml(source).map_err(|error| {
+            StateError::new(format!(
+                "parse .ratmac/ratmac.toml [{}]: {error}",
+                error.code()
+            ))
+        })?;
+        let roots = class
+            .validate_roots(workspace, engine_root)
+            .map_err(|error| StateError::new(error.to_string()))?;
+        Ok(RunbookSnapshot {
+            sha256: Self::sha256_bytes(&bytes),
+            bytes,
+            class,
+            roots,
+        })
+    }
+
+    /// Under a mutation lock, prove that the runbook governing this
+    /// operation has not moved. For an existing Run its recorded pin must
+    /// match the same final bytes as well.
+    fn verify_runbook_snapshot(
+        snapshot: &RunbookSnapshot,
+        invoking_root: &Path,
+        run_dir: Option<&Path>,
+    ) -> Result<(), StateError> {
+        let snapshot_sha256 = Self::sha256_bytes(&snapshot.bytes);
+        if snapshot_sha256 != snapshot.sha256 {
+            return Err(StateError::new(
+                "runbook snapshot integrity check failed; nothing was modified",
+            ));
+        }
+        let observed = Self::sha256_bytes(&Self::read_runbook_bytes(invoking_root)?);
+        if observed != snapshot.sha256 {
+            return Err(StateError::new(format!(
+                "runbook changed during operation: .ratmac/ratmac.toml sha256 changed \
+                 from {} to {observed}; reload and retry; nothing was modified",
+                snapshot.sha256
+            )));
+        }
+        if let Some(run_dir) = run_dir {
+            Self::verify_runbook_pin_hash(run_dir, &observed)?;
+        }
+        Ok(())
     }
 
     /// Compare a Run's recorded pin to a hash already computed before a root
@@ -712,48 +800,44 @@ impl Scheduler {
         Ok(Self::runs_dir_at(engine_root).join(run_id))
     }
 
-    /// TRP-001, TRP-005: the one reader. An absent or unreadable runbook is a
-    /// refusal that names the path, never an empty machine.
-    fn load_class(root: &Path) -> Result<MachineClass, StateError> {
-        let path = root.join(".ratmac").join("ratmac.toml");
-        let source = fs::read_to_string(&path).map_err(|error| {
-            StateError::new(format!(
-                "read .ratmac/ratmac.toml: {error} ({})",
-                path.display()
-            ))
-        })?;
-        MachineClass::from_toml(&source).map_err(|error| {
-            StateError::new(format!(
-                "parse .ratmac/ratmac.toml [{}]: {error}",
-                error.code()
-            ))
-        })
-    }
-
     /// Load the invoking checkout's Machine Class and validate every declared
     /// workflow root before a non-Scheduler lifecycle entry point can mutate
     /// Engine state.
     pub(crate) fn validate_project_roots(root: &Path) -> Result<(), StateError> {
         let roots = crate::root::resolve(root);
-        let class = Self::load_class(roots.invoking_checkout_root())?;
-        Self::validate_declared_roots(&class, roots.invoking_checkout_root(), roots.engine_root())
+        let snapshot = Self::load_runbook_snapshot(
+            roots.invoking_checkout_root(),
+            roots.invoking_checkout_root(),
+            roots.engine_root(),
+        )?;
+        let _ = snapshot;
+        Ok(())
     }
 
-    fn validate_declared_roots(
-        class: &MachineClass,
-        workspace: &Path,
-        engine_root: &Path,
-    ) -> Result<(), StateError> {
-        class
-            .validate_roots(workspace, engine_root)
-            .map_err(|error| StateError::new(error.to_string()))
-    }
     fn graph_of(class: &MachineClass) -> MachineGraph {
         let phases = class.phases().keys().map(Phase::new).collect::<Vec<_>>();
         MachineGraph::new(phases, class.transitions().to_vec())
     }
+    /// Resolve a declared workflow role from this Scheduler's validated
+    /// addressed workspace mapping.
+    pub(crate) fn workflow_root(&self, role: &str) -> Result<PathBuf, StateError> {
+        self.workflow_roots
+            .resolve(role)
+            .map_err(|error| StateError::new(error.to_string()))
+    }
     pub fn machine(&self) -> &MachineGraph {
         &self.machine
+    }
+
+    /// Prove that the exact runbook snapshot which supplied this Scheduler's
+    /// class and role mapping is still current for its addressed Run.
+    pub(crate) fn verify_open_runbook_snapshot(&self) -> Result<(), StateError> {
+        let snapshot = self.runbook_snapshot.as_ref().ok_or_else(|| {
+            StateError::new("runbook snapshot requires Scheduler::open or Scheduler::open_run")
+        })?;
+        let invoking_root = self.invoking_root()?;
+        let run_dir = self.run_dir()?;
+        Self::verify_runbook_snapshot(snapshot, invoking_root, Some(&run_dir))
     }
 
     /// The invoking checkout's Git revision at spawn; `"none"` when it has
@@ -1037,13 +1121,11 @@ impl Scheduler {
         // Do the content reads before taking the mutation domain. The cheap
         // flat-residue fact is checked again after acquisition below.
         Self::refuse_flat_residue(&root)?;
-        let class = Self::load_class(&root)?;
-        Self::validate_declared_roots(&class, &root, &engine_root)?;
-        self.workflow_roots = class.roots().clone();
-        self.machine = Self::graph_of(&class);
+        let snapshot = Self::load_runbook_snapshot(&root, &root, &engine_root)?;
+        self.workflow_roots = snapshot.roots().clone();
+        self.machine = Self::graph_of(snapshot.class());
         let phase = self.initial_phase()?;
-        let runbook_pin = Self::runbook_sha256(&root)?;
-        let goal_baseline = self.goal_revision(&root);
+        let goal_baseline = self.goal_revision(&root)?;
         // FDC-002: a Run beginning in a terminal Phase — no ordinary outgoing
         // edge — is complete from its first State File. The Engine writes the
         // terminal fact; no agent claim participates.
@@ -1060,17 +1142,19 @@ impl Scheduler {
         // FDC-006/ENS-004: no active-Run cap. Every allocation advances the
         // durable high-water record while this root lock is held, then creates
         // an independently addressed member of .ratmac/runs/.
+        Self::verify_runbook_snapshot(&snapshot, &root, None)?;
         let minted = Self::mint_run(
             &root_lock,
             &engine_root,
             phase.as_str(),
             initial_status,
-            &runbook_pin,
+            snapshot.pin(),
             &goal_baseline,
             &engine_identity,
         )?;
         let run_id = minted.id.clone();
         let store = StateStore::for_engine_root(&engine_root, &run_id);
+        self.runbook_snapshot = Some(snapshot);
         self.store = Some(store);
         self.run_id = Some(run_id.clone());
         self.child_class = None;
@@ -1432,18 +1516,21 @@ composition is capped at one level (FDC-012)"
         let state_path = run_dir.join("state.toml");
 
         // Slow content and Git reads never belong to the shared mutation
-        // scope. The final pair only rechecks the facts this plan relies on.
-        let class = Self::load_class(&invoking_root)?;
-        Self::validate_declared_roots(&class, &child_workspace, &engine_root)?;
-        let runbook_pin = Self::runbook_sha256(&invoking_root)?;
-        let goal_baseline = class
-            .resolve_root("goal", &child_workspace, &engine_root)
-            .ok()
-            .and_then(|goal| crate::goal::revision(&goal));
+        // scope. The exact snapshot supplies the parsed class, validated
+        // mapping, and pin from one set of runbook bytes.
+        let snapshot = Self::load_runbook_snapshot(&invoking_root, &child_workspace, &engine_root)?;
+        let class = snapshot.class();
+        let validated_roots = snapshot.roots().clone();
+        let goal_baseline = match validated_roots.path("goal") {
+            Some(goal) => crate::goal::revision(goal)
+                .map_err(|error| StateError::new(format!("read declared goal root: {error}")))?,
+            None => None,
+        };
         let spawned_at = Self::revision_at(&invoking_root);
         let engine_identity = crate::pin::engine_identity();
-        self.workflow_roots = class.roots().clone();
-        self.machine = Self::graph_of(&class);
+        // This Scheduler remains addressed to the parent workspace; keep its
+        // existing mapping rather than storing the child-workspace mapping.
+        self.machine = Self::graph_of(class);
 
         // This is a read-only spawn plan. Do not take the parent Run lock
         // here: the later mint/ledger transaction needs both domains and must
@@ -1537,7 +1624,7 @@ composition is capped at one level (FDC-012)"
         let (root_lock, run_lock) = crate::lock::acquire_root_then_run(&engine_root, &parent_id)?;
         run_lock.ensure_current()?;
         Self::validate_run_address_at(&engine_root, &parent_id)?;
-        Self::verify_runbook_pin_hash(&run_dir, &runbook_pin)?;
+        Self::verify_runbook_snapshot(&snapshot, &invoking_root, Some(&run_dir))?;
         let current_state_bytes = fs::read(&state_path)
             .map_err(|error| StateError::new(format!("read State File before spawn: {error}")))?;
         if current_state_bytes != parent_state_bytes {
@@ -1563,7 +1650,7 @@ composition is capped at one level (FDC-012)"
             &engine_root,
             child_phase.as_str(),
             child_status,
-            &runbook_pin,
+            snapshot.pin(),
             &goal_baseline,
             &engine_identity,
         )?;
@@ -1669,11 +1756,8 @@ the ledger {} and minted child {} were left in place; inspect both paths before 
                 "respawn names no run: {superseded:?} is not on the roster; runs: {roster_line}"
             )));
         }
-        if !Self::runs_dir_at(&engine_root)
-            .join(&superseded)
-            .join("state.toml")
-            .is_file()
-        {
+        let superseded_run_dir = Self::runs_dir_at(&engine_root).join(&superseded);
+        if !superseded_run_dir.join("state.toml").is_file() {
             return Err(StateError::new(format!(
                 "run {superseded} is already terminal: its admission state is retired; nothing to supersede"
             )));
@@ -1691,13 +1775,14 @@ the ledger {} and minted child {} were left in place; inspect both paths before 
         };
         // FDC-005 keeps the Machine Class in the invoking checkout, but every
         // declared root and its goal baseline belongs to the child's workspace.
-        let class = Self::load_class(&root)?;
-        Self::validate_declared_roots(&class, &workspace, &engine_root)?;
-        let runbook_pin = Self::runbook_sha256(&root)?;
-        let goal_baseline = class
-            .resolve_root("goal", &workspace, &engine_root)
-            .ok()
-            .and_then(|goal| crate::goal::revision(&goal));
+        let snapshot = Self::load_runbook_snapshot(&root, &workspace, &engine_root)?;
+        let class = snapshot.class();
+        let validated_roots = snapshot.roots().clone();
+        let goal_baseline = match validated_roots.path("goal") {
+            Some(goal) => crate::goal::revision(goal)
+                .map_err(|error| StateError::new(format!("read declared goal root: {error}")))?,
+            None => None,
+        };
         let successor_spawned_at = Self::revision_at(&root);
         let engine_identity = crate::pin::engine_identity();
         let (phase, status) = match recorded.as_ref() {
@@ -1725,7 +1810,7 @@ the ledger {} and minted child {} were left in place; inspect both paths before 
                 (phase, status)
             }
             None => {
-                let machine = Self::graph_of(&class);
+                let machine = Self::graph_of(class);
                 let phase = Self::initial_phase_of(&machine)?;
                 let status = if machine.has_ordinary_outgoing(phase.as_str()) {
                     Status::Planned
@@ -1741,12 +1826,13 @@ the ledger {} and minted child {} were left in place; inspect both paths before 
         let minted_successor = {
             let root_lock = RootLock::acquire(&engine_root)?;
             Self::refuse_flat_residue_at(&root, &engine_root)?;
+            Self::verify_runbook_snapshot(&snapshot, &root, Some(&superseded_run_dir))?;
             Self::mint_run(
                 &root_lock,
                 &engine_root,
                 phase.as_str(),
                 status,
-                &runbook_pin,
+                snapshot.pin(),
                 &goal_baseline,
                 &engine_identity,
             )?
@@ -1882,12 +1968,11 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
 
         // Hash and parse before either lock. A final pin comparison happens
         // under the Run lock, but neither comparison can invoke Git or root
-        // resolution while a lock is held.
-        let class = Self::load_class(&invoking_root)?;
-        Self::validate_declared_roots(&class, &root, &engine_root)?;
-        let runbook_pin = Self::runbook_sha256(&invoking_root)?;
-        self.workflow_roots = class.roots().clone();
-        self.machine = Self::graph_of(&class);
+        let snapshot = Self::load_runbook_snapshot(&invoking_root, &root, &engine_root)?;
+        let class = snapshot.class();
+        let validated_roots = snapshot.roots().clone();
+        self.workflow_roots = validated_roots;
+        self.machine = Self::graph_of(class);
 
         // ENS-005: one Run's long guard evaluation is serialized only by its
         // own lock. No root-domain lock is acquired during this motion.
@@ -1902,13 +1987,13 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
             frozen_evidence,
             guarded_ledgers,
         ) = {
-            Self::verify_runbook_pin_hash(&run_dir, &runbook_pin)?;
+            Self::verify_runbook_snapshot(&snapshot, &invoking_root, Some(&run_dir))?;
             let guarded_state_bytes = fs::read(&state_path)
                 .map_err(|error| StateError::new(format!("read State File: {error}")))?;
             let state = self.load_state_unlocked()?;
             let state_phase = state.phase.clone();
             let (definition, scope_machine) =
-                Self::resolve_phase_scope(&class, &state_phase, self.child_class.as_deref())?;
+                Self::resolve_phase_scope(class, &state_phase, self.child_class.as_deref())?;
             if state.status == Status::Passed {
                 return Ok(StepOutcome::Refused {
                     failures: vec![guard_failure(
@@ -1924,7 +2009,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
             let evidence = crate::pin::Evidence::load(&run_dir);
             if let Some(frozen) = evidence.goal_frozen.as_deref() {
                 let observed = self
-                    .goal_revision(&root)
+                    .goal_revision(&root)?
                     .unwrap_or_else(|| "absent".to_owned());
                 if observed != frozen {
                     failures.push(guard_failure(
@@ -1982,7 +2067,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
             let consumes_verdict = transition_input.is_some();
             let to = transition.to().clone();
             let frozen_revision = if transition.freezes_goal() {
-                Some(self.goal_revision(&root).ok_or_else(|| {
+                Some(self.goal_revision(&root)?.ok_or_else(|| {
                     StateError::new("cannot freeze goal: declared root role \"goal\" is absent")
                 })?)
             } else {
@@ -2025,7 +2110,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
                 "state mutation refused for run {run_id}: State File changed while guards ran; reload it before retrying"
             )));
         }
-        Self::verify_runbook_pin_hash(&run_dir, &runbook_pin)?;
+        Self::verify_runbook_snapshot(&snapshot, &invoking_root, Some(&run_dir))?;
 
         // Open the append target before committing State: an unusable or
         // missing log refuses without a half-motion.
@@ -2359,36 +2444,26 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
         let Some(role) = role else {
             return Ok(workspace.to_path_buf());
         };
-        let engine_root = self.engine_root().map_err(|error| {
+        self.workflow_roots.resolve(role).map_err(|error| {
             guard_failure(
                 kind,
                 address,
                 error.to_string(),
-                "an addressed Run with a resolved Engine root",
+                format!("declared root role {role:?}"),
             )
-        })?;
-        self.workflow_roots
-            .resolve(role, workspace, engine_root)
-            .map_err(|error| {
-                guard_failure(
-                    kind,
-                    address,
-                    error.to_string(),
-                    format!("declared root role {role:?}"),
-                )
-            })
+        })
     }
 
-    fn goal_directory(&self, workspace: &Path) -> Option<PathBuf> {
-        let engine_root = self.engine_root().ok()?;
-        self.workflow_roots
-            .resolve("goal", workspace, engine_root)
-            .ok()
+    fn goal_directory(&self, _workspace: &Path) -> Option<PathBuf> {
+        self.workflow_roots.resolve("goal").ok()
     }
 
-    fn goal_revision(&self, workspace: &Path) -> Option<String> {
-        self.goal_directory(workspace)
-            .and_then(|goal| crate::goal::revision(&goal))
+    fn goal_revision(&self, workspace: &Path) -> Result<Option<String>, StateError> {
+        match self.goal_directory(workspace) {
+            Some(goal) => crate::goal::revision(&goal)
+                .map_err(|error| StateError::new(format!("read declared goal root: {error}"))),
+            None => Ok(None),
+        }
     }
 
     fn goal_address(&self) -> String {
@@ -3001,9 +3076,18 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
 
     /// Scheduler-owned initialization of a complete State File.
     pub fn initialize_state(&mut self, state: RunState) -> Result<(), StateError> {
+        let invoking_root = self.invoking_root()?.to_path_buf();
+        let workspace = self
+            .root
+            .as_deref()
+            .ok_or_else(|| StateError::new("state mutation requires Scheduler::open"))?;
+        let engine_root = self.engine_root()?.to_path_buf();
+        let snapshot = Self::load_runbook_snapshot(&invoking_root, workspace, &engine_root)?;
+        let run_dir = self.run_dir()?;
         let run_lock = self.run_lock()?;
         self.confirm_current_state(&state)?;
         run_lock.ensure_current()?;
+        Self::verify_runbook_snapshot(&snapshot, &invoking_root, Some(&run_dir))?;
         Self::require_durable_state_write(self.store()?.write(&state)?)
     }
 
@@ -3013,6 +3097,14 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
         mut state: RunState,
         prerequisite: impl AsRef<str>,
     ) -> Result<(), StateError> {
+        let invoking_root = self.invoking_root()?.to_path_buf();
+        let workspace = self
+            .root
+            .as_deref()
+            .ok_or_else(|| StateError::new("state mutation requires Scheduler::open"))?;
+        let engine_root = self.engine_root()?.to_path_buf();
+        let snapshot = Self::load_runbook_snapshot(&invoking_root, workspace, &engine_root)?;
+        let run_dir = self.run_dir()?;
         let run_lock = self.run_lock()?;
         self.confirm_current_state(&state)?;
         let prerequisite = prerequisite.as_ref();
@@ -3020,6 +3112,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
         state.status = Status::Blocked;
         state.blocker = format!("missing entry prerequisite: {prerequisite}");
         run_lock.ensure_current()?;
+        Self::verify_runbook_snapshot(&snapshot, &invoking_root, Some(&run_dir))?;
         Self::require_durable_state_write(self.store()?.write(&state)?)
     }
 
@@ -3045,19 +3138,25 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
     /// Read-only status; it loads state and reports labels from the current class.
     pub fn status(&self) -> Result<StatusReport, StateError> {
         let invoking_root = self.invoking_root()?;
+        let workspace = self
+            .root
+            .as_deref()
+            .ok_or_else(|| StateError::new("status requires Scheduler::open"))?;
+        let engine_root = self.engine_root()?;
         // ENS-005 leaves status outside both new lock domains, but the
         // explicitly refused pre-split lock remains a global entry preflight.
-        crate::lock::refuse_legacy(self.engine_root()?)?;
-        let class = Self::load_class(invoking_root)?;
+        crate::lock::refuse_legacy(engine_root)?;
+        let snapshot = Self::load_runbook_snapshot(invoking_root, workspace, engine_root)?;
+        let class = snapshot.class();
         // FDC-005: status reads the class too; an addressed run's recorded
-        // pin is compared on every such read.
+        // pin is compared against the same bytes that supplied that class.
         if self.run_id.is_some() {
-            Self::verify_runbook_pin(invoking_root, &self.run_dir()?)?;
+            Self::verify_runbook_pin_hash(&self.run_dir()?, snapshot.pin())?;
         }
         let state = self.load_state_unlocked()?;
         // FDC-011/FDC-012: a child Run is reported from its own class's view.
         let (definition, _scope_machine) =
-            Self::resolve_phase_scope(&class, &state.phase, self.child_class.as_deref())?;
+            Self::resolve_phase_scope(class, &state.phase, self.child_class.as_deref())?;
         let pending_guards = Self::pending_guard_labels(definition);
         let phase_prompt = Self::render_phase_prompt(definition)?;
         Ok(StatusReport {

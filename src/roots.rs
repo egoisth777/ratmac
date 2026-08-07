@@ -8,12 +8,25 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fs;
+use std::io;
 use std::path::{Component, Path, PathBuf};
 
 /// The runbook's named workflow roots, retained as safe relative paths until
 /// a Scheduler has both a workspace and an Engine root to validate against.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct WorkflowRoots {
+    paths: BTreeMap<String, PathBuf>,
+}
+
+/// The canonical workflow-root mapping validated for one addressed workspace.
+///
+/// Unlike [`WorkflowRoots`], this value contains no authored relative paths:
+/// every role has already been resolved, checked for directory type, confined
+/// to the workspace, and checked against the Engine root. Lifecycle operations
+/// retain this mapping rather than resolving an authored role again at use
+/// time.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ValidatedWorkflowRoots {
     paths: BTreeMap<String, PathBuf>,
 }
 
@@ -57,6 +70,35 @@ impl fmt::Display for RootValidationError {
 }
 
 impl std::error::Error for RootValidationError {}
+
+impl ValidatedWorkflowRoots {
+    /// Whether this validated mapping contains a role.
+    pub fn contains(&self, role: &str) -> bool {
+        self.paths.contains_key(role)
+    }
+
+    /// Return the canonical directory mapped to `role`.
+    pub fn resolve(&self, role: &str) -> Result<PathBuf, RootValidationError> {
+        self.paths.get(role).cloned().ok_or_else(|| {
+            RootValidationError::new(
+                "RB602",
+                role,
+                format!("root role {role:?} is not declared in roots"),
+            )
+        })
+    }
+    /// The canonical directory for a role, if it was validated.
+    pub fn path(&self, role: &str) -> Option<&Path> {
+        self.paths.get(role).map(PathBuf::as_path)
+    }
+
+    /// Iterate over the validated role-to-directory mapping.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &Path)> {
+        self.paths
+            .iter()
+            .map(|(role, path)| (role.as_str(), path.as_path()))
+    }
+}
 
 impl WorkflowRoots {
     /// Parse the optional top-level roots table. Shape and lexical confinement
@@ -124,21 +166,50 @@ impl WorkflowRoots {
         self.paths.get(role).map(PathBuf::as_path)
     }
 
-    /// Validate every declaration in this workspace before any lifecycle
-    /// operation can mutate Engine state.
+    /// Validate every declaration and return the canonical mapping that was
+    /// checked. Callers performing a lifecycle operation must retain this
+    /// result and resolve roles from it instead of recalculating paths later.
     pub fn validate(
         &self,
         workspace: &Path,
         engine_root: &Path,
-    ) -> Result<(), RootValidationError> {
-        for role in self.paths.keys() {
-            self.resolve(role, workspace, engine_root)?;
+    ) -> Result<ValidatedWorkflowRoots, RootValidationError> {
+        if self.paths.is_empty() {
+            return Ok(ValidatedWorkflowRoots::default());
         }
-        Ok(())
+
+        let canonical_workspace = canonical_workspace(workspace, "roots")?;
+        let canonical_engine = canonical_engine_root(engine_root).map_err(|error| {
+            RootValidationError::new(
+                "RB603",
+                "roots",
+                format!(
+                    "declared roots cannot validate Engine root {}: {error}",
+                    engine_root.display()
+                ),
+            )
+        })?;
+        let mut paths = BTreeMap::new();
+        for (role, relative) in &self.paths {
+            let resolved = resolve_declared(
+                role,
+                relative,
+                workspace,
+                &canonical_workspace,
+                engine_root,
+                &canonical_engine,
+            )?;
+            paths.insert(role.clone(), resolved);
+        }
+        Ok(ValidatedWorkflowRoots { paths })
     }
 
     /// Resolve one named root after checking existence, repository confinement,
-    /// and non-overlap with the Engine runtime root.
+    /// directory type, and non-overlap with the Engine runtime root.
+    ///
+    /// Lifecycle code should use [`ValidatedWorkflowRoots::resolve`] after one
+    /// complete [`Self::validate`] call. This compatibility helper is retained
+    /// for read-only callers that need one ad-hoc role.
     pub fn resolve(
         &self,
         role: &str,
@@ -152,64 +223,137 @@ impl WorkflowRoots {
                 format!("root role {role:?} is not declared in roots"),
             )
         })?;
-        let candidate = workspace.join(relative);
-        let canonical_workspace = fs::canonicalize(workspace).map_err(|error| {
+        let canonical_workspace = canonical_workspace(workspace, role)?;
+        let canonical_engine = canonical_engine_root(engine_root).map_err(|error| {
             RootValidationError::new(
                 "RB603",
                 role,
                 format!(
-                    "declared root role {role:?} cannot validate workspace {}: {error}",
-                    workspace.display()
-                ),
-            )
-        })?;
-        let canonical_candidate = fs::canonicalize(&candidate).map_err(|error| {
-            RootValidationError::new(
-                "RB603",
-                role,
-                format!(
-                    "declared root role {role:?} path {} does not exist or is unreadable: {error}",
-                    candidate.display()
-                ),
-            )
-        })?;
-        if !canonical_candidate.starts_with(&canonical_workspace) {
-            return Err(RootValidationError::new(
-                "RB601",
-                role,
-                format!(
-                    "declared root role {role:?} path {} resolves outside the repository",
-                    candidate.display()
-                ),
-            ));
-        }
-
-        let canonical_engine =
-            fs::canonicalize(engine_root).unwrap_or_else(|_| absolute(engine_root));
-        if canonical_candidate == canonical_engine
-            || canonical_candidate.starts_with(&canonical_engine)
-            || canonical_engine.starts_with(&canonical_candidate)
-        {
-            return Err(RootValidationError::new(
-                "RB604",
-                role,
-                format!(
-                    "declared root role {role:?} path {} overlaps the Engine root {}",
-                    candidate.display(),
+                    "declared root role {role:?} cannot validate Engine root {}: {error}",
                     engine_root.display()
                 ),
-            ));
-        }
-        Ok(canonical_candidate)
+            )
+        })?;
+        resolve_declared(
+            role,
+            relative,
+            workspace,
+            &canonical_workspace,
+            engine_root,
+            &canonical_engine,
+        )
     }
 }
 
-fn absolute(path: &Path) -> PathBuf {
-    if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        std::env::current_dir()
-            .map(|current| current.join(path))
-            .unwrap_or_else(|_| path.to_path_buf())
+fn canonical_workspace(workspace: &Path, role: &str) -> Result<PathBuf, RootValidationError> {
+    fs::canonicalize(workspace).map_err(|error| {
+        RootValidationError::new(
+            "RB603",
+            role,
+            format!(
+                "declared root role {role:?} cannot validate workspace {}: {error}",
+                workspace.display()
+            ),
+        )
+    })
+}
+
+fn resolve_declared(
+    role: &str,
+    relative: &Path,
+    workspace: &Path,
+    canonical_workspace: &Path,
+    engine_root: &Path,
+    canonical_engine: &Path,
+) -> Result<PathBuf, RootValidationError> {
+    let candidate = workspace.join(relative);
+    let canonical_candidate = fs::canonicalize(&candidate).map_err(|error| {
+        RootValidationError::new(
+            "RB603",
+            role,
+            format!(
+                "declared root role {role:?} path {} does not exist or is unreadable: {error}",
+                candidate.display()
+            ),
+        )
+    })?;
+    if !canonical_candidate.starts_with(canonical_workspace) {
+        return Err(RootValidationError::new(
+            "RB601",
+            role,
+            format!(
+                "declared root role {role:?} path {} resolves outside the repository",
+                candidate.display()
+            ),
+        ));
+    }
+    let metadata = fs::metadata(&canonical_candidate).map_err(|error| {
+        RootValidationError::new(
+            "RB603",
+            role,
+            format!(
+                "declared root role {role:?} path {} cannot be inspected: {error}",
+                candidate.display()
+            ),
+        )
+    })?;
+    if !metadata.is_dir() {
+        let found = if metadata.is_file() {
+            "a file"
+        } else {
+            "a non-directory filesystem object"
+        };
+        return Err(RootValidationError::new(
+            "RB603",
+            role,
+            format!(
+                "declared root role {role:?} path {} is {found}; expected a directory",
+                candidate.display()
+            ),
+        ));
+    }
+    if canonical_candidate == canonical_engine
+        || canonical_candidate.starts_with(canonical_engine)
+        || canonical_engine.starts_with(&canonical_candidate)
+    {
+        return Err(RootValidationError::new(
+            "RB604",
+            role,
+            format!(
+                "declared root role {role:?} path {} overlaps the Engine root {}",
+                candidate.display(),
+                engine_root.display()
+            ),
+        ));
+    }
+    Ok(canonical_candidate)
+}
+
+/// Canonicalize an Engine path that may not exist yet. Missing final
+/// components are normal for a fresh checkout; all other canonicalization
+/// failures are meaningful and must remain refusals.
+fn canonical_engine_root(path: &Path) -> io::Result<PathBuf> {
+    let mut cursor = path.to_path_buf();
+    let mut missing = Vec::new();
+    loop {
+        match fs::canonicalize(&cursor) {
+            Ok(mut canonical) => {
+                for component in missing.iter().rev() {
+                    canonical.push(component);
+                }
+                return Ok(canonical);
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                let Some(name) = cursor.file_name() else {
+                    return Err(error);
+                };
+                missing.push(name.to_os_string());
+                let Some(parent) = cursor.parent() else {
+                    return Err(error);
+                };
+                cursor = parent.to_path_buf();
+            }
+            Err(error) => return Err(error),
+        }
     }
 }

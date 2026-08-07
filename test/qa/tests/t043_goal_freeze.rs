@@ -224,8 +224,9 @@ fn drift_refuses_and_revert_clears() {
     );
     let observed = field(&goal_table(&fixture.evidence()), "frozen").expect("frozen field stays");
     assert_eq!(observed, frozen, "a refusal must not re-freeze the goal");
-    let drifted =
-        ratmac::goal::revision(&fixture.root.join(".arca/goal")).expect("goal is readable");
+    let drifted = ratmac::goal::revision(&fixture.root.join(".arca/goal"))
+        .expect("goal is readable")
+        .expect("goal directory is present");
     assert_ne!(drifted, frozen, "the edit changed the goal revision");
     assert!(
         refusal.contains(&drifted),

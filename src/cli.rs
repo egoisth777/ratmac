@@ -337,7 +337,10 @@ fn hold<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Resul
     writeln!(
         writer,
         "rtm: ticket {} held against {}; Run routed {} -> {}",
-        plan.ticket, plan.blocker, plan.from_phase, plan.to_phase
+        plan.ticket(),
+        plan.blocker(),
+        plan.source_phase(),
+        plan.to_phase()
     )?;
     writeln!(
         writer,
