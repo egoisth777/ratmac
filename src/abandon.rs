@@ -35,7 +35,6 @@
 
 use std::fmt;
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 /// Why an abandonment cannot proceed.
@@ -388,7 +387,7 @@ fn apply_live_abandon(
         .ensure_current()
         .map_err(|error| refusal(error.to_string()))?;
     let terminal_event_written = if let Some(entry) = plan.event.as_deref() {
-        append_event_once(root_lock, &engine_root.join("log.md"), entry)?;
+        append_event_once(root_lock, engine_root, entry)?;
         true
     } else {
         false
@@ -536,7 +535,7 @@ fn retirement_failure_after_event(
     let compensation = format!(
         "- Abandonment compensation: the terminal event was written, retirement then failed for Run {run}; the Run was not retired. {failure}.\n"
     );
-    match append(root_lock, &engine_root.join("log.md"), &compensation) {
+    match append_via_scheduler(root_lock, engine_root, &compensation) {
         Ok(()) => refusal(format!(
             "abandon {failure}; the terminal event was written and a compensation was appended: the Run was not retired"
         )),
@@ -546,17 +545,20 @@ fn retirement_failure_after_event(
     }
 }
 
-/// Root serializes both the presence check and append, so a retry cannot
-/// duplicate a terminal event after another Engine caller writes history.
+/// Root serializes both the presence check and the Scheduler-owned append, so
+/// a retry cannot duplicate a terminal event after another Engine caller
+/// writes history.
 fn append_event_once(
     root_lock: &crate::lock::RootLock,
-    path: &Path,
+    engine_root: &Path,
     entry: &str,
 ) -> Result<(), AbandonRefusal> {
     root_lock
         .ensure_current()
         .map_err(|error| refusal(error.to_string()))?;
-    let existing = match fs::read_to_string(path) {
+    let path = crate::Scheduler::transition_log_path(engine_root)
+        .map_err(|error| refusal(error.to_string()))?;
+    let existing = match fs::read_to_string(&path) {
         Ok(existing) => existing,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
         Err(error) => {
@@ -569,7 +571,7 @@ fn append_event_once(
     if existing.contains(entry) {
         return Ok(());
     }
-    append(root_lock, path, entry)
+    append_via_scheduler(root_lock, engine_root, entry)
         .map_err(|error| refusal(format!("abandon cannot record the terminal event: {error}")))
 }
 
@@ -620,27 +622,25 @@ fn ensure_retirement_file(path: &Path) -> Result<(), AbandonRefusal> {
         .map_err(|error| refusal(format!("abandon cannot read {}: {error}", path.display())))
 }
 
-/// Append shared history while its root-domain guard remains current.
-fn append(root_lock: &crate::lock::RootLock, path: &Path, entry: &str) -> std::io::Result<()> {
+/// Ask the Scheduler-owned transition-log funnel to append while this
+/// terminal transaction's root-domain guard remains current.
+fn append_via_scheduler(
+    root_lock: &crate::lock::RootLock,
+    engine_root: &Path,
+    entry: &str,
+) -> std::io::Result<()> {
     root_lock
         .ensure_current()
         .map_err(|error| std::io::Error::other(error.to_string()))?;
-    let mut file = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)?;
+    let mut log = crate::Scheduler::open_transition_log(engine_root, true)
+        .map_err(|error| std::io::Error::other(error.to_string()))?;
     root_lock
         .ensure_current()
         .map_err(|error| std::io::Error::other(error.to_string()))?;
-    let written = file.write(entry.as_bytes())?;
-    if written != entry.len() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::WriteZero,
-            format!(
-                "short append wrote {written} of {} history bytes without retry",
-                entry.len()
-            ),
-        ));
+    match crate::Scheduler::append_transition_log(&mut log, entry.as_bytes()) {
+        crate::scheduler::TransitionLogAppend::Complete => Ok(()),
+        crate::scheduler::TransitionLogAppend::Failed(failure) => {
+            Err(failure.into_operator_error())
+        }
     }
-    file.sync_all()
 }

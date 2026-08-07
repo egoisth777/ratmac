@@ -106,7 +106,15 @@ impl Fixture {
         command.env("RATMAC_TEST_LOG_APPEND_FAIL", "after-state-write");
         command
             .output()
-            .expect("invoke rtm with transition-log append fault")
+            .expect("invoke rtm with no-write transition-log append fault")
+    }
+
+    fn rtm_with_partial_log_append_failure(&self, args: &[&str]) -> Output {
+        let mut command = rtm_command(self.root(), args);
+        command.env("RATMAC_TEST_LOG_APPEND_FAIL", "after-partial-write");
+        command
+            .output()
+            .expect("invoke rtm with partial transition-log append fault")
     }
 
     fn engine_log(&self) -> Vec<u8> {
@@ -222,8 +230,9 @@ fn records_after_prefix(log: &[u8]) -> Vec<String> {
 }
 
 /// ENSV-008: ordinary, held, and abandoned Engine events produce exactly one
-/// ordered record in the Engine log; a refused or injected-failed motion
-/// produces none; and the contributor log never changes.
+/// ordered record in the Engine log; refused and no-write-failed motion produce
+/// none; a partial-write failure preserves its incomplete record; and the
+/// contributor log never changes.
 #[test]
 fn scheduler_writes_only_ratmac_transition_log() {
     let fixture = Fixture::new();
@@ -273,7 +282,7 @@ fn scheduler_writes_only_ratmac_transition_log() {
     assert_engine_prefix(&after_first_step, "the ordinary first-Run step");
     assert_eq!(
         records_after_prefix(&after_first_step),
-        vec!["- Transition: intake -> build".to_owned()],
+        vec![format!("- Transition: intake -> build; Run {first_run}")],
         "one ordinary step must append one complete transition record"
     );
 
@@ -324,6 +333,10 @@ fn scheduler_writes_only_ratmac_transition_log() {
     assert_human_history_unchanged(&fixture, &human_before, "the first-Run hold");
     let after_hold = fixture.engine_log();
     assert_engine_prefix(&after_hold, "the first-Run hold");
+    assert!(
+        after_hold[after_first_step.len()..].starts_with(b"\n- Hold:"),
+        "the shared writer prefixes the hold record with its own separator"
+    );
     let records_after_hold = records_after_prefix(&after_hold);
     assert_eq!(
         records_after_hold.len(),
@@ -338,8 +351,9 @@ fn scheduler_writes_only_ratmac_transition_log() {
     assert!(
         records_after_hold[1].contains(TICKET)
             && records_after_hold[1].contains(BLOCKER)
+            && records_after_hold[1].contains(&format!("Run {first_run}"))
             && records_after_hold[1].contains("build -> intake"),
-        "the hold record names its ticket, blocker, and route: {:?}",
+        "the hold record names its ticket, blocker, Run, and route: {:?}",
         records_after_hold[1]
     );
     let first_state_after_hold = fixture.state_bytes(&first_run);
@@ -398,7 +412,8 @@ fn scheduler_writes_only_ratmac_transition_log() {
         "the repaired retry must append one complete record, not a duplicate or partial record"
     );
     assert_eq!(
-        records_after_retry[2], "- Transition: intake -> build",
+        records_after_retry[2],
+        format!("- Transition: intake -> build; Run {second_run}"),
         "the retry contributes the second addressed Run's complete transition record"
     );
 
@@ -422,6 +437,11 @@ fn scheduler_writes_only_ratmac_transition_log() {
 
     let final_log = fixture.engine_log();
     assert_engine_prefix(&final_log, "the complete two-Run sequence");
+    assert!(
+        final_log[after_retry.len()..]
+            .starts_with(format!("\n- Abandoned: Run {second_run}").as_bytes()),
+        "the shared writer prefixes the abandonment record with its own separator"
+    );
     let final_records = records_after_prefix(&final_log);
     assert_eq!(
         final_records.len(),
@@ -429,7 +449,8 @@ fn scheduler_writes_only_ratmac_transition_log() {
         "the ordinary step, hold, retry, and abandonment each append exactly one Engine record"
     );
     assert_eq!(
-        final_records[0], "- Transition: intake -> build",
+        final_records[0],
+        format!("- Transition: intake -> build; Run {first_run}"),
         "the first record is the first Run's ordinary transition"
     );
     assert!(
@@ -438,7 +459,8 @@ fn scheduler_writes_only_ratmac_transition_log() {
         final_records[1]
     );
     assert_eq!(
-        final_records[2], "- Transition: intake -> build",
+        final_records[2],
+        format!("- Transition: intake -> build; Run {second_run}"),
         "the third record is the second Run's repaired retry"
     );
     assert!(
@@ -446,5 +468,271 @@ fn scheduler_writes_only_ratmac_transition_log() {
             && final_records[3].contains("phase build"),
         "the fourth record is the second Run's terminal abandonment: {:?}",
         final_records[3]
+    );
+    let third_start = fixture.rtm(&["start"]);
+    assert!(
+        third_start.status.success(),
+        "the third addressed Run starts for partial-append recovery: {}",
+        combined(&third_start)
+    );
+    let third_run = started_run_id(&third_start);
+    assert_human_history_unchanged(
+        &fixture,
+        &human_before,
+        "starting the third Run for partial-append recovery",
+    );
+    let third_state_before_partial = fixture.state_bytes(&third_run);
+    let log_before_partial = fixture.engine_log();
+    let partial_entry = format!("\n- Transition: intake -> build; Run {third_run}\n");
+    let expected_fragment = &partial_entry.as_bytes()[..partial_entry.len() / 2];
+    assert!(
+        !expected_fragment.is_empty() && expected_fragment.len() < partial_entry.len(),
+        "the partial-write seam fixture uses a genuine proper record prefix"
+    );
+    let partial = fixture.rtm_with_partial_log_append_failure(&["step", "--run", &third_run]);
+    let partial_text = combined(&partial);
+    assert!(
+        !partial.status.success(),
+        "RATMAC_TEST_LOG_APPEND_FAIL=after-partial-write must refuse after a genuine fragment: {partial_text}"
+    );
+    let partial_log_path = fixture.root().join(".ratmac/log.md");
+    let normalized_log_path = partial_log_path.to_string_lossy().replace('\\', "/");
+    assert!(
+        partial_text
+            .replace('\\', "/")
+            .contains(&normalized_log_path),
+        "the partial-append refusal must name its transition-log path: {partial_text}"
+    );
+    let partial_lowercase = partial_text.to_ascii_lowercase();
+    assert!(
+        partial_lowercase.contains("incomplete record")
+            && partial_lowercase.contains("human must resolve"),
+        "the partial-append refusal must require human resolution: {partial_text}"
+    );
+    assert_eq!(
+        fixture.state_bytes(&third_run),
+        third_state_before_partial,
+        "a partial append must restore the exact prior addressed Run State File bytes"
+    );
+    assert_eq!(
+        fixture.engine_log(),
+        [log_before_partial.as_slice(), expected_fragment].concat(),
+        "a partial append must remain as the exact proper record prefix"
+    );
+    assert_human_history_unchanged(
+        &fixture,
+        &human_before,
+        "the partial transition-log append failure",
+    );
+}
+
+/// A later writer must not change how the failed writer classifies its own
+/// short append: that outcome comes from the write count, not a shared-log
+/// snapshot.
+#[test]
+fn partial_append_recovery_is_local_to_the_writer() {
+    let fixture = Fixture::new();
+    let human_before = fixture.human_history_snapshot();
+
+    let first_start = fixture.rtm(&["start"]);
+    assert!(
+        first_start.status.success(),
+        "the first Run starts for local partial-append recovery: {}",
+        combined(&first_start)
+    );
+    let first_run = started_run_id(&first_start);
+    let first_state_before_partial = fixture.state_bytes(&first_run);
+    let log_before_partial = fixture.engine_log();
+    let partial_entry = format!("\n- Transition: intake -> build; Run {first_run}\n");
+    let expected_fragment = &partial_entry.as_bytes()[..partial_entry.len() / 2];
+
+    let partial = fixture.rtm_with_partial_log_append_failure(&["step", "--run", &first_run]);
+    let partial_text = combined(&partial);
+    assert!(
+        !partial.status.success(),
+        "the first Run's partial append must refuse: {partial_text}"
+    );
+    let partial_log_path = fixture.root().join(".ratmac/log.md");
+    let normalized_log_path = partial_log_path.to_string_lossy().replace('\\', "/");
+    assert!(
+        partial_text
+            .replace('\\', "/")
+            .contains(&normalized_log_path),
+        "the first Run's partial refusal names its transition-log path: {partial_text}"
+    );
+    assert!(
+        partial_text
+            .to_ascii_lowercase()
+            .contains("human must resolve"),
+        "the first Run's partial refusal requires human resolution: {partial_text}"
+    );
+    assert_eq!(
+        fixture.state_bytes(&first_run),
+        first_state_before_partial,
+        "the first Run restores its exact prior State File before another writer acts"
+    );
+
+    let second_start = fixture.rtm(&["start"]);
+    assert!(
+        second_start.status.success(),
+        "the second Run starts after the first Run's retained fragment: {}",
+        combined(&second_start)
+    );
+    let second_run = started_run_id(&second_start);
+    assert_ne!(
+        first_run, second_run,
+        "the later complete record belongs to a different addressed Run"
+    );
+    let second_step = fixture.rtm(&["step", "--run", &second_run]);
+    assert!(
+        second_step.status.success(),
+        "the second Run appends a complete record after the fragment: {}",
+        combined(&second_step)
+    );
+    assert_eq!(
+        fixture.phase(&second_run),
+        "build",
+        "the second Run advances through its ordinary transition"
+    );
+    assert_eq!(
+        fixture.state_bytes(&first_run),
+        first_state_before_partial,
+        "the later writer cannot change the first Run's restored State File"
+    );
+
+    let complete_second_entry = format!("\n- Transition: intake -> build; Run {second_run}\n");
+    let final_log = fixture.engine_log();
+    assert_eq!(
+        final_log,
+        [
+            log_before_partial.as_slice(),
+            expected_fragment,
+            complete_second_entry.as_bytes(),
+        ]
+        .concat(),
+        "the first Run's exact fragment remains while the second Run's complete record remains intact"
+    );
+    assert_human_history_unchanged(
+        &fixture,
+        &human_before,
+        "a later complete append after a partial transition record",
+    );
+}
+
+/// Hold and abandonment use the same funnel-owned partial-record diagnostic
+/// as step; neither caller may discard the local short-write outcome.
+#[test]
+fn hold_and_abandon_surface_the_shared_fragment_refusal() {
+    let held = Fixture::new();
+    let held_human_before = held.human_history_snapshot();
+    let held_start = held.rtm(&["start"]);
+    assert!(
+        held_start.status.success(),
+        "the held Run starts: {}",
+        combined(&held_start)
+    );
+    let held_run = started_run_id(&held_start);
+    let held_step = held.rtm(&["step", "--run", &held_run]);
+    assert!(
+        held_step.status.success(),
+        "the held Run reaches the blocked route source Phase: {}",
+        combined(&held_step)
+    );
+    let held_log_before = held.engine_log();
+    let held_partial = held.rtm_with_partial_log_append_failure(&[
+        "hold",
+        TICKET,
+        "--blocker",
+        BLOCKER,
+        "--confirm",
+        "hold t-900",
+        "--run",
+        &held_run,
+    ]);
+    let held_text = combined(&held_partial);
+    assert!(
+        !held_partial.status.success(),
+        "a partial hold history append must refuse: {held_text}"
+    );
+    let held_log_path = held.root().join(".ratmac/log.md");
+    assert!(
+        held_text
+            .replace('\\', "/")
+            .contains(&held_log_path.to_string_lossy().replace('\\', "/"))
+            && held_text.to_ascii_lowercase().contains("incomplete record")
+            && held_text
+                .to_ascii_lowercase()
+                .contains("human must resolve"),
+        "the hold refusal carries the funnel-owned fragment diagnostic: {held_text}"
+    );
+    assert_eq!(
+        held.phase(&held_run),
+        "intake",
+        "the hold's already-committed route remains visible after its fragment"
+    );
+    let held_log_after = held.engine_log();
+    assert!(
+        held_log_after.starts_with(&held_log_before)
+            && held_log_after.len() > held_log_before.len(),
+        "the hold fragment remains append-only in the Engine log"
+    );
+    assert_human_history_unchanged(
+        &held,
+        &held_human_before,
+        "the partial hold transition-log append",
+    );
+
+    let abandoned = Fixture::new();
+    let abandoned_human_before = abandoned.human_history_snapshot();
+    let abandoned_start = abandoned.rtm(&["start"]);
+    assert!(
+        abandoned_start.status.success(),
+        "the abandoned Run starts: {}",
+        combined(&abandoned_start)
+    );
+    let abandoned_run = started_run_id(&abandoned_start);
+    let abandoned_state_before = abandoned.state_bytes(&abandoned_run);
+    let abandoned_log_before = abandoned.engine_log();
+    let confirmation = format!("abandon {abandoned_run}");
+    let abandoned_partial = abandoned.rtm_with_partial_log_append_failure(&[
+        "abandon",
+        "--confirm",
+        &confirmation,
+        "--run",
+        &abandoned_run,
+    ]);
+    let abandoned_text = combined(&abandoned_partial);
+    assert!(
+        !abandoned_partial.status.success(),
+        "a partial abandonment history append must refuse: {abandoned_text}"
+    );
+    let abandoned_log_path = abandoned.root().join(".ratmac/log.md");
+    assert!(
+        abandoned_text
+            .replace('\\', "/")
+            .contains(&abandoned_log_path.to_string_lossy().replace('\\', "/"))
+            && abandoned_text
+                .to_ascii_lowercase()
+                .contains("incomplete record")
+            && abandoned_text
+                .to_ascii_lowercase()
+                .contains("human must resolve"),
+        "the abandonment refusal carries the funnel-owned fragment diagnostic: {abandoned_text}"
+    );
+    assert_eq!(
+        abandoned.state_bytes(&abandoned_run),
+        abandoned_state_before,
+        "a fragment refuses before abandonment retires the addressed State File"
+    );
+    let abandoned_log_after = abandoned.engine_log();
+    assert!(
+        abandoned_log_after.starts_with(&abandoned_log_before)
+            && abandoned_log_after.len() > abandoned_log_before.len(),
+        "the abandonment fragment remains append-only in the Engine log"
+    );
+    assert_human_history_unchanged(
+        &abandoned,
+        &abandoned_human_before,
+        "the partial abandonment transition-log append",
     );
 }
