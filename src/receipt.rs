@@ -5,7 +5,7 @@
 //! per executed check, and the gate resolves every planned test the ticket
 //! declares to a receipt that proves the test can fail.
 //!
-//! Receipt file: `.ratmac/evidence/<ticket-id>/<planned-test-id>.toml`
+//! Receipt file: `.ratmac/evidence/<run-id>/<planned-test-id>.toml`
 //!
 //! ```toml
 //! planned-test-id = "PT-045-01"
