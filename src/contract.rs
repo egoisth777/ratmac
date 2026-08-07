@@ -89,24 +89,32 @@ impl IssueLocation {
 }
 
 /// PGE-001: verify intake completion over the working tree.
-pub fn gate_intake(root: &Path) -> Result<(), Vec<ContractDefect>> {
+///
+/// This compatibility entry point resolves the contract's fixed role names
+/// from the reviewed runbook before reading any workflow record.
+pub fn gate_intake(workspace: &Path) -> Result<(), Vec<ContractDefect>> {
+    let roots = contract_roots(workspace, &["goal", "issue"])?;
+    gate_intake_at(&roots[0], &roots[1])
+}
+
+/// Evaluate intake records under the already resolved `goal` and `issue`
+/// roots. Schema-known leaf names are the only addresses added here.
+pub fn gate_intake_at(goal_root: &Path, issue_root: &Path) -> Result<(), Vec<ContractDefect>> {
     let mut defects = Vec::new();
-    let goal_path = root.join(".arca/goal/spec.md");
+    let goal_path = goal_root.join("spec.md");
+    let shown_goal = shown(&goal_path);
     let goal = fs::read_to_string(&goal_path).unwrap_or_default();
     if goal.trim().is_empty() {
         defects.push(defect(
-            ".arca/goal/spec.md",
+            &shown_goal,
             "goal authority is missing or empty, so no integration claim can be checked",
         ));
     }
     let goal_ids = requirement_ids(&goal);
     let mut seen_ids: BTreeMap<String, String> = BTreeMap::new();
 
-    for (name, folder, location) in issue_folders(root) {
-        let shown = folder
-            .strip_prefix(root)
-            .map(|relative| relative.to_string_lossy().replace('\\', "/"))
-            .unwrap_or_else(|_| folder.to_string_lossy().replace('\\', "/"));
+    for (name, folder, location) in issue_folders(issue_root) {
+        let shown = shown(&folder);
 
         if let Some(first) = seen_ids.insert(name.clone(), shown.clone()) {
             defects.push(defect(
@@ -171,7 +179,10 @@ pub fn gate_intake(root: &Path) -> Result<(), Vec<ContractDefect>> {
                 if has_deferred {
                     defects.push(defect(
                         &shown,
-                        "spec contains a deferred ask; the complete issue must live under .arca/issue/deferred with status deferred",
+                        format!(
+                            "spec contains a deferred ask; the complete issue must live under {}/deferred with status deferred",
+                            issue_root.to_string_lossy().replace('\\', "/")
+                        ),
                     ));
                 }
                 if !matches!(status.as_str(), "integrated" | "rejected") {
@@ -214,7 +225,10 @@ pub fn gate_intake(root: &Path) -> Result<(), Vec<ContractDefect>> {
                 if has_deferred {
                     defects.push(defect(
                         &shown,
-                        "archived issue still contains a deferred ask; restore the complete bundle to .arca/issue/deferred",
+                        format!(
+                            "archived issue still contains a deferred ask; restore the complete bundle to {}/deferred",
+                            issue_root.to_string_lossy().replace('\\', "/")
+                        ),
                     ));
                 }
             }
@@ -272,10 +286,9 @@ pub fn gate_intake(root: &Path) -> Result<(), Vec<ContractDefect>> {
 
     // Reverse links from the goal must resolve too.
     for target in markdown_targets(&goal) {
-        let base = root.join(".arca/goal");
-        if !resolves(&base, &target) {
+        if !resolves(goal_root, &target) {
             defects.push(defect(
-                ".arca/goal/spec.md",
+                &shown_goal,
                 format!("reverse link does not resolve: {target}"),
             ));
         }
@@ -287,13 +300,32 @@ pub fn gate_intake(root: &Path) -> Result<(), Vec<ContractDefect>> {
         Err(defects)
     }
 }
-
 /// PGE-002: verify residual and ticket record contracts.
 ///
-/// `workflow_root` supplies every workflow record. `engine_root` supplies the
-/// addressed Run's frozen evidence under `.ratmac/runs/<id>/`.
+/// This compatibility entry point resolves the fixed contract roles from the
+/// reviewed runbook before reading workflow records.
 pub fn gate_records(
-    workflow_root: &Path,
+    workspace: &Path,
+    engine_root: &Path,
+    run_id: &str,
+) -> Result<(), Vec<ContractDefect>> {
+    let roots = contract_roots(workspace, &["goal", "residual", "ticket"])?;
+    gate_records_at(
+        workspace,
+        &roots[0],
+        &roots[1],
+        &roots[2],
+        engine_root,
+        run_id,
+    )
+}
+
+/// Evaluate records using resolved fixed-role roots and schema-known leaves.
+pub fn gate_records_at(
+    workspace: &Path,
+    goal_root: &Path,
+    residual_root: &Path,
+    ticket_root: &Path,
     engine_root: &Path,
     run_id: &str,
 ) -> Result<(), Vec<ContractDefect>> {
@@ -306,22 +338,19 @@ pub fn gate_records(
             "the goal is not frozen, so no residual can cite a frozen revision",
         ));
     }
-    let unmechanized = unproven_mechanization(workflow_root);
-    let goal = fs::read_to_string(workflow_root.join(".arca/goal/spec.md")).unwrap_or_default();
+    let unmechanized = unproven_mechanization(workspace);
+    let goal = fs::read_to_string(goal_root.join("spec.md")).unwrap_or_default();
     let goal_ids = requirement_ids(&goal);
 
     // Active and archived residuals are one namespace.
     let mut by_requirement: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut gaps: Vec<(String, String)> = Vec::new();
-    let mut residual_paths = files_in(workflow_root.join(".arca/residual"), "md");
-    residual_paths.extend(files_in(workflow_root.join(".arca/residual/archive"), "md"));
+    let mut residual_paths = files_in(residual_root.to_path_buf(), "md");
+    residual_paths.extend(files_in(residual_root.join("archive"), "md"));
     residual_paths.sort();
     for path in residual_paths {
         let id = stem(&path);
-        let shown = path
-            .strip_prefix(workflow_root)
-            .map(|relative| relative.to_string_lossy().replace('\\', "/"))
-            .unwrap_or_else(|_| path.to_string_lossy().replace('\\', "/"));
+        let shown = shown(&path);
         let text = fs::read_to_string(&path).unwrap_or_default();
 
         let Some(requirement) = yaml_field(&text, "goal-requirement-ref") else {
@@ -382,8 +411,11 @@ pub fn gate_records(
         if !by_requirement.contains_key(requirement) {
             defects.push(defect(
                 format!("requirement {requirement}"),
-                "has no residual record across .arca/residual/*.md and \
-                 .arca/residual/archive/*.md; exactly one is required",
+                format!(
+                    "has no residual record across {}/*.md and {}/archive/*.md; exactly one is required",
+                    shown(residual_root),
+                    shown(residual_root)
+                ),
             ));
         }
     }
@@ -403,9 +435,9 @@ pub fn gate_records(
     // Tickets.
     let mut owners: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut dependencies: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for path in files_in(workflow_root.join(".arca/ticket"), "md") {
+    for path in files_in(ticket_root.to_path_buf(), "md") {
         let id = stem(&path);
-        let shown = format!(".arca/ticket/{id}.md");
+        let shown = shown(&path);
         let text = fs::read_to_string(&path).unwrap_or_default();
 
         for section in TICKET_SECTIONS {
@@ -458,7 +490,7 @@ pub fn gate_records(
 
     for cycle in find_cycles(&dependencies) {
         defects.push(defect(
-            format!(".arca/ticket/{}.md", cycle[0]),
+            shown(&ticket_root.join(format!("{}.md", cycle[0]))),
             format!("ticket dependencies form a cycle: {}", cycle.join(" -> ")),
         ));
     }
@@ -504,11 +536,36 @@ fn declared_gate_kinds(root: &Path) -> BTreeSet<String> {
         .collect()
 }
 
+fn contract_roots(workspace: &Path, roles: &[&str]) -> Result<Vec<PathBuf>, Vec<ContractDefect>> {
+    let engine = crate::root::resolve(workspace);
+    let class =
+        crate::machine::MachineClass::load_from_project_root(workspace).map_err(|error| {
+            vec![defect(
+                "runbook",
+                format!("{}: {}", error.code(), error.message()),
+            )]
+        })?;
+    let roots = class
+        .validate_roots(engine.invoking_checkout_root(), engine.engine_root())
+        .map_err(|error| vec![defect("runbook", error.to_string())])?;
+    roles
+        .iter()
+        .map(|role| {
+            roots
+                .resolve(role)
+                .map_err(|error| vec![defect("runbook", error.to_string())])
+        })
+        .collect()
+}
+
+fn shown(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
 /// Issue bundles across intake, deferred, and archive.
-fn issue_folders(root: &Path) -> Vec<(String, PathBuf, IssueLocation)> {
-    let issue_root = root.join(".arca/issue");
+fn issue_folders(issue_root: &Path) -> Vec<(String, PathBuf, IssueLocation)> {
     let locations = [
-        (issue_root.clone(), IssueLocation::Intake),
+        (issue_root.to_path_buf(), IssueLocation::Intake),
         (issue_root.join("deferred"), IssueLocation::Deferred),
         (issue_root.join("archive"), IssueLocation::Archive),
     ];

@@ -368,9 +368,16 @@ fn doctor_ownership_audit_reuses_the_typed_class() {
 
 /// PT-055-04 / TRP-004: every authored guard is on the typed class, in
 /// declaration order, with the fields the author wrote.
+
 #[test]
 fn every_authored_guard_survives_the_parse() {
     let source = "\
+[roots]
+goal = \"workflow/goal\"
+issue = \"workflow/issue\"
+residual = \"workflow/residual\"
+ticket = \"workflow/ticket\"
+
 [phases.build]
 prompt = \"Build it.\"
 guards = [
@@ -380,8 +387,8 @@ guards = [
   { kind = \"file_contains\", path = \"b.txt\", contains = \"done\" },
   { kind = \"command_exit\", program = \"rustc\", args = [\"--version\"], expected = 0, exempt = true },
   { kind = \"command_exit\", program = \"cargo\", expected = 1 },
-  { kind = \"sensitivity_receipts\", ticket = \".arca/ticket/t-900.md\" },
-  { kind = \"completion_gate\", ticket = \".arca/ticket/t-900.md\" },
+  { kind = \"sensitivity_receipts\", root = \"ticket\", ticket = \"t-900.md\" },
+  { kind = \"completion_gate\", root = \"ticket\", ticket = \"t-900.md\" },
   { kind = \"intake_contract\" },
   { kind = \"record_contract\" },
 ]
@@ -768,9 +775,11 @@ blocked-route = true
     let project = Project::with_runbook(
         "cross-feature",
         "\
+[roots]
+goal = \".arca/goal\"
+
 [phases.intake]
 prompt = \"Intake.\"
-guards = [{ kind = \"command_exit\", program = \"rustc\", args = [\"--version\"], expected = 0, exempt = true }]
 
 [phases.build]
 prompt = \"Build.\"

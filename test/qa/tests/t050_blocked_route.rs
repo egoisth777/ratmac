@@ -13,8 +13,9 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
-
+use std::process::{Command, Output, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 const TICKET: &str = "t-900";
 const BLOCKER: &str = ".arca/issue/i-777-blocker";
 
@@ -63,7 +64,9 @@ impl Fixture {
         }
         fs::write(
             root.join(".ratmac/ratmac.toml"),
-            "[phases.intake]\nprompt = \"Integrate the issues.\"\n\n\
+            "[roots]\n\
+             ticket = \".arca/ticket\"\n\n\
+             [phases.intake]\nprompt = \"Integrate the issues.\"\n\n\
              [phases.build]\nprompt = \"Build the ticket.\"\n\n\
              [phases.build-review]\nprompt = \"Review the ticket.\"\n\n\
              [[transitions]]\nfrom = \"intake\"\nto = \"build\"\n\n\
@@ -219,6 +222,19 @@ fn set_readonly(path: &Path, readonly: bool) {
     #[allow(clippy::permissions_set_readonly_false)]
     permissions.set_readonly(readonly);
     fs::set_permissions(path, permissions).expect("set permissions");
+}
+
+fn wait_for_file(path: &Path, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if path.is_file() {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
 }
 
 /// PT-048-01: an authorized, linked hold routes the Run onward.
@@ -378,6 +394,50 @@ fn unresolvable_blocker_refuses() {
     assert_eq!(fixture.phase(), "intake", "the authorized hold routed");
 }
 
+/// PGE-006: blocker inspection never escapes the invoking project.
+#[test]
+fn blocker_reference_must_stay_beneath_project_root() {
+    let fixture = Fixture::new("confined-blocker");
+    let outside_name = format!(
+        "{}-outside",
+        fixture
+            .root
+            .file_name()
+            .expect("fixture root has a basename")
+            .to_string_lossy()
+    );
+    let outside = fixture.root.with_file_name(&outside_name);
+    fs::create_dir_all(&outside).expect("create external issue");
+    for name in [
+        "index.md",
+        "spec.md",
+        "design.md",
+        "test-plan.md",
+        "ubi-lang.md",
+    ] {
+        fs::write(outside.join(name), format!("# {name}\n")).expect("write external issue");
+    }
+    let before = fixture.owned_bytes();
+    let escaped = format!("../{outside_name}");
+    let absolute = outside.to_string_lossy().into_owned();
+
+    for blocker in [&escaped, &absolute] {
+        let refusal = fixture.hold_text(&[TICKET, "--blocker", blocker, "--confirm", "hold t-900"]);
+        assert!(
+            refusal.contains("project root"),
+            "an external complete issue is rejected before inspection: {refusal}"
+        );
+    }
+
+    let _ = fs::remove_dir_all(&outside);
+    assert_eq!(fixture.phase(), "build", "the Run did not route");
+    assert_eq!(
+        before,
+        fixture.owned_bytes(),
+        "external blocker references leave Scheduler-owned files unchanged"
+    );
+}
+
 /// HT-048-02 (Lifecycle/Model): held is a ticket state, and it never passes.
 #[test]
 fn held_ticket_cannot_be_passed() {
@@ -461,6 +521,7 @@ fn interrupted_hold_leaves_no_half_route() {
         fixture.ticket(),
         "an interrupted hold leaves the ticket untouched"
     );
+
     assert_eq!(
         before,
         fixture.owned_bytes(),
@@ -474,4 +535,69 @@ fn interrupted_hold_leaves_no_half_route() {
         .success());
     assert_eq!(fixture.phase(), "intake", "the retried hold routes fully");
     assert!(fixture.ticket().contains("status: \"held\""));
+}
+/// ENS-008: a runbook swapped after hold planning refuses before State writes.
+#[test]
+fn runbook_swap_before_hold_state_write_refuses_without_a_half_route() {
+    let fixture = Fixture::new("runbook-swap");
+    let owned_before = fixture.owned_bytes();
+    let ticket_before = fixture.ticket();
+    let barrier_dir = fixture.root.join(".ratmac/test-hold-snapshot");
+    let marker = barrier_dir.join("marker");
+    let release = barrier_dir.join("release");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_rtm"))
+        .args([
+            "hold",
+            TICKET,
+            "--blocker",
+            BLOCKER,
+            "--confirm",
+            "hold t-900",
+            "--run",
+            &fixture.run_id,
+        ])
+        .current_dir(&fixture.root)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .env("RATMAC_TEST_HOLD_BARRIER", "before-state-write")
+        .env("RATMAC_TEST_HOLD_BARRIER_MARKER", &marker)
+        .env("RATMAC_TEST_HOLD_BARRIER_RELEASE", &release)
+        .env("RATMAC_TEST_HOLD_BARRIER_TIMEOUT_MILLIS", "10000")
+        .spawn()
+        .expect("start hold at the snapshot barrier");
+
+    if !wait_for_file(&marker, Duration::from_secs(5)) {
+        let _ = fs::write(&release, "release\n");
+        let _ = child.kill();
+        let _ = child.wait();
+        panic!("hold did not reach the pre-State snapshot barrier");
+    }
+
+    let runbook = fixture.root.join(".ratmac/ratmac.toml");
+    let original_runbook = fs::read_to_string(&runbook).expect("read runbook");
+    fs::write(
+        &runbook,
+        format!("{original_runbook}\n# changed while hold was planned\n"),
+    )
+    .expect("swap valid runbook bytes");
+    fs::write(&release, "release\n").expect("release hold");
+
+    let output = child.wait_with_output().expect("reap hold");
+    let refusal = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        !output.status.success() && refusal.contains("runbook changed during operation"),
+        "the swapped runbook refuses before a State write (status={}): {refusal}",
+        output.status
+    );
+    assert_eq!(fixture.phase(), "build", "the Run did not route");
+    assert_eq!(fixture.ticket(), ticket_before, "the ticket was not held");
+    assert_eq!(
+        fixture.owned_bytes(),
+        owned_before,
+        "the refusal leaves Scheduler-owned files byte-identical"
+    );
 }

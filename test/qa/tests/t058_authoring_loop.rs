@@ -515,7 +515,19 @@ fn findings(root: &Path, path: &Path) -> (i32, Vec<(String, String)>) {
 
 /// Run the loop until the doctor is clean, and report which codes were repaired.
 fn drive_to_clean(bench: &Bench, name: &str, seeded: &str, scaffold: &str) -> Vec<String> {
-    let path = bench.path(name);
+    let code = Path::new(name)
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or_default();
+    let path = match code {
+        // RB603 and RB604 need the conventional runbook location so doctor
+        // knows both the workspace and its Engine runtime root.
+        "RB603" | "RB604" => bench.root.join(code).join(".ratmac").join("ratmac.toml"),
+        _ => bench.path(name),
+    };
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).expect("create seed parent");
+    }
     if seeded.is_empty() {
         let _ = fs::remove_file(&path);
     } else {
@@ -602,6 +614,16 @@ fn seeds(scaffold: &str) -> Vec<(&'static str, String)> {
                 "prompt = 42",
             ),
         ),
+        ("RB601", format!("[roots]\nwork = \"../outside\"\n\n{scaffold}")),
+        (
+            "RB602",
+            scaffold.replace(
+                "[phases.build]",
+                "[phases.build]\nguards = [{ kind = \"files_exact\", root = \"work\", path = \"out\" }]",
+            ),
+        ),
+        ("RB603", format!("[roots]\nwork = \"missing\"\n\n{scaffold}")),
+        ("RB604", format!("[roots]\nwork = \".ratmac\"\n\n{scaffold}")),
         ("RB201", "[phases]\n".to_owned()),
         ("RB202", plain("\n[[transitions]]\nfrom = \"review\"\nto = \"build\"\n")),
         (

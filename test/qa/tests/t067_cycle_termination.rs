@@ -51,9 +51,14 @@ impl Bench {
 /// Both cycle Phases carry a guard of the given kinds.
 fn cycle_runbook(plan_guard: &str, review_guard: &str) -> String {
     format!(
-        r#"[phases.intake]
-prompt = "Intake."
+        r#"[roots]
+goal = "workflow/goal"
+issue = "workflow/issue"
+residual = "workflow/residual"
+ticket = "workflow/ticket"
 
+[phases.intake]
+prompt = "Intake."
 [phases.plan]
 prompt = "Plan."
 {plan_guard}

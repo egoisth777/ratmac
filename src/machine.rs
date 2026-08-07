@@ -1,12 +1,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::graph::{Phase, Transition};
+use crate::roots::{RootValidationError, ValidatedWorkflowRoots, WorkflowRoots};
 
 /// A parsed, status-free Machine Class declaration.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MachineClass {
+    roots: WorkflowRoots,
     phases: BTreeMap<String, PhaseDefinition>,
     transitions: Vec<Transition>,
     classes: BTreeMap<String, ChildClass>,
@@ -90,10 +92,11 @@ impl SpawnDeclaration {
 /// TRP-002: the closed guard vocabulary. Each variant carries exactly the
 /// fields its kind accepts, so a field foreign to a kind cannot be
 /// represented, let alone reach evaluation. The list and the per-kind fields
-/// are specified in `.arca/runbook-spec.md`.
+/// are specified in the runbook specification.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum GuardKind {
     FilesExact {
+        root: Option<String>,
         path: String,
         /// `files` is an accepted alias; both spellings are kept so a runbook
         /// renders back as it was authored, and disagreement is caught where
@@ -102,6 +105,7 @@ pub enum GuardKind {
         files: Option<Vec<String>>,
     },
     FileContains {
+        root: Option<String>,
         path: String,
         contains: String,
     },
@@ -112,9 +116,11 @@ pub enum GuardKind {
         exempt: bool,
     },
     SensitivityReceipts {
+        root: Option<String>,
         ticket: String,
     },
     CompletionGate {
+        root: Option<String>,
         ticket: String,
     },
     IntakeContract,
@@ -144,10 +150,10 @@ impl GuardKind {
     /// outside the vocabulary.
     pub fn accepted_fields(kind: &str) -> Option<&'static [&'static str]> {
         Some(match kind {
-            "files_exact" => &["path", "entries", "files"],
-            "file_contains" => &["path", "contains"],
+            "files_exact" => &["root", "path", "entries", "files"],
+            "file_contains" => &["root", "path", "contains"],
             "command_exit" => &["program", "args", "expected", "exempt"],
-            "sensitivity_receipts" | "completion_gate" => &["ticket"],
+            "sensitivity_receipts" | "completion_gate" => &["root", "ticket"],
             "intake_contract" | "record_contract" => &[],
             "join" => &["require", "min"],
             _ => return None,
@@ -209,11 +215,16 @@ impl GuardKind {
         };
         match self {
             Self::FilesExact {
+                root,
                 path,
                 entries,
                 files,
             } => {
-                let mut fields = vec![("path", string(path))];
+                let mut fields = Vec::new();
+                if let Some(root) = root {
+                    fields.push(("root", string(root)));
+                }
+                fields.push(("path", string(path)));
                 if let Some(entries) = entries {
                     fields.push(("entries", array(entries)));
                 }
@@ -222,8 +233,18 @@ impl GuardKind {
                 }
                 fields
             }
-            Self::FileContains { path, contains } => {
-                vec![("path", string(path)), ("contains", string(contains))]
+            Self::FileContains {
+                root,
+                path,
+                contains,
+            } => {
+                let mut fields = Vec::new();
+                if let Some(root) = root {
+                    fields.push(("root", string(root)));
+                }
+                fields.push(("path", string(path)));
+                fields.push(("contains", string(contains)));
+                fields
             }
             Self::CommandExit {
                 program,
@@ -245,16 +266,17 @@ impl GuardKind {
                 }
                 fields
             }
-            Self::SensitivityReceipts { .. }
-            | Self::CompletionGate { .. }
-            | Self::IntakeContract
-            | Self::RecordContract => Vec::new(),
+            Self::SensitivityReceipts { root, .. } | Self::CompletionGate { root, .. } => root
+                .as_deref()
+                .map(|root| vec![("root", string(root))])
+                .unwrap_or_default(),
+            Self::IntakeContract | Self::RecordContract => Vec::new(),
         }
     }
 }
 
 /// A refusal to parse, carrying the stable diagnostic code that names the
-/// defect class (`RB*`, tabled in `.arca/runbook-spec.md`).
+/// defect class (`RB*`, tabled in the runbook specification).
 ///
 /// The code travels with the refusal so `rtm doctor` can report the defect
 /// without re-classifying prose: the parser is the runbook's only reader, so
@@ -346,7 +368,12 @@ impl MachineClass {
         if root.contains_key("status") {
             return Err(Self::status_error("top-level status dimension"));
         }
-        Self::reject_unknown_keys(root, &["phases", "transitions", "classes"], "top-level")?;
+        Self::reject_unknown_keys(
+            root,
+            &["roots", "phases", "transitions", "classes"],
+            "top-level",
+        )?;
+        let roots = WorkflowRoots::parse(root.get("roots")).map_err(Self::roots_parse_error)?;
 
         // FDC-009: inline child classes parse first so spawn validation can
         // see them; absent means a plain single machine, exactly as before.
@@ -356,14 +383,126 @@ impl MachineClass {
         };
         let (phases, transitions) = Self::parse_machine_body(root, "", true)?;
         Self::validate_spawns(&phases, &classes)?;
+        Self::validate_guard_roots(&phases, &classes, &roots)?;
 
         Ok(Self {
+            roots,
             phases,
             transitions,
             classes,
         })
     }
 
+    fn roots_parse_error(error: RootValidationError) -> MachineClassParseError {
+        let location = if error.role() == "roots" {
+            "roots".to_owned()
+        } else {
+            format!("roots {:?}", error.role())
+        };
+        MachineClassParseError::at(error.code(), location, error.message().to_owned())
+    }
+
+    fn validate_guard_roots(
+        phases: &BTreeMap<String, PhaseDefinition>,
+        classes: &BTreeMap<String, ChildClass>,
+        roots: &WorkflowRoots,
+    ) -> Result<(), MachineClassParseError> {
+        for (phase_name, definition) in phases {
+            Self::validate_definition_roots(definition, roots, &format!("phase {phase_name:?}"))?;
+        }
+        for (class_name, class) in classes {
+            for (phase_name, definition) in class.phases() {
+                Self::validate_definition_roots(
+                    definition,
+                    roots,
+                    &format!("class {class_name:?} phase {phase_name:?}"),
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_definition_roots(
+        definition: &PhaseDefinition,
+        roots: &WorkflowRoots,
+        phase_location: &str,
+    ) -> Result<(), MachineClassParseError> {
+        for (index, guard) in definition.guards().iter().enumerate() {
+            let location = format!("{phase_location} guard {index}");
+            match guard {
+                GuardKind::FilesExact {
+                    root: Some(role), ..
+                }
+                | GuardKind::FileContains {
+                    root: Some(role), ..
+                }
+                | GuardKind::SensitivityReceipts {
+                    root: Some(role), ..
+                }
+                | GuardKind::CompletionGate {
+                    root: Some(role), ..
+                } => Self::require_declared_root(roots, role, guard.name(), &location)?,
+                GuardKind::IntakeContract => {
+                    for role in ["goal", "issue"] {
+                        Self::require_declared_root(roots, role, guard.name(), &location)?;
+                    }
+                }
+                GuardKind::RecordContract => {
+                    for role in ["goal", "residual", "ticket"] {
+                        Self::require_declared_root(roots, role, guard.name(), &location)?;
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    fn require_declared_root(
+        roots: &WorkflowRoots,
+        role: &str,
+        kind: &str,
+        location: &str,
+    ) -> Result<(), MachineClassParseError> {
+        if roots.contains(role) {
+            Ok(())
+        } else {
+            Err(MachineClassParseError::at(
+                "RB602",
+                location.to_owned(),
+                format!(
+                    "invalid {location}: guard kind {kind:?} names undeclared root role {role:?}"
+                ),
+            ))
+        }
+    }
+
+    /// Declared workflow roots. This data is distinct from the Engine-root
+    /// resolver in [`crate::root`].
+    pub fn roots(&self) -> &WorkflowRoots {
+        &self.roots
+    }
+
+    /// Validate every declared role once the workspace and Engine root are
+    /// known, before a lifecycle entry point can change state. The returned
+    /// canonical mapping must travel with that operation.
+    pub fn validate_roots(
+        &self,
+        workspace: &Path,
+        engine_root: &Path,
+    ) -> Result<ValidatedWorkflowRoots, RootValidationError> {
+        self.roots.validate(workspace, engine_root)
+    }
+
+    /// Resolve one previously declared role for guard evaluation.
+    pub fn resolve_root(
+        &self,
+        role: &str,
+        workspace: &Path,
+        engine_root: &Path,
+    ) -> Result<PathBuf, RootValidationError> {
+        self.roots.resolve(role, workspace, engine_root)
+    }
     /// FDC-009: parse the `classes` table - each entry one inline child
     /// machine under the same rules, one level deep - a class body accepts no
     /// `classes` key and its Phases accept no `spawns`.
@@ -1081,11 +1220,13 @@ impl MachineClass {
 
         Ok(match kind {
             "files_exact" => GuardKind::FilesExact {
+                root: field.optional_string("root")?,
                 path: field.string("path")?,
                 entries: field.optional_strings("entries")?,
                 files: field.optional_strings("files")?,
             },
             "file_contains" => GuardKind::FileContains {
+                root: field.optional_string("root")?,
                 path: field.string("path")?,
                 contains: field.string("contains")?,
             },
@@ -1096,9 +1237,11 @@ impl MachineClass {
                 exempt: field.optional_bool("exempt")?.unwrap_or(false),
             },
             "sensitivity_receipts" => GuardKind::SensitivityReceipts {
+                root: field.optional_string("root")?,
                 ticket: field.string("ticket")?,
             },
             "completion_gate" => GuardKind::CompletionGate {
+                root: field.optional_string("root")?,
                 ticket: field.string("ticket")?,
             },
             "intake_contract" => GuardKind::IntakeContract,
@@ -1225,6 +1368,15 @@ impl Field<'_> {
             .ok_or_else(|| self.wrong_type(key, "a string"))
     }
 
+    fn optional_string(&self, key: &str) -> Result<Option<String>, MachineClassParseError> {
+        match self.guard.get(key) {
+            None => Ok(None),
+            Some(value) => value
+                .as_str()
+                .map(|value| Some(value.to_owned()))
+                .ok_or_else(|| self.wrong_type(key, "a string")),
+        }
+    }
     fn integer(&self, key: &str) -> Result<i64, MachineClassParseError> {
         let value = self.guard.get(key).ok_or_else(|| self.missing(key))?;
         value
