@@ -3,7 +3,7 @@
 //! `rtm scaffold <path>` writes the smallest runbook the doctor accepts with
 //! zero findings, and refuses rather than overwriting anything. It is not a
 //! template engine: one file, one shape, no options - the author edits from
-//! there, guided by `.arca/runbook-authoring.md`.
+//! there, guided by the runbook authoring guide.
 
 use std::path::Path;
 
@@ -12,9 +12,9 @@ use std::path::Path;
 /// with. Every schema fact it needs is a pointer, never a restatement.
 pub const SCAFFOLD: &str = r#"# A runbook: the Machine Class this project runs.
 #
-# What may appear here is defined once, in .arca/runbook-spec.md.
+# What may appear here is defined once in the runbook specification.
 # How to grow it - edit, `rtm doctor --json <path>`, repair by code, repeat -
-# is in .arca/runbook-authoring.md.
+# is documented in the runbook authoring guide.
 # A branch adds `inputs = ["approve", "rework"]` to its Phase and one matching
 # `input = "approve"` or `input = "rework"` to each ordinary transition; the
 # exact contract and repairs remain in the two documents above.

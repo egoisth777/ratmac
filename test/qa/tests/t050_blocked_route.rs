@@ -63,7 +63,9 @@ impl Fixture {
         }
         fs::write(
             root.join(".ratmac/ratmac.toml"),
-            "[phases.intake]\nprompt = \"Integrate the issues.\"\n\n\
+            "[roots]\n\
+             ticket = \".arca/ticket\"\n\n\
+             [phases.intake]\nprompt = \"Integrate the issues.\"\n\n\
              [phases.build]\nprompt = \"Build the ticket.\"\n\n\
              [phases.build-review]\nprompt = \"Review the ticket.\"\n\n\
              [[transitions]]\nfrom = \"intake\"\nto = \"build\"\n\n\

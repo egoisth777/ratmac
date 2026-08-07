@@ -39,9 +39,11 @@ impl Fixture {
         fs::create_dir_all(root.join(".arca/goal")).expect("create fixture project");
         fs::create_dir_all(root.join(".ratmac")).expect("create Engine directory");
         let class = format!(
-            "[phases.intake]\n\
-             prompt = \"Integrate the issues.\"\n\
+            "[roots]\n\
+             goal = \".arca/goal\"\n\
              \n\
+             [phases.intake]\n\
+             prompt = \"Integrate the issues.\"\n\
              [phases.gaps]\n\
              prompt = \"Find the gaps.\"\n\
              guards = [{gaps_guards}]\n\
@@ -222,7 +224,8 @@ fn drift_refuses_and_revert_clears() {
     );
     let observed = field(&goal_table(&fixture.evidence()), "frozen").expect("frozen field stays");
     assert_eq!(observed, frozen, "a refusal must not re-freeze the goal");
-    let drifted = ratmac::goal::revision(&fixture.root).expect("goal is readable");
+    let drifted =
+        ratmac::goal::revision(&fixture.root.join(".arca/goal")).expect("goal is readable");
     assert_ne!(drifted, frozen, "the edit changed the goal revision");
     assert!(
         refusal.contains(&drifted),

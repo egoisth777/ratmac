@@ -130,6 +130,16 @@ fn documented_codes() -> BTreeSet<String> {
 /// One runbook per defect class, with the code it must produce.
 fn defect_catalogue() -> Vec<(&'static str, &'static str, &'static str)> {
     vec![
+        (
+            "rb601",
+            "RB601",
+            "[roots]\nwork = \"../outside\"\n\n[phases.a]\nprompt = \"p\"\n",
+        ),
+        (
+            "rb602",
+            "RB602",
+            "[phases.a]\nprompt = \"p\"\nguards = [{ kind = \"files_exact\", root = \"work\", path = \"out\" }]\n",
+        ),
         ("rb102", "RB102", "this is not = = toml\n"),
         ("rb103", "RB103", "[phases.a]\nprompt = \"p\"\nextra = 1\n"),
         ("rb104", "RB104", "status = \"planned\"\n[phases.a]\nprompt = \"p\"\n"),
@@ -695,6 +705,23 @@ fn emitted_codes_and_documented_codes_are_one_set() {
     for (name, _, source) in defect_catalogue() {
         emitted.extend(codes_for(&bench, name, source));
     }
+    for (name, source) in [
+        (
+            "rb603",
+            "[roots]\nwork = \"missing\"\n\n[phases.a]\nprompt = \"p\"\n",
+        ),
+        (
+            "rb604",
+            "[roots]\nwork = \".ratmac\"\n\n[phases.a]\nprompt = \"p\"\n",
+        ),
+    ] {
+        let project = bench.project(name, source);
+        emitted.extend(
+            doctor::diagnose(&project.join(".ratmac/ratmac.toml"))
+                .iter()
+                .map(|finding| finding.code().to_owned()),
+        );
+    }
     let documented = documented_codes();
     assert_eq!(
         emitted, documented,
@@ -703,7 +730,6 @@ fn emitted_codes_and_documented_codes_are_one_set() {
         documented.difference(&emitted).collect::<Vec<_>>()
     );
 }
-
 /// HT-056-06 (Cross-Feature): the project's own runbook passes its own doctor,
 /// or reports only warnings this ticket accepted in writing.
 #[test]

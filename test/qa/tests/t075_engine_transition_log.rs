@@ -16,6 +16,9 @@ use std::time::SystemTime;
 const TICKET: &str = "t-900";
 const BLOCKER: &str = ".arca/issue/i-777-blocker";
 const RUNBOOK: &str = r#"
+[roots]
+ticket = ".arca/ticket"
+
 [phases.intake]
 prompt = "Integrate the issue."
 

@@ -51,6 +51,10 @@ answer, and the row says so.
 | `RB108` | An edge names a Phase the runbook does not declare. | Declare that Phase, or delete the edge. | `drop-transition` |
 | `RB109` | An edge carries a [freeze marker](runbook-spec.md#transitions) that is not the one allowed. | Use the allowed value, or remove the marker. | `drop-transition` |
 | `RB110` | A key carries the wrong type of value. | Give it the type its [table](runbook-spec.md#phases) states. | `restore-location` |
+| `RB601` | The [`roots`](runbook-spec.md#roots) declaration is not a table of safe non-empty relative paths. | Replace it with named non-empty role/path pairs; remove an absolute or escaping path. | `restore-location` |
+| `RB602` | A guard names an undeclared root role, including a fixed contract role. | Declare that role in `[roots]`, or rename/remove the guard reference. | `restore-location` |
+| `RB603` | A declared root path is absent or unreadable in this repository. | Create or restore the intended directory, or change the role to an existing repository-relative directory. | `restore-location` |
+| `RB604` | A declared root overlaps the Engine runtime root. | Point the role at a non-overlapping project directory; never use the Engine root or an ancestor of it. | `restore-location` |
 | `RB201` | The runbook declares no Phase at all. | Start again from a scaffold; a machine needs somewhere to be. | `restore-file` |
 | `RB202` | Every Phase has a way in, so a Run has nowhere to start. | Remove one edge to break the cycle. | `break-cycle` |
 | `RB203` | More than one Phase has no way in, so the entry point is ambiguous. | Route the extra entry points into the machine, leaving exactly one. | `merge-initial` |

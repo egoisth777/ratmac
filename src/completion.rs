@@ -334,14 +334,32 @@ pub fn gate_completion(
     run_id: &str,
     ticket_relative: &str,
 ) -> Result<(), Vec<CompletionDefect>> {
-    let ticket_path = workflow_root.join(ticket_relative);
-    let source = fs::read_to_string(&ticket_path).map_err(|error| {
+    gate_completion_at(
+        workflow_root,
+        engine_root,
+        run_id,
+        &workflow_root.join(ticket_relative),
+        ticket_relative,
+    )
+}
+
+/// The root-routed form of [`gate_completion`]. The ticket has already been
+/// confined beneath the declared guard root; project checks still evaluate
+/// from the addressed workspace.
+pub fn gate_completion_at(
+    workspace: &Path,
+    engine_root: &Path,
+    run_id: &str,
+    ticket_path: &Path,
+    ticket_address: &str,
+) -> Result<(), Vec<CompletionDefect>> {
+    let source = fs::read_to_string(ticket_path).map_err(|error| {
         vec![defect(
             "",
-            format!("unreadable ticket {ticket_relative}: {error}"),
+            format!("unreadable ticket {ticket_address}: {error}"),
         )]
     })?;
-    let ticket_id = Path::new(ticket_relative)
+    let ticket_id = ticket_path
         .file_stem()
         .map(|stem| stem.to_string_lossy().into_owned())
         .unwrap_or_default();
@@ -408,7 +426,7 @@ pub fn gate_completion(
             ));
             continue;
         };
-        if let Err(problem) = verify_completion(workflow_root, &ticket_id, check, receipt) {
+        if let Err(problem) = verify_completion(workspace, &ticket_id, check, receipt) {
             defects.push(problem);
             continue;
         }

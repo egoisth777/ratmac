@@ -123,6 +123,8 @@ pub fn plan_abandon(root: &Path, request: &AbandonRequest) -> Result<AbandonPlan
         }
         Some(_) => {}
     }
+    crate::Scheduler::validate_project_roots(root)
+        .map_err(|error| refusal(format!("abandonment refused: {error}")))?;
 
     // FDC-004: abandon acts on an existing Run through `--run <id>`.
     let engine_root = crate::root::resolve(root).engine_root().to_path_buf();
@@ -311,6 +313,9 @@ fn revision_or_none(revision: &str) -> String {
 /// durable mutation; later failures are named rather than rolled back through
 /// a shared append-only history.
 pub fn apply_abandon(root: &Path, plan: &AbandonPlan) -> Result<(), AbandonRefusal> {
+    crate::Scheduler::validate_project_roots(root)
+        .map_err(|error| refusal(format!("abandonment refused: {error}")))?;
+
     let engine_root = crate::root::resolve(root).engine_root().to_path_buf();
     match plan.run.as_deref() {
         Some(run_id) if plan.event.is_none() => {

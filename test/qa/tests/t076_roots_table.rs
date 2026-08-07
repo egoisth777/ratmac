@@ -15,6 +15,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 const LEGACY_WORKFLOW_LITERAL: &[u8] = b".arca";
+const LEGACY_WORKFLOW_EXCEPTION_PATH: &str = "scheduler.rs";
+const LEGACY_WORKFLOW_EXCEPTION_DECLARATION: &str = r#"const LEGACY_WORKFLOW_DIR: &str = ".arca";"#;
 
 struct Fixture {
     repo: TempRepo,
@@ -166,27 +168,52 @@ fn collect_source_files(directory: &Path, files: &mut Vec<PathBuf>) {
     }
 }
 
-fn source_files_with_legacy_workflow_literal() -> Vec<String> {
+fn assert_legacy_workflow_literal_exception() {
     let source =
         fs::canonicalize(repo_root().join("src")).expect("canonicalize Engine source directory");
     let mut files = Vec::new();
     collect_source_files(&source, &mut files);
     files.sort();
-    files
-        .into_iter()
-        .filter(|path| {
-            fs::read(path)
-                .expect("read Engine source file")
+
+    let mut occurrences = Vec::new();
+    for path in files {
+        let relative = path
+            .strip_prefix(&source)
+            .expect("Engine source file remains under src")
+            .to_string_lossy()
+            .replace('\\', "/");
+        let text = fs::read_to_string(&path).expect("read Engine source file");
+        for (index, line) in text.lines().enumerate() {
+            let count = line
+                .as_bytes()
                 .windows(LEGACY_WORKFLOW_LITERAL.len())
-                .any(|window| window == LEGACY_WORKFLOW_LITERAL)
-        })
-        .map(|path| {
-            path.strip_prefix(&source)
-                .expect("Engine source file remains under src")
-                .to_string_lossy()
-                .replace('\\', "/")
-        })
-        .collect()
+                .filter(|window| *window == LEGACY_WORKFLOW_LITERAL)
+                .count();
+            for _ in 0..count {
+                occurrences.push((relative.clone(), index + 1, line.to_owned()));
+            }
+        }
+    }
+
+    assert_eq!(
+        occurrences.len(),
+        1,
+        "the source audit permits exactly one ENS-009 legacy-literal exception; \
+         a second literal is forbidden and a missing literal means its named exception vanished: \
+         {occurrences:?}"
+    );
+    let (path, line, declaration) = occurrences
+        .pop()
+        .expect("the exact named exception is required");
+    assert_eq!(
+        path, LEGACY_WORKFLOW_EXCEPTION_PATH,
+        "the sole legacy literal must stay in the named exception source line {line}: {declaration}"
+    );
+    assert_eq!(
+        declaration.trim(),
+        LEGACY_WORKFLOW_EXCEPTION_DECLARATION,
+        "the sole legacy literal must be the named exception declaration at {path}:{line}"
+    );
 }
 
 /// ENSV-009: a declared root routes its guard below that repository-relative
@@ -244,9 +271,5 @@ fn roots_table_validates_named_paths_with_distinct_diagnostics() {
         &runs_before_invalid,
     );
 
-    let legacy_files = source_files_with_legacy_workflow_literal();
-    assert!(
-        legacy_files.is_empty(),
-        "Engine source retains .arca literals: {legacy_files:?}"
-    );
+    assert_legacy_workflow_literal_exception();
 }

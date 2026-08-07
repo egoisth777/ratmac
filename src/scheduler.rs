@@ -12,9 +12,16 @@ use crate::ledger::LedgerEntry;
 use crate::lock::{RootLock, RunLock};
 use crate::machine::{GuardKind, MachineClass, PhaseDefinition};
 use crate::model::{Run, RunState, Status};
+use crate::roots::WorkflowRoots;
 use crate::state::{PhasePrompt, StateError, StateStore, StateWriteOutcome, StatusReport};
 
 static ROLLBACK_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+/// The single declared exception to the ENS-008 literal audit: this legacy
+/// workflow directory exists only for the ENS-009 pre-split residue check;
+/// t-077 owns retiring it.
+const LEGACY_WORKFLOW_DIR: &str = ".arca";
+
 /// What a human asked for when superseding a Run (FDC-007/FDC-006).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RespawnRequest {
@@ -256,6 +263,9 @@ impl fmt::Display for StepOutcome {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Scheduler {
     machine: MachineGraph,
+    /// Parsed workflow-root declarations for the currently loaded Machine
+    /// Class. They are resolved only against the addressed Run's workspace.
+    workflow_roots: WorkflowRoots,
     /// The addressed Run's workspace. For a top-level Run this is the
     /// invoking checkout; for a child it is the durable ledger binding.
     /// Guards, goal reads, and gate-program resolution use this root.
@@ -355,6 +365,7 @@ impl Scheduler {
             machine,
             root: None,
             invoking_root: None,
+            workflow_roots: WorkflowRoots::default(),
             engine_root: None,
             run_id: None,
             child_class: None,
@@ -465,10 +476,14 @@ impl Scheduler {
         let roots = crate::root::resolve(root);
         let root = roots.invoking_checkout_root().to_path_buf();
         let engine_root = roots.engine_root().to_path_buf();
-        let machine = Self::graph_of(&Self::load_class(&root)?);
+        let class = Self::load_class(&root)?;
+        Self::validate_declared_roots(&class, &root, &engine_root)?;
+        let workflow_roots = class.roots().clone();
+        let machine = Self::graph_of(&class);
         Self::refuse_flat_residue(&root)?;
         Ok(Self {
             machine,
+            workflow_roots,
             run_id: None,
             child_class: None,
             store: None,
@@ -498,7 +513,10 @@ impl Scheduler {
             ),
             None => (invoking_root.clone(), None),
         };
-        let machine = Self::graph_of(&Self::load_class(&invoking_root)?);
+        let class = Self::load_class(&invoking_root)?;
+        Self::validate_declared_roots(&class, &workspace, &engine_root)?;
+        let workflow_roots = class.roots().clone();
+        let machine = Self::graph_of(&class);
         Self::refuse_flat_residue(&invoking_root)?;
         let run_dir = Self::runs_dir_at(&engine_root).join(run_id);
         // FDC-006: a roster entry without a State File is a retired run —
@@ -514,6 +532,7 @@ impl Scheduler {
         Self::verify_runbook_pin(&invoking_root, &run_dir)?;
         Ok(Self {
             machine,
+            workflow_roots,
             run_id: Some(run_id.to_owned()),
             child_class,
             store: Some(StateStore::for_run(&workspace, run_id)),
@@ -523,8 +542,8 @@ impl Scheduler {
         })
     }
 
-    /// FDC-005: a pre-plural flat `.ratmac/state.toml` or pre-split flat
-    /// `.arca/state.toml` is residue, never adopted. Meeting one refuses,
+    /// FDC-005: a pre-plural flat `.ratmac/state.toml` or pre-split legacy
+    /// workflow State File is residue, never adopted. Meeting one refuses,
     /// names the observed fact and the repair, and modifies nothing — the
     /// legacy-lock precedent, never an auto-migration. The check runs at open
     /// and again at the top of `start`, before any run is minted: `start` on a
@@ -535,10 +554,9 @@ impl Scheduler {
     }
 
     fn refuse_flat_residue_at(root: &Path, engine_root: &Path) -> Result<(), StateError> {
-        for flat in [
-            engine_root.join("state.toml"),
-            root.join(".arca").join("state.toml"),
-        ] {
+        // The legacy workflow namespace remains a read-only ENS-009 residue check.
+        let legacy_flat = root.join(LEGACY_WORKFLOW_DIR).join("state.toml");
+        for flat in [engine_root.join("state.toml"), legacy_flat] {
             if fs::symlink_metadata(&flat).is_ok() {
                 return Err(StateError::new(format!(
                     "refusing to run: flat-layout residue {} exists; runs reside under \
@@ -704,10 +722,32 @@ impl Scheduler {
                 path.display()
             ))
         })?;
-        MachineClass::from_toml(&source)
-            .map_err(|error| StateError::new(format!("parse .ratmac/ratmac.toml: {error}")))
+        MachineClass::from_toml(&source).map_err(|error| {
+            StateError::new(format!(
+                "parse .ratmac/ratmac.toml [{}]: {error}",
+                error.code()
+            ))
+        })
     }
 
+    /// Load the invoking checkout's Machine Class and validate every declared
+    /// workflow root before a non-Scheduler lifecycle entry point can mutate
+    /// Engine state.
+    pub(crate) fn validate_project_roots(root: &Path) -> Result<(), StateError> {
+        let roots = crate::root::resolve(root);
+        let class = Self::load_class(roots.invoking_checkout_root())?;
+        Self::validate_declared_roots(&class, roots.invoking_checkout_root(), roots.engine_root())
+    }
+
+    fn validate_declared_roots(
+        class: &MachineClass,
+        workspace: &Path,
+        engine_root: &Path,
+    ) -> Result<(), StateError> {
+        class
+            .validate_roots(workspace, engine_root)
+            .map_err(|error| StateError::new(error.to_string()))
+    }
     fn graph_of(class: &MachineClass) -> MachineGraph {
         let phases = class.phases().keys().map(Phase::new).collect::<Vec<_>>();
         MachineGraph::new(phases, class.transitions().to_vec())
@@ -997,10 +1037,13 @@ impl Scheduler {
         // Do the content reads before taking the mutation domain. The cheap
         // flat-residue fact is checked again after acquisition below.
         Self::refuse_flat_residue(&root)?;
-        self.machine = Self::graph_of(&Self::load_class(&root)?);
+        let class = Self::load_class(&root)?;
+        Self::validate_declared_roots(&class, &root, &engine_root)?;
+        self.workflow_roots = class.roots().clone();
+        self.machine = Self::graph_of(&class);
         let phase = self.initial_phase()?;
         let runbook_pin = Self::runbook_sha256(&root)?;
-        let goal_baseline = crate::goal::revision(&root);
+        let goal_baseline = self.goal_revision(&root);
         // FDC-002: a Run beginning in a terminal Phase — no ordinary outgoing
         // edge — is complete from its first State File. The Engine writes the
         // terminal fact; no agent claim participates.
@@ -1391,10 +1434,15 @@ composition is capped at one level (FDC-012)"
         // Slow content and Git reads never belong to the shared mutation
         // scope. The final pair only rechecks the facts this plan relies on.
         let class = Self::load_class(&invoking_root)?;
+        Self::validate_declared_roots(&class, &child_workspace, &engine_root)?;
         let runbook_pin = Self::runbook_sha256(&invoking_root)?;
-        let goal_baseline = crate::goal::revision(&parent_workspace);
+        let goal_baseline = class
+            .resolve_root("goal", &child_workspace, &engine_root)
+            .ok()
+            .and_then(|goal| crate::goal::revision(&goal));
         let spawned_at = Self::revision_at(&invoking_root);
         let engine_identity = crate::pin::engine_identity();
+        self.workflow_roots = class.roots().clone();
         self.machine = Self::graph_of(&class);
 
         // This is a read-only spawn plan. Do not take the parent Run lock
@@ -1638,8 +1686,12 @@ the ledger {} and minted child {} were left in place; inspect both paths before 
             let _ = Self::workspace_from_ledger_entry(&engine_root, ledger_path, entry)?;
         }
         let class = Self::load_class(&root)?;
+        Self::validate_declared_roots(&class, &root, &engine_root)?;
         let runbook_pin = Self::runbook_sha256(&root)?;
-        let goal_baseline = crate::goal::revision(&root);
+        let goal_baseline = class
+            .resolve_root("goal", &root, &engine_root)
+            .ok()
+            .and_then(|goal| crate::goal::revision(&goal));
         let successor_spawned_at = Self::revision_at(&root);
         let engine_identity = crate::pin::engine_identity();
         let (phase, status) = match recorded.as_ref() {
@@ -1826,7 +1878,9 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
         // under the Run lock, but neither comparison can invoke Git or root
         // resolution while a lock is held.
         let class = Self::load_class(&invoking_root)?;
+        Self::validate_declared_roots(&class, &root, &engine_root)?;
         let runbook_pin = Self::runbook_sha256(&invoking_root)?;
+        self.workflow_roots = class.roots().clone();
         self.machine = Self::graph_of(&class);
 
         // ENS-005: one Run's long guard evaluation is serialized only by its
@@ -1863,11 +1917,13 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
             let (mut failures, guarded_ledgers) = self.guard_failures(definition)?;
             let evidence = crate::pin::Evidence::load(&run_dir);
             if let Some(frozen) = evidence.goal_frozen.as_deref() {
-                let observed = crate::goal::revision(&root).unwrap_or_else(|| "absent".to_owned());
+                let observed = self
+                    .goal_revision(&root)
+                    .unwrap_or_else(|| "absent".to_owned());
                 if observed != frozen {
                     failures.push(guard_failure(
                         "goal drift",
-                        crate::goal::GOAL_DIR,
+                        self.goal_address(),
                         observed,
                         frozen,
                     ));
@@ -1919,14 +1975,13 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
             };
             let consumes_verdict = transition_input.is_some();
             let to = transition.to().clone();
-            let frozen_revision =
-                if transition.freezes_goal() {
-                    Some(crate::goal::revision(&root).ok_or_else(|| {
-                        StateError::new("cannot freeze goal: .arca/goal/ is absent")
-                    })?)
-                } else {
-                    None
-                };
+            let frozen_revision = if transition.freezes_goal() {
+                Some(self.goal_revision(&root).ok_or_else(|| {
+                    StateError::new("cannot freeze goal: declared root role \"goal\" is absent")
+                })?)
+            } else {
+                None
+            };
 
             // All read/open prerequisites happen before a verdict can be
             // archived. Opening project history remains under this Run lock:
@@ -2288,6 +2343,54 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
         }
     }
     /// TRP-001, TRP-004: evaluate the Phase's retained guards, in declaration
+    fn resolve_guard_root(
+        &self,
+        workspace: &Path,
+        role: Option<&str>,
+        kind: &str,
+        address: &str,
+    ) -> Result<PathBuf, GuardFailure> {
+        let Some(role) = role else {
+            return Ok(workspace.to_path_buf());
+        };
+        let engine_root = self.engine_root().map_err(|error| {
+            guard_failure(
+                kind,
+                address,
+                error.to_string(),
+                "an addressed Run with a resolved Engine root",
+            )
+        })?;
+        self.workflow_roots
+            .resolve(role, workspace, engine_root)
+            .map_err(|error| {
+                guard_failure(
+                    kind,
+                    address,
+                    error.to_string(),
+                    format!("declared root role {role:?}"),
+                )
+            })
+    }
+
+    fn goal_directory(&self, workspace: &Path) -> Option<PathBuf> {
+        let engine_root = self.engine_root().ok()?;
+        self.workflow_roots
+            .resolve("goal", workspace, engine_root)
+            .ok()
+    }
+
+    fn goal_revision(&self, workspace: &Path) -> Option<String> {
+        self.goal_directory(workspace)
+            .and_then(|goal| crate::goal::revision(&goal))
+    }
+
+    fn goal_address(&self) -> String {
+        self.workflow_roots
+            .path("goal")
+            .map(|path| path.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_else(|| "goal".to_owned())
+    }
     /// order, from the typed class - no second walk over runbook TOML.
     fn guard_failures(
         &self,
@@ -2314,38 +2417,99 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
         for guard in definition.guards() {
             let result = match guard {
                 GuardKind::FilesExact {
+                    root: root_name,
                     path,
                     entries,
                     files,
-                } => self.evaluate_files_exact(root, path, entries.as_deref(), files.as_deref()),
-                GuardKind::FileContains { path, contains } => {
-                    self.evaluate_file_contains(root, path, contains)
-                }
+                } => self
+                    .resolve_guard_root(root, root_name.as_deref(), "files_exact", path)
+                    .and_then(|guarded_root| {
+                        self.evaluate_files_exact(
+                            &guarded_root,
+                            path,
+                            entries.as_deref(),
+                            files.as_deref(),
+                        )
+                    }),
+                GuardKind::FileContains {
+                    root: root_name,
+                    path,
+                    contains,
+                } => self
+                    .resolve_guard_root(root, root_name.as_deref(), "file_contains", path)
+                    .and_then(|guarded_root| {
+                        self.evaluate_file_contains(&guarded_root, path, contains)
+                    }),
                 GuardKind::CommandExit {
                     program,
                     args,
                     expected,
                     exempt,
                 } => self.evaluate_command_exit(root, program, args, *expected, *exempt),
-                GuardKind::SensitivityReceipts { ticket } => {
-                    self.evaluate_sensitivity_receipts(root, ticket)
-                }
-                GuardKind::CompletionGate { ticket } => self.evaluate_completion_gate(root, ticket),
-                GuardKind::IntakeContract => self.evaluate_contract(
-                    "intake_contract",
-                    crate::contract::gate_intake(root),
-                    "issue dispositions, status, and location agree across intake/deferred/archive; five-file shape intact; accepted IDs in the goal; live links resolving",
-                ),
+                GuardKind::SensitivityReceipts {
+                    root: root_name,
+                    ticket,
+                } => self.evaluate_sensitivity_receipts(root, root_name.as_deref(), ticket),
+                GuardKind::CompletionGate {
+                    root: root_name,
+                    ticket,
+                } => self.evaluate_completion_gate(root, root_name.as_deref(), ticket),
+                GuardKind::IntakeContract => self
+                    .resolve_guard_root(root, Some("goal"), "intake_contract", "goal")
+                    .and_then(|goal_root| {
+                        self.resolve_guard_root(root, Some("issue"), "intake_contract", "issue")
+                            .and_then(|issue_root| {
+                                self.evaluate_contract(
+                                    "intake_contract",
+                                    &format!(
+                                        "{}, {}",
+                                        goal_root.display(),
+                                        issue_root.display()
+                                    ),
+                                    crate::contract::gate_intake_at(&goal_root, &issue_root),
+                                    "issue dispositions, status, and location agree across intake/deferred/archive; five-file shape intact; accepted IDs in the goal; live links resolving",
+                                )
+                            })
+                    }),
                 GuardKind::Join { min, .. } => self.evaluate_join(*min, &mut ledger_snapshots),
-                GuardKind::RecordContract => self.evaluate_contract(
-                    "record_contract",
-                    crate::contract::gate_records(
-                        root,
-                        engine_root,
-                        self.run_id.as_deref().unwrap_or_default(),
-                    ),
-                    "one residual per requirement citing the frozen revision, evidence behind every satisfied, one owning ticket per gap, acyclic dependencies, complete tickets",
-                ),
+                GuardKind::RecordContract => self
+                    .resolve_guard_root(root, Some("goal"), "record_contract", "goal")
+                    .and_then(|goal_root| {
+                        self.resolve_guard_root(
+                            root,
+                            Some("residual"),
+                            "record_contract",
+                            "residual",
+                        )
+                        .and_then(|residual_root| {
+                            self.resolve_guard_root(
+                                root,
+                                Some("ticket"),
+                                "record_contract",
+                                "ticket",
+                            )
+                            .and_then(|ticket_root| {
+                                self.evaluate_contract(
+                                    "record_contract",
+                                    &format!(
+                                        "{}, {}, {}",
+                                        goal_root.display(),
+                                        residual_root.display(),
+                                        ticket_root.display()
+                                    ),
+                                    crate::contract::gate_records_at(
+                                        root,
+                                        &goal_root,
+                                        &residual_root,
+                                        &ticket_root,
+                                        engine_root,
+                                        self.run_id.as_deref().unwrap_or_default(),
+                                    ),
+                                    "one residual per requirement citing the frozen revision, evidence behind every satisfied, one owning ticket per gap, acyclic dependencies, complete tickets",
+                                )
+                            })
+                        })
+                    }),
             };
             if let Err(failure) = result {
                 failures.push(failure);
@@ -2442,7 +2606,15 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
     /// resolve to a sensitivity receipt under the addressed Run's
     /// `.ratmac/evidence/<run-id>/`; prose, filenames, and status fields
     /// satisfy nothing.
-    fn evaluate_sensitivity_receipts(&self, root: &Path, ticket: &str) -> Result<(), GuardFailure> {
+    fn evaluate_sensitivity_receipts(
+        &self,
+        workspace: &Path,
+        root_name: Option<&str>,
+        ticket: &str,
+    ) -> Result<(), GuardFailure> {
+        let ticket_root =
+            self.resolve_guard_root(workspace, root_name, "sensitivity_receipts", ticket)?;
+        let ticket_path = guarded_target(&ticket_root, ticket, "sensitivity_receipts")?;
         let engine_root = self.engine_root().map_err(|error| {
             guard_failure(
                 "sensitivity_receipts",
@@ -2459,26 +2631,32 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
                 "an addressed Run",
             )
         })?;
-        crate::receipt::gate_sensitivity(root, engine_root, run_id, ticket).map_err(|defects| {
-            let observed = defects
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join("; ");
-            guard_failure(
-                "sensitivity_receipts",
-                ticket,
-                observed,
-                "one sensitivity receipt per planned test",
-            )
-        })
+        crate::receipt::gate_sensitivity_at(workspace, engine_root, run_id, &ticket_path, ticket)
+            .map_err(|defects| {
+                let observed = defects
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                guard_failure(
+                    "sensitivity_receipts",
+                    ticket,
+                    observed,
+                    "one sensitivity receipt per planned test",
+                )
+            })
     }
-
-    /// PGE-005: the P5 gate. Every check the executing ticket declares must
-    /// carry a green, fresh, self-consistent completion receipt. The gate
-    /// verifies receipts rather than running the checks, because ETB-001
-    /// forbids rebuilding project source at evaluation time.
-    fn evaluate_completion_gate(&self, root: &Path, ticket: &str) -> Result<(), GuardFailure> {
+    /// PGE-005: the P5 gate reads the executing ticket and verifies its green,
+    /// fresh, self-consistent completion receipts without rebuilding source.
+    fn evaluate_completion_gate(
+        &self,
+        workspace: &Path,
+        root_name: Option<&str>,
+        ticket: &str,
+    ) -> Result<(), GuardFailure> {
+        let ticket_root =
+            self.resolve_guard_root(workspace, root_name, "completion_gate", ticket)?;
+        let ticket_path = guarded_target(&ticket_root, ticket, "completion_gate")?;
         let engine_root = self.engine_root().map_err(|error| {
             guard_failure(
                 "completion_gate",
@@ -2495,26 +2673,27 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
                 "an addressed Run",
             )
         })?;
-        crate::completion::gate_completion(root, engine_root, run_id, ticket).map_err(|defects| {
-            let observed = defects
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join("; ");
-            guard_failure(
-                "completion_gate",
-                ticket,
-                observed,
-                "one green, fresh completion receipt per declared check",
-            )
-        })
+        crate::completion::gate_completion_at(workspace, engine_root, run_id, &ticket_path, ticket)
+            .map_err(|defects| {
+                let observed = defects
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                guard_failure(
+                    "completion_gate",
+                    ticket,
+                    observed,
+                    "one green, fresh completion receipt per declared check",
+                )
+            })
     }
-
     /// PGE-001, PGE-002: render a contract-gate result as a refusal that names
     /// every offending record.
     fn evaluate_contract(
         &self,
         kind: &str,
+        address: &str,
         result: Result<(), Vec<crate::contract::ContractDefect>>,
         expected: &str,
     ) -> Result<(), GuardFailure> {
@@ -2524,7 +2703,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
                 .map(ToString::to_string)
                 .collect::<Vec<_>>()
                 .join("; ");
-            guard_failure(kind, ".arca", observed, expected)
+            guard_failure(kind, address, observed, expected)
         })
     }
 

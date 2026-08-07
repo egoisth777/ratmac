@@ -1,31 +1,28 @@
 //! ETB-003: the goal revision and its freeze boundary.
 //!
-//! The goal is the content of `.arca/goal/`. Its revision is a content
-//! hash over the whole directory - names included - so an added, removed, or
-//! renamed file is as visible as an edited one. Run start records the
-//! *baseline* revision; the transition that closes intake integration records
-//! the *frozen* revision. Between the freeze and batch closure, every
-//! transition request re-computes the revision and refuses on a mismatch.
+//! The goal is the content beneath the runbook's declared `goal` root. Its
+//! revision is a content hash over the whole directory - names included - so
+//! an added, removed, or renamed file is as visible as an edited one. Run
+//! start records the *baseline* revision; the transition that closes intake
+//! integration records the *frozen* revision. Between the freeze and batch
+//! closure, every transition request re-computes the revision and refuses on
+//! a mismatch.
 
 use std::fs;
 use std::path::Path;
 
 use sha2::{Digest, Sha256};
 
-/// The goal directory, relative to the project root.
-pub const GOAL_DIR: &str = ".arca/goal";
-
-/// Content hash of `.arca/goal/`, or `None` when the goal is absent.
+/// Content hash of the resolved goal directory, or `None` when it is absent.
 ///
 /// The digest covers every file's path and bytes in sorted order, so it is
 /// stable across runs and platforms and sensitive to the directory's shape.
-pub fn revision(root: &Path) -> Option<String> {
-    let goal = root.join(".arca").join("goal");
+pub fn revision(goal: &Path) -> Option<String> {
     if !goal.is_dir() {
         return None;
     }
     let mut files = Vec::new();
-    collect(&goal, &goal, &mut files)?;
+    collect(goal, goal, &mut files)?;
     files.sort_by(|left, right| left.0.cmp(&right.0));
 
     let mut hasher = Sha256::new();

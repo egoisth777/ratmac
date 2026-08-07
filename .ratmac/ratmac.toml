@@ -1,6 +1,12 @@
 # Project Runbook. Phase prompts are agent-facing instructions; they never ask
 # an agent to write a Scheduler-owned file (PGE-004).
 
+
+[roots]
+goal = ".arca/goal"
+issue = ".arca/issue"
+residual = ".arca/residual"
+ticket = ".arca/ticket"
 [phases.build]
 prompt = "Build the selected artifact only, then record your evidence under .arca/evidence/."
 

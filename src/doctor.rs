@@ -2,8 +2,8 @@
 //!
 //! `rtm doctor` reports one **finding** per defect - a stable code, a
 //! severity, a location, and a message - so an agent can repair a runbook
-//! from the report instead of guessing at prose. The codes are tabled once,
-//! in `.arca/runbook-spec.md`; this module emits them and documents nothing.
+//! from the report instead of guessing at prose. The codes are tabled in the
+//! runbook specification; this module emits them and documents nothing.
 //!
 //! Four passes run in order, and each one only runs on what the pass before
 //! it produced:
@@ -80,7 +80,7 @@ impl Finding {
         Self::new(code, Severity::Warning, location, message)
     }
 
-    /// The `RB*` code tabled in `.arca/runbook-spec.md`.
+    /// The `RB*` code tabled in the runbook specification.
     pub fn code(&self) -> &'static str {
         self.code
     }
@@ -139,12 +139,35 @@ pub fn diagnose(path: &Path) -> Vec<Finding> {
     };
 
     let mut findings = Vec::new();
+    if let Some(workspace) = runbook_workspace(path) {
+        let engine = crate::root::resolve(&workspace);
+        if let Err(error) = class.validate_roots(&workspace, engine.engine_root()) {
+            findings.push(Finding::error(
+                error.code(),
+                format!("roots {:?}", error.role()),
+                error.message().to_owned(),
+            ));
+        }
+    }
     inspect_graph(&class, &mut findings);
     audit_termination(&class, &mut findings);
     lint_guards(&class, &mut findings);
     audit_ownership(&class, &shown, &mut findings);
     findings.sort();
     findings
+}
+
+/// Return a workspace only for the conventional tracked runbook location.
+/// A caller may diagnose an arbitrary standalone file, which has no
+/// repository context in which named roots could be validated.
+fn runbook_workspace(path: &Path) -> Option<std::path::PathBuf> {
+    let directory = path.parent()?;
+    if path.file_name()?.to_string_lossy() != MachineClass::FILE_NAME
+        || directory.file_name()?.to_string_lossy() != ".ratmac"
+    {
+        return None;
+    }
+    directory.parent().map(Path::to_path_buf)
 }
 
 /// The process exit code for a report: `0` clean, `1` warnings only, `2` any

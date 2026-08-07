@@ -8,20 +8,31 @@ document needs one, it cites this one (RBS-004).
 
 A runbook is plain TOML data at `.ratmac/ratmac.toml` in the invoking checkout,
 one per project, human-reviewed and read-only at runtime (R-010, R-013). It
-declares Phases and transitions and nothing else: `status` is runtime lifecycle
-the Scheduler owns
-and may not appear anywhere in the file (R-002, R-003). Parsing is strict —
-an unknown key is a hard error, never an ignored one (R-011).
+declares its named workflow roots, Phases, transitions, and optional child
+classes; `status` is runtime lifecycle the Scheduler owns and may not appear
+anywhere in the file (R-002, R-003). Parsing is strict — an unknown key is a
+hard error, never an ignored one (R-011).
 
 ## Top level
 
 | Key | Type | Required | Meaning |
 | :--- | :--- | :--- | :--- |
+| `roots` | table | no | Named repository-relative workflow roots. Each key is a non-empty role name and each value is a non-empty relative path. |
 | `phases` | table of tables | yes | One entry per Phase, keyed by Phase name. A name may not be empty. |
 | `transitions` | array of tables | no | The directed edges between Phases. Absent means a single-Phase machine with no edges. |
 | `classes` | table of tables | no | FDC-009: one entry per declared child Machine Class, keyed by class name. See "Classes and spawns". |
 
 Any other top-level key is `RB103`. A top-level `status` key is `RB104`.
+
+## Roots
+
+`[roots]` maps an authored role name to a repository-relative directory. A
+path may not be absolute or escape the repository. Each declared directory
+must exist when a lifecycle command or project doctor loads the runbook, and
+may not equal, contain, or sit beneath the resolved Engine root. The parser
+reports malformed declarations as `RB601`; an undeclared role named by a guard
+is `RB602`; missing declared paths are `RB603`; Engine-root overlap is
+`RB604`.
 
 ## Phases
 
@@ -101,14 +112,21 @@ is not listed for the selected kind is `RB107`; a missing required field is
 
 | Kind | Judges | Required fields | Optional fields |
 | :--- | :--- | :--- | :--- |
-| `files_exact` | The listing of a directory equals the declared entry set; with no entry set, only that the path exists. | `path` | `entries` (array of strings; `files` is an accepted alias and must agree when both appear) |
-| `file_contains` | A substring is present in a file. | `path`, `contains` | none |
+| `files_exact` | The listing of a directory equals the declared entry set; with no entry set, only that the path exists. | `path` | `root` (declared role), `entries` (array of strings; `files` is an accepted alias and must agree when both appear) |
+| `file_contains` | A substring is present in a file. | `path`, `contains` | `root` (declared role) |
 | `command_exit` | A spawned program's exit code equals `expected`. The child's stderr is captured and rendered as a bounded diagnostic on refusal (ETB-002). Unless `exempt`, the program must resolve to a pinnable regular file whose hash is recorded in Run evidence (ETB-001). | `program`, `expected` | `args` (array of strings), `exempt` (boolean; marks a toolchain probe that reads no project state) |
-| `sensitivity_receipts` | Every planned test the named ticket declares has a sensitivity receipt under `.ratmac/evidence/` (PGE-003). | `ticket` | none |
-| `completion_gate` | Every check the named ticket declares has a green, fresh completion receipt (PGE-005). | `ticket` | none |
-| `intake_contract` | `.arca/issue/<issue-id>/` (intake), `.arca/issue/deferred/<issue-id>/`, and `.arca/issue/archive/<issue-id>/` form one issue-id namespace of exact five-file bundles. The guard parses each ask's exact `accepted\|rejected\|duplicate\|deferred` disposition from `spec.md`, never from status alone; enforces at the intake-completion boundary that the whole bundle is under `deferred/` with status `deferred` if and only if at least one ask remains deferred, while archived bundles are `integrated\|rejected` and contain no deferred ask; requires every accepted requirement ID verbatim in the goal; permits a duplicate ask to reuse the goal's existing representation without adding its proposed ID as a new row; requires every integrated bundle to have no deferred ask and at least one accepted-or-duplicate disposition; and resolves links from live intake and deferred bundles in both directions (PGE-001). | none | none |
+| `sensitivity_receipts` | Every planned test the named ticket declares has a sensitivity receipt under `.ratmac/evidence/` (PGE-003). | `ticket` | `root` (declared role) |
+| `completion_gate` | Every check the named ticket declares has a green, fresh completion receipt (PGE-005). | `ticket` | `root` (declared role) |
+| `intake_contract` | The fixed `goal` and `issue` roles provide the goal authority and intake/deferred/archive issue namespace. The guard parses each ask's exact `accepted\|rejected\|duplicate\|deferred` disposition from `spec.md`, never from status alone; enforces the deferred and archived bundle rules, accepted requirement IDs, and live links (PGE-001). | none | none |
 | `join` | FDC-009/FDC-011: the composition join. Satisfied only when the spawn ledger's live children carry Engine-written terminal `passed` facts - at least `min` of them. Until a ledger records children, a join guard honestly refuses. `require` accepts only `"all_passed"`; any other value is `RB506`, as is `min` below 1. | `require` | `min` (integer >= 1; default 1) |
-| `record_contract` | One residual per frozen requirement, evidence behind every `satisfied`, one owning ticket per gap, acyclic ticket dependencies, complete ticket sections (PGE-002). | none | none |
+| `record_contract` | The fixed `goal`, `residual`, and `ticket` roles provide the records for one residual per frozen requirement, evidence behind every `satisfied`, one owning ticket per gap, acyclic ticket dependencies, and complete ticket sections (PGE-002). | none | none |
+
+For `files_exact`, `file_contains`, `sensitivity_receipts`, and
+`completion_gate`, an optional `root = "<role>"` resolves `path` or `ticket`
+beneath that declared root. Without `root`, the address remains relative to
+the Run workspace. Contract guards have no path fields: `intake_contract`
+requires `goal` and `issue`; `record_contract` requires `goal`, `residual`,
+and `ticket`.
 
 Guard evaluation never compiles or fetches project source (ETB-001), and a
 failing guard refuses, reports, and leaves Phase and Status untouched (R-017).
@@ -153,6 +171,10 @@ when any finding is an error.
 | `RB108` | error | A transition endpoint names a Phase the runbook does not declare. |
 | `RB109` | error | `freeze` carries a value other than `"goal"`. |
 | `RB110` | error | A key carries a value of the wrong type. |
+| `RB601` | error | The `roots` table is malformed: it is not a table, has an empty role, a non-string or empty path, an absolute path, or a path that lexically escapes the repository. |
+| `RB602` | error | A guard names a root role the runbook does not declare, including a fixed contract role. |
+| `RB603` | error | A declared root role names a path that does not exist or cannot be read when the runbook loads. |
+| `RB604` | error | A declared root equals, contains, or sits beneath the resolved Engine root. |
 | `RB201` | error | The runbook declares no Phases. |
 | `RB202` | error | No initial Phase: every Phase has an inbound ordinary transition. |
 | `RB203` | error | Several initial Phases: more than one Phase has no inbound ordinary transition. |

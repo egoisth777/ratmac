@@ -201,7 +201,13 @@ impl Tree {
     fn write_runbook(&self) {
         fs::write(
             self.root.join(".ratmac/ratmac.toml"),
-            "[phases.intake]\n\
+            "[roots]\n\
+             goal = \".arca/goal\"\n\
+             issue = \".arca/issue\"\n\
+             residual = \".arca/residual\"\n\
+             ticket = \".arca/ticket\"\n\
+             \n\
+             [phases.intake]\n\
              prompt = \"Integrate.\"\n\
              guards = [{ kind = \"intake_contract\" }]\n\
              \n\
@@ -211,7 +217,7 @@ impl Tree {
              \n\
              [phases.build]\n\
              prompt = \"Build.\"\n\
-             guards = [{ kind = \"sensitivity_receipts\", ticket = \".arca/ticket/t-100.md\" }]\n\
+             guards = [{ kind = \"sensitivity_receipts\", root = \"ticket\", ticket = \"t-100.md\" }]\n\
              \n\
              [[transitions]]\n\
              from = \"intake\"\n\
@@ -579,7 +585,12 @@ fn no_vacuous_satisfaction() {
     // The tree claims everything is done, but declares no contract gates.
     fs::write(
         tree.root.join(".ratmac/ratmac.toml"),
-        "[phases.build]\nprompt = \"Build.\"\n\n[phases.done]\nprompt = \"Done.\"\n\n\
+        "[roots]\n\
+         goal = \".arca/goal\"\n\
+         issue = \".arca/issue\"\n\
+         residual = \".arca/residual\"\n\
+         ticket = \".arca/ticket\"\n\n\
+         [phases.build]\nprompt = \"Build.\"\n\n[phases.done]\nprompt = \"Done.\"\n\n\
          [[transitions]]\nfrom = \"build\"\nto = \"done\"\n",
     )
     .expect("write gateless machine class");

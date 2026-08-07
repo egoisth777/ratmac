@@ -250,14 +250,32 @@ pub fn gate_sensitivity(
     run_id: &str,
     ticket_relative: &str,
 ) -> Result<(), Vec<ReceiptDefect>> {
-    let ticket_path = workflow_root.join(ticket_relative);
-    let Ok(ticket_source) = fs::read_to_string(&ticket_path) else {
+    gate_sensitivity_at(
+        workflow_root,
+        engine_root,
+        run_id,
+        &workflow_root.join(ticket_relative),
+        ticket_relative,
+    )
+}
+
+/// The root-routed form of [`gate_sensitivity`]. `ticket_path` is already
+/// resolved beneath the guard's declared root while receipt verification still
+/// evaluates project artifacts from the addressed workspace.
+pub fn gate_sensitivity_at(
+    workspace: &Path,
+    engine_root: &Path,
+    run_id: &str,
+    ticket_path: &Path,
+    ticket_address: &str,
+) -> Result<(), Vec<ReceiptDefect>> {
+    let Ok(ticket_source) = fs::read_to_string(ticket_path) else {
         return Err(vec![ReceiptDefect {
             planned_test: String::new(),
-            reason: format!("ticket {ticket_relative} is unreadable"),
+            reason: format!("ticket {ticket_address} is unreadable"),
         }]);
     };
-    let ticket_id = Path::new(ticket_relative)
+    let ticket_id = ticket_path
         .file_stem()
         .map(|stem| stem.to_string_lossy().into_owned())
         .unwrap_or_default();
@@ -303,7 +321,7 @@ pub fn gate_sensitivity(
                 ),
             }),
             Some(receipt) => {
-                if let Err(defect) = verify_receipt(workflow_root, receipt) {
+                if let Err(defect) = verify_receipt(workspace, receipt) {
                     defects.push(defect);
                 }
             }

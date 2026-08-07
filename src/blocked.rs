@@ -174,6 +174,22 @@ pub fn confirmation_phrase(ticket: &str) -> String {
     format!("hold {ticket}")
 }
 
+fn declared_ticket_root(workspace: &Path) -> Result<PathBuf, HoldRefusal> {
+    let engine = crate::root::resolve(workspace);
+    let class = crate::machine::MachineClass::load_from_project_root(workspace)
+        .map_err(|error| refusal(format!("{}: {}", error.code(), error.message())))?;
+    class
+        .validate_roots(engine.invoking_checkout_root(), engine.engine_root())
+        .map_err(|error| refusal(error.to_string()))?;
+    class
+        .resolve_root(
+            "ticket",
+            engine.invoking_checkout_root(),
+            engine.engine_root(),
+        )
+        .map_err(|error| refusal(error.to_string()))
+}
+
 /// The `p5-blocked` route predicate: verify a hold without writing anything.
 pub fn plan_hold(root: &Path, request: &HoldRequest) -> Result<HoldPlan, HoldRefusal> {
     let ticket = request.ticket.trim();
@@ -206,10 +222,12 @@ pub fn plan_hold(root: &Path, request: &HoldRequest) -> Result<HoldPlan, HoldRef
         ));
     }
 
-    let ticket_path = root.join(".arca/ticket").join(format!("{ticket}.md"));
+    let ticket_root = declared_ticket_root(root)?;
+    let ticket_path = ticket_root.join(format!("{ticket}.md"));
     let source = fs::read_to_string(&ticket_path).map_err(|error| {
         refusal(format!(
-            "hold refers to no ticket: .arca/ticket/{ticket}.md is unreadable ({error})"
+            "hold refers to no ticket: {} is unreadable ({error})",
+            ticket_path.display()
         ))
     })?;
     let status = field(&source, "status").unwrap_or_default();
@@ -314,6 +332,10 @@ fn verify_blocker(root: &Path, blocker: &str) -> Result<(), HoldRefusal> {
 /// before the append-only history record. A portable rename still cannot detect
 /// an out-of-band edit that races its final replacement window.
 pub fn apply_hold(root: &Path, plan: &HoldPlan) -> Result<(), HoldRefusal> {
+    // Planning and application are separate public boundaries. Recheck the
+    // current declared roots before this path can mutate a ticket or State.
+    let _ = declared_ticket_root(root)?;
+
     let roots = crate::root::resolve(root);
     let engine_root = roots.engine_root().to_path_buf();
     let state_path = engine_root

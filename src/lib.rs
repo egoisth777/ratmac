@@ -17,6 +17,7 @@ pub mod ownership;
 pub mod pin;
 pub mod receipt;
 pub mod root;
+pub mod roots;
 pub mod scaffold;
 pub mod scheduler;
 pub mod state;
