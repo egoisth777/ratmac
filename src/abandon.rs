@@ -109,6 +109,18 @@ pub struct AbandonPlan {
 
 /// Decide whether this project's Run may be retired. Writes nothing.
 pub fn plan_abandon(root: &Path, request: &AbandonRequest) -> Result<AbandonPlan, AbandonRefusal> {
+    crate::Scheduler::refuse_flat_residue(root)
+        .map_err(|error| refusal(format!("abandonment refused: {error}")))?;
+    if let Some(run) = request
+        .run
+        .as_deref()
+        .map(str::trim)
+        .filter(|run| !run.is_empty())
+    {
+        crate::Scheduler::refuse_addressed_run_residue(root, run)
+            .map_err(|error| refusal(format!("abandonment refused: {error}")))?;
+    }
+
     let required = required_phrase(root, request.run.as_deref());
     match request.confirmation.as_deref() {
         None => {
@@ -313,8 +325,11 @@ fn revision_or_none(revision: &str) -> String {
 /// durable mutation; later failures are named rather than rolled back through
 /// a shared append-only history.
 pub fn apply_abandon(root: &Path, plan: &AbandonPlan) -> Result<(), AbandonRefusal> {
-    crate::Scheduler::validate_project_roots(root)
-        .map_err(|error| refusal(format!("abandonment refused: {error}")))?;
+    match plan.run.as_deref() {
+        Some(run_id) => crate::Scheduler::refuse_addressed_run_residue(root, run_id),
+        None => crate::Scheduler::refuse_flat_residue(root),
+    }
+    .map_err(|error| refusal(format!("abandonment refused: {error}")))?;
 
     let engine_root = crate::root::resolve(root).engine_root().to_path_buf();
     match plan.run.as_deref() {

@@ -91,13 +91,14 @@ fn is_help(args: &[String]) -> bool {
 
 /// The roster line printed by every run-addressing refusal: the listing of
 /// the resolved `.ratmac/runs/`, read off artifacts.
-fn roster_line(project_root: &Path) -> String {
-    let roster = Scheduler::run_roster(project_root);
-    if roster.is_empty() {
+fn roster_line(project_root: &Path) -> Result<String, CliError> {
+    let roster = Scheduler::run_roster(project_root)
+        .map_err(|error| CliError::refusal(error.to_string()))?;
+    Ok(if roster.is_empty() {
         "runs: none (.ratmac/runs/ lists no run; rtm start mints one)".to_owned()
     } else {
         format!("runs: {}", roster.join(", "))
-    }
+    })
 }
 
 /// FDC-004: resolve the `--run <id>` a command must carry. A missing,
@@ -113,13 +114,13 @@ fn addressed_run(command: &str, args: &[String], project_root: &Path) -> Result<
                 if run.is_some() {
                     return Err(CliError::refusal(format!(
                         "{command}: --run given twice; address exactly one run; {}",
-                        roster_line(project_root)
+                        roster_line(project_root)?
                     )));
                 }
                 let Some(value) = args.get(index + 1) else {
                     return Err(CliError::refusal(format!(
                         "{command}: --run needs a run id; {}",
-                        roster_line(project_root)
+                        roster_line(project_root)?
                     )));
                 };
                 run = Some(value.clone());
@@ -135,7 +136,7 @@ fn addressed_run(command: &str, args: &[String], project_root: &Path) -> Result<
     let Some(id) = run.filter(|id| !id.is_empty()) else {
         return Err(CliError::refusal(format!(
             "{command}: run addressing is always required — pass --run <id>; {}",
-            roster_line(project_root)
+            roster_line(project_root)?
         )));
     };
     Scheduler::validate_run_address(project_root, &id)
@@ -174,6 +175,21 @@ where
     if is_help(&args) {
         writer.write_all(help(command).as_bytes())?;
         return Ok(0);
+    }
+    if matches!(
+        command.as_str(),
+        "start"
+            | "status"
+            | "step"
+            | "hold"
+            | "abandon"
+            | "spawn"
+            | "respawn"
+            | "doctor"
+            | "scaffold"
+    ) {
+        Scheduler::refuse_flat_residue(&project_root)
+            .map_err(|error| CliError::new(format!("{command}: {error}")))?;
     }
 
     if command == "doctor" {
@@ -272,17 +288,17 @@ fn hold<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Resul
     while index < args.len() {
         match args[index].as_str() {
             "--run" => {
-                run = Some(
-                    args.get(index + 1)
-                        .filter(|value| !value.starts_with("--"))
-                        .cloned()
-                        .ok_or_else(|| {
-                            CliError::refusal(format!(
-                                "hold: --run needs a run id; {}",
-                                roster_line(project_root)
-                            ))
-                        })?,
-                );
+                let Some(value) = args
+                    .get(index + 1)
+                    .filter(|value| !value.starts_with("--"))
+                    .cloned()
+                else {
+                    return Err(CliError::refusal(format!(
+                        "hold: --run needs a run id; {}",
+                        roster_line(project_root)?
+                    )));
+                };
+                run = Some(value);
                 index += 2;
             }
             "--blocker" => {
@@ -406,17 +422,17 @@ fn spawn<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Resu
                 index += 2;
             }
             "--run" => {
-                run = Some(
-                    args.get(index + 1)
-                        .filter(|value| !value.starts_with("--"))
-                        .cloned()
-                        .ok_or_else(|| {
-                            CliError::refusal(format!(
-                                "spawn: --run needs a run id; {}",
-                                roster_line(project_root)
-                            ))
-                        })?,
-                );
+                let Some(value) = args
+                    .get(index + 1)
+                    .filter(|value| !value.starts_with("--"))
+                    .cloned()
+                else {
+                    return Err(CliError::refusal(format!(
+                        "spawn: --run needs a run id; {}",
+                        roster_line(project_root)?
+                    )));
+                };
+                run = Some(value);
                 index += 2;
             }
             other if name.is_none() && !other.starts_with("--") => {
@@ -435,12 +451,12 @@ fn spawn<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Resu
             "spawn needs the declared spawn name: rtm spawn <name> --run <parent id>".to_owned(),
         )
     })?;
-    let run = run.ok_or_else(|| {
-        CliError::refusal(format!(
+    let Some(run) = run else {
+        return Err(CliError::refusal(format!(
             "spawn requires --run <parent id>; {}",
-            roster_line(project_root)
-        ))
-    })?;
+            roster_line(project_root)?
+        )));
+    };
     let child = Scheduler::spawn_to_with_workspace(
         project_root,
         &run,
@@ -465,15 +481,17 @@ fn respawn<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Re
     while index < args.len() {
         match args[index].as_str() {
             "--run" => {
-                run = Some(args.get(index + 1)
+                let Some(value) = args
+                    .get(index + 1)
                     .filter(|value| !value.starts_with("--"))
                     .cloned()
-                    .ok_or_else(|| {
-                    CliError::refusal(format!(
+                else {
+                    return Err(CliError::refusal(format!(
                         "respawn: --run needs a run id; {}",
-                        roster_line(project_root)
-                    ))
-                })?);
+                        roster_line(project_root)?
+                    )));
+                };
+                run = Some(value);
                 index += 2;
             }
             "--confirm" => {
@@ -513,17 +531,17 @@ fn abandon<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Re
     let mut index = 0;
     while index < args.len() {
         if args[index] == "--run" {
-            run = Some(
-                args.get(index + 1)
-                    .filter(|value| !value.starts_with("--"))
-                    .cloned()
-                    .ok_or_else(|| {
-                        CliError::refusal(format!(
-                            "abandon: --run needs a run id; {}",
-                            roster_line(project_root)
-                        ))
-                    })?,
-            );
+            let Some(value) = args
+                .get(index + 1)
+                .filter(|value| !value.starts_with("--"))
+                .cloned()
+            else {
+                return Err(CliError::refusal(format!(
+                    "abandon: --run needs a run id; {}",
+                    roster_line(project_root)?
+                )));
+            };
+            run = Some(value);
             index += 2;
         } else {
             index += 1;
@@ -609,10 +627,13 @@ fn doctor<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Res
     }
 
     if let Some(target) = target {
+        let target = Path::new(target);
+        Scheduler::refuse_flat_residue(&crate::root::addressed_project_root(target))
+            .map_err(|error| CliError::refusal(error.to_string()))?;
         // A path that cannot be read is a diagnosis (`RB101`), not a usage
         // error: an authoring loop asks about paths that do not exist yet, and
         // it reads codes, not refusals.
-        let findings = crate::doctor::diagnose(Path::new(target));
+        let findings = crate::doctor::diagnose(target);
         write_findings(&findings, json, writer)?;
         return Ok(crate::doctor::exit_code(&findings));
     }
@@ -713,7 +734,8 @@ fn environment_report<W: Write>(project_root: &Path, writer: &mut W) -> Result<(
 
     // FDC-004: listing the resolved .ratmac/runs/ is the roster; each Run's
     // State File lives in its own directory.
-    let roster = crate::Scheduler::run_roster(project_root);
+    let roster = crate::Scheduler::run_roster(project_root)
+        .map_err(|error| CliError::refusal(error.to_string()))?;
     let runs_dir = roots.engine_root().join("runs");
     if roster.is_empty() {
         writeln!(

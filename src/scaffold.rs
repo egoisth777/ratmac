@@ -39,6 +39,8 @@ pub enum ScaffoldRefusal {
     /// writes one file and creates no directories, so this is the author's
     /// call to make, not the Engine's.
     NoParent(String),
+    /// A live pre-split artifact prevents any Engine entry from acting.
+    Preflight(String),
     /// The write itself failed.
     Unwritable(String, String),
 }
@@ -54,6 +56,7 @@ impl std::fmt::Display for ScaffoldRefusal {
                 formatter,
                 "scaffold: the directory for {path} does not exist; scaffolding creates exactly one file and no directories"
             ),
+            Self::Preflight(reason) => formatter.write_str(reason),
             Self::Unwritable(path, error) => {
                 write!(formatter, "scaffold: cannot write {path}: {error}")
             }
@@ -66,6 +69,9 @@ impl std::fmt::Display for ScaffoldRefusal {
 /// The checks come before the write, so a refusal is a refusal: no partial
 /// file, no created directory, nothing to clean up.
 pub fn write_scaffold(path: &Path) -> Result<(), ScaffoldRefusal> {
+    let project_root = crate::root::addressed_project_root(path);
+    crate::Scheduler::refuse_flat_residue(&project_root)
+        .map_err(|error| ScaffoldRefusal::Preflight(error.to_string()))?;
     let shown = path.to_string_lossy().replace('\\', "/");
     if path.exists() {
         return Err(ScaffoldRefusal::Occupied(shown));

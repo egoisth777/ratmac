@@ -24,6 +24,10 @@ static ROLLBACK_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 /// t-077 owns retiring it.
 const LEGACY_WORKFLOW_DIR: &str = ".arca";
 
+pub(crate) fn legacy_workflow_dir() -> &'static str {
+    LEGACY_WORKFLOW_DIR
+}
+
 /// What a human asked for when superseding a Run (FDC-007/FDC-006).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RespawnRequest {
@@ -511,10 +515,10 @@ impl Scheduler {
         let roots = crate::root::resolve(root);
         let root = roots.invoking_checkout_root().to_path_buf();
         let engine_root = roots.engine_root().to_path_buf();
+        Self::refuse_flat_residue_at(&root, &engine_root)?;
         let snapshot = Self::load_runbook_snapshot(&root, &root, &engine_root)?;
         let workflow_roots = snapshot.roots().clone();
         let machine = Self::graph_of(snapshot.class());
-        Self::refuse_flat_residue(&root)?;
         Ok(Self {
             machine,
             workflow_roots,
@@ -531,10 +535,11 @@ impl Scheduler {
     /// Open a project addressed at one canonical, minted roster member under
     /// `.ratmac/runs/<run_id>/`.
     pub fn open_run(root: impl AsRef<Path>, run_id: impl AsRef<str>) -> Result<Self, StateError> {
-        let run_id = run_id.as_ref();
         let roots = crate::root::resolve(root);
         let invoking_root = roots.invoking_checkout_root().to_path_buf();
         let engine_root = roots.engine_root().to_path_buf();
+        Self::refuse_flat_residue_at(&invoking_root, &engine_root)?;
+        let run_id = run_id.as_ref();
         // FDC-004: caller input is proved to be one canonical direct-child
         // name on the roster before it participates in any path join.
         Self::validate_run_address_at(&engine_root, run_id)?;
@@ -548,10 +553,10 @@ impl Scheduler {
             ),
             None => (invoking_root.clone(), None),
         };
+        Self::refuse_flat_residue_for_workspace(&invoking_root, &engine_root, &workspace)?;
         let snapshot = Self::load_runbook_snapshot(&invoking_root, &workspace, &engine_root)?;
         let workflow_roots = snapshot.roots().clone();
         let machine = Self::graph_of(snapshot.class());
-        Self::refuse_flat_residue(&invoking_root)?;
         let run_dir = Self::runs_dir_at(&engine_root).join(run_id);
         // FDC-006: a roster entry without a State File is a retired run —
         // terminal, never resurrected. The refusal names the run as terminal,
@@ -576,30 +581,90 @@ impl Scheduler {
             engine_root: Some(engine_root),
         })
     }
+    /// Refuse live residue in the workspace durably bound to an addressed Run
+    /// without requiring that Run to remain admitted. Direct existing-Run
+    /// routes use this before they inspect a retired Run's lock or State File.
+    pub(crate) fn refuse_addressed_run_residue(
+        root: &Path,
+        run_id: &str,
+    ) -> Result<(), StateError> {
+        let roots = crate::root::resolve(root);
+        let invoking_root = roots.invoking_checkout_root().to_path_buf();
+        let engine_root = roots.engine_root().to_path_buf();
+        Self::refuse_flat_residue_at(&invoking_root, &engine_root)?;
+        Self::validate_run_address_at(&engine_root, run_id)?;
+        let workspace = match Self::ledger_record_of_at(&engine_root, run_id)? {
+            Some((ledger_path, entry)) => {
+                Self::workspace_from_ledger_entry(&engine_root, &ledger_path, &entry)?
+            }
+            None => invoking_root.clone(),
+        };
+        Self::refuse_flat_residue_for_workspace(&invoking_root, &engine_root, &workspace)
+    }
 
-    /// FDC-005: a pre-plural flat `.ratmac/state.toml` or pre-split legacy
-    /// workflow State File is residue, never adopted. Meeting one refuses,
-    /// names the observed fact and the repair, and modifies nothing — the
-    /// legacy-lock precedent, never an auto-migration. The check runs at open
-    /// and again at the top of `start`, before any run is minted: `start` on a
-    /// residue-carrying project names the residue and mints nothing.
-    fn refuse_flat_residue(root: &Path) -> Result<(), StateError> {
-        let engine_root = crate::root::resolve(root).engine_root().to_path_buf();
-        Self::refuse_flat_residue_at(root, &engine_root)
+    /// FDC-005: a pre-plural flat State File or pre-split workflow artifact is
+    /// residue, never adopted. Meeting one refuses, names the observed fact
+    /// and the repair, and modifies nothing — the legacy-lock precedent,
+    /// never an auto-migration. The check runs at every Engine entry point and
+    /// again inside root-domain mint transactions.
+    pub(crate) fn refuse_flat_residue(root: &Path) -> Result<(), StateError> {
+        let roots = crate::root::resolve(root);
+        Self::refuse_flat_residue_at(roots.invoking_checkout_root(), roots.engine_root())
     }
 
     fn refuse_flat_residue_at(root: &Path, engine_root: &Path) -> Result<(), StateError> {
-        // The legacy workflow namespace remains a read-only ENS-009 residue check.
-        let legacy_flat = root.join(LEGACY_WORKFLOW_DIR).join("state.toml");
-        for flat in [engine_root.join("state.toml"), legacy_flat] {
-            if fs::symlink_metadata(&flat).is_ok() {
-                return Err(StateError::new(format!(
-                    "refusing to run: flat-layout residue {} exists; runs reside under \
-                     .ratmac/runs/<id>/ — explicitly migrate that file into its run's directory \
-                     or remove it, then retry; it was not modified",
-                    flat.display()
-                )));
+        // The legacy workflow namespace remains a read-only ENS-009 residue
+        // check. A linked checkout has its own tracked files while the Engine
+        // lives in its primary checkout, so both projects can own live
+        // pre-split artifacts and neither may be skipped.
+        let engine_project = engine_root.parent().unwrap_or(root);
+        let legacy_projects = if engine_project == root {
+            vec![root]
+        } else {
+            vec![root, engine_project]
+        };
+        let mut residues = vec![engine_root.join("state.toml")];
+        for project in legacy_projects {
+            let legacy_dir = project.join(LEGACY_WORKFLOW_DIR);
+            residues.extend([
+                legacy_dir.join("ratmac.toml"),
+                legacy_dir.join("runs"),
+                legacy_dir.join("rtm.lock"),
+                legacy_dir.join("state.toml"),
+            ]);
+        }
+        for residue in residues {
+            match fs::symlink_metadata(&residue) {
+                Ok(_) => {
+                    return Err(StateError::new(format!(
+                        "refusing to run: pre-split Engine residue {} exists; migrate or remove \
+                         it, then retry; nothing was modified",
+                        residue.display()
+                    )))
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    return Err(StateError::new(format!(
+                        "refusing to run: cannot inspect pre-split Engine residue {}: {error}; \
+                         check its permissions or repair it, then retry; nothing was modified",
+                        residue.display()
+                    )))
+                }
             }
+        }
+        Ok(())
+    }
+
+    /// Check both the checkout that invoked an operation and the workspace
+    /// that an addressed child Run reads or writes.
+    fn refuse_flat_residue_for_workspace(
+        invoking_root: &Path,
+        engine_root: &Path,
+        workspace: &Path,
+    ) -> Result<(), StateError> {
+        Self::refuse_flat_residue_at(invoking_root, engine_root)?;
+        if workspace != invoking_root {
+            Self::refuse_flat_residue(workspace)?;
         }
         Ok(())
     }
@@ -713,9 +778,12 @@ impl Scheduler {
     /// Listing the resolved `.ratmac/runs/` is the roster: direct
     /// run-directory artifacts, sorted. Symlinks are not Run directories and
     /// cannot put a roster member outside the plural residency path.
-    pub fn run_roster(root: impl AsRef<Path>) -> Vec<String> {
-        let engine_root = crate::root::resolve(root).engine_root().to_path_buf();
-        Self::run_roster_at(&engine_root)
+    pub fn run_roster(root: impl AsRef<Path>) -> Result<Vec<String>, StateError> {
+        let roots = crate::root::resolve(root);
+        let invoking_root = roots.invoking_checkout_root();
+        let engine_root = roots.engine_root();
+        Self::refuse_flat_residue_at(invoking_root, engine_root)?;
+        Ok(Self::run_roster_at(engine_root))
     }
 
     fn run_roster_at(engine_root: &Path) -> Vec<String> {
@@ -805,6 +873,7 @@ impl Scheduler {
     /// Engine state.
     pub(crate) fn validate_project_roots(root: &Path) -> Result<(), StateError> {
         let roots = crate::root::resolve(root);
+        Self::refuse_flat_residue_at(roots.invoking_checkout_root(), roots.engine_root())?;
         let snapshot = Self::load_runbook_snapshot(
             roots.invoking_checkout_root(),
             roots.invoking_checkout_root(),
@@ -907,6 +976,7 @@ impl Scheduler {
                 ledger_path.display()
             )));
         }
+        Self::refuse_flat_residue(&workspace)?;
         let canonical = fs::canonicalize(&workspace).map_err(|error| {
             if error.kind() == std::io::ErrorKind::NotFound {
                 StateError::new(format!(
@@ -954,6 +1024,13 @@ impl Scheduler {
         Ok(canonical)
     }
 
+    fn spawn_workspace_candidate(invoking_root: &Path, workspace: &Path) -> PathBuf {
+        if workspace.is_absolute() {
+            workspace.to_path_buf()
+        } else {
+            invoking_root.join(workspace)
+        }
+    }
     /// Canonicalize a caller-supplied spawn workspace before the mint
     /// transaction. Relative spellings are interpreted from the invocation
     /// checkout, not from a parent Run's stored workspace.
@@ -963,11 +1040,8 @@ impl Scheduler {
         workspace: &Path,
     ) -> Result<PathBuf, StateError> {
         let spelling = workspace.to_string_lossy().into_owned();
-        let candidate = if workspace.is_absolute() {
-            workspace.to_path_buf()
-        } else {
-            invoking_root.join(workspace)
-        };
+        let candidate = Self::spawn_workspace_candidate(invoking_root, workspace);
+        Self::refuse_flat_residue(&candidate)?;
         let metadata = fs::metadata(&candidate).map_err(|error| {
             if error.kind() == std::io::ErrorKind::NotFound {
                 StateError::new(format!("workspace {spelling:?} does not exist"))
@@ -1119,8 +1193,8 @@ impl Scheduler {
             .clone();
         let engine_root = self.engine_root()?.to_path_buf();
         // Do the content reads before taking the mutation domain. The cheap
-        // flat-residue fact is checked again after acquisition below.
-        Self::refuse_flat_residue(&root)?;
+        // pre-split residue fact is checked again after acquisition below.
+        Self::refuse_flat_residue_at(&root, &engine_root)?;
         let snapshot = Self::load_runbook_snapshot(&root, &root, &engine_root)?;
         self.workflow_roots = snapshot.roots().clone();
         self.machine = Self::graph_of(snapshot.class());
@@ -1456,9 +1530,16 @@ impl Scheduler {
         bindings: &BTreeMap<String, String>,
         workspace: Option<&Path>,
     ) -> Result<String, StateError> {
-        let root = root.as_ref();
-        Self::validate_run_address(root, parent_id)?;
-        if crate::ledger::is_recorded_child(&Self::runs_dir(root), parent_id)
+        let roots = crate::root::resolve(root);
+        let invoking_root = roots.invoking_checkout_root().to_path_buf();
+        let engine_root = roots.engine_root().to_path_buf();
+        Self::refuse_flat_residue_at(&invoking_root, &engine_root)?;
+        if let Some(workspace) = workspace {
+            let candidate = Self::spawn_workspace_candidate(&invoking_root, workspace);
+            Self::refuse_flat_residue(&candidate)?;
+        }
+        Self::validate_run_address(&invoking_root, parent_id)?;
+        if crate::ledger::is_recorded_child(&Self::runs_dir(&invoking_root), parent_id)
             .map_err(|error| StateError::new(format!("spawn cap check refused: {error}")))?
         {
             return Err(StateError::new(format!(
@@ -1466,7 +1547,7 @@ impl Scheduler {
 composition is capped at one level (FDC-012)"
             )));
         }
-        let mut scheduler = Self::open_run(root, parent_id)?;
+        let mut scheduler = Self::open_run(&invoking_root, parent_id)?;
         scheduler.spawn_with_bindings_at_workspace(spawn_name, bindings, workspace)
     }
 
@@ -1501,14 +1582,18 @@ composition is capped at one level (FDC-012)"
             .clone();
         let invoking_root = self.invoking_root()?.to_path_buf();
         let engine_root = self.engine_root()?.to_path_buf();
+        Self::refuse_flat_residue_for_workspace(&invoking_root, &engine_root, &parent_workspace)?;
         let child_workspace = match workspace {
             Some(workspace) => {
+                let candidate = Self::spawn_workspace_candidate(&invoking_root, workspace);
+                Self::refuse_flat_residue(&candidate)?;
                 Self::canonical_spawn_workspace(&invoking_root, &engine_root, workspace)?
             }
             None => {
                 Self::canonical_spawn_workspace(&parent_workspace, &engine_root, &parent_workspace)?
             }
         };
+        Self::refuse_flat_residue_for_workspace(&invoking_root, &engine_root, &child_workspace)?;
         let parent_id = self.run_id.clone().ok_or_else(|| {
             StateError::new("spawn requires an addressed parent: open one with Scheduler::open_run")
         })?;
@@ -1622,6 +1707,7 @@ composition is capped at one level (FDC-012)"
 
         // Root is acquired first only for the short mint/ledger transaction.
         let (root_lock, run_lock) = crate::lock::acquire_root_then_run(&engine_root, &parent_id)?;
+        Self::refuse_flat_residue_for_workspace(&invoking_root, &engine_root, &child_workspace)?;
         run_lock.ensure_current()?;
         Self::validate_run_address_at(&engine_root, &parent_id)?;
         Self::verify_runbook_snapshot(&snapshot, &invoking_root, Some(&run_dir))?;
@@ -1718,6 +1804,7 @@ the ledger {} and minted child {} were left in place; inspect both paths before 
         let roots = crate::root::resolve(root);
         let root = roots.invoking_checkout_root().to_path_buf();
         let engine_root = roots.engine_root().to_path_buf();
+        Self::refuse_flat_residue_at(&root, &engine_root)?;
         let roster = Self::run_roster_at(&engine_root);
         let roster_line = if roster.is_empty() {
             "none".to_owned()
@@ -1773,6 +1860,7 @@ the ledger {} and minted child {} were left in place; inspect both paths before 
             }
             None => root.clone(),
         };
+        Self::refuse_flat_residue_for_workspace(&root, &engine_root, &workspace)?;
         // FDC-005 keeps the Machine Class in the invoking checkout, but every
         // declared root and its goal baseline belongs to the child's workspace.
         let snapshot = Self::load_runbook_snapshot(&root, &workspace, &engine_root)?;
@@ -1825,7 +1913,7 @@ the ledger {} and minted child {} were left in place; inspect both paths before 
         // retirement so a failure leaves the existing admitted Run untouched.
         let minted_successor = {
             let root_lock = RootLock::acquire(&engine_root)?;
-            Self::refuse_flat_residue_at(&root, &engine_root)?;
+            Self::refuse_flat_residue_for_workspace(&root, &engine_root, &workspace)?;
             Self::verify_runbook_snapshot(&snapshot, &root, Some(&superseded_run_dir))?;
             Self::mint_run(
                 &root_lock,
@@ -1959,6 +2047,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
             .clone();
         let invoking_root = self.invoking_root()?.to_path_buf();
         let engine_root = self.engine_root()?.to_path_buf();
+        Self::refuse_flat_residue_for_workspace(&invoking_root, &engine_root, &root)?;
         let run_id = self
             .run_id
             .clone()
@@ -3082,6 +3171,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
             .as_deref()
             .ok_or_else(|| StateError::new("state mutation requires Scheduler::open"))?;
         let engine_root = self.engine_root()?.to_path_buf();
+        Self::refuse_flat_residue_for_workspace(&invoking_root, &engine_root, workspace)?;
         let snapshot = Self::load_runbook_snapshot(&invoking_root, workspace, &engine_root)?;
         let run_dir = self.run_dir()?;
         let run_lock = self.run_lock()?;
@@ -3103,6 +3193,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
             .as_deref()
             .ok_or_else(|| StateError::new("state mutation requires Scheduler::open"))?;
         let engine_root = self.engine_root()?.to_path_buf();
+        Self::refuse_flat_residue_for_workspace(&invoking_root, &engine_root, workspace)?;
         let snapshot = Self::load_runbook_snapshot(&invoking_root, workspace, &engine_root)?;
         let run_dir = self.run_dir()?;
         let run_lock = self.run_lock()?;
@@ -3118,6 +3209,15 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
 
     /// Read the addressed State File without serializing on either lock.
     pub fn load_state(&self) -> Result<RunState, StateError> {
+        let workspace = self
+            .root
+            .as_deref()
+            .ok_or_else(|| StateError::new("state operations require Scheduler::open"))?;
+        Self::refuse_flat_residue_for_workspace(
+            self.invoking_root()?,
+            self.engine_root()?,
+            workspace,
+        )?;
         self.load_state_unlocked()
     }
 
@@ -3143,6 +3243,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
             .as_deref()
             .ok_or_else(|| StateError::new("status requires Scheduler::open"))?;
         let engine_root = self.engine_root()?;
+        Self::refuse_flat_residue_for_workspace(invoking_root, engine_root, workspace)?;
         // ENS-005 leaves status outside both new lock domains, but the
         // explicitly refused pre-split lock remains a global entry preflight.
         crate::lock::refuse_legacy(engine_root)?;

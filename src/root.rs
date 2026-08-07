@@ -63,6 +63,27 @@ pub fn resolve(invoking_checkout_root: impl AsRef<Path>) -> Roots {
     Roots::resolve(invoking_checkout_root)
 }
 
+/// The project that owns a runbook addressed by path.
+pub(crate) fn addressed_project_root(path: &Path) -> PathBuf {
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let legacy_workflow_dir = crate::scheduler::legacy_workflow_dir();
+    if parent.file_name().is_some_and(|name| {
+        name == std::ffi::OsStr::new(ENGINE_DIR)
+            || name == std::ffi::OsStr::new(legacy_workflow_dir)
+    }) {
+        parent
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from("."))
+    } else {
+        parent.to_path_buf()
+    }
+}
+
 fn absolute(path: &Path) -> PathBuf {
     if path.is_absolute() {
         path.to_path_buf()
@@ -131,4 +152,34 @@ fn git_command(invoking_checkout_root: &Path) -> Command {
         .env_remove("GIT_COMMON_DIR")
         .env_remove("GIT_WORK_TREE");
     command
+}
+
+#[cfg(test)]
+mod tests {
+    use super::addressed_project_root;
+    use std::path::{Path, PathBuf};
+
+    #[test]
+    fn addressed_project_root_hoists_engine_directory() {
+        assert_eq!(
+            addressed_project_root(Path::new("P/.ratmac/ratmac.toml")),
+            PathBuf::from("P")
+        );
+    }
+
+    #[test]
+    fn addressed_project_root_uses_runbook_parent() {
+        assert_eq!(
+            addressed_project_root(Path::new("P/ratmac.toml")),
+            PathBuf::from("P")
+        );
+    }
+
+    #[test]
+    fn addressed_project_root_uses_current_directory_for_bare_runbook() {
+        assert_eq!(
+            addressed_project_root(Path::new("ratmac.toml")),
+            PathBuf::from(".")
+        );
+    }
 }
