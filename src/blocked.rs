@@ -377,24 +377,31 @@ pub fn apply_hold(root: &Path, plan: &HoldPlan) -> Result<(), HoldRefusal> {
         )));
     }
 
-    // Open the pre-existing append target before committing state: an unusable
-    // or missing history file refuses without a half-motion.
-    let mut log = OpenOptions::new()
-        .append(true)
-        .open(engine_root.join("log.md"))
-        .map_err(|error| {
-            refusal(format!(
-                "hold cannot open history: {error}; nothing was modified"
-            ))
-        })?;
+    // Snapshot the pre-existing append target through the Scheduler before
+    // committing state: an unusable or missing log refuses without a
+    // half-motion.
+    let mut log = crate::Scheduler::open_transition_log(&engine_root, false).map_err(|error| {
+        refusal(format!(
+            "hold cannot open history: {error}; nothing was modified"
+        ))
+    })?;
 
     state.phase = plan.to_phase.clone();
     run_lock
         .ensure_current()
         .map_err(|error| refusal(error.to_string()))?;
-    store
+    match store
         .write(&state)
-        .map_err(|error| refusal(format!("hold cannot write state: {error}")))?;
+        .map_err(|error| refusal(format!("hold cannot write state: {error}")))?
+    {
+        crate::state::StateWriteOutcome::Durable => {}
+        crate::state::StateWriteOutcome::ReplacedWithParentSyncWarning(error) => {
+            eprintln!(
+                "warning: hold State File {} was replaced but its parent directory could not be synced: {error}; continuing because the State File is committed and the hold will append history",
+                state_path.display()
+            );
+        }
+    }
 
     // Check again immediately before replacing the ticket. This catches an
     // edit that arrives before the comparison; an edit inside the portable
@@ -497,14 +504,16 @@ pub fn apply_hold(root: &Path, plan: &HoldPlan) -> Result<(), HoldRefusal> {
     // Keep the addressed Run lock through its own route and append-only record,
     // so an unrelated root holder cannot delay a completed hold.
     let entry = format!(
-        "- Hold: ticket {} held against {}; Run routed {} -> {} on an explicit human confirmation. The ticket is not passed and its residuals stay unproven.\n",
-        plan.ticket, plan.blocker, plan.from_phase, plan.to_phase
+        "- Hold: ticket {} held against {}; Run {} routed {} -> {} on an explicit human confirmation. The ticket is not passed and its residuals stay unproven.\n",
+        plan.ticket, plan.blocker, plan.run_id, plan.from_phase, plan.to_phase
     );
-    append_history_once(&mut log, entry.as_bytes()).map_err(|error| {
-        refusal(format!(
-            "hold cannot append history: {error}; the ticket and Run state were updated and no history rewrite was attempted"
-        ))
-    })
+    match crate::Scheduler::append_transition_log(&mut log, entry.as_bytes()) {
+        crate::scheduler::TransitionLogAppend::Complete => Ok(()),
+        crate::scheduler::TransitionLogAppend::Failed(failure) => Err(refusal(format!(
+            "hold cannot append history; the ticket and Run state were updated and no history rewrite was attempted: {}",
+            failure.into_operator_error()
+        ))),
+    }
 }
 
 /// Rewrite a ticket's front matter: `status: "held"` plus its blocker link.
@@ -661,22 +670,6 @@ fn replace_existing_file(temporary: &Path, destination: &Path) -> std::io::Resul
 #[cfg(not(windows))]
 fn replace_existing_file(temporary: &Path, destination: &Path) -> std::io::Result<()> {
     fs::rename(temporary, destination)
-}
-
-/// Append exactly once. A short write is not retried because that could
-/// duplicate a history record after another caller appends.
-fn append_history_once(file: &mut fs::File, entry: &[u8]) -> std::io::Result<()> {
-    let written = file.write(entry)?;
-    if written != entry.len() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::WriteZero,
-            format!(
-                "short append wrote {written} of {} history bytes without retry",
-                entry.len()
-            ),
-        ));
-    }
-    file.sync_all()
 }
 
 /// Read `key: value` from a record's front matter.

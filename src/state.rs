@@ -44,6 +44,15 @@ impl fmt::Display for StateError {
 
 impl std::error::Error for StateError {}
 
+/// Whether a State File replacement is durable, or reached its destination
+/// but could not confirm the parent directory's durability.
+#[must_use]
+#[derive(Debug)]
+pub(crate) enum StateWriteOutcome {
+    Durable,
+    ReplacedWithParentSyncWarning(std::io::Error),
+}
+
 /// Read access to an addressed run's State File and Scheduler-mediated writes.
 ///
 /// The State File resides inside the run's directory under the resolved Engine
@@ -103,9 +112,16 @@ impl StateStore {
         Self::parse(source)
     }
 
-    pub(crate) fn write(&self, state: &RunState) -> Result<(), StateError> {
-        let source = toml::to_string(state)
-            .map_err(|error| StateError::new(format!("serialize state.toml: {error}")))?;
+    pub(crate) fn serialize(state: &RunState) -> Result<Vec<u8>, StateError> {
+        toml::to_string(state)
+            .map(String::into_bytes)
+            .map_err(|error| StateError::new(format!("serialize state.toml: {error}")))
+    }
+
+    /// Replace this State File. A parent-sync warning means the replacement
+    /// happened and callers must not treat the prior State as still current.
+    pub(crate) fn write(&self, state: &RunState) -> Result<StateWriteOutcome, StateError> {
+        let source = Self::serialize(state)?;
         let parent = self
             .path
             .parent()
@@ -115,30 +131,30 @@ impl StateStore {
 
         let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
         let temp_path = parent.join(format!(".state.toml.tmp-{}-{sequence}", std::process::id()));
-        let result = (|| {
+        let result: Result<StateWriteOutcome, StateError> = (|| {
             let mut temp = OpenOptions::new()
                 .create_new(true)
                 .write(true)
                 .open(&temp_path)
                 .map_err(|error| StateError::new(format!("create temporary state: {error}")))?;
-            temp.write_all(source.as_bytes())
+            temp.write_all(&source)
                 .map_err(|error| StateError::new(format!("write temporary state: {error}")))?;
             temp.sync_all()
                 .map_err(|error| StateError::new(format!("flush temporary state: {error}")))?;
             drop(temp);
 
             match fs::rename(&temp_path, &self.path) {
-                Ok(()) => sync_parent(parent)
-                    .map_err(|error| StateError::new(format!("sync state parent: {error}"))),
-                Err(_error) if self.path.exists() => {
+                Ok(()) => {}
+                Err(_) if self.path.exists() => {
                     replace_existing(&temp_path, &self.path).map_err(|replace_error| {
                         StateError::new(format!("replace state.toml: {replace_error}"))
                     })?;
-                    sync_parent(parent).map_err(|sync_error| {
-                        StateError::new(format!("sync state parent: {sync_error}"))
-                    })
                 }
-                Err(error) => Err(StateError::new(format!("replace state.toml: {error}"))),
+                Err(error) => return Err(StateError::new(format!("replace state.toml: {error}"))),
+            }
+            match sync_parent(parent) {
+                Ok(()) => Ok(StateWriteOutcome::Durable),
+                Err(error) => Ok(StateWriteOutcome::ReplacedWithParentSyncWarning(error)),
             }
         })();
         if result.is_err() {

@@ -2,15 +2,19 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
+#[cfg(windows)]
+use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::graph::{MachineGraph, Phase};
 use crate::ledger::LedgerEntry;
 use crate::lock::{RootLock, RunLock};
 use crate::machine::{GuardKind, MachineClass, PhaseDefinition};
 use crate::model::{Run, RunState, Status};
-use crate::state::{PhasePrompt, StateError, StateStore, StatusReport};
+use crate::state::{PhasePrompt, StateError, StateStore, StateWriteOutcome, StatusReport};
 
+static ROLLBACK_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 /// What a human asked for when superseding a Run (FDC-007/FDC-006).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RespawnRequest {
@@ -66,6 +70,129 @@ fn inject_step_fault(_boundary: &str) -> Result<(), StateError> {
     Ok(())
 }
 
+/// Local result of the one shared-log write. The funnel retains its byte
+/// counts and path rather than asking callers to infer outcomes by re-reading
+/// a log other Runs may append between any two observations.
+#[derive(Debug)]
+pub(crate) enum TransitionLogAppend {
+    Complete,
+    Failed(TransitionLogAppendFailure),
+}
+
+#[derive(Debug)]
+pub(crate) struct TransitionLogAppendFailure {
+    written: usize,
+    attempted: usize,
+    error: std::io::Error,
+    path: PathBuf,
+}
+
+impl TransitionLogAppendFailure {
+    fn new(path: &Path, written: usize, attempted: usize, error: std::io::Error) -> Self {
+        Self {
+            written,
+            attempted,
+            error,
+            path: path.to_path_buf(),
+        }
+    }
+
+    fn is_fragment(&self) -> bool {
+        self.written > 0 && self.written < self.attempted
+    }
+
+    fn failure_prefix(&self) -> String {
+        format!(
+            "append transition log {} failed: {}",
+            self.path.display(),
+            self.error
+        )
+    }
+
+    fn incomplete_record_description(&self) -> Option<String> {
+        self.is_fragment().then(|| {
+            format!(
+                "an incomplete record is present in transition log {}; a human must resolve it before retrying",
+                self.path.display()
+            )
+        })
+    }
+
+    fn operator_description(&self) -> String {
+        let prefix = self.failure_prefix();
+        match self.incomplete_record_description() {
+            Some(incomplete) => format!("{prefix}; {incomplete}"),
+            None => prefix,
+        }
+    }
+
+    pub(crate) fn into_operator_error(self) -> std::io::Error {
+        std::io::Error::other(self.operator_description())
+    }
+}
+
+/// QA-only fault seams at the Scheduler's transition-log append boundary.
+/// During `step` that boundary follows the durable State File replacement;
+/// `after-state-write` reports no bytes and `after-partial-write` writes and
+/// syncs one proper record prefix before reporting its exact local counts.
+#[cfg(feature = "test-fault-injection")]
+fn inject_transition_log_append_failure(
+    file: &mut fs::File,
+    entry: &[u8],
+    path: &Path,
+) -> Option<TransitionLogAppend> {
+    let failed = |written, error| {
+        TransitionLogAppend::Failed(TransitionLogAppendFailure::new(
+            path,
+            written,
+            entry.len(),
+            error,
+        ))
+    };
+    match std::env::var("RATMAC_TEST_LOG_APPEND_FAIL").ok().as_deref() {
+        Some("after-state-write") => Some(failed(
+            0,
+            std::io::Error::other("injected transition-log append failure after State File commit"),
+        )),
+        Some("after-partial-write") => {
+            let fragment_len = entry.len() / 2;
+            if fragment_len == 0 || fragment_len == entry.len() {
+                return Some(failed(
+                    0,
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "cannot inject a proper transition-log record prefix",
+                    ),
+                ));
+            }
+            let written = match file.write(&entry[..fragment_len]) {
+                Ok(written) => written,
+                Err(error) => return Some(failed(0, error)),
+            };
+            if written != fragment_len {
+                return Some(failed(
+                    written,
+                    std::io::Error::new(
+                        std::io::ErrorKind::WriteZero,
+                        format!(
+                            "injected partial transition-log append wrote {written} of {fragment_len} bytes"
+                        ),
+                    ),
+                ));
+            }
+            if let Err(error) = file.sync_all() {
+                return Some(failed(written, error));
+            }
+            Some(failed(
+                written,
+                std::io::Error::other(
+                    "injected transition-log append failure after partial record write",
+                ),
+            ))
+        }
+        _ => None,
+    }
+}
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GuardFailure {
     pub kind: String,
@@ -183,6 +310,44 @@ enum LedgerAppendAftermath {
     Indeterminate(String),
 }
 
+/// A Scheduler-opened transition log. Other Engine paths may prepare a
+/// mutation around it, but only the Scheduler's append boundary writes it.
+#[derive(Debug)]
+pub(crate) struct TransitionLog {
+    path: PathBuf,
+    file: fs::File,
+}
+
+/// Evidence changed while completing a transition that must be put back if
+/// the following transition-log append lands no complete record.
+#[derive(Debug)]
+struct EvidenceRollback {
+    path: PathBuf,
+    before: Option<Vec<u8>>,
+    committed: Vec<u8>,
+}
+
+/// A live verdict moved into immutable evidence before the State File commit.
+/// Its exact archive name and bytes are needed to make a failed append
+/// retryable without consuming the verdict twice.
+#[derive(Debug)]
+struct ArchivedVerdictRollback {
+    live_path: PathBuf,
+    archive_path: PathBuf,
+    /// An archive directory created solely for this consumption must disappear
+    /// again, otherwise a retry would not see the original Run artifacts.
+    archive_dir_was_absent: bool,
+    bytes: Vec<u8>,
+}
+
+/// Whether an atomic rollback replacement reached its destination durably, or
+/// reached it but could not confirm the parent directory's durability.
+#[derive(Debug)]
+enum ReplaceFileOutcome {
+    Durable,
+    ReplacedWithParentSyncWarning(std::io::Error),
+}
+
 impl Scheduler {
     /// Construct the in-memory scheduler used by the entry-prerequisite model.
     pub fn new(machine: MachineGraph) -> Self {
@@ -197,6 +362,101 @@ impl Scheduler {
         }
     }
 
+    /// Resolve the Engine-owned history path without following a symlink into
+    /// contributor history or any other artifact.
+    ///
+    /// Limit: path aliases below the Engine root are outside the cooperative
+    /// threat model. A hard link is indistinguishable from an ordinary file by
+    /// path; a complete defense would require naming the contributor-history
+    /// path in `src/`, which ENS-008 forbids. Whoever can create one can
+    /// already write the human log directly.
+    pub(crate) fn transition_log_path(engine_root: &Path) -> Result<PathBuf, StateError> {
+        let path = engine_root.join("log.md");
+        match fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.file_type().is_symlink() => Err(StateError::new(format!(
+                "refuse transition log {}: it is a symlink; Engine history must not resolve through another path",
+                path.display()
+            ))),
+            Ok(_) => Ok(path),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(path),
+            Err(error) => Err(StateError::new(format!(
+                "inspect transition log {}: {error}",
+                path.display()
+            ))),
+        }
+    }
+
+    /// Open the shared Engine transition log. A caller chooses whether its
+    /// established behavior permits recreating a missing log; the Scheduler
+    /// alone owns the later write.
+    pub(crate) fn open_transition_log(
+        engine_root: &Path,
+        create_if_missing: bool,
+    ) -> Result<TransitionLog, StateError> {
+        let mut options = OpenOptions::new();
+        options.append(true);
+        if create_if_missing {
+            options.create(true);
+        }
+        let path = Self::transition_log_path(engine_root)?;
+        let file = options
+            .open(&path)
+            .map_err(|error| StateError::new(format!("open log.md: {error}")))?;
+        Ok(TransitionLog { path, file })
+    }
+
+    /// The one Engine transition-log write boundary. It intentionally issues
+    /// one write only: retrying a short write could duplicate a record after a
+    /// concurrent caller appends. Its caller receives the funnel's local
+    /// outcome, never a shared-log inference. A partial record is never
+    /// removed: replacing this shared log could discard a record another Run
+    /// appended after a failed write, so a human must resolve any incomplete
+    /// record.
+    pub(crate) fn append_transition_log(
+        log: &mut TransitionLog,
+        entry: &[u8],
+    ) -> TransitionLogAppend {
+        // Every shared-log record begins with a newline. Step already includes
+        // one, preserving its established bytes; hold and abandon inherit the
+        // same spacing without a stale read of another Run's append.
+        let mut record =
+            Vec::with_capacity(entry.len() + if entry.starts_with(b"\n") { 0 } else { 1 });
+        if !entry.starts_with(b"\n") {
+            record.push(b'\n');
+        }
+        record.extend_from_slice(entry);
+        #[cfg(feature = "test-fault-injection")]
+        if let Some(result) =
+            inject_transition_log_append_failure(&mut log.file, &record, &log.path)
+        {
+            return result;
+        }
+        let attempted = record.len();
+        let failed = |written, error| {
+            TransitionLogAppend::Failed(TransitionLogAppendFailure::new(
+                &log.path, written, attempted, error,
+            ))
+        };
+        let written = match log.file.write(&record) {
+            Ok(written) => written,
+            Err(error) => return failed(0, error),
+        };
+        if written != attempted {
+            return failed(
+                written,
+                std::io::Error::new(
+                    std::io::ErrorKind::WriteZero,
+                    format!(
+                        "short append wrote {written} of {attempted} transition-log bytes without retry"
+                    ),
+                ),
+            );
+        }
+        match log.file.sync_all() {
+            Ok(()) => TransitionLogAppend::Complete,
+            Err(error) => failed(written, error),
+        }
+    }
     /// Open a project without creating or modifying any scheduler-owned file.
     ///
     /// No run is addressed yet: `start` mints one, and `open_run` binds to an
@@ -792,10 +1052,11 @@ impl Scheduler {
         // domain. This is deliberately not restored on a later mint failure:
         // it contains no Run claim and another caller may legitimately use it.
         root_lock.ensure_current()?;
+        let log_path = Self::transition_log_path(engine_root)?;
         OpenOptions::new()
             .create(true)
             .append(true)
-            .open(engine_root.join("log.md"))
+            .open(log_path)
             .map_err(|error| StateError::new(format!("open log.md: {error}")))?;
         root_lock.ensure_current()?;
         let run_id = crate::mint::next(engine_root)?;
@@ -844,8 +1105,7 @@ impl Scheduler {
         let create_result = (|| -> Result<MintedRunSnapshot, StateError> {
             root_lock.ensure_current()?;
             run_lock.ensure_current()?;
-            store.write(&state)?;
-
+            Self::require_durable_state_write(store.write(&state)?)?;
             // ETB-001: the identity was hashed before the root mutation
             // domain; only writing it is performed under the short lock.
             let mut evidence = crate::pin::Evidence::load(&run_dir);
@@ -1706,29 +1966,78 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
         }
         Self::verify_runbook_pin_hash(&run_dir, &runbook_pin)?;
 
-        // Open the pre-existing append target before committing state: an
-        // unusable or missing history file refuses without a half-motion.
-        let mut log = OpenOptions::new()
-            .append(true)
-            .open(engine_root.join("log.md"))
-            .map_err(|error| StateError::new(format!("open log.md: {error}")))?;
+        // Open the append target before committing State: an unusable or
+        // missing log refuses without a half-motion.
+        let mut log = Self::open_transition_log(&engine_root, false)?;
         Self::ensure_ledger_snapshots_current(&run_id, &guarded_ledgers)?;
+        let committed_state_bytes = StateStore::serialize(&next)?;
+        let mut archived_verdict = None;
         if consumes_verdict {
             inject_step_fault("before-verdict-archive")?;
             run_lock.ensure_current()?;
-            crate::verdict::archive_live(&run_dir)?;
+            let live_path = crate::verdict::live_path(&run_dir);
+            let bytes = fs::read(&live_path).map_err(|error| {
+                StateError::new(format!("snapshot live verdict before archive: {error}"))
+            })?;
+            let archive_dir = crate::verdict::archive_dir(&run_dir);
+            let archive_dir_was_absent = match fs::symlink_metadata(&archive_dir) {
+                Ok(_) => false,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
+                Err(error) => {
+                    return Err(StateError::new(format!(
+                        "inspect verdict archive directory {}: {error}",
+                        archive_dir.display()
+                    )))
+                }
+            };
+            let archive_path = crate::verdict::archive_live(&run_dir)?;
+            archived_verdict = Some(ArchivedVerdictRollback {
+                live_path,
+                archive_path,
+                archive_dir_was_absent,
+                bytes,
+            });
             inject_step_fault("before-state-replace")?;
         }
+        let mut evidence_rollback = None;
         if let Some(frozen_evidence) = frozen_evidence {
             run_lock.ensure_current()?;
+            let path = crate::pin::evidence_path(&run_dir);
+            let before = match fs::read(&path) {
+                Ok(bytes) => Some(bytes),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                Err(error) => {
+                    return Err(StateError::new(format!(
+                        "snapshot evidence.toml before freezing goal revision: {error}"
+                    )))
+                }
+            };
+            let committed = frozen_evidence.render().into_bytes();
             frozen_evidence.write(&run_dir).map_err(|error| {
                 StateError::new(format!(
                     "freeze goal revision: write evidence.toml: {error}"
                 ))
             })?;
+            evidence_rollback = Some(EvidenceRollback {
+                path,
+                before,
+                committed,
+            });
         }
+        // Deliberate State-first interruption limit: a process death or
+        // equivalent interruption after the State rename and before log append
+        // leaves a true transition with no record. A gap is preferable to a
+        // false history; `after-state-replace` and T-062 exercise this case.
         run_lock.ensure_current()?;
-        self.store()?.write(&next)?;
+        match self.store()?.write(&next)? {
+            StateWriteOutcome::Durable => {}
+            StateWriteOutcome::ReplacedWithParentSyncWarning(error) => {
+                eprintln!(
+                    "warning: State File {} was replaced but its parent directory could not be synced: {error}; continuing because the State File is committed and transition history will be appended",
+                    state_path.display()
+                );
+            }
+        }
         if consumes_verdict {
             inject_step_fault("after-state-replace")?;
         }
@@ -1736,23 +2045,248 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
         // The addressed Run lock serializes this transition through its
         // append-only history record. Project history is not a root-domain
         // roster or ledger mutation, so unrelated root work cannot delay it.
-        let entry = format!("\n- Transition: {from} -> {to}\n");
-        if let Err(append_error) = append_history_once(&mut log, entry.as_bytes()) {
-            let durable = if consumes_verdict {
-                format!(
-                    "the verdict was consumed and the Run advanced {from} -> {to}; \
-                     no history rewrite was attempted"
-                )
-            } else {
-                format!("the Run advanced {from} -> {to}; no history rewrite was attempted")
-            };
-            return Err(StateError::new(format!(
-                "append log.md failed: {append_error}; {durable}"
-            )));
+        let entry = format!("\n- Transition: {from} -> {to}; Run {run_id}\n");
+        let append_result = Self::append_transition_log(&mut log, entry.as_bytes());
+        match append_result {
+            TransitionLogAppend::Complete => Ok(StepOutcome::Advanced { from, to }),
+            TransitionLogAppend::Failed(failure) => {
+                let incomplete_record = failure.incomplete_record_description();
+                let TransitionLogAppendFailure {
+                    written,
+                    attempted,
+                    error: append_error,
+                    path: log_path,
+                } = failure;
+                // Close the append descriptor before restoring only this Run's
+                // artifacts. The locally observed write count, not a shared-log
+                // read, decides whether a fragment must remain.
+                drop(log);
+                Err(Self::rollback_transition_after_append_failure(
+                    &run_lock,
+                    &state_path,
+                    &guarded_state_bytes,
+                    &committed_state_bytes,
+                    &log_path,
+                    written,
+                    attempted,
+                    incomplete_record.as_deref(),
+                    evidence_rollback.as_ref(),
+                    archived_verdict.as_ref(),
+                    append_error,
+                ))
+            }
         }
-        Ok(StepOutcome::Advanced { from, to })
     }
 
+    /// Resolve an append error from the byte count observed by this writer.
+    /// A whole transition entry remains history; zero bytes rolls this Run
+    /// back without changing the shared log; a proper prefix remains for a
+    /// human to resolve. No outcome depends on a later shared-log read.
+    #[allow(clippy::too_many_arguments)]
+    fn rollback_transition_after_append_failure(
+        run_lock: &RunLock,
+        state_path: &Path,
+        prior_state: &[u8],
+        committed_state: &[u8],
+        log_path: &Path,
+        written: usize,
+        entry_len: usize,
+        incomplete_record: Option<&str>,
+        evidence: Option<&EvidenceRollback>,
+        verdict: Option<&ArchivedVerdictRollback>,
+        append_error: std::io::Error,
+    ) -> StateError {
+        let prefix = format!(
+            "append transition log {} failed: {append_error}",
+            log_path.display()
+        );
+        let failure = |detail: String| StateError::new(format!("{prefix}; {detail}"));
+
+        if let Err(error) = run_lock.ensure_current() {
+            return failure(format!(
+                "rollback refused because the addressed Run lock is no longer current: {error}; the Engine restored nothing"
+            ));
+        }
+        let current_state = match fs::read(state_path) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                return failure(format!(
+                    "rollback refused because State File {} cannot be compared with the committed successor: {error}; the Engine restored nothing",
+                    state_path.display()
+                ))
+            }
+        };
+        if current_state != committed_state {
+            return failure(format!(
+                "rollback refused because State File {} disagreed with the bytes this step committed; the Engine restored nothing",
+                state_path.display()
+            ));
+        }
+        if written >= entry_len {
+            return failure(
+                "this write completed the transition record, so State remains committed and the Engine did not rewrite history"
+                    .to_owned(),
+            );
+        }
+
+        if let Some(evidence) = evidence {
+            let current = match fs::read(&evidence.path) {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    return failure(format!(
+                        "rollback refused because frozen evidence {} cannot be compared with its committed bytes: {error}; the Engine restored nothing",
+                        evidence.path.display()
+                    ))
+                }
+            };
+            if current != evidence.committed {
+                return failure(format!(
+                    "rollback refused because frozen evidence {} disagreed with the bytes this step committed; the Engine restored nothing",
+                    evidence.path.display()
+                ));
+            }
+        }
+        if let Some(verdict) = verdict {
+            match fs::symlink_metadata(&verdict.live_path) {
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Ok(_) => {
+                    return failure(format!(
+                        "rollback refused because live verdict {} is present after consumption; the Engine restored nothing",
+                        verdict.live_path.display()
+                    ))
+                }
+                Err(error) => {
+                    return failure(format!(
+                        "rollback refused because live verdict {} cannot be inspected: {error}; the Engine restored nothing",
+                        verdict.live_path.display()
+                    ))
+                }
+            }
+            let archived = match fs::read(&verdict.archive_path) {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    return failure(format!(
+                        "rollback refused because consumed verdict {} cannot be compared: {error}; the Engine restored nothing",
+                        verdict.archive_path.display()
+                    ))
+                }
+            };
+            if archived != verdict.bytes {
+                return failure(format!(
+                    "rollback refused because consumed verdict {} disagreed with its pre-consumption bytes; the Engine restored nothing",
+                    verdict.archive_path.display()
+                ));
+            }
+            if verdict.archive_dir_was_absent {
+                let archive_dir = match verdict.archive_path.parent() {
+                    Some(path) => path,
+                    None => {
+                        return failure(
+                            "rollback refused because the consumed verdict archive has no parent directory; the Engine restored nothing"
+                                .to_owned(),
+                        )
+                    }
+                };
+                let entries = match fs::read_dir(archive_dir) {
+                    Ok(entries) => entries,
+                    Err(error) => {
+                        return failure(format!(
+                            "rollback refused because consumed verdict archive directory {} cannot be read: {error}; the Engine restored nothing",
+                            archive_dir.display()
+                        ))
+                    }
+                };
+                let mut found_archive = false;
+                for entry in entries {
+                    let entry = match entry {
+                        Ok(entry) => entry,
+                        Err(error) => {
+                            return failure(format!(
+                                "rollback refused because consumed verdict archive directory {} cannot be inspected: {error}; the Engine restored nothing",
+                                archive_dir.display()
+                            ))
+                        }
+                    };
+                    if entry.path() == verdict.archive_path {
+                        found_archive = true;
+                    } else {
+                        return failure(format!(
+                            "rollback refused because consumed verdict archive directory {} contains additional evidence {}; the Engine restored nothing",
+                            archive_dir.display(),
+                            entry.path().display()
+                        ));
+                    }
+                }
+                if !found_archive {
+                    return failure(format!(
+                        "rollback refused because consumed verdict {} disappeared from its new archive directory; the Engine restored nothing",
+                        verdict.archive_path.display()
+                    ));
+                }
+            }
+        }
+
+        if let Err(error) = run_lock.ensure_current() {
+            return failure(format!(
+                "rollback refused because the addressed Run lock is no longer current: {error}; the Engine restored nothing"
+            ));
+        }
+        // A nonzero short write is an append-only fact. Never replace the
+        // shared log: another Run can append and lose its record.
+        let mut restored = Vec::new();
+        if let Some(evidence) = evidence {
+            if let Err(error) = run_lock.ensure_current() {
+                return failure(format!(
+                    "rollback stopped before restoring frozen evidence because the addressed Run lock is no longer current: {error}; State remains committed"
+                ));
+            }
+            if let Err(error) = restore_evidence(evidence) {
+                return failure(format!(
+                    "rollback could not restore frozen evidence {}: {error}; State remains committed",
+                    evidence.path.display()
+                ));
+            }
+            restored.push("the frozen evidence");
+        }
+        if let Some(verdict) = verdict {
+            if let Err(error) = run_lock.ensure_current() {
+                return failure(format!(
+                    "rollback stopped before restoring the consumed verdict because the addressed Run lock is no longer current: {error}; State remains committed"
+                ));
+            }
+            if let Err(error) = restore_archived_verdict(verdict) {
+                return failure(format!(
+                    "rollback could not restore the consumed verdict {}: {error}; State remains committed",
+                    verdict.live_path.display()
+                ));
+            }
+            restored.push("the consumed verdict");
+        }
+        if let Err(error) = run_lock.ensure_current() {
+            return failure(format!(
+                "rollback stopped before restoring State File because the addressed Run lock is no longer current: {error}; State remains committed"
+            ));
+        }
+        if let Err(error) = restore_exact_file_if_current(state_path, committed_state, prior_state)
+        {
+            return failure(format!(
+                "rollback refused because State File {} no longer matches the bytes this step committed: {error}; the Engine stopped for repair",
+                state_path.display()
+            ));
+        }
+        restored.push("the prior State File");
+        if let Some(incomplete_record) = incomplete_record {
+            failure(format!(
+                "rollback restored {}; {incomplete_record}",
+                restored.join(", ")
+            ))
+        } else {
+            failure(format!(
+                "rollback restored {}; repair the append destination and retry the transition",
+                restored.join(", ")
+            ))
+        }
+    }
     /// TRP-001, TRP-004: evaluate the Phase's retained guards, in declaration
     /// order, from the typed class - no second walk over runbook TOML.
     fn guard_failures(
@@ -2254,6 +2788,18 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
         })
     }
 
+    /// State-only legacy operations retain their pre-t-075 strict parent-sync
+    /// behavior. History-writing transactions handle the committed-warning
+    /// outcome directly and continue to their append boundary.
+    fn require_durable_state_write(outcome: StateWriteOutcome) -> Result<(), StateError> {
+        match outcome {
+            StateWriteOutcome::Durable => Ok(()),
+            StateWriteOutcome::ReplacedWithParentSyncWarning(error) => {
+                Err(StateError::new(format!("sync state parent: {error}")))
+            }
+        }
+    }
+
     /// Caller-provided state is a compare-and-write proposal, never an
     /// authority to overwrite a newer motion that completed before this Run
     /// lock was acquired.
@@ -2273,7 +2819,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
         let run_lock = self.run_lock()?;
         self.confirm_current_state(&state)?;
         run_lock.ensure_current()?;
-        self.store()?.write(&state)
+        Self::require_durable_state_write(self.store()?.write(&state)?)
     }
 
     /// Record the only state transition that may enter `blocked`.
@@ -2289,7 +2835,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
         state.status = Status::Blocked;
         state.blocker = format!("missing entry prerequisite: {prerequisite}");
         run_lock.ensure_current()?;
-        self.store()?.write(&state)
+        Self::require_durable_state_write(self.store()?.write(&state)?)
     }
 
     /// Read the addressed State File without serializing on either lock.
@@ -2531,19 +3077,295 @@ fn guard_failure(
     }
 }
 
-/// Write one complete append-only history record without seeking, truncating,
-/// or retrying a partial write. Retrying after a short append could duplicate
-/// bytes once another writer has appended, so that case is an honest error.
-fn append_history_once(file: &mut fs::File, entry: &[u8]) -> std::io::Result<()> {
-    let written = file.write(entry)?;
-    if written != entry.len() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::WriteZero,
-            format!(
-                "short append wrote {written} of {} history bytes without retry",
-                entry.len()
-            ),
-        ));
+/// Replace one existing artifact through a same-directory temporary file.
+/// Parent-sync warnings mean the replacement did occur, so rollback can still
+/// proceed while making the reduced durability visible to the operator.
+fn restore_exact_file(path: &Path, bytes: &[u8]) -> Result<(), StateError> {
+    match replace_file_atomically(path, bytes) {
+        Ok(ReplaceFileOutcome::Durable) => Ok(()),
+        Ok(ReplaceFileOutcome::ReplacedWithParentSyncWarning(error)) => {
+            eprintln!(
+                "warning: restored {} but could not sync its parent directory: {error}",
+                path.display()
+            );
+            Ok(())
+        }
+        Err(error) => Err(StateError::new(format!(
+            "replace exact bytes at {}: {error}",
+            path.display()
+        ))),
     }
-    file.sync_all()
+}
+
+/// Re-read immediately before replacement. The caller's earlier snapshot
+/// establishes what may be restored; this final compare refuses to overwrite
+/// a per-Run artifact another writer changed while rollback was prepared.
+fn restore_exact_file_if_current(
+    path: &Path,
+    expected_current: &[u8],
+    replacement: &[u8],
+) -> Result<(), StateError> {
+    let metadata = fs::symlink_metadata(path).map_err(|error| {
+        StateError::new(format!(
+            "inspect {} before exact rollback replacement: {error}",
+            path.display()
+        ))
+    })?;
+    if metadata.file_type().is_symlink() {
+        return Err(StateError::new(format!(
+            "refuse exact rollback replacement through symlink {}",
+            path.display()
+        )));
+    }
+    let current = fs::read(path).map_err(|error| {
+        StateError::new(format!(
+            "read {} before exact rollback replacement: {error}",
+            path.display()
+        ))
+    })?;
+    if current != expected_current {
+        return Err(StateError::new(format!(
+            "current bytes at {} differ from the proved bytes",
+            path.display()
+        )));
+    }
+    restore_exact_file(path, replacement)
+}
+fn restore_evidence(evidence: &EvidenceRollback) -> Result<(), StateError> {
+    match &evidence.before {
+        Some(bytes) => restore_exact_file_if_current(&evidence.path, &evidence.committed, bytes),
+        None => {
+            let metadata = fs::symlink_metadata(&evidence.path).map_err(|error| {
+                StateError::new(format!(
+                    "inspect newly written evidence {} before removal: {error}",
+                    evidence.path.display()
+                ))
+            })?;
+            if metadata.file_type().is_symlink() {
+                return Err(StateError::new(format!(
+                    "refuse to remove newly written evidence through symlink {}",
+                    evidence.path.display()
+                )));
+            }
+            let current = fs::read(&evidence.path).map_err(|error| {
+                StateError::new(format!(
+                    "read newly written evidence {} before removal: {error}",
+                    evidence.path.display()
+                ))
+            })?;
+            if current != evidence.committed {
+                return Err(StateError::new(format!(
+                    "newly written evidence {} differs from the bytes this step committed",
+                    evidence.path.display()
+                )));
+            }
+            fs::remove_file(&evidence.path).map_err(|error| {
+                StateError::new(format!(
+                    "remove newly written evidence {}: {error}",
+                    evidence.path.display()
+                ))
+            })?;
+            let parent = evidence.path.parent().ok_or_else(|| {
+                StateError::new(format!(
+                    "evidence {} has no parent directory",
+                    evidence.path.display()
+                ))
+            })?;
+            if let Err(error) = sync_parent(parent) {
+                eprintln!(
+                    "warning: removed newly written evidence {} but could not sync its parent directory: {error}",
+                    evidence.path.display()
+                );
+            }
+            Ok(())
+        }
+    }
+}
+
+fn restore_archived_verdict(verdict: &ArchivedVerdictRollback) -> Result<(), StateError> {
+    match fs::symlink_metadata(&verdict.live_path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Ok(_) => {
+            return Err(StateError::new(format!(
+                "live verdict {} is present",
+                verdict.live_path.display()
+            )))
+        }
+        Err(error) => {
+            return Err(StateError::new(format!(
+                "inspect live verdict {}: {error}",
+                verdict.live_path.display()
+            )))
+        }
+    }
+    let archived = fs::read(&verdict.archive_path).map_err(|error| {
+        StateError::new(format!(
+            "read consumed verdict {}: {error}",
+            verdict.archive_path.display()
+        ))
+    })?;
+    if archived != verdict.bytes {
+        return Err(StateError::new(format!(
+            "consumed verdict {} disagreed with its pre-consumption bytes",
+            verdict.archive_path.display()
+        )));
+    }
+    let archive_dir = verdict.archive_path.parent().ok_or_else(|| {
+        StateError::new(format!(
+            "consumed verdict {} has no archive directory",
+            verdict.archive_path.display()
+        ))
+    })?;
+    if verdict.archive_dir_was_absent {
+        let mut found_archive = false;
+        for entry in fs::read_dir(archive_dir).map_err(|error| {
+            StateError::new(format!(
+                "read new verdict archive directory {}: {error}",
+                archive_dir.display()
+            ))
+        })? {
+            let entry = entry.map_err(|error| {
+                StateError::new(format!(
+                    "inspect new verdict archive directory {}: {error}",
+                    archive_dir.display()
+                ))
+            })?;
+            if entry.path() == verdict.archive_path {
+                found_archive = true;
+            } else {
+                return Err(StateError::new(format!(
+                    "new verdict archive directory {} contains additional evidence {}",
+                    archive_dir.display(),
+                    entry.path().display()
+                )));
+            }
+        }
+        if !found_archive {
+            return Err(StateError::new(format!(
+                "consumed verdict {} is absent from its new archive directory",
+                verdict.archive_path.display()
+            )));
+        }
+    }
+    fs::rename(&verdict.archive_path, &verdict.live_path).map_err(|error| {
+        StateError::new(format!(
+            "move consumed verdict {} back to {}: {error}",
+            verdict.archive_path.display(),
+            verdict.live_path.display()
+        ))
+    })?;
+    if verdict.archive_dir_was_absent {
+        fs::remove_dir(archive_dir).map_err(|error| {
+            StateError::new(format!(
+                "remove new verdict archive directory {}: {error}",
+                archive_dir.display()
+            ))
+        })?;
+    } else if let Err(error) = sync_parent(archive_dir) {
+        eprintln!(
+            "warning: restored live verdict {} but could not sync archive directory {}: {error}",
+            verdict.live_path.display(),
+            archive_dir.display()
+        );
+    }
+    let run_dir = verdict.live_path.parent().ok_or_else(|| {
+        StateError::new(format!(
+            "live verdict {} has no Run directory",
+            verdict.live_path.display()
+        ))
+    })?;
+    if let Err(error) = sync_parent(run_dir) {
+        eprintln!(
+            "warning: restored live verdict {} but could not sync its Run directory: {error}",
+            verdict.live_path.display()
+        );
+    }
+    Ok(())
+}
+
+fn replace_file_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<ReplaceFileOutcome> {
+    let parent = path.parent().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("{} has no parent directory", path.display()),
+        )
+    })?;
+    let sequence = ROLLBACK_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("artifact");
+    let temporary = parent.join(format!(
+        ".{name}.transition-rollback-{}-{sequence}",
+        std::process::id()
+    ));
+    let result: std::io::Result<ReplaceFileOutcome> = (|| {
+        let mut file = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&temporary)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        drop(file);
+        match fs::rename(&temporary, path) {
+            Ok(()) => {}
+            Err(_) if path.exists() => replace_existing_file(&temporary, path)?,
+            Err(error) => return Err(error),
+        }
+        match sync_parent(parent) {
+            Ok(()) => Ok(ReplaceFileOutcome::Durable),
+            Err(error) => Ok(ReplaceFileOutcome::ReplacedWithParentSyncWarning(error)),
+        }
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
+}
+
+#[cfg(unix)]
+fn sync_parent(parent: &Path) -> std::io::Result<()> {
+    std::fs::File::open(parent)?.sync_all()
+}
+
+#[cfg(not(unix))]
+fn sync_parent(_parent: &Path) -> std::io::Result<()> {
+    Ok(())
+}
+
+#[cfg(windows)]
+fn replace_existing_file(temporary: &Path, destination: &Path) -> std::io::Result<()> {
+    use windows_sys::Win32::Storage::FileSystem::ReplaceFileW;
+
+    let destination: Vec<u16> = destination
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let temporary: Vec<u16> = temporary
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    // SAFETY: both NUL-terminated paths remain live for this synchronous API.
+    if unsafe {
+        ReplaceFileW(
+            destination.as_ptr(),
+            temporary.as_ptr(),
+            std::ptr::null(),
+            0,
+            std::ptr::null(),
+            std::ptr::null(),
+        )
+    } == 0
+    {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(not(windows))]
+fn replace_existing_file(temporary: &Path, destination: &Path) -> std::io::Result<()> {
+    fs::rename(temporary, destination)
 }
