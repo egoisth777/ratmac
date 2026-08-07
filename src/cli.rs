@@ -66,7 +66,7 @@ pub fn help(command: impl AsRef<str>) -> &'static str {
             "Usage: rtm abandon --run <id> --confirm \"abandon <run id>\"\n\nA human retires a broken Run: rtm records a terminal abandoned event, then retires the admission state, the Run evidence, and the lock so a fresh Run can start. The confirmation phrase names the addressed run id (FDC-007), is typed at invocation, and is never read from a file. Retiring only a leftover lock - no live run anywhere - omits --run and confirms with \"abandon <project directory name>\". No bypass flag exists - a stale lock is retired through this path.\n"
         }
         "spawn" => {
-            "Usage: rtm spawn <name> --run <parent id> [--bind name=value ...]\n\nOrdinary checked motion, no confirmation phrase (FDC-007): create a child Run from a class the parent's runbook declares. Legal only while the parent occupies the Phase declaring that spawn. Each --bind supplies a value for a binding name the spawn declares; the entry lands in the parent's spawn ledger (FDC-011). The child is an ordinary Run on the flat roster with its own State File and evidence.\n"
+            "Usage: rtm spawn <name> --run <parent id> [--bind name=value ...] [--workspace <path>]\n\nOrdinary checked motion, no confirmation phrase (FDC-007): create a child Run from a class the parent's runbook declares. Legal only while the parent occupies the Phase declaring that spawn. Each --bind supplies a value for a binding name the spawn declares; --workspace binds the child to an existing directory, or otherwise it inherits the parent's workspace. The entry lands in the parent's spawn ledger (FDC-011). The child is an ordinary Run on the flat roster with its own State File and evidence.\n"
         }
         "respawn" => {
             "Usage: rtm respawn --run <id> --confirm \"respawn <run id>\"\n\nA human supersedes a Run: a fresh successor id is minted - never overwriting, the superseded record keeps its address - and the superseded Run is retired by the abandon path. The confirmation phrase names the run id, is typed at invocation, and is never read from a file.\n"
@@ -357,6 +357,7 @@ fn spawn<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Resu
     let mut run: Option<String> = None;
     let mut bindings: std::collections::BTreeMap<String, String> =
         std::collections::BTreeMap::new();
+    let mut workspace: Option<String> = None;
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
@@ -385,6 +386,20 @@ fn spawn<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Resu
                         "spawn: --bind names {bind_name:?} twice"
                     )));
                 }
+                index += 2;
+            }
+            "--workspace" => {
+                if workspace.is_some() {
+                    return Err(CliError::new("spawn: --workspace given twice".to_owned()));
+                }
+                workspace = Some(
+                    args.get(index + 1)
+                        .filter(|value| !value.starts_with("--") && !value.is_empty())
+                        .cloned()
+                        .ok_or_else(|| {
+                            CliError::new("spawn: --workspace needs a directory path".to_owned())
+                        })?,
+                );
                 index += 2;
             }
             "--run" => {
@@ -423,8 +438,14 @@ fn spawn<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Resu
             roster_line(project_root)
         ))
     })?;
-    let child = Scheduler::spawn_to(project_root, &run, &name, &bindings)
-        .map_err(|error| CliError::new(format!("spawn: {error}")))?;
+    let child = Scheduler::spawn_to_with_workspace(
+        project_root,
+        &run,
+        &name,
+        &bindings,
+        workspace.as_deref().map(Path::new),
+    )
+    .map_err(|error| CliError::new(format!("spawn: {error}")))?;
     writeln!(
         writer,
         "rtm: spawned run {child} (spawn {name}) from run {run}; the child is an ordinary Run at .ratmac/runs/{child}/"

@@ -129,11 +129,20 @@ impl fmt::Display for StepOutcome {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Scheduler {
     machine: MachineGraph,
-    /// The invoking checkout: Machine Class, workflows, guards, and goals live here.
+    /// The addressed Run's workspace. For a top-level Run this is the
+    /// invoking checkout; for a child it is the durable ledger binding.
+    /// Guards, goal reads, and gate-program resolution use this root.
     root: Option<PathBuf>,
+    /// The checkout that invoked this Scheduler. Machine Class and runbook-pin
+    /// reads remain invocation inputs so linked-worktree pin drift stays
+    /// observable under ENS-002.
+    invoking_root: Option<PathBuf>,
     /// The resolved runtime root, shared by linked worktrees.
     engine_root: Option<PathBuf>,
     run_id: Option<String>,
+    /// The exact Machine Class recorded for an addressed child. Its phase
+    /// names can overlap sibling classes, so phase lookup never guesses.
+    child_class: Option<String>,
     store: Option<StateStore>,
 }
 
@@ -180,8 +189,10 @@ impl Scheduler {
         Self {
             machine,
             root: None,
+            invoking_root: None,
             engine_root: None,
             run_id: None,
+            child_class: None,
             store: None,
         }
     }
@@ -199,8 +210,10 @@ impl Scheduler {
         Ok(Self {
             machine,
             run_id: None,
+            child_class: None,
             store: None,
-            root: Some(root),
+            root: Some(root.clone()),
+            invoking_root: Some(root),
             engine_root: Some(engine_root),
         })
     }
@@ -210,13 +223,23 @@ impl Scheduler {
     pub fn open_run(root: impl AsRef<Path>, run_id: impl AsRef<str>) -> Result<Self, StateError> {
         let run_id = run_id.as_ref();
         let roots = crate::root::resolve(root);
-        let root = roots.invoking_checkout_root().to_path_buf();
+        let invoking_root = roots.invoking_checkout_root().to_path_buf();
         let engine_root = roots.engine_root().to_path_buf();
         // FDC-004: caller input is proved to be one canonical direct-child
         // name on the roster before it participates in any path join.
-        Self::validate_run_address(&root, run_id)?;
-        let machine = Self::graph_of(&Self::load_class(&root)?);
-        Self::refuse_flat_residue(&root)?;
+        Self::validate_run_address_at(&engine_root, run_id)?;
+        // ENS-006: a child never derives its workspace or class scope from
+        // this caller. A top-level Run has no ledger entry and therefore
+        // keeps that caller's checkout as its workspace.
+        let (workspace, child_class) = match Self::ledger_record_of_at(&engine_root, run_id)? {
+            Some((ledger_path, entry)) => (
+                Self::workspace_from_ledger_entry(&engine_root, &ledger_path, &entry)?,
+                Some(entry.class),
+            ),
+            None => (invoking_root.clone(), None),
+        };
+        let machine = Self::graph_of(&Self::load_class(&invoking_root)?);
+        Self::refuse_flat_residue(&invoking_root)?;
         let run_dir = Self::runs_dir_at(&engine_root).join(run_id);
         // FDC-006: a roster entry without a State File is a retired run —
         // terminal, never resurrected. The refusal names the run as terminal,
@@ -228,12 +251,14 @@ impl Scheduler {
                  one with rtm start"
             )));
         }
-        Self::verify_runbook_pin(&root, &run_dir)?;
+        Self::verify_runbook_pin(&invoking_root, &run_dir)?;
         Ok(Self {
             machine,
             run_id: Some(run_id.to_owned()),
-            store: Some(StateStore::for_run(&root, run_id)),
-            root: Some(root),
+            child_class,
+            store: Some(StateStore::for_run(&workspace, run_id)),
+            root: Some(workspace),
+            invoking_root: Some(invoking_root),
             engine_root: Some(engine_root),
         })
     }
@@ -393,6 +418,12 @@ impl Scheduler {
             .ok_or_else(|| StateError::new("operation requires Scheduler::open"))
     }
 
+    fn invoking_root(&self) -> Result<&Path, StateError> {
+        self.invoking_root
+            .as_deref()
+            .ok_or_else(|| StateError::new("operation requires Scheduler::open"))
+    }
+
     fn run_dir(&self) -> Result<PathBuf, StateError> {
         let engine_root = self.engine_root()?;
         let run_id = self.run_id.as_deref().ok_or_else(|| {
@@ -443,6 +474,11 @@ impl Scheduler {
             .unwrap_or_else(|| "none".to_owned())
     }
 
+    /// Find one child ledger entry strictly. An absent ledger is empty by
+    /// contract, but any unreadable or malformed ledger is a named refusal:
+    /// guessing that a child is top-level would lose its durable workspace.
+    /// An abandoned mark does not erase that fact: a partially failed
+    /// retirement can leave its State File admitted after the mark landed.
     fn ledger_record_of_at(
         engine_root: &Path,
         run_id: &str,
@@ -451,25 +487,147 @@ impl Scheduler {
             let path = Self::runs_dir_at(engine_root)
                 .join(&candidate)
                 .join("spawn-ledger");
-            let Ok(text) = fs::read_to_string(&path) else {
-                continue;
-            };
-            if !text.contains(run_id) {
-                continue;
-            }
             let entries = crate::ledger::read_entries(&path).map_err(|error| {
                 StateError::new(format!(
-                    "the spawn ledger recording {run_id} is defective: {error}"
+                    "cannot read spawn ledger {} while resolving run {run_id}: {error}",
+                    path.display()
                 ))
             })?;
-            if let Some(entry) = entries
-                .into_iter()
-                .find(|entry| entry.id == run_id && !entry.abandoned)
-            {
+            if let Some(entry) = entries.into_iter().find(|entry| entry.id == run_id) {
                 return Ok(Some((path, entry)));
             }
         }
         Ok(None)
+    }
+
+    fn workspace_from_ledger_entry(
+        engine_root: &Path,
+        ledger_path: &Path,
+        entry: &LedgerEntry,
+    ) -> Result<PathBuf, StateError> {
+        let recorded = entry.workspace.as_deref().ok_or_else(|| {
+            StateError::new(format!(
+                "run {} is a child recorded in {} but has no workspace binding; \
+                 refusing to fall back to the caller's directory",
+                entry.id,
+                ledger_path.display()
+            ))
+        })?;
+        let workspace = PathBuf::from(recorded);
+        if !workspace.is_absolute() {
+            return Err(StateError::new(format!(
+                "run {} has a non-absolute workspace binding {:?} in {}; \
+                 refusing to fall back to the caller's directory",
+                entry.id,
+                recorded,
+                ledger_path.display()
+            )));
+        }
+        let canonical = fs::canonicalize(&workspace).map_err(|error| {
+            if error.kind() == std::io::ErrorKind::NotFound {
+                StateError::new(format!(
+                    "run {} has a recorded workspace path {} in {} that no longer exists; \
+                     refusing to fall back to the caller's directory",
+                    entry.id,
+                    workspace.display(),
+                    ledger_path.display()
+                ))
+            } else {
+                StateError::new(format!(
+                    "run {} has an unusable workspace binding {:?} in {}: {error}; \
+                     refusing to fall back to the caller's directory",
+                    entry.id,
+                    recorded,
+                    ledger_path.display()
+                ))
+            }
+        })?;
+        // A binding identifies this canonical pathname: deleting and
+        // recreating a directory at exactly this path keeps the same binding,
+        // and later guards judge its contents. A changed resolution is not
+        // that path and must never redirect the child through a symlink or
+        // junction replacement.
+        if canonical != workspace {
+            return Err(StateError::new(format!(
+                "run {} has a recorded workspace path {} in {} that now resolves to {}; \
+                 refusing to fall back to the caller's directory",
+                entry.id,
+                workspace.display(),
+                ledger_path.display(),
+                canonical.display()
+            )));
+        }
+        if !canonical.is_dir() {
+            return Err(StateError::new(format!(
+                "run {} has a workspace binding {} in {} that is not a directory; \
+                 refusing to fall back to the caller's directory",
+                entry.id,
+                canonical.display(),
+                ledger_path.display()
+            )));
+        }
+        Self::ensure_workspace_in_repository(engine_root, &canonical)?;
+        Ok(canonical)
+    }
+
+    /// Canonicalize a caller-supplied spawn workspace before the mint
+    /// transaction. Relative spellings are interpreted from the invocation
+    /// checkout, not from a parent Run's stored workspace.
+    fn canonical_spawn_workspace(
+        invoking_root: &Path,
+        engine_root: &Path,
+        workspace: &Path,
+    ) -> Result<PathBuf, StateError> {
+        let spelling = workspace.to_string_lossy().into_owned();
+        let candidate = if workspace.is_absolute() {
+            workspace.to_path_buf()
+        } else {
+            invoking_root.join(workspace)
+        };
+        let metadata = fs::metadata(&candidate).map_err(|error| {
+            if error.kind() == std::io::ErrorKind::NotFound {
+                StateError::new(format!("workspace {spelling:?} does not exist"))
+            } else {
+                StateError::new(format!(
+                    "workspace {spelling:?} cannot be inspected: {error}"
+                ))
+            }
+        })?;
+        if !metadata.is_dir() {
+            return Err(StateError::new(format!(
+                "workspace {spelling:?} is not a directory"
+            )));
+        }
+        let canonical = fs::canonicalize(&candidate).map_err(|error| {
+            StateError::new(format!(
+                "workspace {spelling:?} cannot be canonicalized: {error}"
+            ))
+        })?;
+        Self::ensure_workspace_in_repository(engine_root, &canonical)?;
+        Ok(canonical)
+    }
+
+    /// Repository confinement follows the Engine root rather than a lexical
+    /// parent-directory prefix, so linked worktrees remain legitimate
+    /// workspaces while a symlink or traversal that resolves elsewhere does
+    /// not escape the runtime namespace.
+    fn ensure_workspace_in_repository(
+        engine_root: &Path,
+        workspace: &Path,
+    ) -> Result<(), StateError> {
+        let workspace_engine_root = crate::root::resolve(workspace).engine_root().to_path_buf();
+        let engine_root =
+            fs::canonicalize(engine_root).unwrap_or_else(|_| engine_root.to_path_buf());
+        let workspace_engine_root =
+            fs::canonicalize(&workspace_engine_root).unwrap_or(workspace_engine_root);
+        if workspace_engine_root == engine_root {
+            Ok(())
+        } else {
+            Err(StateError::new(format!(
+                "workspace {} is outside this repository",
+                workspace.display()
+            )))
+        }
     }
 
     fn snapshot_ledger(path: &Path) -> Result<LedgerSnapshot, StateError> {
@@ -612,6 +770,7 @@ impl Scheduler {
         let store = StateStore::for_engine_root(&engine_root, &run_id);
         self.store = Some(store);
         self.run_id = Some(run_id.clone());
+        self.child_class = None;
         Ok(Run::new(phase, initial_status).with_artifacts(&root, &run_id))
     }
 
@@ -897,6 +1056,19 @@ impl Scheduler {
         spawn_name: &str,
         bindings: &BTreeMap<String, String>,
     ) -> Result<String, StateError> {
+        Self::spawn_to_with_workspace(root, parent_id, spawn_name, bindings, None)
+    }
+
+    /// Spawn with an optional workspace spelling from the invocation. Keeping
+    /// the original `spawn_to` entry point preserves callers that inherit the
+    /// parent workspace by default.
+    pub fn spawn_to_with_workspace(
+        root: impl AsRef<Path>,
+        parent_id: &str,
+        spawn_name: &str,
+        bindings: &BTreeMap<String, String>,
+        workspace: Option<&Path>,
+    ) -> Result<String, StateError> {
         let root = root.as_ref();
         Self::validate_run_address(root, parent_id)?;
         if crate::ledger::is_recorded_child(&Self::runs_dir(root), parent_id)
@@ -908,7 +1080,7 @@ composition is capped at one level (FDC-012)"
             )));
         }
         let mut scheduler = Self::open_run(root, parent_id)?;
-        scheduler.spawn_with_bindings(spawn_name, bindings)
+        scheduler.spawn_with_bindings_at_workspace(spawn_name, bindings, workspace)
     }
 
     pub fn spawn(&mut self, spawn_name: &str) -> Result<String, StateError> {
@@ -916,21 +1088,40 @@ composition is capped at one level (FDC-012)"
     }
 
     /// FDC-011: spawn records what it makes. The ledger entry - child id,
-    /// class, binding values, revision at spawn - lands in the same turn
-    /// that mints the child. A failed append rolls that child back only when
-    /// a strict reread proves no entry landed; uncertain bytes leave both
-    /// paths intact for recovery rather than destroying recorded state.
+    /// class, binding values, revision at spawn, and canonical workspace -
+    /// lands in the same turn that mints the child. A failed append rolls that
+    /// child back only when a strict reread proves no entry landed; uncertain
+    /// bytes leave both paths intact for recovery rather than destroying
+    /// recorded state.
     pub fn spawn_with_bindings(
         &mut self,
         spawn_name: &str,
         bindings: &BTreeMap<String, String>,
     ) -> Result<String, StateError> {
-        let root = self
+        self.spawn_with_bindings_at_workspace(spawn_name, bindings, None)
+    }
+
+    fn spawn_with_bindings_at_workspace(
+        &mut self,
+        spawn_name: &str,
+        bindings: &BTreeMap<String, String>,
+        workspace: Option<&Path>,
+    ) -> Result<String, StateError> {
+        let parent_workspace = self
             .root
             .as_ref()
             .ok_or_else(|| StateError::new("spawn requires Scheduler::open_run"))?
             .clone();
+        let invoking_root = self.invoking_root()?.to_path_buf();
         let engine_root = self.engine_root()?.to_path_buf();
+        let child_workspace = match workspace {
+            Some(workspace) => {
+                Self::canonical_spawn_workspace(&invoking_root, &engine_root, workspace)?
+            }
+            None => {
+                Self::canonical_spawn_workspace(&parent_workspace, &engine_root, &parent_workspace)?
+            }
+        };
         let parent_id = self.run_id.clone().ok_or_else(|| {
             StateError::new("spawn requires an addressed parent: open one with Scheduler::open_run")
         })?;
@@ -939,10 +1130,10 @@ composition is capped at one level (FDC-012)"
 
         // Slow content and Git reads never belong to the shared mutation
         // scope. The final pair only rechecks the facts this plan relies on.
-        let class = Self::load_class(&root)?;
-        let runbook_pin = Self::runbook_sha256(&root)?;
-        let goal_baseline = crate::goal::revision(&root);
-        let spawned_at = Self::revision_at(&root);
+        let class = Self::load_class(&invoking_root)?;
+        let runbook_pin = Self::runbook_sha256(&invoking_root)?;
+        let goal_baseline = crate::goal::revision(&parent_workspace);
+        let spawned_at = Self::revision_at(&invoking_root);
         let engine_identity = crate::pin::engine_identity();
         self.machine = Self::graph_of(&class);
 
@@ -1073,7 +1264,7 @@ composition is capped at one level (FDC-012)"
             class: child_class_name,
             bind: bindings.clone(),
             spawned_at,
-            workspace: None,
+            workspace: Some(child_workspace.to_string_lossy().into_owned()),
             abandoned: false,
             supersedes: None,
         };
@@ -1180,6 +1371,12 @@ the ledger {} and minted child {} were left in place; inspect both paths before 
             )));
         }
         let recorded = Self::ledger_record_of_at(&engine_root, &superseded)?;
+        if let Some((ledger_path, entry)) = recorded.as_ref() {
+            // A successor cannot repair or replace a missing legacy binding:
+            // it inherits exactly the durable workspace of the child it
+            // supersedes.
+            let _ = Self::workspace_from_ledger_entry(&engine_root, ledger_path, entry)?;
+        }
         let class = Self::load_class(&root)?;
         let runbook_pin = Self::runbook_sha256(&root)?;
         let goal_baseline = crate::goal::revision(&root);
@@ -1273,7 +1470,7 @@ the successor mint rollback is incomplete: {rollback}"
                 class: entry.class.clone(),
                 bind: entry.bind.clone(),
                 spawned_at: successor_spawned_at,
-                workspace: None,
+                workspace: entry.workspace.clone(),
                 abandoned: false,
                 supersedes: Some(superseded.clone()),
             };
@@ -1356,6 +1553,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
             .as_ref()
             .ok_or_else(|| StateError::new("step requires Scheduler::open"))?
             .clone();
+        let invoking_root = self.invoking_root()?.to_path_buf();
         let engine_root = self.engine_root()?.to_path_buf();
         let run_id = self
             .run_id
@@ -1367,8 +1565,8 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
         // Hash and parse before either lock. A final pin comparison happens
         // under the Run lock, but neither comparison can invoke Git or root
         // resolution while a lock is held.
-        let class = Self::load_class(&root)?;
-        let runbook_pin = Self::runbook_sha256(&root)?;
+        let class = Self::load_class(&invoking_root)?;
+        let runbook_pin = Self::runbook_sha256(&invoking_root)?;
         self.machine = Self::graph_of(&class);
 
         // ENS-005: one Run's long guard evaluation is serialized only by its
@@ -1389,7 +1587,8 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
                 .map_err(|error| StateError::new(format!("read State File: {error}")))?;
             let state = self.load_state_unlocked()?;
             let state_phase = state.phase.clone();
-            let (definition, scope_machine) = Self::resolve_phase_scope(&class, &state_phase)?;
+            let (definition, scope_machine) =
+                Self::resolve_phase_scope(&class, &state_phase, self.child_class.as_deref())?;
             if state.status == Status::Passed {
                 return Ok(StepOutcome::Refused {
                     failures: vec![guard_failure(
@@ -2114,22 +2313,20 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
 
     /// Read-only status; it loads state and reports labels from the current class.
     pub fn status(&self) -> Result<StatusReport, StateError> {
-        let root = self
-            .root
-            .as_ref()
-            .ok_or_else(|| StateError::new("status requires Scheduler::open"))?;
+        let invoking_root = self.invoking_root()?;
         // ENS-005 leaves status outside both new lock domains, but the
         // explicitly refused pre-split lock remains a global entry preflight.
         crate::lock::refuse_legacy(self.engine_root()?)?;
-        let class = Self::load_class(root)?;
+        let class = Self::load_class(invoking_root)?;
         // FDC-005: status reads the class too; an addressed run's recorded
         // pin is compared on every such read.
         if self.run_id.is_some() {
-            Self::verify_runbook_pin(root, &self.run_dir()?)?;
+            Self::verify_runbook_pin(invoking_root, &self.run_dir()?)?;
         }
         let state = self.load_state_unlocked()?;
         // FDC-011/FDC-012: a child Run is reported from its own class's view.
-        let (definition, _scope_machine) = Self::resolve_phase_scope(&class, &state.phase)?;
+        let (definition, _scope_machine) =
+            Self::resolve_phase_scope(&class, &state.phase, self.child_class.as_deref())?;
         let pending_guards = Self::pending_guard_labels(definition);
         let phase_prompt = Self::render_phase_prompt(definition)?;
         Ok(StatusReport {
@@ -2139,14 +2336,37 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
         })
     }
 
-    /// FDC-011/FDC-012: resolve the owning scope of a State File phase -
-    /// the top level first, else the one child class declaring it. Every
-    /// phase-addressed surface (step, status) reads through this view, so a
-    /// child Run is reported and moved on its own class's machine.
+    /// FDC-011/FDC-012: resolve the owning scope of a State File phase. A
+    /// child is addressed by its durable ledger class, not by the first class
+    /// whose phase happens to share the same name with a sibling.
     fn resolve_phase_scope<'a>(
         class: &'a MachineClass,
         state_phase: &str,
+        child_class_name: Option<&str>,
     ) -> Result<(&'a PhaseDefinition, MachineGraph), StateError> {
+        if let Some(child_class_name) = child_class_name {
+            let child_class = class.classes().get(child_class_name).ok_or_else(|| {
+                StateError::new(format!(
+                    "recorded child class {child_class_name:?} is not declared in ratmac.toml"
+                ))
+            })?;
+            let definition = child_class.phases().get(state_phase).ok_or_else(|| {
+                StateError::new(format!(
+                    "State File phase {state_phase:?} is undeclared in recorded child class \
+                     {child_class_name:?}"
+                ))
+            })?;
+            let machine = MachineGraph::new(
+                child_class
+                    .phases()
+                    .keys()
+                    .map(Phase::new)
+                    .collect::<Vec<_>>(),
+                child_class.transitions().to_vec(),
+            );
+            return Ok((definition, machine));
+        }
+
         if let Some(definition) = class.phases().get(state_phase) {
             return Ok((definition, Self::graph_of(class)));
         }
