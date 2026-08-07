@@ -20,19 +20,44 @@
 //!   named residual record;
 //! - the current Phase declares a blocked route.
 //!
-//! Anything else refuses before the first write, so Scheduler-owned files stay
-//! byte-identical. The apply step is all-or-nothing: every file it touches is
-//! restored if any write fails, leaving the Run pre-route rather than half
-//! routed.
+//! An admission refusal before the route write leaves Scheduler-owned files
+//! byte-identical. A ticket replacement failure before it reaches its
+//! destination restores the addressed Run's pre-route state. If replacement
+//! reached the ticket but its parent directory cannot be synced, the Engine
+//! warns and keeps the agreeing ticket and Run state. Once that route and
+//! ticket are durable, a history append failure never rewrites either artifact;
+//! it is reported as an honest error.
 //!
 //! The ticket stays not-passed and its residuals untouched: holding a ticket
 //! proves nothing about the work.
 
 use std::fmt;
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+#[cfg(feature = "test-fault-injection")]
+use std::thread;
+#[cfg(feature = "test-fault-injection")]
+use std::time::{Duration, Instant};
 
 use crate::contract::ISSUE_FILES;
+#[cfg(windows)]
+use std::os::windows::ffi::OsStrExt;
+
+static HOLD_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(feature = "test-fault-injection")]
+const MAX_TEST_HOLD_BARRIER_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Whether an atomic replacement reached its destination durably, or reached
+/// it but could not confirm the parent directory's durability.
+#[derive(Debug)]
+enum ReplaceFileOutcome {
+    Durable,
+    ReplacedWithParentSyncWarning(std::io::Error),
+}
 
 /// Why a hold cannot be applied.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -52,6 +77,74 @@ fn refusal(reason: impl Into<String>) -> HoldRefusal {
     }
 }
 
+#[cfg(feature = "test-fault-injection")]
+fn ticket_replace_barrier_timeout() -> Result<Duration, HoldRefusal> {
+    let Some(value) = std::env::var("RATMAC_TEST_HOLD_BARRIER_TIMEOUT_MILLIS").ok() else {
+        return Ok(crate::lock::WAIT_TIMEOUT);
+    };
+    let milliseconds = value.parse::<u64>().map_err(|error| {
+        refusal(format!(
+            "RATMAC_TEST_HOLD_BARRIER_TIMEOUT_MILLIS must be a positive integer: {error}"
+        ))
+    })?;
+    if milliseconds == 0 {
+        return Err(refusal(
+            "RATMAC_TEST_HOLD_BARRIER_TIMEOUT_MILLIS must be a positive integer",
+        ));
+    }
+    Ok(Duration::from_millis(milliseconds).min(MAX_TEST_HOLD_BARRIER_TIMEOUT))
+}
+
+/// Feature-gated QA seam after the final ticket comparison and before its
+/// replacement. The caller keeps its root and Run claims live while waiting,
+/// so the marker proves the shared-ticket mutation boundary is occupied.
+#[cfg(feature = "test-fault-injection")]
+fn wait_before_ticket_replace_if_requested() -> Result<(), HoldRefusal> {
+    if std::env::var("RATMAC_TEST_HOLD_BARRIER").ok().as_deref() != Some("before-ticket-replace") {
+        return Ok(());
+    }
+    let marker = std::env::var_os("RATMAC_TEST_HOLD_BARRIER_MARKER")
+        .map(PathBuf::from)
+        .ok_or_else(|| refusal("hold test barrier needs RATMAC_TEST_HOLD_BARRIER_MARKER"))?;
+    let release = std::env::var_os("RATMAC_TEST_HOLD_BARRIER_RELEASE")
+        .map(PathBuf::from)
+        .ok_or_else(|| refusal("hold test barrier needs RATMAC_TEST_HOLD_BARRIER_RELEASE"))?;
+    if let Some(parent) = marker.parent() {
+        fs::create_dir_all(parent).map_err(|error| {
+            refusal(format!(
+                "hold test barrier cannot create marker directory {}: {error}",
+                parent.display()
+            ))
+        })?;
+    }
+    fs::write(&marker, "holding before ticket replacement\n").map_err(|error| {
+        refusal(format!(
+            "hold test barrier cannot write marker {}: {error}",
+            marker.display()
+        ))
+    })?;
+
+    let deadline = Instant::now() + ticket_replace_barrier_timeout()?;
+    loop {
+        if release.is_file() {
+            return Ok(());
+        }
+        let now = Instant::now();
+        if now >= deadline {
+            return Err(refusal(format!(
+                "hold test barrier expired before ticket replacement waiting for {}",
+                release.display()
+            )));
+        }
+        thread::sleep(Duration::from_millis(10).min(deadline.saturating_duration_since(now)));
+    }
+}
+
+#[cfg(not(feature = "test-fault-injection"))]
+fn wait_before_ticket_replace_if_requested() -> Result<(), HoldRefusal> {
+    Ok(())
+}
+
 /// What a human asked for.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HoldRequest {
@@ -69,7 +162,10 @@ pub struct HoldPlan {
     pub ticket_path: PathBuf,
     pub blocker: String,
     pub run_id: String,
+    /// reloads and compares both fields after taking the root-then-addressed
+    /// Run lock pair.
     pub from_phase: String,
+    pub from_status: crate::model::Status,
     pub to_phase: String,
 }
 
@@ -168,6 +264,7 @@ pub fn plan_hold(root: &Path, request: &HoldRequest) -> Result<HoldPlan, HoldRef
         blocker: blocker.to_owned(),
         run_id: run_id.to_owned(),
         from_phase,
+        from_status: state.status,
         to_phase: route.to().as_str().to_owned(),
     })
 }
@@ -209,98 +306,205 @@ fn verify_blocker(root: &Path, blocker: &str) -> Result<(), HoldRefusal> {
 
 /// Apply a verified hold: ticket state, routed Phase, and one history entry.
 ///
-/// All or nothing. Every file touched is snapshotted first and restored if any
-/// write fails, so an interrupted hold leaves the Run pre-route.
+/// The plan's cheap non-ticket checks happen before the lock pair. The exact
+/// planned state is compared after acquisition. The shared ticket is a
+/// root-domain read-modify-write: root is acquired before the addressed Run and
+/// remains held from its source read through the final compare and replacement,
+/// so ordinary lifecycle callers cannot write between them. Root releases
+/// before the append-only history record. A portable rename still cannot detect
+/// an out-of-band edit that races its final replacement window.
 pub fn apply_hold(root: &Path, plan: &HoldPlan) -> Result<(), HoldRefusal> {
-    let state_path = crate::Scheduler::runs_dir(root)
+    let roots = crate::root::resolve(root);
+    let engine_root = roots.engine_root().to_path_buf();
+    let state_path = engine_root
+        .join("runs")
         .join(&plan.run_id)
         .join("state.toml");
-    let log_path = crate::root::resolve(root).engine_root().join("log.md");
-    let touched = [
-        state_path.clone(),
-        log_path.clone(),
-        plan.ticket_path.clone(),
-    ];
-    // An unreadable file is refused before the first write: treating it as
-    // absent would let rollback delete the very file it claims to protect.
-    let mut snapshot: Vec<(PathBuf, Option<Vec<u8>>)> = Vec::new();
-    for path in &touched {
-        match fs::read(path) {
-            Ok(bytes) => snapshot.push((path.clone(), Some(bytes))),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                snapshot.push((path.clone(), None))
-            }
-            Err(error) => {
-                return Err(refusal(format!(
-                    "hold cannot snapshot {} for rollback: {error}",
-                    path.display()
-                )))
-            }
+
+    // The ticket is shared across Runs, while the State File is not. Acquire
+    // the pair in the global root-before-Run order before reading the shared
+    // ticket, so the entire read-modify-write has mutual exclusion.
+    let (root_lock, run_lock) = crate::lock::acquire_root_then_run(&engine_root, &plan.run_id)
+        .map_err(|error| refusal(error.to_string()))?;
+    root_lock
+        .ensure_current()
+        .map_err(|error| refusal(error.to_string()))?;
+    run_lock
+        .ensure_current()
+        .map_err(|error| refusal(error.to_string()))?;
+    let source = fs::read_to_string(&plan.ticket_path)
+        .map_err(|error| refusal(format!("hold cannot read the ticket: {error}")))?;
+    match field(&source, "status").unwrap_or_default().as_str() {
+        "passed" => {
+            return Err(refusal(format!(
+                "ticket {} is already passed; a passed ticket has nothing to hold",
+                plan.ticket
+            )));
         }
+        "held" => return Err(refusal(format!("ticket {} is already held", plan.ticket))),
+        _ => {}
+    }
+    let held = hold_ticket(&source, &plan.blocker);
+
+    // Snapshot only after owning the root-then-Run pair. If ticket writing
+    // later fails, restoration returns these exact locked bytes, never bytes a
+    // concurrent lawful motion left before we acquired the Run lock.
+    let old_state_bytes = fs::read(&state_path)
+        .map_err(|error| refusal(format!("hold cannot read state: {error}")))?;
+    let store = crate::state::StateStore::for_engine_root(&engine_root, &plan.run_id);
+    let mut state = store
+        .load()
+        .map_err(|error| refusal(format!("hold cannot read state: {error}")))?;
+    // A plan is only an admission proof. Another lawful motion may have
+    // changed this Run between planning and acquisition, so compare the exact
+    // state that chose the blocked route before writing anything.
+    if state.phase != plan.from_phase || state.status != plan.from_status {
+        return Err(refusal(format!(
+            "hold plan is stale for run {}: expected phase {:?} with status {:?}, found phase {:?} with status {:?}; nothing was modified",
+            plan.run_id, plan.from_phase, plan.from_status, state.phase, state.status
+        )));
+    }
+    let current_ticket = fs::read_to_string(&plan.ticket_path).map_err(|error| {
+        refusal(format!(
+            "hold cannot reread ticket {}: {error}",
+            plan.ticket_path.display()
+        ))
+    })?;
+    if current_ticket != source {
+        return Err(refusal(format!(
+            "hold ticket {} changed while the hold was being prepared; nothing was written",
+            plan.ticket_path.display()
+        )));
     }
 
-    let restore = |problem: HoldRefusal| -> HoldRefusal {
-        let mut unrestored = Vec::new();
-        for (path, bytes) in &snapshot {
-            let outcome = match bytes {
-                Some(bytes) => fs::write(path, bytes),
-                None => match fs::remove_file(path) {
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-                    other => other,
-                },
-            };
-            if let Err(error) = outcome {
-                unrestored.push(format!("{}: {error}", path.display()));
-            }
-        }
-        if unrestored.is_empty() {
-            problem
-        } else {
+    // Open the pre-existing append target before committing state: an unusable
+    // or missing history file refuses without a half-motion.
+    let mut log = OpenOptions::new()
+        .append(true)
+        .open(engine_root.join("log.md"))
+        .map_err(|error| {
             refusal(format!(
-                "{}; rollback incomplete, restore by hand: {}",
-                problem.reason,
-                unrestored.join(", ")
+                "hold cannot open history: {error}; nothing was modified"
             ))
-        }
-    };
+        })?;
 
-    let store = crate::state::StateStore::for_run(root, &plan.run_id);
-    let mut state = match store.load() {
-        Ok(state) => state,
-        Err(error) => return Err(restore(refusal(format!("hold cannot read state: {error}")))),
-    };
     state.phase = plan.to_phase.clone();
-    if let Err(error) = store.write(&state) {
-        return Err(restore(refusal(format!(
-            "hold cannot write state: {error}"
-        ))));
+    run_lock
+        .ensure_current()
+        .map_err(|error| refusal(error.to_string()))?;
+    store
+        .write(&state)
+        .map_err(|error| refusal(format!("hold cannot write state: {error}")))?;
+
+    // Check again immediately before replacing the ticket. This catches an
+    // edit that arrives before the comparison; an edit inside the portable
+    // replacement window cannot be detected.
+    let current_ticket = fs::read_to_string(&plan.ticket_path);
+    match current_ticket {
+        Ok(current) if current == source => {}
+        Ok(_) => {
+            let restore = restore_state_bytes(&run_lock, &state_path, &old_state_bytes);
+            return match restore {
+                Ok(()) => Err(refusal(format!(
+                    "hold ticket {} changed while the hold was being prepared; nothing was written",
+                    plan.ticket_path.display()
+                ))),
+                Err(restore_error) => Err(refusal(format!(
+                    "hold ticket {} changed while the hold was being prepared; state rollback incomplete: {restore_error}",
+                    plan.ticket_path.display()
+                ))),
+            };
+        }
+        Err(error) => {
+            let restore = restore_state_bytes(&run_lock, &state_path, &old_state_bytes);
+            return match restore {
+                Ok(()) => Err(refusal(format!(
+                    "hold cannot reread ticket {}: {error}; nothing was written",
+                    plan.ticket_path.display()
+                ))),
+                Err(restore_error) => Err(refusal(format!(
+                    "hold cannot reread ticket {}: {error}; state rollback incomplete: {restore_error}",
+                    plan.ticket_path.display()
+                ))),
+            };
+        }
     }
 
+    // The shared ticket comparison and replacement run under the root claim.
+    // Recheck both live claims before publishing the QA marker and again after
+    // its release; a barrier error restores the state written above.
+    if let Err(error) = root_lock
+        .ensure_current()
+        .and_then(|_| run_lock.ensure_current())
+    {
+        let restore = restore_state_bytes(&run_lock, &state_path, &old_state_bytes);
+        return match restore {
+            Ok(()) => Err(refusal(format!(
+                "hold cannot verify the ticket mutation lock: {error}; nothing was written"
+            ))),
+            Err(restore_error) => Err(refusal(format!(
+                "hold cannot verify the ticket mutation lock: {error}; state rollback incomplete: {restore_error}"
+            ))),
+        };
+    }
+    if let Err(error) = wait_before_ticket_replace_if_requested() {
+        let restore = restore_state_bytes(&run_lock, &state_path, &old_state_bytes);
+        return match restore {
+            Ok(()) => Err(refusal(format!("{}; nothing was written", error.reason))),
+            Err(restore_error) => Err(refusal(format!(
+                "{}; state rollback incomplete: {restore_error}",
+                error.reason
+            ))),
+        };
+    }
+    if let Err(error) = root_lock
+        .ensure_current()
+        .and_then(|_| run_lock.ensure_current())
+    {
+        let restore = restore_state_bytes(&run_lock, &state_path, &old_state_bytes);
+        return match restore {
+            Ok(()) => Err(refusal(format!(
+                "hold cannot verify the ticket mutation lock: {error}; nothing was written"
+            ))),
+            Err(restore_error) => Err(refusal(format!(
+                "hold cannot verify the ticket mutation lock: {error}; state rollback incomplete: {restore_error}"
+            ))),
+        };
+    }
+    let parent_sync_warning = match replace_file_atomically(&plan.ticket_path, held.as_bytes()) {
+        Ok(ReplaceFileOutcome::Durable) => None,
+        Ok(ReplaceFileOutcome::ReplacedWithParentSyncWarning(error)) => Some(error),
+        Err(error) => {
+            let restore = restore_state_bytes(&run_lock, &state_path, &old_state_bytes);
+            return match restore {
+                Ok(()) => Err(refusal(format!("hold cannot write the ticket: {error}"))),
+                Err(restore_error) => Err(refusal(format!(
+                    "hold cannot write the ticket: {error}; state rollback incomplete: {restore_error}"
+                ))),
+            };
+        }
+    };
+    // The shared ticket is now durable. Release root before diagnostics or the
+    // append-only history record can take any further time.
+    drop(root_lock);
+    if let Some(error) = parent_sync_warning {
+        eprintln!(
+            "warning: hold ticket {} was replaced but its parent directory could not be synced: {error}; continuing because the ticket and Run state now agree",
+            plan.ticket_path.display()
+        );
+    }
+
+    // Keep the addressed Run lock through its own route and append-only record,
+    // so an unrelated root holder cannot delay a completed hold.
     let entry = format!(
         "- Hold: ticket {} held against {}; Run routed {} -> {} on an explicit human confirmation. The ticket is not passed and its residuals stay unproven.\n",
         plan.ticket, plan.blocker, plan.from_phase, plan.to_phase
     );
-    if let Err(error) = append(&log_path, &entry) {
-        return Err(restore(refusal(format!(
-            "hold cannot append history: {error}"
-        ))));
-    }
-
-    let source = match fs::read_to_string(&plan.ticket_path) {
-        Ok(source) => source,
-        Err(error) => {
-            return Err(restore(refusal(format!(
-                "hold cannot read the ticket: {error}"
-            ))))
-        }
-    };
-    let held = hold_ticket(&source, &plan.blocker);
-    if let Err(error) = fs::write(&plan.ticket_path, held) {
-        return Err(restore(refusal(format!(
-            "hold cannot write the ticket: {error}"
-        ))));
-    }
-    Ok(())
+    append_history_once(&mut log, entry.as_bytes()).map_err(|error| {
+        refusal(format!(
+            "hold cannot append history: {error}; the ticket and Run state were updated and no history rewrite was attempted"
+        ))
+    })
 }
 
 /// Rewrite a ticket's front matter: `status: "held"` plus its blocker link.
@@ -340,14 +544,139 @@ fn hold_ticket(source: &str, blocker: &str) -> String {
     text
 }
 
-fn append(path: &Path, entry: &str) -> std::io::Result<()> {
-    use std::io::Write;
-    let mut file = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)?;
-    file.write_all(entry.as_bytes())?;
-    file.flush()
+/// Restore exact addressed-Run bytes only while the caller still owns its
+/// motion lock. The replacement is atomic, so a failed restore never truncates
+/// a State File it cannot finish restoring.
+fn restore_state_bytes(
+    run_lock: &crate::lock::RunLock,
+    state_path: &Path,
+    bytes: &[u8],
+) -> Result<(), crate::state::StateError> {
+    run_lock.ensure_current()?;
+    match replace_file_atomically(state_path, bytes) {
+        Ok(ReplaceFileOutcome::Durable) => Ok(()),
+        Ok(ReplaceFileOutcome::ReplacedWithParentSyncWarning(error)) => {
+            eprintln!(
+                "warning: restored pre-hold State File {} but could not sync its parent directory: {error}",
+                state_path.display()
+            );
+            Ok(())
+        }
+        Err(error) => Err(crate::state::StateError::new(format!(
+            "restore pre-hold State File {}: {error}",
+            state_path.display()
+        ))),
+    }
+}
+
+/// Replace an existing artifact from a same-directory temporary file.
+///
+/// A failed temporary write leaves the destination intact. The only replace
+/// step is atomic on supported platforms, matching StateStore's durable-write
+/// discipline for the human ticket and exact State rollback. Once the rename
+/// succeeds, a parent-sync failure is reported as a warning rather than as an
+/// untouched destination: the replacement has already happened.
+fn replace_file_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<ReplaceFileOutcome> {
+    let parent = path.parent().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("{} has no parent directory", path.display()),
+        )
+    })?;
+    let sequence = HOLD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("artifact");
+    let temporary = parent.join(format!(
+        ".{name}.hold-tmp-{}-{sequence}",
+        std::process::id()
+    ));
+    let result: std::io::Result<ReplaceFileOutcome> = (|| {
+        let mut file = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&temporary)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        drop(file);
+        match fs::rename(&temporary, path) {
+            Ok(()) => {}
+            Err(_) if path.exists() => replace_existing_file(&temporary, path)?,
+            Err(error) => return Err(error),
+        }
+        match sync_parent(parent) {
+            Ok(()) => Ok(ReplaceFileOutcome::Durable),
+            Err(error) => Ok(ReplaceFileOutcome::ReplacedWithParentSyncWarning(error)),
+        }
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
+}
+
+#[cfg(unix)]
+fn sync_parent(parent: &Path) -> std::io::Result<()> {
+    std::fs::File::open(parent)?.sync_all()
+}
+
+#[cfg(not(unix))]
+fn sync_parent(_parent: &Path) -> std::io::Result<()> {
+    Ok(())
+}
+
+#[cfg(windows)]
+fn replace_existing_file(temporary: &Path, destination: &Path) -> std::io::Result<()> {
+    use windows_sys::Win32::Storage::FileSystem::ReplaceFileW;
+
+    let destination: Vec<u16> = destination
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let temporary: Vec<u16> = temporary
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    // SAFETY: both NUL-terminated paths remain live for this synchronous API
+    if unsafe {
+        ReplaceFileW(
+            destination.as_ptr(),
+            temporary.as_ptr(),
+            std::ptr::null(),
+            0,
+            std::ptr::null(),
+            std::ptr::null(),
+        )
+    } == 0
+    {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(not(windows))]
+fn replace_existing_file(temporary: &Path, destination: &Path) -> std::io::Result<()> {
+    fs::rename(temporary, destination)
+}
+
+/// Append exactly once. A short write is not retried because that could
+/// duplicate a history record after another caller appends.
+fn append_history_once(file: &mut fs::File, entry: &[u8]) -> std::io::Result<()> {
+    let written = file.write(entry)?;
+    if written != entry.len() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::WriteZero,
+            format!(
+                "short append wrote {written} of {} history bytes without retry",
+                entry.len()
+            ),
+        ));
+    }
+    file.sync_all()
 }
 
 /// Read `key: value` from a record's front matter.

@@ -11,7 +11,7 @@
 .arca/issue/archive/i-001-ratmac-rebrand/test-plan.md	both	Accepted verification plan explicitly names legacy audit and lock checks.
 .arca/issue/archive/i-001-ratmac-rebrand/ubi-lang.md	both	Issue glossary defines the superseded identity.
 src/bin/rtm.rs	schd	Runtime clean-cutover rejection of a direct legacy command.
-src/scheduler.rs	schd	Runtime refusal of a pre-existing legacy lock path.
+src/lock.rs	schd	Runtime refusal of a pre-existing legacy lock path.
 test/qa/tests/t031_rat002.rs	both	Negative metadata assertions prove legacy package and binary absence.
 test/qa/tests/t032_rat003.rs	schd	Negative CLI assertions and direct legacy rejection probe.
 test/qa/tests/t033_rat004.rs	both	Negative QA inventory assertions prove stale-name absence.

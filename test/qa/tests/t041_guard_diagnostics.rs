@@ -215,16 +215,20 @@ fn guard_death_reports_partial_and_releases_lock() {
         text.contains("exit 3"),
         "the observed exit code must be reported: {text}"
     );
-    assert!(
-        !lock_path(&fixture.root).exists(),
-        "the lock must be released after a refusal"
-    );
-    // A second invocation must still work, proving nothing is stuck.
     let id = run_id(&fixture);
+    assert!(
+        !lock_path(&fixture.root, &id).exists(),
+        "ENS-005 Run lock must be released after a refusal"
+    );
+    assert!(
+        !ratmac::lock::root_path(&fixture.root.join(".ratmac")).exists(),
+        "ENS-005 refused motion leaves no root lock behind"
+    );
+    // ENS-005: a second invocation must still work, proving nothing is stuck.
     let again = rtm(&fixture, &["status", "--run", &id]);
     assert!(again.status.success(), "status after refusal must succeed");
 }
 
-fn lock_path(root: &Path) -> PathBuf {
-    root.join(".ratmac/locks/root.lock")
+fn lock_path(root: &Path, run_id: &str) -> PathBuf {
+    ratmac::lock::run_path(&root.join(".ratmac"), run_id)
 }

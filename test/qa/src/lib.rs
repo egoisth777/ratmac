@@ -391,7 +391,6 @@ mod t007_state_file {
     use ratmac::scheduler::Scheduler;
 
     const VALID_STATE: &str = include_str!("../../fixtures/state/valid-state.toml");
-    const BLOCKED_STATE: &str = include_str!("../../fixtures/state/blocked-with-blocker.toml");
     const STATUS_FIXTURE: &str = "../fixtures/state/status-with-pending-guards";
 
     struct IsolatedProject(PathBuf);
@@ -438,6 +437,16 @@ mod t007_state_file {
         scheduler
     }
 
+    /// Install a complete historical State File before opening its addressed
+    /// Run. This is fixture setup for read/report coverage, not a caller
+    /// attempting to overwrite a minted Run through a state mutator.
+    fn scheduler_with_fixture_state(project: &IsolatedProject, state: &str) -> Scheduler {
+        let state_path = project.0.join(".ratmac/runs/run-001/state.toml");
+        fs::create_dir_all(state_path.parent().expect("State File has parent"))
+            .expect("create addressed Run fixture directory");
+        fs::write(state_path, state).expect("install complete State File fixture");
+        Scheduler::open_run(project.root(), "run-001").expect("open complete State File fixture")
+    }
     fn install_machine_class(project: &IsolatedProject) {
         let fixture_root = Path::new(env!("CARGO_MANIFEST_DIR")).join(STATUS_FIXTURE);
         fs::create_dir_all(project.root().join(".ratmac")).expect("create class directory");
@@ -455,11 +464,28 @@ mod t007_state_file {
         // TRP-005: a Scheduler opens against a declared Machine Class or not at all.
         install_machine_class(&project);
         let mut scheduler = scheduler(&project);
-        let expected = fixture_state(BLOCKED_STATE);
+        let before_stale_proposal = project.state_bytes();
+        let stale_proposal = fixture_state(VALID_STATE);
+        let stale_error = scheduler
+            .record_missing_prerequisite(stale_proposal, "input_revision")
+            .expect_err("a fabricated state proposal must not overwrite the minted Run");
+        assert_eq!(
+            stale_error.to_string(),
+            "state mutation refused for run run-001: caller-provided state is stale; reload it before retrying"
+        );
+        assert_eq!(
+            project.state_bytes(),
+            before_stale_proposal,
+            "a stale proposal must leave the State File byte-identical"
+        );
+
+        let expected = scheduler
+            .load_state()
+            .expect("reload the current State File before proposing a mutation");
 
         scheduler
             .record_missing_prerequisite(expected.clone(), "input_revision")
-            .expect("Scheduler records a missing entry prerequisite");
+            .expect("Scheduler records a missing entry prerequisite from the reloaded state");
 
         let actual = scheduler
             .load_state()
@@ -470,7 +496,10 @@ mod t007_state_file {
         assert_eq!(actual.output_revision, expected.output_revision);
         assert_eq!(actual.active_refs, expected.active_refs);
         assert_eq!(actual.status, Status::Blocked);
-        assert_eq!(actual.blocker, expected.blocker);
+        assert_eq!(
+            actual.blocker, "missing entry prerequisite: input_revision",
+            "the legal blocked mutation supplies its own blocker"
+        );
         assert!(actual.blocker.contains("input_revision"));
     }
 
@@ -478,12 +507,16 @@ mod t007_state_file {
     fn test_state_file_shape_and_status_are_reportable() {
         let project = IsolatedProject::new();
         install_machine_class(&project);
-        let mut scheduler = scheduler(&project);
         let expected = fixture_state(VALID_STATE);
+        let mut scheduler = scheduler_with_fixture_state(&project, VALID_STATE);
+        let current = scheduler
+            .load_state()
+            .expect("reload complete State File fixture before writing");
+        assert_eq!(current, expected, "fixture State File must parse exactly");
 
         scheduler
-            .initialize_state(expected.clone())
-            .expect("Scheduler creates the State File");
+            .initialize_state(current)
+            .expect("Scheduler accepts an exactly reloaded State File");
         let before = project.state_bytes();
         let report = scheduler.status().expect("read-only status succeeds");
         let after = project.state_bytes();
@@ -521,12 +554,14 @@ mod t007_state_file {
     fn test_status_prints_phase_status_blocker_and_pending_guards() {
         let project = IsolatedProject::new();
         install_machine_class(&project);
-        let mut scheduler = scheduler(&project);
-        let expected = fixture_state(BLOCKED_STATE);
+        let mut scheduler = scheduler_with_fixture_state(&project, VALID_STATE);
+        let current = scheduler
+            .load_state()
+            .expect("reload complete State File fixture before blocking it");
 
         scheduler
-            .record_missing_prerequisite(expected.clone(), "input_revision")
-            .expect("Scheduler records a missing entry prerequisite");
+            .record_missing_prerequisite(current, "input_revision")
+            .expect("Scheduler records a missing entry prerequisite from the reloaded state");
         let before = project.state_bytes();
         let report = scheduler.status().expect("read-only status succeeds");
         let after = project.state_bytes();
@@ -678,14 +713,14 @@ mod t010 {
             "start must choose the unique Phase with no incoming transition"
         );
 
+        let run_id = run.id().expect("start mints a run id");
         assert_eq!(
             run.lock_path().expect("started Run owns lock path"),
-            engine.join("locks/root.lock"),
-            "Run must own the root lock path"
+            engine.join("locks/runs").join(format!("{run_id}.lock")),
+            "Run must own its addressed motion-lock path"
         );
         // FDC-004: the State File resides in the minted run's directory; the
         // history log stays Engine-root-level.
-        let run_id = run.id().expect("start mints a run id");
         assert!(
             engine
                 .join("runs")

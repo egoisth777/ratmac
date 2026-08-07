@@ -75,10 +75,11 @@ impl FromStr for Status {
 }
 
 /// Paths owned by a started Run under the resolved Engine root's
-/// `.ratmac/runs/<id>/` directory.
+/// `.ratmac/runs/<id>/` directory and Run-scoped lock namespace.
 ///
 /// The State File and Run evidence reside in the run directory; the history
-/// log and transient root lock stay at the Engine root.
+/// log stays at the Engine root, while this Run's transient motion lock stays
+/// under `.ratmac/locks/runs/`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RunArtifacts {
     run_dir: PathBuf,
@@ -95,7 +96,7 @@ impl RunArtifacts {
             state_path: run_dir.join("state.toml"),
             run_dir,
             log_path: engine_root.join("log.md"),
-            lock_path: engine_root.join("locks").join("root.lock"),
+            lock_path: crate::lock::run_path(&engine_root, run_id),
         }
     }
 

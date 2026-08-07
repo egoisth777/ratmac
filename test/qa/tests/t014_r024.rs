@@ -55,17 +55,15 @@ fn scheduler_files_are_under_ratmac() {
 
     let run_id = run.id().expect("start must mint a run id");
     let run_dir = engine.join("runs").join(run_id);
+    let run_lock = engine.join("locks/runs").join(format!("{run_id}.lock"));
     assert_eq!(artifacts.state_path(), run_dir.join("state.toml").as_path());
     assert_eq!(artifacts.log_path(), engine.join("log.md").as_path());
-    assert_eq!(
-        artifacts.lock_path(),
-        engine.join("locks/root.lock").as_path()
-    );
+    assert_eq!(artifacts.lock_path(), run_lock.as_path());
     assert_eq!(artifacts.state_path().parent(), Some(run_dir.as_path()));
     assert_eq!(artifacts.log_path().parent(), Some(engine.as_path()));
     assert_eq!(
         artifacts.lock_path().parent(),
-        Some(engine.join("locks").as_path())
+        Some(engine.join("locks/runs").as_path())
     );
     assert!(
         artifacts.state_path().is_file(),
@@ -81,7 +79,7 @@ fn scheduler_files_are_under_ratmac() {
     );
     assert!(
         !artifacts.lock_path().exists(),
-        "root.lock is transient and must be absent after start returns"
+        "the Run-scoped lock is transient and absent after start returns"
     );
     assert_eq!(
         fs::read(&ratmac).expect("class bytes must be readable after start"),

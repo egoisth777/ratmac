@@ -1,12 +1,12 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fs::{self, OpenOptions};
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::thread;
 
 use crate::graph::{MachineGraph, Phase};
 use crate::ledger::LedgerEntry;
+use crate::lock::{RootLock, RunLock};
 use crate::machine::{GuardKind, MachineClass, PhaseDefinition};
 use crate::model::{Run, RunState, Status};
 use crate::state::{PhasePrompt, StateError, StateStore, StatusReport};
@@ -137,85 +137,41 @@ pub struct Scheduler {
     store: Option<StateStore>,
 }
 
-struct InvocationLock {
+/// Exact artifacts created for a freshly minted Run. A later compensating
+/// rollback may remove the directory only after these bytes and its direct
+/// entries still match.
+#[derive(Clone, Debug)]
+struct MintedRunSnapshot {
+    state_bytes: Vec<u8>,
+    evidence_bytes: Vec<u8>,
+    spawn_ledger_bytes: Vec<u8>,
+}
+
+/// A fresh Run remains motion-locked while a caller completes the transaction
+/// that made it addressable (notably spawn's parent-ledger entry).
+#[derive(Debug)]
+struct MintedRun {
+    id: String,
+    run_lock: RunLock,
+    snapshot: MintedRunSnapshot,
+}
+
+/// Exact bytes a guard read from one spawn ledger. `None` records the
+/// semantically empty, absent ledger so a later creation is also a change.
+#[derive(Debug)]
+struct LedgerSnapshot {
     path: PathBuf,
+    bytes: Option<Vec<u8>>,
 }
 
-impl InvocationLock {
-    fn legacy_lock_path(path: &Path) -> Option<PathBuf> {
-        path.parent()
-            .and_then(Path::parent)
-            .map(|engine_root| engine_root.join("schd.lock"))
-    }
-
-    fn refuse_legacy(path: &Path) -> Result<(), StateError> {
-        let Some(legacy_path) = Self::legacy_lock_path(path) else {
-            return Ok(());
-        };
-        match fs::symlink_metadata(&legacy_path) {
-            Ok(_) => Err(StateError::new(format!(
-                "refusing to run: legacy lock {} exists; explicitly migrate or remove that lock, then retry; it was not modified",
-                legacy_path.display()
-            ))),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(StateError::new(format!(
-                "inspect legacy lock {}: {error}",
-                legacy_path.display()
-            ))),
-        }
-    }
-
-    fn try_acquire(path: &Path) -> std::io::Result<Self> {
-        OpenOptions::new().write(true).create_new(true).open(path)?;
-        Ok(Self {
-            path: path.to_path_buf(),
-        })
-    }
-
-    fn acquire_with_retry(path: &Path) -> Result<Self, StateError> {
-        const MAX_ATTEMPTS: usize = 4_096;
-        let parent = path
-            .parent()
-            .ok_or_else(|| StateError::new("root lock has no parent directory"))?;
-        fs::create_dir_all(parent)
-            .map_err(|error| StateError::new(format!("create locks directory: {error}")))?;
-        Self::refuse_legacy(path)?;
-        for attempt in 0..MAX_ATTEMPTS {
-            match Self::try_acquire(path) {
-                Ok(lock) => {
-                    if let Err(error) = Self::refuse_legacy(path) {
-                        drop(lock);
-                        return Err(error);
-                    }
-                    return Ok(lock);
-                }
-                Err(error)
-                    if matches!(
-                        error.kind(),
-                        std::io::ErrorKind::AlreadyExists | std::io::ErrorKind::PermissionDenied
-                    ) =>
-                {
-                    Self::refuse_legacy(path)?;
-                    if attempt + 1 < MAX_ATTEMPTS {
-                        thread::yield_now();
-                    } else {
-                        return Err(StateError::new(format!(
-                            "acquire root.lock: lock remained held after {MAX_ATTEMPTS} attempts"
-                        )));
-                    }
-                }
-                Err(error) => {
-                    return Err(StateError::new(format!("create root.lock: {error}")));
-                }
-            }
-        }
-        unreachable!("lock retry loop returns on every attempt");
-    }
-}
-impl Drop for InvocationLock {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
-    }
+/// A failed append is resolved from the ledger bytes that actually remain,
+/// rather than assuming an I/O error means no bytes reached the file.
+#[derive(Debug)]
+enum LedgerAppendAftermath {
+    Appended,
+    RecordedAfterError(String),
+    AbsentAfterError(String),
+    Indeterminate(String),
 }
 
 impl Scheduler {
@@ -276,7 +232,7 @@ impl Scheduler {
         Ok(Self {
             machine,
             run_id: Some(run_id.to_owned()),
-            store: Some(StateStore::for_engine_root(&engine_root, run_id)),
+            store: Some(StateStore::for_run(&root, run_id)),
             root: Some(root),
             engine_root: Some(engine_root),
         })
@@ -289,13 +245,14 @@ impl Scheduler {
     /// and again at the top of `start`, before any run is minted: `start` on a
     /// residue-carrying project names the residue and mints nothing.
     fn refuse_flat_residue(root: &Path) -> Result<(), StateError> {
-        let roots = crate::root::resolve(root);
+        let engine_root = crate::root::resolve(root).engine_root().to_path_buf();
+        Self::refuse_flat_residue_at(root, &engine_root)
+    }
+
+    fn refuse_flat_residue_at(root: &Path, engine_root: &Path) -> Result<(), StateError> {
         for flat in [
-            roots.engine_root().join("state.toml"),
-            roots
-                .invoking_checkout_root()
-                .join(".arca")
-                .join("state.toml"),
+            engine_root.join("state.toml"),
+            root.join(".arca").join("state.toml"),
         ] {
             if fs::symlink_metadata(&flat).is_ok() {
                 return Err(StateError::new(format!(
@@ -313,7 +270,7 @@ impl Scheduler {
     /// hex. The runbook pin is this hash and nothing more; no code path copies
     /// the runbook.
     fn runbook_sha256(root: &Path) -> Result<String, StateError> {
-        let path = crate::root::resolve(root).machine_class_path();
+        let path = root.join(".ratmac").join("ratmac.toml");
         crate::pin::sha256_file(&path).map_err(|error| {
             StateError::new(format!(
                 "hash .ratmac/ratmac.toml: {error} ({})",
@@ -327,10 +284,16 @@ impl Scheduler {
     /// observed and expected identity, and writes nothing. A run whose
     /// evidence records no runbook pin predates the pin and is not checked.
     fn verify_runbook_pin(root: &Path, run_dir: &Path) -> Result<(), StateError> {
+        let observed = Self::runbook_sha256(root)?;
+        Self::verify_runbook_pin_hash(run_dir, &observed)
+    }
+
+    /// Compare a Run's recorded pin to a hash already computed before a root
+    /// mutation lock is taken.
+    fn verify_runbook_pin_hash(run_dir: &Path, observed: &str) -> Result<(), StateError> {
         let Some(expected) = crate::pin::Evidence::load(run_dir).runbook_sha256 else {
             return Ok(());
         };
-        let observed = Self::runbook_sha256(root)?;
         if observed != expected {
             return Err(StateError::new(format!(
                 "runbook pin mismatch: .ratmac/ratmac.toml drifted since rtm start — \
@@ -389,7 +352,11 @@ impl Scheduler {
     /// roster so command surfaces can report it without probing a candidate.
     pub(crate) fn validate_run_address(root: &Path, run_id: &str) -> Result<(), StateError> {
         let engine_root = crate::root::resolve(root).engine_root().to_path_buf();
-        let roster = Self::run_roster_at(&engine_root);
+        Self::validate_run_address_at(&engine_root, run_id)
+    }
+
+    fn validate_run_address_at(engine_root: &Path, run_id: &str) -> Result<(), StateError> {
+        let roster = Self::run_roster_at(engine_root);
         let roster_line = if roster.is_empty() {
             "none".to_owned()
         } else {
@@ -439,7 +406,7 @@ impl Scheduler {
     /// TRP-001, TRP-005: the one reader. An absent or unreadable runbook is a
     /// refusal that names the path, never an empty machine.
     fn load_class(root: &Path) -> Result<MachineClass, StateError> {
-        let path = crate::root::resolve(root).machine_class_path();
+        let path = root.join(".ratmac").join("ratmac.toml");
         let source = fs::read_to_string(&path).map_err(|error| {
             StateError::new(format!(
                 "read .ratmac/ratmac.toml: {error} ({})",
@@ -454,12 +421,14 @@ impl Scheduler {
         let phases = class.phases().keys().map(Phase::new).collect::<Vec<_>>();
         MachineGraph::new(phases, class.transitions().to_vec())
     }
-
     pub fn machine(&self) -> &MachineGraph {
         &self.machine
     }
 
-    /// The git revision at spawn; `"none"` when the project has none.
+    /// The invoking checkout's Git revision at spawn; `"none"` when it has
+    /// no readable Git HEAD. This is ledger provenance, distinct from the
+    /// content-hashed goal baseline and from the later byte snapshots used to
+    /// revalidate a motion.
     fn revision_at(root: &Path) -> String {
         std::process::Command::new("git")
             .arg("-C")
@@ -474,15 +443,14 @@ impl Scheduler {
             .unwrap_or_else(|| "none".to_owned())
     }
 
-    /// FDC-011: the live ledger entry recording the named run, with the
-    /// ledger path carrying it. A ledger whose raw bytes name the run but
-    /// refuse strict read is a named defect, never skipped.
-    fn ledger_record_of(
-        root: &Path,
+    fn ledger_record_of_at(
+        engine_root: &Path,
         run_id: &str,
     ) -> Result<Option<(PathBuf, LedgerEntry)>, StateError> {
-        for candidate in Self::run_roster(root) {
-            let path = Self::runs_dir(root).join(&candidate).join("spawn-ledger");
+        for candidate in Self::run_roster_at(engine_root) {
+            let path = Self::runs_dir_at(engine_root)
+                .join(&candidate)
+                .join("spawn-ledger");
             let Ok(text) = fs::read_to_string(&path) else {
                 continue;
             };
@@ -504,6 +472,91 @@ impl Scheduler {
         Ok(None)
     }
 
+    fn snapshot_ledger(path: &Path) -> Result<LedgerSnapshot, StateError> {
+        match fs::read(path) {
+            Ok(bytes) => Ok(LedgerSnapshot {
+                path: path.to_path_buf(),
+                bytes: Some(bytes),
+            }),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(LedgerSnapshot {
+                path: path.to_path_buf(),
+                bytes: None,
+            }),
+            Err(error) => Err(StateError::new(format!(
+                "read spawn ledger {}: {error}",
+                path.display()
+            ))),
+        }
+    }
+
+    /// A ledger write can report an error after bytes reached the file. The
+    /// exact before/after bytes and strict parser classify only the cases in
+    /// which deleting the just-minted child is demonstrably safe.
+    fn append_ledger_entry(path: &Path, entry: &LedgerEntry) -> LedgerAppendAftermath {
+        let before = match Self::snapshot_ledger(path) {
+            Ok(snapshot) => snapshot.bytes,
+            Err(error) => {
+                return LedgerAppendAftermath::Indeterminate(format!(
+                    "cannot snapshot the ledger before append: {error}"
+                ))
+            }
+        };
+        match crate::ledger::append_entry(path, entry) {
+            Ok(()) => LedgerAppendAftermath::Appended,
+            Err(append_error) => {
+                let after = match Self::snapshot_ledger(path) {
+                    Ok(snapshot) => snapshot.bytes,
+                    Err(read_error) => {
+                        return LedgerAppendAftermath::Indeterminate(format!(
+                            "append reported {append_error}; cannot reread the ledger: {read_error}"
+                        ))
+                    }
+                };
+                match crate::ledger::read_entries(path) {
+                    Ok(entries) if entries.iter().any(|recorded| recorded == entry) => {
+                        LedgerAppendAftermath::RecordedAfterError(append_error.to_string())
+                    }
+                    Ok(entries)
+                        if after == before
+                            && entries.iter().all(|recorded| recorded.id != entry.id) =>
+                    {
+                        LedgerAppendAftermath::AbsentAfterError(append_error.to_string())
+                    }
+                    Ok(_) => LedgerAppendAftermath::Indeterminate(format!(
+                        "append reported {append_error}; the ledger bytes changed without a complete matching entry"
+                    )),
+                    Err(read_error) => LedgerAppendAftermath::Indeterminate(format!(
+                        "append reported {append_error}; the ledger is partial or unreadable: {read_error}"
+                    )),
+                }
+            }
+        }
+    }
+
+    /// Revalidate every ledger queried by a guard immediately before the
+    /// durable motion. Root-domain writers remain independent; this catches a
+    /// verdict that was computed from bytes no longer present.
+    fn ensure_ledger_snapshots_current(
+        run_id: &str,
+        snapshots: &[LedgerSnapshot],
+    ) -> Result<(), StateError> {
+        for snapshot in snapshots {
+            let current = Self::snapshot_ledger(&snapshot.path).map_err(|error| {
+                StateError::new(format!(
+                    "state mutation refused for run {run_id}: a ledger the guards read changed while the step was being decided: {} could not be reread ({error}); reload it before retrying",
+                    snapshot.path.display()
+                ))
+            })?;
+            if current.bytes != snapshot.bytes {
+                return Err(StateError::new(format!(
+                    "state mutation refused for run {run_id}: a ledger the guards read changed while the step was being decided: {}; reload it before retrying",
+                    snapshot.path.display()
+                )));
+            }
+        }
+        Ok(())
+    }
+
     /// Instantiate a Run from the canonical, human-authored Machine Class.
     ///
     /// FDC-004: start mints a run id in the single namespace and creates
@@ -523,8 +576,13 @@ impl Scheduler {
             .ok_or_else(|| StateError::new("start requires Scheduler::open"))?
             .clone();
         let engine_root = self.engine_root()?.to_path_buf();
+        // Do the content reads before taking the mutation domain. The cheap
+        // flat-residue fact is checked again after acquisition below.
+        Self::refuse_flat_residue(&root)?;
         self.machine = Self::graph_of(&Self::load_class(&root)?);
         let phase = self.initial_phase()?;
+        let runbook_pin = Self::runbook_sha256(&root)?;
+        let goal_baseline = crate::goal::revision(&root);
         // FDC-002: a Run beginning in a terminal Phase — no ordinary outgoing
         // edge — is complete from its first State File. The Engine writes the
         // terminal fact; no agent claim participates.
@@ -533,51 +591,86 @@ impl Scheduler {
         } else {
             Status::Passed
         };
-        let lock_path = engine_root.join("locks").join("root.lock");
-        let _lock = InvocationLock::acquire_with_retry(&lock_path)?;
-        // FDC-005: flat-layout residue refuses before any run id is minted,
-        // so the refusal names the residue and no run directory is created.
-        Self::refuse_flat_residue(&root)?;
-        // FDC-005: the runbook pin recorded in the run's evidence is the
-        // SHA-256 of the canonical runbook — a hash and nothing more.
-        let runbook_pin = Self::runbook_sha256(&root)?;
+        let engine_identity = crate::pin::engine_identity();
+        let root_lock = RootLock::acquire(&engine_root)?;
+        // Recheck this inexpensive existence fact after the final mutation
+        // lock, before minting changes the roster.
+        Self::refuse_flat_residue_at(&root, &engine_root)?;
         // FDC-006/ENS-004: no active-Run cap. Every allocation advances the
         // durable high-water record while this root lock is held, then creates
         // an independently addressed member of .ratmac/runs/.
-        let run_id = Self::mint_run(
+        let minted = Self::mint_run(
+            &root_lock,
             &engine_root,
-            &root,
             phase.as_str(),
             initial_status,
             &runbook_pin,
+            &goal_baseline,
+            &engine_identity,
         )?;
+        let run_id = minted.id.clone();
         let store = StateStore::for_engine_root(&engine_root, &run_id);
         self.store = Some(store);
         self.run_id = Some(run_id.clone());
-
         Ok(Run::new(phase, initial_status).with_artifacts(&root, &run_id))
     }
 
     /// Reserve the next durable id, then create its directory, State File,
-    /// evidence, and reserved spawn-ledger path.  Used by `start` for the
-    /// project machine and by `spawn`/`respawn` for children and successors:
-    /// every minted Run is an ordinary flat top-level Run in the single
-    /// namespace (FDC-004/FDC-006).  A later creation failure removes the
-    /// half-made directory but deliberately leaves its reserved ordinal.
+    /// evidence, and reserved spawn-ledger path. Used by `start` for the
+    /// project machine and by `spawn`/`respawn` for children and successors.
+    /// A later creation failure removes the half-made directory but
+    /// deliberately leaves its reserved ordinal.
     fn mint_run(
+        root_lock: &RootLock,
         engine_root: &Path,
-        workflow_root: &Path,
         phase: &str,
         status: Status,
         runbook_pin: &str,
-    ) -> Result<String, StateError> {
+        goal_baseline: &Option<String>,
+        engine_identity: &Option<crate::pin::Identity>,
+    ) -> Result<MintedRun, StateError> {
+        // A new Engine root receives its empty shared history under the root
+        // domain. This is deliberately not restored on a later mint failure:
+        // it contains no Run claim and another caller may legitimately use it.
+        root_lock.ensure_current()?;
+        OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(engine_root.join("log.md"))
+            .map_err(|error| StateError::new(format!("open log.md: {error}")))?;
+        root_lock.ensure_current()?;
         let run_id = crate::mint::next(engine_root)?;
         let runs_dir = Self::runs_dir_at(engine_root);
+        root_lock.ensure_current()?;
         fs::create_dir_all(&runs_dir)
             .map_err(|error| StateError::new(format!("create .ratmac/runs: {error}")))?;
         let run_dir = runs_dir.join(&run_id);
+        root_lock.ensure_current()?;
         fs::create_dir(&run_dir)
             .map_err(|error| StateError::new(format!("create run directory {run_id}: {error}")))?;
+
+        // The directory is not addressable until State File creation below.
+        // Claim its Run lock now, while root is still held, and retain it past
+        // minting for a caller's ledger transaction. A new id should have no
+        // ordinary contender; do not wait on the unlikely foreign claim while
+        // holding root.
+        let run_lock = match RunLock::try_acquire(engine_root, &run_id) {
+            Ok(Some(lock)) => lock,
+            Ok(None) => {
+                let error = StateError::new(format!(
+                    "mint cannot claim fresh Run lock {} without waiting while root is held",
+                    crate::lock::run_path(engine_root, &run_id).display()
+                ));
+                return Err(Self::cleanup_incomplete_mint(
+                    root_lock, None, &run_dir, error,
+                ));
+            }
+            Err(error) => {
+                return Err(Self::cleanup_incomplete_mint(
+                    root_lock, None, &run_dir, error,
+                ));
+            }
+        };
 
         let state = RunState {
             phase: phase.to_string(),
@@ -588,53 +681,31 @@ impl Scheduler {
             active_refs: Vec::new(),
             blocker: String::new(),
         };
-        let log_path = engine_root.join("log.md");
-        let log_existed = log_path.exists();
         let store = StateStore::for_engine_root(engine_root, &run_id);
-        let create_run = || -> Result<(), StateError> {
-            let log = OpenOptions::new()
-                .create(true)
-                .append(true)
-                .read(true)
-                .open(&log_path)
-                .map_err(|error| StateError::new(format!("open log.md: {error}")))?;
-            let old_log_len = log
-                .metadata()
-                .map_err(|error| StateError::new(format!("stat log.md: {error}")))?
-                .len();
-            if let Err(state_error) = store.write(&state) {
-                drop(log);
-                if !log_existed {
-                    let _ = fs::remove_file(&log_path);
-                } else {
-                    let _ = OpenOptions::new()
-                        .write(true)
-                        .open(&log_path)
-                        .and_then(|file| file.set_len(old_log_len));
-                }
-                return Err(state_error);
-            }
-            drop(log);
+        let create_result = (|| -> Result<MintedRunSnapshot, StateError> {
+            root_lock.ensure_current()?;
+            run_lock.ensure_current()?;
+            store.write(&state)?;
 
-            // ETB-001: Run evidence carries the Stable Engine pin from Run
-            // start, so every later gate pin is recorded beside a known Engine
-            // identity.
+            // ETB-001: the identity was hashed before the root mutation
+            // domain; only writing it is performed under the short lock.
             let mut evidence = crate::pin::Evidence::load(&run_dir);
-            if let Some(identity) = crate::pin::engine_identity() {
-                evidence.set_engine(identity);
+            if let Some(identity) = engine_identity {
+                evidence.set_engine(identity.clone());
             }
-            // ETB-003: Run start records the baseline goal revision. The
-            // freeze happens later, at the intake-completion boundary.
-            evidence.goal_baseline = crate::goal::revision(workflow_root);
+            evidence.goal_baseline = goal_baseline.clone();
             evidence.goal_frozen = None;
-            // FDC-005: record the runbook pin — hash only, never a copy.
             evidence.runbook_sha256 = Some(runbook_pin.to_owned());
+            root_lock.ensure_current()?;
+            run_lock.ensure_current()?;
             evidence
                 .write(&run_dir)
                 .map_err(|error| StateError::new(format!("write evidence.toml: {error}")))?;
 
             // FDC-003/FDC-004: an empty Verdict slot is absence. Only the
             // per-run spawn-ledger path remains reserved by name here.
+            root_lock.ensure_current()?;
+            run_lock.ensure_current()?;
             OpenOptions::new()
                 .create_new(true)
                 .write(true)
@@ -642,15 +713,170 @@ impl Scheduler {
                 .map_err(|error| {
                     StateError::new(format!("reserve spawn-ledger under {run_id}: {error}"))
                 })?;
-            Ok(())
-        };
-        if let Err(error) = create_run() {
-            // No half-made run directory may remain on the roster.
-            let _ = fs::remove_dir_all(&run_dir);
-            return Err(error);
+            root_lock.ensure_current()?;
+            run_lock.ensure_current()?;
+            Self::snapshot_minted_run(&run_dir)
+        })();
+        match create_result {
+            Ok(snapshot) => Ok(MintedRun {
+                id: run_id,
+                run_lock,
+                snapshot,
+            }),
+            Err(error) => Err(Self::cleanup_incomplete_mint(
+                root_lock,
+                Some(&run_lock),
+                &run_dir,
+                error,
+            )),
+        }
+    }
+
+    fn cleanup_incomplete_mint(
+        root_lock: &RootLock,
+        run_lock: Option<&RunLock>,
+        run_dir: &Path,
+        error: StateError,
+    ) -> StateError {
+        // A minted ordinal remains durable, but an incomplete Run must not
+        // remain on the roster. Once a Run lock exists, require it still names
+        // this mutation before deleting anything.
+        let cleanup = (|| {
+            root_lock.ensure_current()?;
+            if let Some(run_lock) = run_lock {
+                run_lock.ensure_current()?;
+            }
+            fs::remove_dir_all(run_dir).map_err(|cleanup_error| {
+                StateError::new(format!(
+                    "remove incomplete run directory {}: {cleanup_error}",
+                    run_dir.display()
+                ))
+            })
+        })();
+        match cleanup {
+            Ok(()) => error,
+            Err(cleanup_error) => {
+                StateError::new(format!("{error}; cleanup incomplete: {cleanup_error}"))
+            }
+        }
+    }
+
+    fn snapshot_minted_run(run_dir: &Path) -> Result<MintedRunSnapshot, StateError> {
+        let state_bytes = fs::read(run_dir.join("state.toml"))
+            .map_err(|error| StateError::new(format!("snapshot minted State File: {error}")))?;
+        let evidence_bytes = fs::read(run_dir.join(crate::pin::EVIDENCE_FILE))
+            .map_err(|error| StateError::new(format!("snapshot minted evidence.toml: {error}")))?;
+        let spawn_ledger_bytes = fs::read(run_dir.join("spawn-ledger"))
+            .map_err(|error| StateError::new(format!("snapshot minted spawn-ledger: {error}")))?;
+        Ok(MintedRunSnapshot {
+            state_bytes,
+            evidence_bytes,
+            spawn_ledger_bytes,
+        })
+    }
+
+    fn ensure_minted_run_matches(
+        run_dir: &Path,
+        snapshot: &MintedRunSnapshot,
+        operation: &str,
+    ) -> Result<(), StateError> {
+        let metadata = fs::symlink_metadata(run_dir).map_err(|error| {
+            StateError::new(format!(
+                "{operation} refused: cannot inspect minted Run directory {}: {error}",
+                run_dir.display()
+            ))
+        })?;
+        if !metadata.file_type().is_dir() {
+            return Err(StateError::new(format!(
+                "{operation} refused: minted Run directory {} was replaced",
+                run_dir.display()
+            )));
         }
 
-        Ok(run_id)
+        let mut seen = BTreeMap::new();
+        let entries = fs::read_dir(run_dir).map_err(|error| {
+            StateError::new(format!(
+                "{operation} refused: cannot inspect minted Run directory {}: {error}",
+                run_dir.display()
+            ))
+        })?;
+        for entry in entries {
+            let entry = entry.map_err(|error| {
+                StateError::new(format!(
+                    "{operation} refused: cannot inspect a minted Run entry: {error}"
+                ))
+            })?;
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let expected = match name.as_str() {
+                "state.toml" => snapshot.state_bytes.as_slice(),
+                crate::pin::EVIDENCE_FILE => snapshot.evidence_bytes.as_slice(),
+                "spawn-ledger" => snapshot.spawn_ledger_bytes.as_slice(),
+                _ => {
+                    return Err(StateError::new(format!(
+                        "{operation} refused: minted Run directory {} changed (unexpected entry {name:?})",
+                        run_dir.display()
+                    )))
+                }
+            };
+            let file_type = entry.file_type().map_err(|error| {
+                StateError::new(format!(
+                    "{operation} refused: cannot inspect minted Run entry {}: {error}",
+                    entry.path().display()
+                ))
+            })?;
+            if !file_type.is_file() {
+                return Err(StateError::new(format!(
+                    "{operation} refused: minted Run entry {} is no longer a regular file",
+                    entry.path().display()
+                )));
+            }
+            let observed = fs::read(entry.path()).map_err(|error| {
+                StateError::new(format!(
+                    "{operation} refused: cannot read minted Run entry {}: {error}",
+                    entry.path().display()
+                ))
+            })?;
+            if observed != expected {
+                return Err(StateError::new(format!(
+                    "{operation} refused: minted Run entry {} changed; it was not removed",
+                    entry.path().display()
+                )));
+            }
+            seen.insert(name, ());
+        }
+        for name in ["state.toml", crate::pin::EVIDENCE_FILE, "spawn-ledger"] {
+            if !seen.contains_key(name) {
+                return Err(StateError::new(format!(
+                    "{operation} refused: minted Run entry {} is missing; it was not removed",
+                    run_dir.join(name).display()
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    fn rollback_minted_run_while_locked(
+        root_lock: &RootLock,
+        run_lock: &RunLock,
+        engine_root: &Path,
+        run_id: &str,
+        snapshot: &MintedRunSnapshot,
+        operation: &str,
+    ) -> Result<(), StateError> {
+        let run_dir = Self::runs_dir_at(engine_root).join(run_id);
+        root_lock.ensure_current()?;
+        run_lock.ensure_current()?;
+        Self::ensure_minted_run_matches(&run_dir, snapshot, operation)?;
+        // Recheck both claims and exact bytes immediately before deletion.
+        root_lock.ensure_current()?;
+        run_lock.ensure_current()?;
+        Self::ensure_minted_run_matches(&run_dir, snapshot, operation)?;
+        fs::remove_dir_all(&run_dir).map_err(|error| {
+            StateError::new(format!(
+                "{operation} cannot remove minted Run directory {}: {error}",
+                run_dir.display()
+            ))
+        })
     }
 
     /// FDC-007: `rtm spawn` is ordinary checked motion - no confirmation
@@ -691,7 +917,9 @@ composition is capped at one level (FDC-012)"
 
     /// FDC-011: spawn records what it makes. The ledger entry - child id,
     /// class, binding values, revision at spawn - lands in the same turn
-    /// that mints the child; a refused spawn writes no byte anywhere.
+    /// that mints the child. A failed append rolls that child back only when
+    /// a strict reread proves no entry landed; uncertain bytes leave both
+    /// paths intact for recovery rather than destroying recorded state.
     pub fn spawn_with_bindings(
         &mut self,
         spawn_name: &str,
@@ -707,13 +935,117 @@ composition is capped at one level (FDC-012)"
             StateError::new("spawn requires an addressed parent: open one with Scheduler::open_run")
         })?;
         let run_dir = self.run_dir()?;
-        let lock_path = engine_root.join("locks").join("root.lock");
-        let _lock = InvocationLock::acquire_with_retry(&lock_path)?;
-        // FDC-012: composition is capped at one level. A parent that is
-        // itself a ledger-recorded child anywhere refuses before any read of
-        // its state - provenance, not liveness, so an abandoned child and a
-        // respawned successor (its State File retired or fresh) refuse by
-        // the same name, before any write.
+        let state_path = run_dir.join("state.toml");
+
+        // Slow content and Git reads never belong to the shared mutation
+        // scope. The final pair only rechecks the facts this plan relies on.
+        let class = Self::load_class(&root)?;
+        let runbook_pin = Self::runbook_sha256(&root)?;
+        let goal_baseline = crate::goal::revision(&root);
+        let spawned_at = Self::revision_at(&root);
+        let engine_identity = crate::pin::engine_identity();
+        self.machine = Self::graph_of(&class);
+
+        // This is a read-only spawn plan. Do not take the parent Run lock
+        // here: the later mint/ledger transaction needs both domains and must
+        // acquire root before Run. Its final pair revalidates these facts.
+        let (parent_state_bytes, child_class_name, child_phase, child_status) = {
+            if crate::ledger::is_recorded_child(&Self::runs_dir_at(&engine_root), &parent_id)
+                .map_err(|error| StateError::new(format!("spawn cap check refused: {error}")))?
+            {
+                return Err(StateError::new(format!(
+                    "spawn refused: run {parent_id} is a ledger-recorded child; \
+composition is capped at one level (FDC-012)"
+                )));
+            }
+            let parent_state_bytes = fs::read(&state_path)
+                .map_err(|error| StateError::new(format!("read State File: {error}")))?;
+            let state = self.load_state_unlocked()?;
+            if state.status == Status::Passed {
+                return Err(StateError::new(format!(
+                    "spawn refused: run {parent_id} is terminal (status passed): no motion may proceed"
+                )));
+            }
+            if state.status == Status::Blocked {
+                return Err(StateError::new(format!(
+                    "spawn refused: run {parent_id} is held (status blocked): the blocked route admits no spawn"
+                )));
+            }
+            let definition = class.phases().get(&state.phase).ok_or_else(|| {
+                StateError::new(format!(
+                    "State File phase {:?} is undeclared in ratmac.toml",
+                    state.phase
+                ))
+            })?;
+            let declared = definition.spawns();
+            if declared.is_empty() {
+                return Err(StateError::new(format!(
+                    "spawn refused: phase {:?} declares no spawns; run {parent_id} is outside a spawning Phase",
+                    state.phase
+                )));
+            }
+            let declaration = declared
+                .iter()
+                .find(|spawn| spawn.name() == spawn_name)
+                .ok_or_else(|| {
+                    let names = declared
+                        .iter()
+                        .map(|spawn| spawn.name())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    StateError::new(format!(
+                        "spawn refused: {spawn_name:?} is not declared in phase {:?}; declared spawns: {names}",
+                        state.phase
+                    ))
+                })?;
+            for name in bindings.keys() {
+                if !declaration.bind().iter().any(|declared| declared == name) {
+                    let declared = declaration.bind().join(", ");
+                    return Err(StateError::new(format!(
+                        "spawn refused: binding {name:?} is not declared for spawn {spawn_name:?}; declared bindings: {declared}"
+                    )));
+                }
+            }
+            let child_class = class.classes().get(declaration.class()).ok_or_else(|| {
+                StateError::new(format!(
+                    "spawn refused: class {:?} is not declared in ratmac.toml",
+                    declaration.class()
+                ))
+            })?;
+            let child_machine = MachineGraph::new(
+                child_class
+                    .phases()
+                    .keys()
+                    .map(Phase::new)
+                    .collect::<Vec<_>>(),
+                child_class.transitions().to_vec(),
+            );
+            let child_phase = Self::initial_phase_of(&child_machine)?;
+            let child_status = if child_machine.has_ordinary_outgoing(child_phase.as_str()) {
+                Status::Planned
+            } else {
+                Status::Passed
+            };
+            (
+                parent_state_bytes,
+                declaration.class().to_owned(),
+                child_phase,
+                child_status,
+            )
+        };
+
+        // Root is acquired first only for the short mint/ledger transaction.
+        let (root_lock, run_lock) = crate::lock::acquire_root_then_run(&engine_root, &parent_id)?;
+        run_lock.ensure_current()?;
+        Self::validate_run_address_at(&engine_root, &parent_id)?;
+        Self::verify_runbook_pin_hash(&run_dir, &runbook_pin)?;
+        let current_state_bytes = fs::read(&state_path)
+            .map_err(|error| StateError::new(format!("read State File before spawn: {error}")))?;
+        if current_state_bytes != parent_state_bytes {
+            return Err(StateError::new(format!(
+                "spawn refused: run {parent_id} changed while the spawn plan was prepared; reload it before retrying"
+            )));
+        }
         if crate::ledger::is_recorded_child(&Self::runs_dir_at(&engine_root), &parent_id)
             .map_err(|error| StateError::new(format!("spawn cap check refused: {error}")))?
         {
@@ -722,108 +1054,68 @@ composition is capped at one level (FDC-012)"
 composition is capped at one level (FDC-012)"
             )));
         }
-        let class = Self::load_class(&root)?;
-        // FDC-005: no motion may proceed on a drifted class.
-        Self::verify_runbook_pin(&root, &run_dir)?;
-        self.machine = Self::graph_of(&class);
-        let state = self.load_state_unlocked()?;
-        // FDC-002: a passed Run admits no further motion; a held Run is
-        // parked on the blocked route. Both refuse by name before any write
-        // - and before any phase lookup, because the terminal fact holds
-        // regardless of which machine declared the Run's Phase.
-        if state.status == Status::Passed {
-            return Err(StateError::new(format!(
-                "spawn refused: run {parent_id} is terminal (status passed): no motion may proceed"
-            )));
-        }
-        if state.status == Status::Blocked {
-            return Err(StateError::new(format!(
-                "spawn refused: run {parent_id} is held (status blocked): the blocked route admits no spawn"
-            )));
-        }
-        let definition = class.phases().get(&state.phase).ok_or_else(|| {
-            StateError::new(format!(
-                "State File phase {:?} is undeclared in ratmac.toml",
-                state.phase
-            ))
-        })?;
-        let declared = definition.spawns();
-        if declared.is_empty() {
-            return Err(StateError::new(format!(
-                "spawn refused: phase {:?} declares no spawns; run {parent_id} is outside a spawning Phase",
-                state.phase
-            )));
-        }
-        let declaration = declared
-            .iter()
-            .find(|spawn| spawn.name() == spawn_name)
-            .ok_or_else(|| {
-                let names = declared
-                    .iter()
-                    .map(|spawn| spawn.name())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                StateError::new(format!(
-                    "spawn refused: {spawn_name:?} is not declared in phase {:?}; declared spawns: {names}",
-                    state.phase
-                ))
-            })?;
-        // FDC-011: a binding name outside the declared set refuses before
-        // any write.
-        for name in bindings.keys() {
-            if !declaration.bind().iter().any(|declared| declared == name) {
-                let declared = declaration.bind().join(", ");
-                return Err(StateError::new(format!(
-                    "spawn refused: binding {name:?} is not declared for spawn {spawn_name:?}; declared bindings: {declared}"
-                )));
-            }
-        }
-        let child_class = class.classes().get(declaration.class()).ok_or_else(|| {
-            StateError::new(format!(
-                "spawn refused: class {:?} is not declared in ratmac.toml",
-                declaration.class()
-            ))
-        })?;
-        let child_machine = MachineGraph::new(
-            child_class
-                .phases()
-                .keys()
-                .map(Phase::new)
-                .collect::<Vec<_>>(),
-            child_class.transitions().to_vec(),
-        );
-        let child_phase = Self::initial_phase_of(&child_machine)?;
-        // FDC-002 binds children from their first State File: born in a
-        // terminal Phase means the Engine writes the terminal fact at mint.
-        let child_status = if child_machine.has_ordinary_outgoing(child_phase.as_str()) {
-            Status::Planned
-        } else {
-            Status::Passed
-        };
-        let runbook_pin = Self::runbook_sha256(&root)?;
-        let child = Self::mint_run(
+
+        let MintedRun {
+            id: child,
+            run_lock: child_run_lock,
+            snapshot: child_snapshot,
+        } = Self::mint_run(
+            &root_lock,
             &engine_root,
-            &root,
             child_phase.as_str(),
             child_status,
             &runbook_pin,
+            &goal_baseline,
+            &engine_identity,
         )?;
-        // FDC-011: the entry lands in the same turn that mints the child; a
-        // blocked append rolls the mint back so no child exists unrecorded.
         let entry = LedgerEntry {
             id: child.clone(),
-            class: declaration.class().to_owned(),
+            class: child_class_name,
             bind: bindings.clone(),
-            spawned_at: Self::revision_at(&root),
+            spawned_at,
             workspace: None,
             abandoned: false,
             supersedes: None,
         };
-        if let Err(error) = crate::ledger::append_entry(&run_dir.join("spawn-ledger"), &entry) {
-            let _ = fs::remove_dir_all(Self::runs_dir_at(&engine_root).join(&child));
-            return Err(StateError::new(format!(
-                "spawn cannot record the ledger entry for {child}: {error}; the child mint was rolled back"
-            )));
+        run_lock.ensure_current()?;
+        root_lock.ensure_current()?;
+        child_run_lock.ensure_current()?;
+        let ledger_path = run_dir.join("spawn-ledger");
+        match Self::append_ledger_entry(&ledger_path, &entry) {
+            LedgerAppendAftermath::Appended => {}
+            LedgerAppendAftermath::RecordedAfterError(error) => {
+                eprintln!(
+                    "warning: spawn ledger append for {child} reported {error}, but {} records the complete entry; treating the child as committed",
+                    ledger_path.display()
+                );
+            }
+            LedgerAppendAftermath::AbsentAfterError(error) => {
+                let cleanup = Self::rollback_minted_run_while_locked(
+                    &root_lock,
+                    &child_run_lock,
+                    &engine_root,
+                    &child,
+                    &child_snapshot,
+                    &format!("spawn rollback for unrecorded child {child}"),
+                );
+                return match cleanup {
+                    Ok(()) => Err(StateError::new(format!(
+                        "spawn cannot record the ledger entry for {child}: {error}; the child mint was rolled back"
+                    ))),
+                    Err(cleanup_error) => Err(StateError::new(format!(
+                        "spawn cannot record the ledger entry for {child}: {error}; \
+the child mint cleanup is incomplete: {cleanup_error}"
+                    ))),
+                };
+            }
+            LedgerAppendAftermath::Indeterminate(detail) => {
+                return Err(StateError::new(format!(
+                    "spawn cannot determine whether its ledger entry committed for {child}: {detail}; \
+the ledger {} and minted child {} were left in place; inspect both paths before removing anything",
+                    ledger_path.display(),
+                    Self::runs_dir_at(&engine_root).join(&child).display()
+                )));
+            }
         }
         Ok(child)
     }
@@ -837,8 +1129,9 @@ composition is capped at one level (FDC-012)"
     /// re-instantiation needs the ledger's recorded class and bindings
     /// (FDC-011, a later increment).
     pub fn respawn(root: impl AsRef<Path>, request: &RespawnRequest) -> Result<String, StateError> {
-        let root = root.as_ref();
-        let engine_root = crate::root::resolve(root).engine_root().to_path_buf();
+        let roots = crate::root::resolve(root);
+        let root = roots.invoking_checkout_root().to_path_buf();
+        let engine_root = roots.engine_root().to_path_buf();
         let roster = Self::run_roster_at(&engine_root);
         let roster_line = if roster.is_empty() {
             "none".to_owned()
@@ -886,101 +1179,176 @@ composition is capped at one level (FDC-012)"
                 "run {superseded} is already terminal: its admission state is retired; nothing to supersede"
             )));
         }
-        // FDC-011: find the live ledger entry recording the superseded run,
-        // if any parent recorded it.
-        let recorded = Self::ledger_record_of(root, &superseded)?;
-        // Mint the successor first: an interrupted respawn leaves either the
-        // superseded Run or a fully minted successor, never a half-made pair.
-        let successor = {
-            let lock_path = engine_root.join("locks").join("root.lock");
-            let _lock = InvocationLock::acquire_with_retry(&lock_path)?;
-            Self::refuse_flat_residue(root)?;
-            let class = Self::load_class(root)?;
-            // FDC-011: a ledger-recorded child re-instantiates class-
-            // faithfully from the recorded class; anything else is
-            // start-shaped from the top-level machine.
-            let (phase, status) = match recorded.as_ref() {
-                Some((_, entry)) => {
-                    let child_class = class.classes().get(&entry.class).ok_or_else(|| {
-                        StateError::new(format!(
-                            "respawn refused: recorded class {:?} is not declared in ratmac.toml",
-                            entry.class
-                        ))
-                    })?;
-                    let child_machine = MachineGraph::new(
-                        child_class
-                            .phases()
-                            .keys()
-                            .map(Phase::new)
-                            .collect::<Vec<_>>(),
-                        child_class.transitions().to_vec(),
-                    );
-                    let phase = Self::initial_phase_of(&child_machine)?;
-                    let status = if child_machine.has_ordinary_outgoing(phase.as_str()) {
-                        Status::Planned
-                    } else {
-                        Status::Passed
-                    };
-                    (phase, status)
-                }
-                None => {
-                    let machine = Self::graph_of(&class);
-                    let phase = Self::initial_phase_of(&machine)?;
-                    let status = if machine.has_ordinary_outgoing(phase.as_str()) {
-                        Status::Planned
-                    } else {
-                        Status::Passed
-                    };
-                    (phase, status)
-                }
-            };
-            let runbook_pin = Self::runbook_sha256(root)?;
-            Self::mint_run(&engine_root, root, phase.as_str(), status, &runbook_pin)?
-            // The invocation lock releases here, before the abandon path
-            // plans its own retirement set.
+        let recorded = Self::ledger_record_of_at(&engine_root, &superseded)?;
+        let class = Self::load_class(&root)?;
+        let runbook_pin = Self::runbook_sha256(&root)?;
+        let goal_baseline = crate::goal::revision(&root);
+        let successor_spawned_at = Self::revision_at(&root);
+        let engine_identity = crate::pin::engine_identity();
+        let (phase, status) = match recorded.as_ref() {
+            Some((_, entry)) => {
+                let child_class = class.classes().get(&entry.class).ok_or_else(|| {
+                    StateError::new(format!(
+                        "respawn refused: recorded class {:?} is not declared in ratmac.toml",
+                        entry.class
+                    ))
+                })?;
+                let child_machine = MachineGraph::new(
+                    child_class
+                        .phases()
+                        .keys()
+                        .map(Phase::new)
+                        .collect::<Vec<_>>(),
+                    child_class.transitions().to_vec(),
+                );
+                let phase = Self::initial_phase_of(&child_machine)?;
+                let status = if child_machine.has_ordinary_outgoing(phase.as_str()) {
+                    Status::Planned
+                } else {
+                    Status::Passed
+                };
+                (phase, status)
+            }
+            None => {
+                let machine = Self::graph_of(&class);
+                let phase = Self::initial_phase_of(&machine)?;
+                let status = if machine.has_ordinary_outgoing(phase.as_str()) {
+                    Status::Planned
+                } else {
+                    Status::Passed
+                };
+                (phase, status)
+            }
         };
-        // Retire the superseded Run by the abandon path: durable terminal
-        // event first, then all-or-none retirement of admission state,
-        // evidence, and lock.
+
+        // Minting is root-first and brief. It intentionally precedes terminal
+        // retirement so a failure leaves the existing admitted Run untouched.
+        let minted_successor = {
+            let root_lock = RootLock::acquire(&engine_root)?;
+            Self::refuse_flat_residue_at(&root, &engine_root)?;
+            Self::mint_run(
+                &root_lock,
+                &engine_root,
+                phase.as_str(),
+                status,
+                &runbook_pin,
+                &goal_baseline,
+                &engine_identity,
+            )?
+        };
+        let MintedRun {
+            id: successor,
+            run_lock: successor_run_lock,
+            snapshot: successor_snapshot,
+        } = minted_successor;
+        // The successor is no longer part of the short mint domain. Any
+        // compensating delete later reacquires root then this Run and proves
+        // these exact minted artifacts first.
+        drop(successor_run_lock);
+
         let abandon_request = crate::abandon::AbandonRequest {
-            confirmation: Some(crate::abandon::required_phrase(root, Some(&superseded))),
+            confirmation: Some(crate::abandon::required_phrase(&root, Some(&superseded))),
             run: Some(superseded.clone()),
         };
-        let retired = crate::abandon::plan_abandon(root, &abandon_request)
-            .and_then(|plan| crate::abandon::apply_abandon(root, &plan));
+        let retired = crate::abandon::plan_abandon(&root, &abandon_request)
+            .and_then(|plan| crate::abandon::apply_abandon(&root, &plan));
         if let Err(refusal) = retired {
-            // Converge: never leave both the superseded Run and its
-            // successor live. The half of the pair minted this invocation is
-            // the one rolled back; a retry starts over.
-            let _ = fs::remove_dir_all(Self::runs_dir_at(&engine_root).join(&successor));
-            return Err(StateError::new(format!(
-                "respawn interrupted retiring {superseded}: {refusal}; the successor mint was rolled back"
-            )));
+            return match Self::rollback_minted_successor(
+                &engine_root,
+                &successor,
+                &successor_snapshot,
+            ) {
+                Ok(()) => Err(StateError::new(format!(
+                    "respawn interrupted retiring {superseded}: {refusal}; the successor mint was rolled back"
+                ))),
+                Err(rollback) => Err(StateError::new(format!(
+                    "respawn interrupted retiring {superseded}: {refusal}; \
+the successor mint rollback is incomplete: {rollback}"
+                ))),
+            };
         }
         if let Some((ledger_path, entry)) = recorded {
-            // FDC-011: the successor entry names the superseded id and
-            // inherits the recorded class and binding values.
             let successor_entry = LedgerEntry {
                 id: successor.clone(),
                 class: entry.class.clone(),
                 bind: entry.bind.clone(),
-                spawned_at: Self::revision_at(root),
+                spawned_at: successor_spawned_at,
                 workspace: None,
                 abandoned: false,
                 supersedes: Some(superseded.clone()),
             };
-            if let Err(error) = crate::ledger::append_entry(&ledger_path, &successor_entry) {
-                let _ = fs::remove_dir_all(Self::runs_dir_at(&engine_root).join(&successor));
-                return Err(StateError::new(format!(
-                    "respawn cannot record the successor entry for {successor}: {error}; the successor mint was rolled back"
-                )));
+            // Keep the root claim that classified a failed append through any
+            // compensating delete. Releasing it between "no entry landed" and
+            // the delete would let another root-domain writer record this
+            // successor in that ledger first.
+            let (root_lock, successor_run_lock) =
+                crate::lock::acquire_root_then_run(&engine_root, &successor)?;
+            root_lock.ensure_current()?;
+            successor_run_lock.ensure_current()?;
+            let aftermath = Self::append_ledger_entry(&ledger_path, &successor_entry);
+            match aftermath {
+                LedgerAppendAftermath::Appended => {}
+                LedgerAppendAftermath::RecordedAfterError(error) => {
+                    eprintln!(
+                        "warning: successor ledger append for {successor} reported {error}, but {} records the complete entry; treating the successor as committed",
+                        ledger_path.display()
+                    );
+                }
+                LedgerAppendAftermath::AbsentAfterError(error) => {
+                    let cleanup = Self::rollback_minted_run_while_locked(
+                        &root_lock,
+                        &successor_run_lock,
+                        &engine_root,
+                        &successor,
+                        &successor_snapshot,
+                        &format!("respawn rollback for unrecorded successor {successor}"),
+                    );
+                    return match cleanup {
+                        Ok(()) => Err(StateError::new(format!(
+                            "respawn cannot record the successor entry for {successor}: {error}; the successor mint was rolled back"
+                        ))),
+                        Err(rollback) => Err(StateError::new(format!(
+                            "respawn cannot record the successor entry for {successor}: {error}; \
+the successor mint rollback is incomplete: {rollback}"
+                        ))),
+                    };
+                }
+                LedgerAppendAftermath::Indeterminate(detail) => {
+                    return Err(StateError::new(format!(
+                        "respawn cannot determine whether its successor entry committed for {successor}: {detail}; \
+the ledger {} and minted successor {} were left in place; inspect both paths before removing anything",
+                        ledger_path.display(),
+                        Self::runs_dir_at(&engine_root).join(&successor).display()
+                    )));
+                }
             }
         }
         Ok(successor)
     }
 
-    /// Evaluate the supported `files_exact` guards and apply a transition only
-    /// after every guard passes.  The claim is metadata and never evidence.
+    /// Roll back only this invocation's freshly minted successor. It proves
+    /// every direct artifact still matches the bytes minted above before the
+    /// ordered root-then-Run pair may remove the directory.
+    fn rollback_minted_successor(
+        engine_root: &Path,
+        successor: &str,
+        snapshot: &MintedRunSnapshot,
+    ) -> Result<(), StateError> {
+        let (root_lock, run_lock) = crate::lock::acquire_root_then_run(engine_root, successor)?;
+        Self::rollback_minted_run_while_locked(
+            &root_lock,
+            &run_lock,
+            engine_root,
+            successor,
+            snapshot,
+            &format!("respawn rollback for successor {successor}"),
+        )
+    }
+
+    /// Evaluate supported guards and apply a transition only after every
+    /// guard passes. One addressed Run lock serializes the entire motion,
+    /// including its append-only transition record; `step` never takes the
+    /// root lock.
     pub fn step(&mut self, request: StepRequest) -> Result<StepOutcome, StateError> {
         let _claim = request.claim;
         let root = self
@@ -989,214 +1357,199 @@ composition is capped at one level (FDC-012)"
             .ok_or_else(|| StateError::new("step requires Scheduler::open"))?
             .clone();
         let engine_root = self.engine_root()?.to_path_buf();
+        let run_id = self
+            .run_id
+            .clone()
+            .ok_or_else(|| StateError::new("step requires an addressed Run"))?;
         let run_dir = self.run_dir()?;
-        let lock_path = engine_root.join("locks").join("root.lock");
-        let _lock = InvocationLock::acquire_with_retry(&lock_path)?;
-        let class = Self::load_class(&root)?;
-        // FDC-005: no transition may proceed on a drifted class — the pin
-        // check refuses before any guard of the drifted class is evaluated.
-        Self::verify_runbook_pin(&root, &run_dir)?;
-        self.machine = Self::graph_of(&class);
-        let state = self.load_state_unlocked()?;
-        let state_phase = state.phase.clone();
-        // FDC-011/FDC-012: a child Run moves on its own class's machine.
-        // The owning scope of the State File phase resolves once, before
-        // any status refusal or guard.
-        let (definition, scope_machine) = Self::resolve_phase_scope(&class, &state_phase)?;
-        // FDC-002: a passed Run admits no further transition. The refusal
-        // precedes guard and verdict work and mutates nothing.
-        if state.status == Status::Passed {
-            return Ok(StepOutcome::Refused {
-                failures: vec![guard_failure(
-                    "terminal",
-                    state_phase,
-                    "run is terminal (status passed): no transition may proceed",
-                    "a live, non-terminal Run",
-                )],
-            });
-        }
-        let mut failures = self.guard_failures(definition)?;
-        // ETB-003: between the freeze and batch closure, the goal is fixed.
-        // The drift check is appended rather than short-circuited so a guard
-        // refusal and a drift refusal are reported in the same reply.
-        let evidence = crate::pin::Evidence::load(&run_dir);
-        if let Some(frozen) = evidence.goal_frozen.as_deref() {
-            let observed = crate::goal::revision(&root).unwrap_or_else(|| "absent".to_owned());
-            if observed != frozen {
-                failures.push(guard_failure(
-                    "goal drift",
-                    crate::goal::GOAL_DIR,
-                    observed,
-                    frozen,
-                ));
-            }
-        }
-        if !failures.is_empty() {
-            return Ok(StepOutcome::Refused { failures });
-        }
+        let state_path = run_dir.join("state.toml");
 
-        let from = Phase::new(state.phase.clone());
-        // FDC-003/FDC-001: every readiness guard above finishes before the
-        // live slot is inspected. Branches validate one external record;
-        // straight lines read no record and reject any occupied slot.
-        let transition_input = if let Some(inputs) = definition.inputs() {
-            match crate::verdict::load_live(&run_dir, &state.phase, inputs) {
-                Ok(record) => Some(record.input().to_owned()),
-                Err(refusal) => {
+        // Hash and parse before either lock. A final pin comparison happens
+        // under the Run lock, but neither comparison can invoke Git or root
+        // resolution while a lock is held.
+        let class = Self::load_class(&root)?;
+        let runbook_pin = Self::runbook_sha256(&root)?;
+        self.machine = Self::graph_of(&class);
+
+        // ENS-005: one Run's long guard evaluation is serialized only by its
+        // own lock. No root-domain lock is acquired during this motion.
+        let run_lock = RunLock::acquire(&engine_root, &run_id)?;
+        run_lock.ensure_current()?;
+        let (
+            guarded_state_bytes,
+            next,
+            from,
+            to,
+            consumes_verdict,
+            frozen_evidence,
+            guarded_ledgers,
+        ) = {
+            Self::verify_runbook_pin_hash(&run_dir, &runbook_pin)?;
+            let guarded_state_bytes = fs::read(&state_path)
+                .map_err(|error| StateError::new(format!("read State File: {error}")))?;
+            let state = self.load_state_unlocked()?;
+            let state_phase = state.phase.clone();
+            let (definition, scope_machine) = Self::resolve_phase_scope(&class, &state_phase)?;
+            if state.status == Status::Passed {
+                return Ok(StepOutcome::Refused {
+                    failures: vec![guard_failure(
+                        "terminal",
+                        state_phase,
+                        "run is terminal (status passed): no transition may proceed",
+                        "a live, non-terminal Run",
+                    )],
+                });
+            }
+
+            let (mut failures, guarded_ledgers) = self.guard_failures(definition)?;
+            let evidence = crate::pin::Evidence::load(&run_dir);
+            if let Some(frozen) = evidence.goal_frozen.as_deref() {
+                let observed = crate::goal::revision(&root).unwrap_or_else(|| "absent".to_owned());
+                if observed != frozen {
+                    failures.push(guard_failure(
+                        "goal drift",
+                        crate::goal::GOAL_DIR,
+                        observed,
+                        frozen,
+                    ));
+                }
+            }
+            if !failures.is_empty() {
+                return Ok(StepOutcome::Refused { failures });
+            }
+
+            let from = Phase::new(state.phase.clone());
+            let transition_input = if let Some(inputs) = definition.inputs() {
+                match crate::verdict::load_live(&run_dir, &state.phase, inputs) {
+                    Ok(record) => Some(record.input().to_owned()),
+                    Err(refusal) => {
+                        return Ok(StepOutcome::Refused {
+                            failures: vec![guard_failure(
+                                "verdict",
+                                "verdict.toml",
+                                refusal.observed(),
+                                refusal.expected(),
+                            )],
+                        })
+                    }
+                }
+            } else {
+                if crate::verdict::live_slot_is_occupied(&run_dir)? {
                     return Ok(StepOutcome::Refused {
                         failures: vec![guard_failure(
                             "verdict",
                             "verdict.toml",
-                            refusal.observed(),
-                            refusal.expected(),
+                            "live record presented to a straight-line Phase",
+                            "absent live verdict slot",
                         )],
-                    })
+                    });
                 }
-            }
-        } else {
-            if crate::verdict::live_slot_is_occupied(&run_dir)? {
+                None
+            };
+            let Some(transition) =
+                Self::route_for(&scope_machine, &from, transition_input.as_deref())
+            else {
                 return Ok(StepOutcome::Refused {
                     failures: vec![guard_failure(
-                        "verdict",
-                        "verdict.toml",
-                        "live record presented to a straight-line Phase",
-                        "absent live verdict slot",
+                        "transition",
+                        state.phase,
+                        "no matching outgoing transition",
+                        "one transition selected by the current Phase and input",
                     )],
                 });
+            };
+            let consumes_verdict = transition_input.is_some();
+            let to = transition.to().clone();
+            let frozen_revision =
+                if transition.freezes_goal() {
+                    Some(crate::goal::revision(&root).ok_or_else(|| {
+                        StateError::new("cannot freeze goal: .arca/goal/ is absent")
+                    })?)
+                } else {
+                    None
+                };
+
+            // All read/open prerequisites happen before a verdict can be
+            // archived. Opening project history remains under this Run lock:
+            // it is not a root-domain roster or ledger mutation.
+            let mut next = state;
+            next.phase = to.to_string();
+            if !scope_machine.has_ordinary_outgoing(to.as_str()) {
+                next.status = Status::Passed;
             }
-            None
-        };
-        let Some(transition) = Self::route_for(&scope_machine, &from, transition_input.as_deref())
-        else {
-            return Ok(StepOutcome::Refused {
-                failures: vec![guard_failure(
-                    "transition",
-                    state.phase,
-                    "no matching outgoing transition",
-                    "one transition selected by the current Phase and input",
-                )],
+            let frozen_evidence = frozen_revision.map(|frozen| {
+                let mut evidence = evidence;
+                evidence.goal_frozen = Some(frozen.clone());
+                next.goal_revision = frozen;
+                evidence
             });
-        };
-        let consumes_verdict = transition_input.is_some();
-        let freezes_goal = transition.freezes_goal();
-        let to = transition.to().clone();
-        let prior = state.clone();
-        let log_path = engine_root.join("log.md");
-        let mut log = OpenOptions::new()
-            .append(true)
-            .read(true)
-            .open(&log_path)
-            .map_err(|error| StateError::new(format!("open log.md: {error}")))?;
-        let old_log_len = log
-            .metadata()
-            .map_err(|error| StateError::new(format!("stat log.md: {error}")))?
-            .len();
-        let needs_separator = if old_log_len == 0 {
-            false
-        } else {
-            log.seek(SeekFrom::End(-1))
-                .map_err(|error| StateError::new(format!("seek log.md: {error}")))?;
-            let mut last = [0_u8; 1];
-            log.read_exact(&mut last)
-                .map_err(|error| StateError::new(format!("read log.md: {error}")))?;
-            last[0] != b'\n'
+            (
+                guarded_state_bytes,
+                next,
+                from,
+                to,
+                consumes_verdict,
+                frozen_evidence,
+                guarded_ledgers,
+            )
         };
 
-        // Resolve every ordinary fallible prerequisite before the irreversible
-        // Verdict rename. Freeze evidence is still written only after
-        // consumption and before the successor State File.
-        let frozen_revision = if freezes_goal {
-            Some(
-                crate::goal::revision(&root)
-                    .ok_or_else(|| StateError::new("cannot freeze goal: .arca/goal/ is absent"))?,
-            )
-        } else {
-            None
-        };
+        // The same Run guard remains held from guard evaluation through the
+        // durable motion. Compare the exact State File bytes guards observed
+        // as a defense against an out-of-band writer.
+        run_lock.ensure_current()?;
+        let current_state_bytes = fs::read(&state_path)
+            .map_err(|error| StateError::new(format!("read State File before commit: {error}")))?;
+        if current_state_bytes != guarded_state_bytes {
+            return Err(StateError::new(format!(
+                "state mutation refused for run {run_id}: State File changed while guards ran; reload it before retrying"
+            )));
+        }
+        Self::verify_runbook_pin_hash(&run_dir, &runbook_pin)?;
+
+        // Open the pre-existing append target before committing state: an
+        // unusable or missing history file refuses without a half-motion.
+        let mut log = OpenOptions::new()
+            .append(true)
+            .open(engine_root.join("log.md"))
+            .map_err(|error| StateError::new(format!("open log.md: {error}")))?;
+        Self::ensure_ledger_snapshots_current(&run_id, &guarded_ledgers)?;
         if consumes_verdict {
             inject_step_fault("before-verdict-archive")?;
+            run_lock.ensure_current()?;
             crate::verdict::archive_live(&run_dir)?;
             inject_step_fault("before-state-replace")?;
         }
-
-        let mut next = state;
-        next.phase = to.to_string();
-        // FDC-002: arrival at a Phase with no ordinary outgoing edge completes
-        // ordinary execution. The terminal fact lands in the same atomic State
-        // File replacement that records the position.
-        if !scope_machine.has_ordinary_outgoing(to.as_str()) {
-            next.status = Status::Passed;
-        }
-        if let Some(frozen) = frozen_revision {
-            // ETB-003 and FDC-003: freeze evidence follows Verdict consumption
-            // but still precedes the successor State File. Failure leaves the
-            // old Phase with an archived, non-replayable verdict.
-            let mut frozen_evidence = crate::pin::Evidence::load(&run_dir);
-            frozen_evidence.goal_frozen = Some(frozen.clone());
-            if let Err(error) = frozen_evidence.write(&run_dir) {
-                drop(log);
-                return Err(StateError::new(format!(
+        if let Some(frozen_evidence) = frozen_evidence {
+            run_lock.ensure_current()?;
+            frozen_evidence.write(&run_dir).map_err(|error| {
+                StateError::new(format!(
                     "freeze goal revision: write evidence.toml: {error}"
-                )));
-            }
-            next.goal_revision = frozen;
+                ))
+            })?;
         }
-        if let Err(state_error) = self.store()?.write(&next) {
-            drop(log);
-            return Err(state_error);
-        }
+        run_lock.ensure_current()?;
+        self.store()?.write(&next)?;
         if consumes_verdict {
             inject_step_fault("after-state-replace")?;
         }
 
-        let append_result = (|| {
-            if needs_separator {
-                log.write_all(b"\n")?;
-            }
-            writeln!(log, "- Transition: {from} -> {to}")?;
-            log.flush()?;
-            log.sync_all()
-        })();
-        if let Err(append_error) = append_result {
-            let mut rollback_errors = Vec::new();
-            if let Err(error) = log.set_len(old_log_len) {
-                rollback_errors.push(format!("truncate log.md: {error}"));
-            }
-            if let Err(error) = log.sync_all() {
-                rollback_errors.push(format!("sync log.md rollback: {error}"));
-            }
-            drop(log);
-            // FDC-003: after Verdict consumption and successor replacement,
-            // advancing is durable even when the later history append fails.
-            // Restoring the old Phase here would make the archived judgment
-            // look replayable while its live slot is already gone.
-            if !consumes_verdict {
-                if let Err(error) = self.store()?.write(&prior) {
-                    rollback_errors.push(format!("restore state.toml: {error}"));
-                }
-            }
-            let message = if consumes_verdict {
-                let durable = format!(
-                    "the verdict was consumed and the Run advanced {from} -> {to}; \
-                     the transition history line is missing and must be appended after restoring log.md"
-                );
-                if rollback_errors.is_empty() {
-                    format!("append log.md failed: {append_error}; {durable}")
-                } else {
-                    format!(
-                        "append log.md failed: {append_error}; {durable}; log cleanup failed: {}",
-                        rollback_errors.join("; ")
-                    )
-                }
-            } else if rollback_errors.is_empty() {
-                format!("append log.md failed: {append_error}")
-            } else {
+        // The addressed Run lock serializes this transition through its
+        // append-only history record. Project history is not a root-domain
+        // roster or ledger mutation, so unrelated root work cannot delay it.
+        let entry = format!("\n- Transition: {from} -> {to}\n");
+        if let Err(append_error) = append_history_once(&mut log, entry.as_bytes()) {
+            let durable = if consumes_verdict {
                 format!(
-                    "append log.md failed: {append_error}; rollback failed: {}",
-                    rollback_errors.join("; ")
+                    "the verdict was consumed and the Run advanced {from} -> {to}; \
+                     no history rewrite was attempted"
                 )
+            } else {
+                format!("the Run advanced {from} -> {to}; no history rewrite was attempted")
             };
-            return Err(StateError::new(message));
+            return Err(StateError::new(format!(
+                "append log.md failed: {append_error}; {durable}"
+            )));
         }
         Ok(StepOutcome::Advanced { from, to })
     }
@@ -1206,21 +1559,25 @@ composition is capped at one level (FDC-012)"
     fn guard_failures(
         &self,
         definition: &PhaseDefinition,
-    ) -> Result<Vec<GuardFailure>, StateError> {
+    ) -> Result<(Vec<GuardFailure>, Vec<LedgerSnapshot>), StateError> {
         let root = match self.root.as_ref() {
             Some(root) => root,
             None => {
-                return Ok(vec![guard_failure(
-                    "scheduler",
-                    "",
-                    "step requires Scheduler::open",
-                    "opened project",
-                )])
+                return Ok((
+                    vec![guard_failure(
+                        "scheduler",
+                        "",
+                        "step requires Scheduler::open",
+                        "opened project",
+                    )],
+                    Vec::new(),
+                ))
             }
         };
         let engine_root = self.engine_root()?;
 
         let mut failures = Vec::new();
+        let mut ledger_snapshots = Vec::new();
         for guard in definition.guards() {
             let result = match guard {
                 GuardKind::FilesExact {
@@ -1246,7 +1603,7 @@ composition is capped at one level (FDC-012)"
                     crate::contract::gate_intake(root),
                     "issue dispositions, status, and location agree across intake/deferred/archive; five-file shape intact; accepted IDs in the goal; live links resolving",
                 ),
-                GuardKind::Join { min, .. } => self.evaluate_join(*min),
+                GuardKind::Join { min, .. } => self.evaluate_join(*min, &mut ledger_snapshots),
                 GuardKind::RecordContract => self.evaluate_contract(
                     "record_contract",
                     crate::contract::gate_records(
@@ -1261,13 +1618,17 @@ composition is capped at one level (FDC-012)"
                 failures.push(failure);
             }
         }
-        Ok(failures)
+        Ok((failures, ledger_snapshots))
     }
 
     /// FDC-009: the composition join. Until a spawn ledger records children
     /// (FDC-011, t-066), the honest verdict is that zero children are passed,
     /// so a join guard cannot be satisfied.
-    fn evaluate_join(&self, min: Option<i64>) -> Result<(), GuardFailure> {
+    fn evaluate_join(
+        &self,
+        min: Option<i64>,
+        ledger_snapshots: &mut Vec<LedgerSnapshot>,
+    ) -> Result<(), GuardFailure> {
         let required = min.unwrap_or(1);
         let expected = "every ledger-recorded live child passed, at least the declared min";
         let refuse = |observed: String| guard_failure("join", "spawn ledger", observed, expected);
@@ -1277,8 +1638,18 @@ composition is capped at one level (FDC-012)"
         let engine_root = self
             .engine_root()
             .map_err(|error| refuse(format!("the Engine root is unresolved: {error}")))?;
-        let entries = crate::ledger::read_entries(&run_dir.join("spawn-ledger"))
-            .map_err(|error| refuse(error.to_string()))?;
+        let ledger_path = run_dir.join("spawn-ledger");
+        // Parse the same bytes retained for commit-time revalidation. A second
+        // path read here could make the guard decide from one ledger version
+        // while retaining another.
+        let snapshot = Self::snapshot_ledger(&ledger_path)
+            .map_err(|error| refuse(format!("cannot snapshot spawn ledger: {error}")))?;
+        let entries = match snapshot.bytes.as_deref() {
+            Some(bytes) => crate::ledger::parse_entries_bytes(&ledger_path, bytes),
+            None => Ok(Vec::new()),
+        }
+        .map_err(|error| refuse(error.to_string()))?;
+        ledger_snapshots.push(snapshot);
         let live: Vec<&crate::ledger::LedgerEntry> =
             entries.iter().filter(|entry| !entry.abandoned).collect();
         if live.is_empty() {
@@ -1667,9 +2038,13 @@ composition is capped at one level (FDC-012)"
         run
     }
 
-    fn invocation_lock_with_retry(&self) -> Result<InvocationLock, StateError> {
+    fn run_lock(&self) -> Result<RunLock, StateError> {
         let engine_root = self.engine_root()?;
-        InvocationLock::acquire_with_retry(&engine_root.join("locks").join("root.lock"))
+        let run_id = self
+            .run_id
+            .as_deref()
+            .ok_or_else(|| StateError::new("state mutation requires an addressed Run"))?;
+        RunLock::acquire(engine_root, run_id)
     }
 
     fn store(&self) -> Result<&StateStore, StateError> {
@@ -1680,9 +2055,25 @@ composition is capped at one level (FDC-012)"
         })
     }
 
+    /// Caller-provided state is a compare-and-write proposal, never an
+    /// authority to overwrite a newer motion that completed before this Run
+    /// lock was acquired.
+    fn confirm_current_state(&self, proposed: &RunState) -> Result<(), StateError> {
+        let current = self.store()?.load()?;
+        if current != *proposed {
+            let run_id = self.run_id.as_deref().unwrap_or("<unaddressed>");
+            return Err(StateError::new(format!(
+                "state mutation refused for run {run_id}: caller-provided state is stale; reload it before retrying"
+            )));
+        }
+        Ok(())
+    }
+
     /// Scheduler-owned initialization of a complete State File.
     pub fn initialize_state(&mut self, state: RunState) -> Result<(), StateError> {
-        let _lock = self.invocation_lock_with_retry()?;
+        let run_lock = self.run_lock()?;
+        self.confirm_current_state(&state)?;
+        run_lock.ensure_current()?;
         self.store()?.write(&state)
     }
 
@@ -1692,16 +2083,18 @@ composition is capped at one level (FDC-012)"
         mut state: RunState,
         prerequisite: impl AsRef<str>,
     ) -> Result<(), StateError> {
-        let _lock = self.invocation_lock_with_retry()?;
+        let run_lock = self.run_lock()?;
+        self.confirm_current_state(&state)?;
         let prerequisite = prerequisite.as_ref();
 
         state.status = Status::Blocked;
         state.blocker = format!("missing entry prerequisite: {prerequisite}");
+        run_lock.ensure_current()?;
         self.store()?.write(&state)
     }
 
+    /// Read the addressed State File without serializing on either lock.
     pub fn load_state(&self) -> Result<RunState, StateError> {
-        let _lock = self.invocation_lock_with_retry()?;
         self.load_state_unlocked()
     }
 
@@ -1721,11 +2114,13 @@ composition is capped at one level (FDC-012)"
 
     /// Read-only status; it loads state and reports labels from the current class.
     pub fn status(&self) -> Result<StatusReport, StateError> {
-        let _lock = self.invocation_lock_with_retry()?;
         let root = self
             .root
             .as_ref()
             .ok_or_else(|| StateError::new("status requires Scheduler::open"))?;
+        // ENS-005 leaves status outside both new lock domains, but the
+        // explicitly refused pre-split lock remains a global entry preflight.
+        crate::lock::refuse_legacy(self.engine_root()?)?;
         let class = Self::load_class(root)?;
         // FDC-005: status reads the class too; an addressed run's recorded
         // pin is compared on every such read.
@@ -1914,4 +2309,21 @@ fn guard_failure(
         expected,
         name,
     }
+}
+
+/// Write one complete append-only history record without seeking, truncating,
+/// or retrying a partial write. Retrying after a short append could duplicate
+/// bytes once another writer has appended, so that case is an honest error.
+fn append_history_once(file: &mut fs::File, entry: &[u8]) -> std::io::Result<()> {
+    let written = file.write(entry)?;
+    if written != entry.len() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::WriteZero,
+            format!(
+                "short append wrote {written} of {} history bytes without retry",
+                entry.len()
+            ),
+        ));
+    }
+    file.sync_all()
 }

@@ -9,6 +9,7 @@ pub mod doctor;
 pub mod goal;
 pub mod graph;
 pub mod ledger;
+pub mod lock;
 pub mod machine;
 pub mod mint;
 pub mod model;

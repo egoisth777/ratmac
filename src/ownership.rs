@@ -1,9 +1,10 @@
 //! PGE-004: Engine-owned artifacts are never an agent's job.
 //!
 //! A Phase Prompt or gate contract may not instruct an agent to write an
-//! Engine-owned file. Per-Run state and evidence live under
-//! `.ratmac/runs/<id>/`; project history and the root lock remain under the
-//! Engine root. Agent-authored receipts stay in `.ratmac/evidence/`.
+//! Engine-owned file. Per-Run state, evidence, and motion locks live under
+//! `.ratmac/runs/<id>/` or `.ratmac/locks/runs/`; project history and the
+//! root lock remain under the Engine root. Agent-authored receipts stay in
+//! `.ratmac/evidence/`.
 //!
 //! The audit is executable so the property cannot quietly regress: it takes
 //! the already parsed Machine Class and refuses any instruction that pairs a
@@ -16,12 +17,13 @@ use std::path::Path;
 use crate::machine::{GuardKind, MachineClass};
 
 /// Files only the Engine writes (ADR-0003, R-009).
-pub const SCHEDULER_OWNED: [&str; 5] = [
+pub const SCHEDULER_OWNED: [&str; 6] = [
     ".ratmac/runs/<id>/state.toml",
     ".ratmac/runs/<id>/evidence.toml",
     ".ratmac/mint.toml",
     ".ratmac/log.md",
     ".ratmac/locks/root.lock",
+    ".ratmac/locks/runs/<id>.lock",
 ];
 
 /// Verbs that turn a mention into an instruction to write.
@@ -65,9 +67,13 @@ pub fn audit_ownership(instructions: &[Instruction]) -> Result<(), Vec<Ownership
             for owned in SCHEDULER_OWNED {
                 let bare = owned.trim_start_matches(".ratmac/");
                 let basename = owned.rsplit('/').next().unwrap_or(owned);
+                let mentions_per_run_lock = owned == ".ratmac/locks/runs/<id>.lock"
+                    && (lowered.contains(".ratmac/locks/runs/") || lowered.contains("locks/runs/"))
+                    && lowered.contains(".lock");
                 if !lowered.contains(owned)
                     && !lowered.contains(bare)
                     && !lowered.contains(basename)
+                    && !mentions_per_run_lock
                 {
                     continue;
                 }
@@ -131,6 +137,11 @@ pub fn is_scheduler_owned_path(path: &str) -> bool {
         || normalized.ends_with(".ratmac/locks/root.lock")
     {
         return true;
+    }
+    if let Some((_, lock_relative)) = normalized.rsplit_once(".ratmac/locks/runs/") {
+        return lock_relative.ends_with(".lock")
+            && !lock_relative.trim_end_matches(".lock").is_empty()
+            && !lock_relative.contains('/');
     }
     let Some((_, run_relative)) = normalized.rsplit_once(".ratmac/runs/") else {
         return false;

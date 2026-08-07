@@ -95,8 +95,8 @@ pub fn is_recorded_child(runs_dir: &Path, run_id: &str) -> Result<bool, LedgerEr
 /// Strictly read every entry. An absent or empty file is an empty ledger
 /// (the path is reserved at mint); anything unreadable or malformed refuses.
 pub fn read_entries(path: &Path) -> Result<Vec<LedgerEntry>, LedgerError> {
-    let source = match fs::read_to_string(path) {
-        Ok(source) => source,
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => {
             return Err(LedgerError::new(format!(
@@ -105,6 +105,22 @@ pub fn read_entries(path: &Path) -> Result<Vec<LedgerEntry>, LedgerError> {
             )))
         }
     };
+    parse_entries_bytes(path, &bytes)
+}
+
+/// Parse entries from the exact bytes a caller already observed. Scheduler
+/// guard evaluation uses this to retain a byte snapshot that is precisely the
+/// ledger content its verdict relied on, rather than reading the path again.
+pub(crate) fn parse_entries_bytes(
+    path: &Path,
+    bytes: &[u8],
+) -> Result<Vec<LedgerEntry>, LedgerError> {
+    let source = std::str::from_utf8(bytes).map_err(|error| {
+        LedgerError::new(format!(
+            "spawn ledger {} is unreadable: {error}",
+            path.display()
+        ))
+    })?;
     if source.trim().is_empty() {
         return Ok(Vec::new());
     }
@@ -246,12 +262,14 @@ pub fn append_entry(path: &Path, entry: &LedgerEntry) -> Result<(), LedgerError>
                 path.display()
             ))
         })?;
-    file.write_all(render(entry).as_bytes()).map_err(|error| {
-        LedgerError::new(format!(
-            "spawn ledger {} cannot append: {error}",
-            path.display()
-        ))
-    })
+    file.write_all(render(entry).as_bytes())
+        .and_then(|_| file.sync_all())
+        .map_err(|error| {
+            LedgerError::new(format!(
+                "spawn ledger {} cannot append durably: {error}",
+                path.display()
+            ))
+        })
 }
 
 /// Flip exactly one entry's abandoned mark from `false` to `true`, leaving
