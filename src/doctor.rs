@@ -115,6 +115,10 @@ impl fmt::Display for Finding {
 /// report (DRD-006).
 pub fn diagnose(path: &Path) -> Vec<Finding> {
     let shown = path.to_string_lossy().replace('\\', "/");
+    let project_root = crate::root::addressed_project_root(path);
+    if let Err(error) = crate::Scheduler::refuse_flat_residue(&project_root) {
+        return vec![Finding::error("RB101", shown.clone(), error.to_string())];
+    }
     let source = match std::fs::read_to_string(path) {
         Ok(source) => source,
         Err(error) => {

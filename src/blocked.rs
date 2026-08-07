@@ -211,6 +211,8 @@ fn ticket_file_name(ticket: &str) -> Result<String, HoldRefusal> {
 
 /// The `p5-blocked` route predicate: verify a hold without writing anything.
 pub fn plan_hold(root: &Path, request: &HoldRequest) -> Result<HoldPlan, HoldRefusal> {
+    crate::Scheduler::refuse_flat_residue(root).map_err(|error| refusal(error.to_string()))?;
+
     let ticket = request.ticket.trim();
     if ticket.is_empty() {
         return Err(refusal("hold names no ticket"));
@@ -247,7 +249,8 @@ pub fn plan_hold(root: &Path, request: &HoldRequest) -> Result<HoldPlan, HoldRef
     // canonical roster member through Scheduler::open_run so flat residue and
     // the recorded runbook pin are checked before this plan can permit a
     // mutation.
-    let roster = crate::Scheduler::run_roster(root);
+
+    let roster = crate::Scheduler::run_roster(root).map_err(|error| refusal(error.to_string()))?;
     let roster_line = if roster.is_empty() {
         "none".to_owned()
     } else {
