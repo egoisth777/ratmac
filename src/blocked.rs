@@ -332,9 +332,17 @@ fn verify_blocker(root: &Path, blocker: &str) -> Result<(), HoldRefusal> {
 /// before the append-only history record. A portable rename still cannot detect
 /// an out-of-band edit that races its final replacement window.
 pub fn apply_hold(root: &Path, plan: &HoldPlan) -> Result<(), HoldRefusal> {
-    // Planning and application are separate public boundaries. Recheck the
-    // current declared roots before this path can mutate a ticket or State.
-    let _ = declared_ticket_root(root)?;
+    // Planning and application are separate public boundaries. Re-resolve the
+    // declared ticket role before this path can mutate a ticket or State; a
+    // rebinding must refuse rather than silently writing the stale plan path.
+    let current_ticket_path = declared_ticket_root(root)?.join(format!("{}.md", plan.ticket));
+    if current_ticket_path != plan.ticket_path {
+        return Err(refusal(format!(
+            "hold ticket root changed: planned path {} no longer matches declared path {}; re-plan the hold against the current ticket root",
+            plan.ticket_path.display(),
+            current_ticket_path.display()
+        )));
+    }
 
     let roots = crate::root::resolve(root);
     let engine_root = roots.engine_root().to_path_buf();

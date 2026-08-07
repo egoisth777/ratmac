@@ -1679,17 +1679,23 @@ the ledger {} and minted child {} were left in place; inspect both paths before 
             )));
         }
         let recorded = Self::ledger_record_of_at(&engine_root, &superseded)?;
-        if let Some((ledger_path, entry)) = recorded.as_ref() {
-            // A successor cannot repair or replace a missing legacy binding:
-            // it inherits exactly the durable workspace of the child it
-            // supersedes.
-            let _ = Self::workspace_from_ledger_entry(&engine_root, ledger_path, entry)?;
-        }
+        // A successor cannot repair or replace a missing legacy binding: it
+        // inherits exactly the durable workspace of the child it supersedes.
+        // A top-level Run has no ledger entry and therefore retains the
+        // invoking checkout as its workspace.
+        let workspace = match recorded.as_ref() {
+            Some((ledger_path, entry)) => {
+                Self::workspace_from_ledger_entry(&engine_root, ledger_path, entry)?
+            }
+            None => root.clone(),
+        };
+        // FDC-005 keeps the Machine Class in the invoking checkout, but every
+        // declared root and its goal baseline belongs to the child's workspace.
         let class = Self::load_class(&root)?;
-        Self::validate_declared_roots(&class, &root, &engine_root)?;
+        Self::validate_declared_roots(&class, &workspace, &engine_root)?;
         let runbook_pin = Self::runbook_sha256(&root)?;
         let goal_baseline = class
-            .resolve_root("goal", &root, &engine_root)
+            .resolve_root("goal", &workspace, &engine_root)
             .ok()
             .and_then(|goal| crate::goal::revision(&goal));
         let successor_spawned_at = Self::revision_at(&root);
