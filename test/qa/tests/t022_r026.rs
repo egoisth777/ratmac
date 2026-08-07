@@ -1,17 +1,88 @@
-use ratmac::{
-    model::{RunState, Status},
-    Scheduler, StepOutcome, StepRequest,
-};
+use ratmac::{Scheduler, StepOutcome, StepRequest};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::process::{Child, Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 struct TempProject(PathBuf);
 
 impl Drop for TempProject {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+/// A live cross-process Run-lock holder. Its marker is published by
+/// `lock-barrier` only after the kernel claim is acquired.
+struct LiveRunLock {
+    child: Child,
+    release: PathBuf,
+}
+
+impl LiveRunLock {
+    fn acquire(project_root: &Path, engine_root: &Path, run_id: &str) -> Self {
+        let barrier_dir = project_root.join("qa-run-lock-barrier");
+        fs::create_dir_all(&barrier_dir).expect("create live Run-lock barrier directory");
+        let marker = barrier_dir.join("acquired.marker");
+        let release = barrier_dir.join("release");
+        let timeout_marker = barrier_dir.join("timed-out");
+        for path in [&marker, &release, &timeout_marker] {
+            let _ = fs::remove_file(path);
+        }
+        let mut child = Command::new(env!("CARGO_BIN_EXE_lock-barrier"))
+            .current_dir(project_root)
+            .env("RATMAC_QA_RUN_LOCK_ENGINE", engine_root)
+            .env("RATMAC_QA_RUN_LOCK_ID", run_id)
+            .env("RATMAC_QA_BARRIER_MARKER", &marker)
+            .env("RATMAC_QA_BARRIER_RELEASE", &release)
+            .env("RATMAC_QA_BARRIER_TIMEOUT_MARKER", &timeout_marker)
+            .env("RATMAC_QA_BARRIER_TIMEOUT_MILLIS", "15000")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn live Run-lock holder");
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !marker.is_file() && Instant::now() < deadline {
+            match child.try_wait() {
+                Ok(Some(status)) => panic!(
+                    "live Run-lock holder exited before its post-acquisition marker: {status}"
+                ),
+                Ok(None) => thread::sleep(Duration::from_millis(10)),
+                Err(error) => panic!("inspect live Run-lock holder: {error}"),
+            }
+        }
+        assert!(
+            marker.is_file(),
+            "live Run-lock holder must publish its marker after acquiring the claim"
+        );
+        Self { child, release }
+    }
+
+    fn release(&mut self) -> bool {
+        let wrote_release = fs::write(&self.release, "release\n").is_ok();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline {
+            match self.child.try_wait() {
+                Ok(Some(status)) => return wrote_release && status.success(),
+                Ok(None) => thread::sleep(Duration::from_millis(10)),
+                Err(_) => return false,
+            }
+        }
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+        false
+    }
+}
+
+impl Drop for LiveRunLock {
+    fn drop(&mut self) {
+        let _ = fs::write(&self.release, "release during fixture cleanup\n");
+        let _ = self.child.kill();
+        let _ = self.child.wait();
     }
 }
 
@@ -265,65 +336,52 @@ fn non_newline_log_gets_separator_before_record() {
 fn state_mutators_honor_run_lock_while_status_is_read_only() {
     let (project, state_path, _log_path) = isolated_project("r026-transition-log");
     let engine_root = project.0.join(".ratmac");
-    let root_lock = ratmac::lock::root_path(&engine_root);
-    fs::create_dir_all(root_lock.parent().expect("root lock has parent"))
-        .expect("create lock directory");
-    fs::write(&root_lock, b"held").expect("create held root lock");
     let scheduler =
         Scheduler::open_run(&project.0, "run-001").expect("open transition-log fixture");
-    // ENS-005 supersedes the old global-lock expectation: `status` is
-    // read-only and therefore serializes on neither the root nor Run lock.
-    assert!(
-        scheduler.status().is_ok(),
-        "status remains available while a root-domain mutation lock is held"
-    );
-    fs::remove_file(&root_lock).expect("remove held root lock");
-
     let lock = ratmac::lock::run_path(&engine_root, "run-001");
-    fs::create_dir_all(lock.parent().expect("Run lock has parent"))
-        .expect("create Run lock directory");
-    fs::write(&lock, b"held").expect("create held Run lock");
+    let mut held = LiveRunLock::acquire(&project.0, &engine_root, "run-001");
+    assert!(
+        lock.is_file(),
+        "the post-acquisition marker must correspond to the canonical Run-lock path"
+    );
     let state_before = fs::read(&state_path).expect("read state before lock checks");
+    // ENS-005 keeps read-only operations outside both lock domains.
     assert!(
         scheduler.status().is_ok(),
-        "ENS-005 keeps read-only status available while the addressed Run is locked"
+        "status remains available while the addressed Run has a live lock holder"
     );
-    assert!(
-        scheduler.load_state().is_ok(),
-        "a read-only State File load does not claim a motion lock"
-    );
+    let state = scheduler
+        .load_state()
+        .expect("a read-only State File load does not claim a motion lock");
 
-    let state = RunState {
-        phase: "prepare".to_owned(),
-        status: Status::Planned,
-        goal_revision: String::new(),
-        input_revision: String::new(),
-        output_revision: String::new(),
-        active_refs: Vec::new(),
-        blocker: String::new(),
-    };
     let initialize = scheduler
         .clone()
         .initialize_state(state.clone())
         .expect_err("a state mutation must wait on the addressed Run lock");
     let expected_refusal = format!("lock wait expired: {}", lock.display());
-    assert_eq!(
-        initialize.to_string(),
-        expected_refusal,
-        "the refusal names exactly the addressed Run lock"
+    assert!(
+        initialize.to_string().starts_with(&expected_refusal),
+        "the expiry refusal must name exactly the addressed Run lock before any optional diagnostic: {initialize}"
     );
     let missing = scheduler
         .clone()
         .record_missing_prerequisite(state, "input_revision")
         .expect_err("a state mutation must wait on the addressed Run lock");
-    assert_eq!(
-        missing.to_string(),
-        expected_refusal,
-        "the refusal names exactly the addressed Run lock"
+    assert!(
+        missing.to_string().starts_with(&expected_refusal),
+        "the expiry refusal must name exactly the addressed Run lock before any optional diagnostic: {missing}"
     );
     assert_eq!(
         state_before,
         fs::read(&state_path).expect("read state after lock checks")
+    );
+    assert!(
+        held.release(),
+        "the live Run-lock holder must exit after its deterministic release"
+    );
+    assert!(
+        !lock.exists(),
+        "a released live Run-lock holder removes its canonical pathname"
     );
 }
 

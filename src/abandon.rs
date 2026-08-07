@@ -22,11 +22,12 @@
 //! 4. retires the root lock (`.ratmac/locks/root.lock`) - retired through this
 //!    path, never bypassed by a flag.
 //!
-//! Every check runs before the first write, so an unconfirmed request leaves
-//! state, history, and lock byte-identical. The apply step is all-or-nothing:
-//! if any step fails, every file it touched is restored, leaving the Run
-//! active rather than half retired. Re-running the confirmed command then
-//! finishes the job.
+//! Every check runs before the first mutation, so an unconfirmed request leaves
+//! state, history, and locks byte-identical. An admitted retirement records
+//! its terminal event first, then retires ledger marks and Run artifacts. If a
+//! later retirement step fails, history is never rewritten: one compensating
+//! append records that the terminal event was written but the Run was not
+//! retired. Re-running the confirmed command then finishes the remaining job.
 //!
 //! Retirement is idempotent: a leftover lock with no admission state is
 //! retired without appending a second terminal event, because the lock is
@@ -99,12 +100,12 @@ pub struct AbandonPlan {
     /// The addressed run, when one is being retired.
     pub run: Option<String>,
     /// Spawn ledgers whose entry for the addressed run gets its abandoned
-    /// mark flipped (FDC-011) - only that mark, inside the same all-or-none
-    /// transaction.
+    /// mark flipped (FDC-011) - only that mark, inside the same transaction.
     pub annotate: Vec<PathBuf>,
-    /// Stale lock files checked by their owner tokens and retired only if the
-    /// same bytes remain at apply time.
-    lock_retire: Vec<crate::lock::LockRetirement>,
+    /// A lock pathname observed during planning. Apply claims it normally
+    /// before its RAII drop may retire it; this is never a direct unlink.
+    root_lock_present: bool,
+    run_lock_present: bool,
 }
 
 /// Decide whether this project's Run may be retired. Writes nothing.
@@ -124,14 +125,9 @@ pub fn plan_abandon(root: &Path, request: &AbandonRequest) -> Result<AbandonPlan
         Some(_) => {}
     }
 
+    // FDC-004: abandon acts on an existing Run through `--run <id>`.
     let engine_root = crate::root::resolve(root).engine_root().to_path_buf();
-    let root_lock = crate::lock::stale_root_retirement(&engine_root)
-        .map_err(|error| refusal(error.to_string()))?;
-    // FDC-004: abandon acts on an existing Run through `--run <id>`. Only the
-    // leftover-lock retirement — no live run anywhere on the roster — may
-    // proceed unaddressed, because it retires transient invocation machinery,
-    // not a Run.
-    let roster = crate::Scheduler::run_roster(root);
+    let roster = run_roster_at(&engine_root)?;
     let roster_line = if roster.is_empty() {
         "none".to_owned()
     } else {
@@ -167,10 +163,11 @@ pub fn plan_abandon(root: &Path, request: &AbandonRequest) -> Result<AbandonPlan
         }
         None => None,
     };
-    let run_lock = match run_id.as_deref() {
-        Some(run_id) => crate::lock::stale_run_retirement(&engine_root, run_id)
-            .map_err(|error| refusal(error.to_string()))?,
-        None => None,
+
+    let root_lock_present = lock_path_present(&crate::lock::root_path(&engine_root))?;
+    let run_lock_present = match run_id.as_deref() {
+        Some(id) => lock_path_present(&crate::lock::run_path(&engine_root, id))?,
+        None => false,
     };
 
     let run_dir = run_id
@@ -182,18 +179,37 @@ pub fn plan_abandon(root: &Path, request: &AbandonRequest) -> Result<AbandonPlan
         .map(|dir| dir.join(crate::pin::EVIDENCE_FILE));
 
     let admitted = state_path.as_ref().is_some_and(|path| path.exists());
-    if !admitted && root_lock.is_none() && run_lock.is_none() {
-        // FDC-006: runs are plural, so the refusal speaks about the addressed
-        // run — or the empty project — never about "the" project-wide Run.
-        return Err(match run_id.as_deref() {
-            Some(id) => refusal(format!(
+    if !admitted {
+        // Lock-only retirement is safe only through a normal acquisition:
+        // a live owner causes its named bounded wait to refuse, while an
+        // unclaimed residue is claimed and retired by that guard's Drop.
+        return match run_id.as_deref() {
+            Some(_) if run_lock_present => Ok(AbandonPlan {
+                event: None,
+                phase: None,
+                retire: Vec::new(),
+                run: run_id,
+                annotate: Vec::new(),
+                root_lock_present,
+                run_lock_present,
+            }),
+            Some(id) => Err(refusal(format!(
                 "run {id} is already terminal: its admission state is retired; nothing to retire"
-            )),
-            None => refusal(format!(
-                "nothing to retire in {}: no live run and no leftover lock",
+            ))),
+            None if root_lock_present => Ok(AbandonPlan {
+                event: None,
+                phase: None,
+                retire: Vec::new(),
+                run: None,
+                annotate: Vec::new(),
+                root_lock_present,
+                run_lock_present: false,
+            }),
+            None => Err(refusal(format!(
+                "nothing to retire in {}: no live run",
                 project_name(root)
-            )),
-        });
+            ))),
+        };
     }
 
     let mut retire = Vec::new();
@@ -215,9 +231,15 @@ pub fn plan_abandon(root: &Path, request: &AbandonRequest) -> Result<AbandonPlan
             state.status,
             revision_or_none(&state.goal_revision),
         ));
-        retire.push(state_path);
+        // Retire evidence before the admission State File. If retirement then
+        // fails, the Run remains admitted and the compensating history entry
+        // can truthfully say it was not retired.
         if evidence_path.exists() {
             retire.push(evidence_path);
+        }
+        retire.push(state_path);
+        for path in &retire {
+            ensure_retirement_file(path)?;
         }
     }
 
@@ -230,10 +252,8 @@ pub fn plan_abandon(root: &Path, request: &AbandonRequest) -> Result<AbandonPlan
         let run = run_id
             .as_deref()
             .expect("admitted implies an addressed run");
-        for id in crate::Scheduler::run_roster(root) {
-            let path = crate::Scheduler::runs_dir(root)
-                .join(&id)
-                .join("spawn-ledger");
+        for id in run_roster_at(&engine_root)? {
+            let path = engine_root.join("runs").join(&id).join("spawn-ledger");
             match crate::ledger::read_entries(&path) {
                 Ok(entries) => {
                     if entries
@@ -244,7 +264,12 @@ pub fn plan_abandon(root: &Path, request: &AbandonRequest) -> Result<AbandonPlan
                     }
                 }
                 Err(error) => {
-                    let raw = std::fs::read_to_string(&path).unwrap_or_default();
+                    let raw = std::fs::read_to_string(&path).map_err(|read_error| {
+                        refusal(format!(
+                            "abandon cannot inspect defective spawn ledger {}: {read_error}; parse error: {error}",
+                            path.display()
+                        ))
+                    })?;
                     if raw.contains(&format!("id = {run:?}")) {
                         return Err(refusal(format!(
                             "the spawn ledger recording {run} is defective: {error}"
@@ -254,22 +279,25 @@ pub fn plan_abandon(root: &Path, request: &AbandonRequest) -> Result<AbandonPlan
             }
         }
     }
-    let mut lock_retire = Vec::new();
-    if let Some(lock) = run_lock {
-        lock_retire.push(lock);
-    }
-    if let Some(lock) = root_lock {
-        lock_retire.push(lock);
-    }
-
     Ok(AbandonPlan {
         event,
         phase,
         retire,
         run: run_id,
         annotate,
-        lock_retire,
+        root_lock_present,
+        run_lock_present,
     })
+}
+fn lock_path_present(path: &Path) -> Result<bool, AbandonRefusal> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(refusal(format!(
+            "abandon cannot inspect lock {}: {error}",
+            path.display()
+        ))),
+    }
 }
 
 fn revision_or_none(revision: &str) -> String {
@@ -280,140 +308,339 @@ fn revision_or_none(revision: &str) -> String {
     }
 }
 
-/// Perform the planned retirement, all of it or none of it.
+/// Perform a planned retirement. Its terminal history entry is the first
+/// durable mutation; later failures are named rather than rolled back through
+/// a shared append-only history.
 pub fn apply_abandon(root: &Path, plan: &AbandonPlan) -> Result<(), AbandonRefusal> {
     let engine_root = crate::root::resolve(root).engine_root().to_path_buf();
-    let log_path = engine_root.join("log.md");
-    // Re-check every stale lock before the first write.  Lock retirement is
-    // deliberately kept out of the byte snapshot: its owner token is the
-    // authority for deletion, not a pathname that abandonment may recreate.
-    for lock in &plan.lock_retire {
-        lock.verify().map_err(|error| refusal(error.to_string()))?;
+    match plan.run.as_deref() {
+        Some(run_id) if plan.event.is_none() => {
+            if plan.phase.is_some()
+                || !plan.retire.is_empty()
+                || !plan.annotate.is_empty()
+                || !plan.run_lock_present
+            {
+                return Err(refusal(
+                    "abandon lock-only plan is unsafe or stale; nothing was modified",
+                ));
+            }
+            // An addressed abandonment always records shared history, so it
+            // always takes root before the addressed Run. A stale pathname is
+            // not an admission condition: normal acquisition either waits for
+            // its live holder or claims and retires the residue.
+            let (root_lock, run_lock) = crate::lock::acquire_root_then_run(&engine_root, run_id)
+                .map_err(|error| refusal(error.to_string()))?;
+            root_lock
+                .ensure_current()
+                .map_err(|error| refusal(error.to_string()))?;
+            run_lock
+                .ensure_current()
+                .map_err(|error| refusal(error.to_string()))?;
+            Ok(())
+        }
+        Some(run_id) => {
+            // This pair protects the one terminal transaction: shared history
+            // and any ledger mark need root, while the addressed Run needs its
+            // motion lock. Keep both through retirement: this is a bounded
+            // local file sequence with no guard, subprocess, or lock wait, so
+            // releasing root mid-transaction would expose a terminal event
+            // beside a still-admitted Run.
+            let (root_lock, run_lock) = crate::lock::acquire_root_then_run(&engine_root, run_id)
+                .map_err(|error| refusal(error.to_string()))?;
+            apply_live_abandon(&engine_root, plan, &root_lock, &run_lock)
+        }
+        None => {
+            if plan.event.is_some()
+                || plan.phase.is_some()
+                || !plan.retire.is_empty()
+                || !plan.annotate.is_empty()
+                || !plan.root_lock_present
+                || plan.run_lock_present
+            {
+                return Err(refusal(
+                    "abandon plan without a Run may retire only an observed stale root lock; nothing was modified",
+                ));
+            }
+            // Claiming the extant pathname makes it ours before Drop retires
+            // it. A live owner causes the bounded refusal naming this path.
+            let root_lock = crate::lock::RootLock::acquire(&engine_root)
+                .map_err(|error| refusal(error.to_string()))?;
+            root_lock
+                .ensure_current()
+                .map_err(|error| refusal(error.to_string()))?;
+            Ok(())
+        }
     }
+}
 
-    // A live abandonment is motion on one Run.  Ledger annotation additionally
-    // needs the root domain, so acquire that first whenever it is needed.
-    // A checked stale lock already excludes standard acquirers; it remains in
-    // place until this transaction completes and is then retired by token.
-    let root_lock_path = crate::lock::root_path(&engine_root);
-    let root_is_stale = plan
-        .lock_retire
-        .iter()
-        .any(|lock| lock.path() == root_lock_path);
-    let _root_lock = if plan.annotate.is_empty() || root_is_stale {
-        None
-    } else {
-        Some(
-            crate::lock::RootLock::acquire(&engine_root)
-                .map_err(|error| refusal(error.to_string()))?,
-        )
-    };
-    let run_lock_path = plan
+fn apply_live_abandon(
+    engine_root: &Path,
+    plan: &AbandonPlan,
+    root_lock: &crate::lock::RootLock,
+    run_lock: &crate::lock::RunLock,
+) -> Result<(), AbandonRefusal> {
+    let run = plan
         .run
         .as_deref()
-        .map(|run_id| crate::lock::run_path(&engine_root, run_id));
-    let run_is_stale = run_lock_path
-        .as_ref()
-        .is_some_and(|path| plan.lock_retire.iter().any(|lock| lock.path() == path));
-    let _run_lock = match plan.run.as_deref() {
-        Some(run_id) if !run_is_stale => Some(
-            crate::lock::RunLock::acquire(&engine_root, run_id)
-                .map_err(|error| refusal(error.to_string()))?,
-        ),
-        _ => None,
+        .ok_or_else(|| refusal("abandon plan has no addressed Run"))?;
+    revalidate_abandon_plan(engine_root, plan)?;
+    run_lock
+        .ensure_current()
+        .map_err(|error| refusal(error.to_string()))?;
+    let terminal_event_written = if let Some(entry) = plan.event.as_deref() {
+        append_event_once(root_lock, &engine_root.join("log.md"), entry)?;
+        true
+    } else {
+        false
     };
 
-    let mut snapshot: Vec<(PathBuf, Option<Vec<u8>>)> = Vec::new();
-    for path in std::iter::once(&log_path)
-        .chain(plan.retire.iter())
-        .chain(plan.annotate.iter())
-    {
-        match fs::read(path) {
-            Ok(bytes) => snapshot.push((path.clone(), Some(bytes))),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                snapshot.push((path.clone(), None))
-            }
-            Err(error) => {
-                return Err(refusal(format!(
-                    "abandon cannot snapshot {} for rollback: {error}",
-                    path.display()
-                )))
-            }
-        }
-    }
-
-    let restore = |problem: AbandonRefusal| -> AbandonRefusal {
-        let mut unrestored = Vec::new();
-        for (path, bytes) in &snapshot {
-            let outcome = match bytes {
-                Some(bytes) => fs::write(path, bytes),
-                None => match fs::remove_file(path) {
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-                    other => other,
-                },
-            };
-            if let Err(error) = outcome {
-                unrestored.push(format!("{}: {error}", path.display()));
-            }
-        }
-        if unrestored.is_empty() {
-            problem
-        } else {
-            // Never report a clean refusal over a tree we could not put back.
-            refusal(format!(
-                "{}; rollback incomplete, restore by hand: {}",
-                problem.reason,
-                unrestored.join(", ")
-            ))
-        }
-    };
-
-    // The terminal event is recorded before anything is retired, so history
-    // can never lose a Run that the filesystem has already forgotten.
-    if let Some(entry) = plan.event.as_deref() {
-        if let Err(error) = append(&log_path, entry) {
-            return Err(restore(refusal(format!(
-                "abandon cannot record the terminal event: {error}"
-            ))));
-        }
-    }
-
-    // The ledger mark flips before any retirement: a crash between the two
-    // leaves a flipped entry beside a still-live run, which the join reads
-    // honestly, never the reverse (a retired run still counted live).
-    if let Some(run) = plan.run.as_deref() {
-        for path in &plan.annotate {
-            if let Err(error) = crate::ledger::annotate_abandoned(path, run) {
-                return Err(restore(refusal(format!(
-                    "abandon cannot record the ledger mark: {error}"
-                ))));
-            }
+    // The ledger mark follows the durable terminal event. It is idempotent,
+    // so retrying a later failure cannot append a second terminal event.
+    for path in &plan.annotate {
+        root_lock
+            .ensure_current()
+            .map_err(|error| refusal(error.to_string()))?;
+        if let Err(error) = crate::ledger::annotate_abandoned(path, run) {
+            return Err(retirement_failure_after_event(
+                engine_root,
+                root_lock,
+                run,
+                terminal_event_written,
+                format!("cannot record the ledger mark: {error}"),
+            ));
         }
     }
 
     for path in &plan.retire {
+        run_lock
+            .ensure_current()
+            .map_err(|error| refusal(error.to_string()))?;
         if let Err(error) = fs::remove_file(path) {
             if error.kind() != std::io::ErrorKind::NotFound {
-                return Err(restore(refusal(format!(
-                    "abandon cannot retire {}: {error}",
-                    path.display()
-                ))));
+                return Err(retirement_failure_after_event(
+                    engine_root,
+                    root_lock,
+                    run,
+                    terminal_event_written,
+                    format!("cannot retire {}: {error}", path.display()),
+                ));
             }
-        }
-    }
-    for lock in &plan.lock_retire {
-        if let Err(error) = lock.retire() {
-            return Err(restore(refusal(error.to_string())));
         }
     }
     Ok(())
 }
 
-fn append(path: &Path, entry: &str) -> std::io::Result<()> {
+/// Re-check the Run facts that formed an abandonment plan after its final
+/// lock acquisition. A caller asked to retire this exact admitted Run, not
+/// whatever a concurrent lawful motion may have made it become.
+fn revalidate_abandon_plan(engine_root: &Path, plan: &AbandonPlan) -> Result<(), AbandonRefusal> {
+    let run = plan
+        .run
+        .as_deref()
+        .ok_or_else(|| refusal("abandon plan has no admitted Run to revalidate"))?;
+    let run_dir = engine_root.join("runs").join(run);
+    let state_path = run_dir.join("state.toml");
+    let evidence_path = run_dir.join(crate::pin::EVIDENCE_FILE);
+    let state = crate::state::StateStore::at(state_path.clone())
+        .load()
+        .map_err(|error| {
+            refusal(format!(
+                "abandon plan is stale for run {run}: cannot reload its State File: {error}"
+            ))
+        })?;
+    let phase = plan.phase.as_deref().ok_or_else(|| {
+        refusal(format!(
+            "abandon plan is stale for run {run}: its recorded phase is absent"
+        ))
+    })?;
+    if state.phase != phase {
+        return Err(refusal(format!(
+            "abandon plan is stale for run {run}: phase changed from {phase:?} to {:?}",
+            state.phase
+        )));
+    }
+    let event = format!(
+        "- Abandoned: Run {run} retired at phase {} (status {}, goal revision {}) on an explicit human confirmation; admission state, Run evidence, and lock retired. The Run is terminal: no transition may proceed on it.\n",
+        state.phase,
+        state.status,
+        revision_or_none(&state.goal_revision),
+    );
+    if plan.event.as_deref() != Some(event.as_str()) {
+        return Err(refusal(format!(
+            "abandon plan is stale for run {run}: its State File status or revision changed"
+        )));
+    }
+
+    let mut retire = Vec::new();
+    if evidence_path.exists() {
+        retire.push(evidence_path);
+    }
+    retire.push(state_path);
+    if plan.retire != retire {
+        return Err(refusal(format!(
+            "abandon plan is stale for run {run}: retirement artifacts changed"
+        )));
+    }
+    for path in &retire {
+        ensure_retirement_file(path)?;
+    }
+
+    let mut annotate = Vec::new();
+    for id in run_roster_at(engine_root)? {
+        let path = engine_root.join("runs").join(&id).join("spawn-ledger");
+        match crate::ledger::read_entries(&path) {
+            Ok(entries) => {
+                if entries
+                    .iter()
+                    .any(|entry| entry.id == run && !entry.abandoned)
+                {
+                    annotate.push(path);
+                }
+            }
+            Err(error) => {
+                let raw = std::fs::read_to_string(&path).map_err(|read_error| {
+                    refusal(format!(
+                        "abandon cannot inspect defective spawn ledger {}: {read_error}; parse error: {error}",
+                        path.display()
+                    ))
+                })?;
+                if raw.contains(&format!("id = {run:?}")) {
+                    return Err(refusal(format!(
+                        "the spawn ledger recording {run} is defective: {error}"
+                    )));
+                }
+            }
+        }
+    }
+    if plan.annotate != annotate {
+        return Err(refusal(format!(
+            "abandon plan is stale for run {run}: its ledger annotation changed"
+        )));
+    }
+    Ok(())
+}
+
+/// Keep shared history append-only when a terminal event was durable but a
+/// later retirement step failed. The Run remains admitted because retirement
+/// files are ordered with the State File last.
+fn retirement_failure_after_event(
+    engine_root: &Path,
+    root_lock: &crate::lock::RootLock,
+    run: &str,
+    terminal_event_written: bool,
+    failure: String,
+) -> AbandonRefusal {
+    if !terminal_event_written {
+        return refusal(format!("abandon {failure}"));
+    }
+    let compensation = format!(
+        "- Abandonment compensation: the terminal event was written, retirement then failed for Run {run}; the Run was not retired. {failure}.\n"
+    );
+    match append(root_lock, &engine_root.join("log.md"), &compensation) {
+        Ok(()) => refusal(format!(
+            "abandon {failure}; the terminal event was written and a compensation was appended: the Run was not retired"
+        )),
+        Err(append_error) => refusal(format!(
+            "abandon {failure}; the terminal event was written, retirement then failed, and the Run was not retired; cannot append compensation: {append_error}"
+        )),
+    }
+}
+
+/// Root serializes both the presence check and append, so a retry cannot
+/// duplicate a terminal event after another Engine caller writes history.
+fn append_event_once(
+    root_lock: &crate::lock::RootLock,
+    path: &Path,
+    entry: &str,
+) -> Result<(), AbandonRefusal> {
+    root_lock
+        .ensure_current()
+        .map_err(|error| refusal(error.to_string()))?;
+    let existing = match fs::read_to_string(path) {
+        Ok(existing) => existing,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => {
+            return Err(refusal(format!(
+                "abandon cannot inspect terminal history {}: {error}",
+                path.display()
+            )))
+        }
+    };
+    if existing.contains(entry) {
+        return Ok(());
+    }
+    append(root_lock, path, entry)
+        .map_err(|error| refusal(format!("abandon cannot record the terminal event: {error}")))
+}
+
+fn run_roster_at(engine_root: &Path) -> Result<Vec<String>, AbandonRefusal> {
+    let runs = engine_root.join("runs");
+    let entries = fs::read_dir(&runs).map_err(|error| {
+        refusal(format!(
+            "abandon cannot read run roster {}: {error}",
+            runs.display()
+        ))
+    })?;
+    let mut ids = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            refusal(format!(
+                "abandon cannot read an entry in run roster {}: {error}",
+                runs.display()
+            ))
+        })?;
+        let file_type = entry.file_type().map_err(|error| {
+            refusal(format!(
+                "abandon cannot inspect run roster entry {}: {error}",
+                entry.path().display()
+            ))
+        })?;
+        if file_type.is_dir() {
+            ids.push(entry.file_name().to_string_lossy().into_owned());
+        }
+    }
+    ids.sort();
+    Ok(ids)
+}
+fn ensure_retirement_file(path: &Path) -> Result<(), AbandonRefusal> {
+    let metadata = fs::metadata(path).map_err(|error| {
+        refusal(format!(
+            "abandon cannot inspect {}: {error}",
+            path.display()
+        ))
+    })?;
+    if !metadata.is_file() {
+        return Err(refusal(format!(
+            "abandon cannot retire {}: it is not a regular file",
+            path.display()
+        )));
+    }
+    fs::File::open(path)
+        .map(|_| ())
+        .map_err(|error| refusal(format!("abandon cannot read {}: {error}", path.display())))
+}
+
+/// Append shared history while its root-domain guard remains current.
+fn append(root_lock: &crate::lock::RootLock, path: &Path, entry: &str) -> std::io::Result<()> {
+    root_lock
+        .ensure_current()
+        .map_err(|error| std::io::Error::other(error.to_string()))?;
     let mut file = fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(path)?;
-    file.write_all(entry.as_bytes())?;
+    root_lock
+        .ensure_current()
+        .map_err(|error| std::io::Error::other(error.to_string()))?;
+    let written = file.write(entry.as_bytes())?;
+    if written != entry.len() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::WriteZero,
+            format!(
+                "short append wrote {written} of {} history bytes without retry",
+                entry.len()
+            ),
+        ));
+    }
     file.sync_all()
 }

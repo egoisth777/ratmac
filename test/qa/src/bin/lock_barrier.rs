@@ -58,7 +58,45 @@ fn main() -> ExitCode {
             return ExitCode::from(64);
         }
     };
-
+    // ENSV-006 uses this barrier as an independently live lock holder.
+    // Acquisition happens before publishing the marker, making that marker a
+    // proof of kernel claims rather than a pathname convention. If both
+    // domains are requested, root is intentionally acquired first.
+    let _root_lock = match std::env::var_os("RATMAC_QA_ROOT_LOCK_ENGINE") {
+        Some(engine_root) => match ratmac::lock::RootLock::acquire(&PathBuf::from(engine_root)) {
+            Ok(lock) => Some(lock),
+            Err(error) => {
+                eprintln!("lock-barrier: acquire root lock: {error}");
+                return ExitCode::from(65);
+            }
+        },
+        None => None,
+    };
+    let _run_lock = match (
+        std::env::var_os("RATMAC_QA_RUN_LOCK_ENGINE"),
+        std::env::var("RATMAC_QA_RUN_LOCK_ID"),
+    ) {
+        (None, Err(std::env::VarError::NotPresent)) => None,
+        (Some(engine_root), Ok(run_id)) => {
+            match ratmac::lock::RunLock::acquire(&PathBuf::from(engine_root), &run_id) {
+                Ok(lock) => Some(lock),
+                Err(error) => {
+                    eprintln!("lock-barrier: acquire Run lock: {error}");
+                    return ExitCode::from(65);
+                }
+            }
+        }
+        (None, Ok(_)) | (Some(_), Err(std::env::VarError::NotPresent)) => {
+            eprintln!(
+                "lock-barrier: RATMAC_QA_RUN_LOCK_ENGINE and RATMAC_QA_RUN_LOCK_ID must be set together"
+            );
+            return ExitCode::from(64);
+        }
+        (_, Err(error)) => {
+            eprintln!("lock-barrier: read RATMAC_QA_RUN_LOCK_ID: {error}");
+            return ExitCode::from(64);
+        }
+    };
     if let Some(parent) = marker.parent() {
         if let Err(error) = fs::create_dir_all(parent) {
             eprintln!(

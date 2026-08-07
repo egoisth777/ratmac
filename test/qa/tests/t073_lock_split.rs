@@ -103,51 +103,6 @@ impl Drop for FileBarrier {
     }
 }
 
-/// A manually held root lock models another root-domain owner without relying
-/// on scheduling to catch a short-lived lock acquisition.
-struct ForeignRootLock {
-    path: PathBuf,
-    released: bool,
-}
-
-impl ForeignRootLock {
-    fn create(path: PathBuf) -> std::io::Result<Self> {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&path)?;
-        Ok(Self {
-            path,
-            released: false,
-        })
-    }
-
-    fn is_file(&self) -> bool {
-        self.path.is_file()
-    }
-
-    fn release(&mut self) -> bool {
-        match fs::remove_file(&self.path) {
-            Ok(()) => {
-                self.released = true;
-                true
-            }
-            Err(_) => false,
-        }
-    }
-}
-
-impl Drop for ForeignRootLock {
-    fn drop(&mut self) {
-        if !self.released {
-            let _ = fs::remove_file(&self.path);
-        }
-    }
-}
-
 struct Fixture {
     sandbox: PathBuf,
     root: PathBuf,
@@ -216,6 +171,25 @@ impl Fixture {
             .stderr(Stdio::piped())
             .spawn()
             .expect("spawn concurrent rtm step for ENSV-006")
+    }
+    /// Start an independent process that holds the real root-domain kernel
+    /// claim and publishes its marker only after acquisition.
+    fn hold_root_at_barrier(&self, marker: &Path, barrier: &FileBarrier) -> Child {
+        Command::new(env!("CARGO_BIN_EXE_lock-barrier"))
+            .current_dir(&self.root)
+            .env("RATMAC_QA_ROOT_LOCK_ENGINE", self.root.join(".ratmac"))
+            .env("RATMAC_QA_BARRIER_MARKER", marker)
+            .env("RATMAC_QA_BARRIER_RELEASE", &barrier.release)
+            .env("RATMAC_QA_BARRIER_TIMEOUT_MARKER", &barrier.timeout_marker)
+            .env(
+                "RATMAC_QA_BARRIER_TIMEOUT_MILLIS",
+                barrier.timeout.as_millis().to_string(),
+            )
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn live root-lock holder for ENSV-006")
     }
 }
 
@@ -330,6 +304,7 @@ struct RootDomainObservation {
     foreign_root_lock_removed: bool,
     fresh_start_success: bool,
     fresh_start_minted: bool,
+    leftover_root_does_not_block_mint: bool,
     legacy_lock_absent: bool,
 }
 
@@ -699,9 +674,11 @@ fn observe_long_guard_does_not_block_start(
 fn observe_root_domain(fixture: &Fixture, unrelated_run: &str) -> RootDomainObservation {
     let root_lock_path = fixture.root.join(".ratmac/locks/root.lock");
     let root_lock_started_absent = !root_lock_path.exists();
-    let mut foreign_root = ForeignRootLock::create(root_lock_path.clone())
-        .expect("create the ENSV-006 foreign root-lock holder");
-    let foreign_root_lock_present = foreign_root.is_file();
+    let mut root_barrier = FileBarrier::new(&fixture.root, "foreign-root-lock");
+    let root_marker = root_barrier.marker("foreign-root-lock");
+    let foreign_root = fixture.hold_root_at_barrier(&root_marker, &root_barrier);
+    let holder_marker_observed = wait_for_files(&[&root_marker], MARKER_ARRIVAL_TIMEOUT);
+    let foreign_root_lock_present = holder_marker_observed && root_lock_path.is_file();
     let roster_before = run_roster(&fixture.root);
     let mut blocked_start = fixture.start_child();
 
@@ -723,13 +700,34 @@ fn observe_root_domain(fixture: &Fixture, unrelated_run: &str) -> RootDomainObse
     // Stop the blocked attempt before releasing the foreign holder. A new start
     // below then proves that the same root pathname admits minting once free.
     let blocked_start = stop_child(blocked_start);
-    let foreign_root_lock_removed = foreign_root.release();
+    let holder_release_written = root_barrier.release();
+    let foreign_root = reap_child(foreign_root, CHILD_COMPLETION_TIMEOUT);
+    let foreign_root_lock_removed =
+        holder_release_written && foreign_root.success && !root_lock_path.exists();
     let step = reap_child(step, CHILD_COMPLETION_TIMEOUT);
 
     let roster_before_fresh_start = run_roster(&fixture.root);
     let fresh_start = fixture.rtm(&["start"]);
     let fresh_start_success = fresh_start.status.success();
     let fresh_start_minted = minted_one_run(&roster_before_fresh_start, &run_roster(&fixture.root));
+
+    // A pathname with no live holder is deliberately only residue. Create it
+    // empty (never manufacture an owner token), then require ordinary minting
+    // to reclaim it.
+    let leftover_created = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&root_lock_path)
+        .is_ok();
+    let leftover_root_does_not_block_mint = if leftover_created {
+        let roster_before_leftover_start = run_roster(&fixture.root);
+        let leftover_start = fixture.rtm(&["start"]);
+        leftover_start.status.success()
+            && minted_one_run(&roster_before_leftover_start, &run_roster(&fixture.root))
+            && !root_lock_path.exists()
+    } else {
+        false
+    };
 
     RootDomainObservation {
         root_lock_started_absent,
@@ -744,6 +742,7 @@ fn observe_root_domain(fixture: &Fixture, unrelated_run: &str) -> RootDomainObse
         foreign_root_lock_removed,
         fresh_start_success,
         fresh_start_minted,
+        leftover_root_does_not_block_mint,
         legacy_lock_absent: !fixture.root.join(".arca/rtm.lock").exists(),
     }
 }
@@ -784,6 +783,10 @@ fn per_run_motion_serializes_without_blocking_other_runs_or_root_work() {
             && overlap.legacy_lock_absent
             && same.per_run_lock_named_on_refusal
             && root_domain.proves_root_domain_and_unrelated_motion(),
-        "ENSV-006 claim 4: while both guards are parked, lock files must be exactly {expected_locks:?} under .ratmac/locks/runs/ with root.lock absent; a foreign .ratmac/locks/root.lock must block minting but not unrelated motion, and .arca/rtm.lock must never appear. Overlap: {overlap:#?}; same-Run: {same:#?}; root-domain: {root_domain:#?}"
+        "ENSV-006 claim 4: while both guards are parked, lock files must be exactly {expected_locks:?} under .ratmac/locks/runs/ with root.lock absent; a live foreign root-lock holder must block minting but not unrelated motion, and .arca/rtm.lock must never appear. Overlap: {overlap:#?}; same-Run: {same:#?}; root-domain: {root_domain:#?}"
+    );
+    assert!(
+        root_domain.leftover_root_does_not_block_mint,
+        "ENSV-006 claim 5: a leftover root.lock pathname with no live kernel holder must not wedge an ordinary mint; observation: {root_domain:#?}"
     );
 }
