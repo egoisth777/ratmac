@@ -536,6 +536,14 @@ impl Scheduler {
     /// `.ratmac/runs/<run_id>/`.
     pub fn open_run(root: impl AsRef<Path>, run_id: impl AsRef<str>) -> Result<Self, StateError> {
         let roots = crate::root::resolve(root);
+        Self::open_run_with_roots(&roots, run_id)
+    }
+
+    /// Open an addressed Run using the roots already resolved for this invocation.
+    pub(crate) fn open_run_with_roots(
+        roots: &crate::root::Roots,
+        run_id: impl AsRef<str>,
+    ) -> Result<Self, StateError> {
         let invoking_root = roots.invoking_checkout_root().to_path_buf();
         let engine_root = roots.engine_root().to_path_buf();
         Self::refuse_flat_residue_at(&invoking_root, &engine_root)?;
@@ -609,6 +617,13 @@ impl Scheduler {
     /// again inside root-domain mint transactions.
     pub(crate) fn refuse_flat_residue(root: &Path) -> Result<(), StateError> {
         let roots = crate::root::resolve(root);
+        Self::refuse_flat_residue_with_roots(&roots)
+    }
+
+    /// Check pre-split residue against roots already selected for an invocation.
+    pub(crate) fn refuse_flat_residue_with_roots(
+        roots: &crate::root::Roots,
+    ) -> Result<(), StateError> {
         Self::refuse_flat_residue_at(roots.invoking_checkout_root(), roots.engine_root())
     }
 
@@ -786,7 +801,7 @@ impl Scheduler {
         Ok(Self::run_roster_at(engine_root))
     }
 
-    fn run_roster_at(engine_root: &Path) -> Vec<String> {
+    pub(crate) fn run_roster_at(engine_root: &Path) -> Vec<String> {
         let Ok(entries) = fs::read_dir(Self::runs_dir_at(engine_root)) else {
             return Vec::new();
         };
@@ -814,7 +829,10 @@ impl Scheduler {
         Self::validate_run_address_at(&engine_root, run_id)
     }
 
-    fn validate_run_address_at(engine_root: &Path, run_id: &str) -> Result<(), StateError> {
+    pub(crate) fn validate_run_address_at(
+        engine_root: &Path,
+        run_id: &str,
+    ) -> Result<(), StateError> {
         let roster = Self::run_roster_at(engine_root);
         let roster_line = if roster.is_empty() {
             "none".to_owned()
@@ -844,6 +862,14 @@ impl Scheduler {
             return None;
         }
         Some(ordinal)
+    }
+
+    /// Render the Engine root selected when this Scheduler was opened.
+    pub(crate) fn write_engine_root<W: Write>(&self, writer: &mut W) -> Result<(), StateError> {
+        let engine_root = self.engine_root()?;
+        writeln!(writer, "Engine root: {}", engine_root.display())
+            .map_err(|error| StateError::new(format!("write Engine root: {error}")))?;
+        Ok(())
     }
 
     fn engine_root(&self) -> Result<&Path, StateError> {

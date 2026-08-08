@@ -6,12 +6,49 @@
 //! the invocation.  A real Git primary and linked worktree exercise shared
 //! runtime selection; a separate non-Git checkout exercises the local fallback.
 
+use ratmac_qa::json::Json;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-const RUNBOOK: &str = "[phases.build]\nprompt = \"Report the Engine root.\"\n";
+const RUNBOOK: &str = r#"
+[classes.reviewer.bindings.ticket]
+required = true
+
+[classes.reviewer.phases.review]
+prompt = "Review the delegated ticket."
+
+[classes.reviewer.phases.approved]
+prompt = "Approved."
+
+[[classes.reviewer.transitions]]
+from = "review"
+to = "approved"
+
+[phases.plan]
+prompt = "Plan."
+
+[phases.delegate]
+prompt = "Delegate and wait."
+guards = [{ kind = "join", require = "all_passed", min = 1 }]
+
+[[phases.delegate.spawns]]
+class = "reviewer"
+name = "review"
+bind = ["ticket"]
+
+[phases.done]
+prompt = "Done."
+
+[[transitions]]
+from = "plan"
+to = "delegate"
+
+[[transitions]]
+from = "delegate"
+to = "done"
+"#;
 
 type TreeSnapshot = BTreeMap<String, Option<Vec<u8>>>;
 
@@ -173,6 +210,51 @@ fn only_run(root: &Path) -> String {
     ids.pop().expect("one minted Run has an id")
 }
 
+fn spawned_child_run(root: &Path, parent: &str) -> String {
+    let runs = ratmac::root::resolve(root).engine_root().join("runs");
+    let mut children = fs::read_dir(&runs)
+        .expect("fixture Engine roster is listable")
+        .map(|entry| entry.expect("fixture roster entry is readable"))
+        .filter(|entry| entry.path().is_dir())
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|id| id != parent)
+        .collect::<Vec<_>>();
+    children.sort();
+    assert_eq!(
+        children.len(),
+        1,
+        "fixture spawn must mint exactly one child Run; roster was {children:?}"
+    );
+    children.pop().expect("one spawned child Run has an id")
+}
+
+fn spawn_child(fixture: &GitFixture) -> String {
+    let enter_delegate = rtm_at(&fixture.primary, &["step", "--run", fixture.run.as_str()]);
+    assert!(
+        enter_delegate.status.success(),
+        "fixture setup must enter the spawning Phase: {}",
+        combined(&enter_delegate)
+    );
+
+    let spawn = rtm_at(
+        &fixture.primary,
+        &[
+            "spawn",
+            "review",
+            "--run",
+            fixture.run.as_str(),
+            "--bind",
+            "ticket=ENSV-011",
+        ],
+    );
+    assert!(
+        spawn.status.success(),
+        "fixture setup must spawn a child Run: {}",
+        combined(&spawn)
+    );
+    spawned_child_run(&fixture.primary, &fixture.run)
+}
+
 fn combined(output: &Output) -> String {
     format!(
         "{}{}",
@@ -209,7 +291,11 @@ fn tree_snapshot(root: &Path) -> TreeSnapshot {
     snapshot
 }
 
-fn assert_reported_root(
+fn rendered_path(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
+fn assert_human_reported_root(
     command: &str,
     invocation_root: &Path,
     expected_root: &Path,
@@ -223,15 +309,117 @@ fn assert_reported_root(
         combined(output)
     );
 
-    let expected = expected_root.to_string_lossy().replace('\\', "/");
-    assert!(
-        report.replace('\\', "/").contains(&expected),
-        "ENS-010: `rtm {command}` from {} must print the resolver-selected Engine root {expected}; output was:\n{report}",
+    let roots = report
+        .lines()
+        .filter_map(|line| line.strip_prefix("Engine root: "))
+        .map(|root| root.replace('\\', "/"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        roots,
+        vec![rendered_path(expected_root)],
+        "ENS-010: `rtm {command}` from {} must render exactly one resolver-selected Engine root fact; output was:\n{report}",
         invocation_root.display()
     );
 }
 
-fn assert_reported_root_without_writing(
+fn assert_json_reported_root(
+    command: &str,
+    invocation_root: &Path,
+    expected_root: &Path,
+    output: &Output,
+) {
+    let report = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "ENS-010: `rtm {command}` from {} must succeed so it can report its root: {}",
+        invocation_root.display(),
+        combined(output)
+    );
+    let document = Json::parse(&report).unwrap_or_else(|error| {
+        panic!(
+            "ENS-010: `rtm {command}` must emit parseable JSON from {}: {error}\n{report}",
+            invocation_root.display()
+        )
+    });
+    let root = document
+        .as_object()
+        .and_then(|object| object.get("engine_root"))
+        .and_then(Json::as_str)
+        .map(|root| root.replace('\\', "/"));
+    assert_eq!(
+        root,
+        Some(rendered_path(expected_root)),
+        "ENS-010: `rtm {command}` from {} must expose the resolver-selected Engine root in its engine_root field; output was:\n{report}",
+        invocation_root.display()
+    );
+}
+
+fn assert_doctor_reports_without_writing(
+    fixture: &str,
+    snapshot_root: &Path,
+    invocation_root: &Path,
+    expected_root: &Path,
+) {
+    let before_doctor = tree_snapshot(snapshot_root);
+    let doctor = rtm_at(invocation_root, &["doctor"]);
+    assert_human_reported_root("doctor", invocation_root, expected_root, &doctor);
+    assert_eq!(
+        tree_snapshot(snapshot_root),
+        before_doctor,
+        "ENS-010: argument-free `rtm doctor` must leave the {fixture} fixture byte-identical"
+    );
+
+    let before_json = tree_snapshot(snapshot_root);
+    let doctor_json = rtm_at(invocation_root, &["doctor", "--json"]);
+    assert_json_reported_root(
+        "doctor --json",
+        invocation_root,
+        expected_root,
+        &doctor_json,
+    );
+    assert_eq!(
+        tree_snapshot(snapshot_root),
+        before_json,
+        "ENS-010: `rtm doctor --json` must leave the {fixture} fixture byte-identical"
+    );
+}
+
+fn assert_path_doctor_reports_without_writing(
+    fixture: &str,
+    snapshot_root: &Path,
+    invocation_root: &Path,
+    runbook_path: &Path,
+    expected_root: &Path,
+) {
+    let runbook_path = runbook_path
+        .to_str()
+        .expect("fixture runbook path is valid UTF-8");
+
+    let before_doctor = tree_snapshot(snapshot_root);
+    let doctor = rtm_at(invocation_root, &["doctor", runbook_path]);
+    assert_human_reported_root("doctor <path>", invocation_root, expected_root, &doctor);
+    assert_eq!(
+        tree_snapshot(snapshot_root),
+        before_doctor,
+        "ENS-010: path-addressed `rtm doctor` must leave the {fixture} fixture byte-identical"
+    );
+
+    let before_json = tree_snapshot(snapshot_root);
+    let doctor_json = rtm_at(invocation_root, &["doctor", "--json", runbook_path]);
+    assert_json_reported_root(
+        "doctor --json <path>",
+        invocation_root,
+        expected_root,
+        &doctor_json,
+    );
+    assert_eq!(
+        tree_snapshot(snapshot_root),
+        before_json,
+        "ENS-010: path-addressed `rtm doctor --json` must leave the {fixture} fixture byte-identical"
+    );
+}
+
+fn assert_status_and_doctor_report_without_writing(
     fixture: &str,
     snapshot_root: &Path,
     invocation_root: &Path,
@@ -243,29 +431,32 @@ fn assert_reported_root_without_writing(
 
     let before_status = tree_snapshot(snapshot_root);
     let status = rtm_at(invocation_root, &["status", "--run", run]);
-    assert_reported_root("status", invocation_root, &expected_root, &status);
+    assert_human_reported_root("status", invocation_root, &expected_root, &status);
     assert_eq!(
         tree_snapshot(snapshot_root),
         before_status,
         "ENS-010: `rtm status` must leave the {fixture} fixture byte-identical"
     );
 
-    let before_doctor = tree_snapshot(snapshot_root);
-    let doctor = rtm_at(invocation_root, &["doctor"]);
-    assert_reported_root("doctor", invocation_root, &expected_root, &doctor);
-    assert_eq!(
-        tree_snapshot(snapshot_root),
-        before_doctor,
-        "ENS-010: argument-free `rtm doctor` must leave the {fixture} fixture byte-identical"
+    assert_doctor_reports_without_writing(fixture, snapshot_root, invocation_root, &expected_root);
+    assert_path_doctor_reports_without_writing(
+        fixture,
+        snapshot_root,
+        invocation_root,
+        &invocation_root.join(".ratmac/ratmac.toml"),
+        &expected_root,
     );
 }
 
-/// ENSV-011: status and argument-free doctor expose the root actually selected
-/// by the resolver, agree through that shared oracle, and remain read-only.
+/// ENSV-011: status and every doctor report shape expose the root actually
+/// selected for their invocation, agree through that shared oracle, and remain
+/// read-only.
 #[test]
 fn status_and_doctor_report_the_actual_resolved_engine_root() {
     let git = GitFixture::new();
     let no_git = NonGitFixture::new();
+    let unrelated = git.sandbox.join("unrelated");
+    fs::create_dir_all(&unrelated).expect("create unrelated doctor invocation root");
 
     assert_eq!(
         ratmac::root::resolve(&git.linked).engine_root(),
@@ -273,22 +464,40 @@ fn status_and_doctor_report_the_actual_resolved_engine_root() {
         "fixture setup must resolve the linked worktree to the primary Engine root"
     );
 
-    assert_reported_root_without_writing(
+    assert_status_and_doctor_report_without_writing(
         "primary Git checkout",
         &git.sandbox,
         &git.primary,
         &git.run,
     );
-    assert_reported_root_without_writing(
+    assert_status_and_doctor_report_without_writing(
         "linked Git worktree",
         &git.sandbox,
         &git.linked,
         &git.run,
     );
-    assert_reported_root_without_writing(
+    let child = spawn_child(&git);
+    assert_status_and_doctor_report_without_writing(
+        "linked Git worktree addressing a child Run",
+        &git.sandbox,
+        &git.linked,
+        &child,
+    );
+    assert_status_and_doctor_report_without_writing(
         "non-Git checkout",
         &no_git.sandbox,
         &no_git.root,
         &no_git.run,
+    );
+
+    let primary_root = ratmac::root::resolve(&git.primary)
+        .engine_root()
+        .to_path_buf();
+    assert_path_doctor_reports_without_writing(
+        "primary Git checkout from an unrelated current directory",
+        &git.sandbox,
+        &unrelated,
+        &git.primary.join(".ratmac/ratmac.toml"),
+        &primary_root,
     );
 }
