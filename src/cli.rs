@@ -92,13 +92,20 @@ fn is_help(args: &[String]) -> bool {
 /// The roster line printed by every run-addressing refusal: the listing of
 /// the resolved `.ratmac/runs/`, read off artifacts.
 fn roster_line(project_root: &Path) -> Result<String, CliError> {
-    let roster = Scheduler::run_roster(project_root)
+    let roots = crate::root::resolve(project_root);
+    Scheduler::refuse_flat_residue_with_roots(&roots)
         .map_err(|error| CliError::refusal(error.to_string()))?;
-    Ok(if roster.is_empty() {
+    Ok(roster_line_at(roots.engine_root()))
+}
+
+/// Render a roster whose Engine root has already been resolved and preflighted.
+fn roster_line_at(engine_root: &Path) -> String {
+    let roster = Scheduler::run_roster_at(engine_root);
+    if roster.is_empty() {
         "runs: none (.ratmac/runs/ lists no run; rtm start mints one)".to_owned()
     } else {
         format!("runs: {}", roster.join(", "))
-    })
+    }
 }
 
 /// FDC-004: resolve the `--run <id>` a command must carry. A missing,
@@ -106,6 +113,16 @@ fn roster_line(project_root: &Path) -> Result<String, CliError> {
 /// prints the roster; caller input is validated before any path join and the
 /// refusal changes nothing.
 fn addressed_run(command: &str, args: &[String], project_root: &Path) -> Result<String, CliError> {
+    let roots = crate::root::resolve(project_root);
+    addressed_run_with_roots(command, args, &roots)
+}
+
+/// Resolve an addressed Run through roots already selected for the invocation.
+fn addressed_run_with_roots(
+    command: &str,
+    args: &[String],
+    roots: &crate::root::Roots,
+) -> Result<String, CliError> {
     let mut run: Option<String> = None;
     let mut index = 0;
     while index < args.len() {
@@ -114,13 +131,13 @@ fn addressed_run(command: &str, args: &[String], project_root: &Path) -> Result<
                 if run.is_some() {
                     return Err(CliError::refusal(format!(
                         "{command}: --run given twice; address exactly one run; {}",
-                        roster_line(project_root)?
+                        roster_line_at(roots.engine_root())
                     )));
                 }
                 let Some(value) = args.get(index + 1) else {
                     return Err(CliError::refusal(format!(
                         "{command}: --run needs a run id; {}",
-                        roster_line(project_root)?
+                        roster_line_at(roots.engine_root())
                     )));
                 };
                 run = Some(value.clone());
@@ -136,10 +153,10 @@ fn addressed_run(command: &str, args: &[String], project_root: &Path) -> Result<
     let Some(id) = run.filter(|id| !id.is_empty()) else {
         return Err(CliError::refusal(format!(
             "{command}: run addressing is always required — pass --run <id>; {}",
-            roster_line(project_root)?
+            roster_line_at(roots.engine_root())
         )));
     };
-    Scheduler::validate_run_address(project_root, &id)
+    Scheduler::validate_run_address_at(roots.engine_root(), &id)
         .map_err(|error| CliError::refusal(format!("{command}: {error}")))?;
     Ok(id)
 }
@@ -176,24 +193,21 @@ where
         writer.write_all(help(command).as_bytes())?;
         return Ok(0);
     }
+    if command == "doctor" {
+        return doctor(command_args, &project_root, writer);
+    }
+
+    if command == "status" {
+        status(command_args, &project_root, writer)?;
+        return Ok(0);
+    }
+
     if matches!(
         command.as_str(),
-        "start"
-            | "status"
-            | "step"
-            | "hold"
-            | "abandon"
-            | "spawn"
-            | "respawn"
-            | "doctor"
-            | "scaffold"
+        "start" | "step" | "hold" | "abandon" | "spawn" | "respawn" | "scaffold"
     ) {
         Scheduler::refuse_flat_residue(&project_root)
             .map_err(|error| CliError::new(format!("{command}: {error}")))?;
-    }
-
-    if command == "doctor" {
-        return doctor(command_args, &project_root, writer);
     }
 
     if command == "scaffold" {
@@ -237,34 +251,21 @@ where
         return Ok(0);
     }
 
-    if matches!(command.as_str(), "status" | "step") {
+    if command == "step" {
         let id = addressed_run(command, command_args, &project_root)?;
         let mut scheduler = Scheduler::open_run(&project_root, &id)
             .map_err(|error| CliError::new(format!("{command}: {error}")))?;
-        match command.as_str() {
-            "status" => {
-                let report = scheduler
-                    .status()
-                    .map_err(|error| CliError::new(format!("status: {error}")))?;
-                writeln!(writer, "{report}")?;
-                writer.write_all(report.phase_prompt().as_str().as_bytes())?;
-                writer.write_all(b"\n")?;
-            }
-            "step" => {
-                let outcome = scheduler
-                    .step(StepRequest::new(""))
-                    .map_err(|error| CliError::new(format!("step: {error}")))?;
-                if matches!(outcome, StepOutcome::Refused { .. }) {
-                    writeln!(writer, "rtm: {outcome}")?;
-                } else {
-                    let report = scheduler
-                        .status()
-                        .map_err(|error| CliError::new(format!("status: {error}")))?;
-                    writer.write_all(report.phase_prompt().as_str().as_bytes())?;
-                    writer.write_all(b"\n")?;
-                }
-            }
-            _ => unreachable!(),
+        let outcome = scheduler
+            .step(StepRequest::new(""))
+            .map_err(|error| CliError::new(format!("step: {error}")))?;
+        if matches!(outcome, StepOutcome::Refused { .. }) {
+            writeln!(writer, "rtm: {outcome}")?;
+        } else {
+            let report = scheduler
+                .status()
+                .map_err(|error| CliError::new(format!("status: {error}")))?;
+            writer.write_all(report.phase_prompt().as_str().as_bytes())?;
+            writer.write_all(b"\n")?;
         }
         return Ok(0);
     }
@@ -273,6 +274,27 @@ where
         "unsupported command or option: {}",
         args.get(command_index).unwrap_or(&String::new())
     )))
+}
+
+/// Report one addressed Run through the one root resolution used to open it.
+fn status<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Result<(), CliError> {
+    let roots = crate::root::resolve(project_root);
+    Scheduler::refuse_flat_residue_with_roots(&roots)
+        .map_err(|error| CliError::new(format!("status: {error}")))?;
+    let id = addressed_run_with_roots("status", args, &roots)?;
+    // The roots-taking open is required to resolve this invocation once; swapping in the path-taking form is a silent regression no test can catch.
+    let scheduler = Scheduler::open_run_with_roots(&roots, &id)
+        .map_err(|error| CliError::new(format!("status: {error}")))?;
+    let report = scheduler
+        .status()
+        .map_err(|error| CliError::new(format!("status: {error}")))?;
+    scheduler
+        .write_engine_root(writer)
+        .map_err(|error| CliError::new(format!("status: {error}")))?;
+    writeln!(writer, "{report}")?;
+    writer.write_all(report.phase_prompt().as_str().as_bytes())?;
+    writer.write_all(b"\n")?;
+    Ok(())
 }
 
 /// PGE-006: the human-confirmed blocked route.
@@ -628,27 +650,35 @@ fn doctor<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Res
 
     if let Some(target) = target {
         let target = Path::new(target);
-        Scheduler::refuse_flat_residue(&crate::root::addressed_project_root(target))
+        let project_root = crate::root::addressed_project_root(target);
+        let roots = crate::root::resolve(&project_root);
+        Scheduler::refuse_flat_residue_with_roots(&roots)
             .map_err(|error| CliError::refusal(error.to_string()))?;
         // A path that cannot be read is a diagnosis (`RB101`), not a usage
         // error: an authoring loop asks about paths that do not exist yet, and
         // it reads codes, not refusals.
-        let findings = crate::doctor::diagnose(target);
-        write_findings(&findings, json, writer)?;
-        return Ok(crate::doctor::exit_code(&findings));
+        let diagnosis = crate::doctor::diagnose_with_roots(target, &roots);
+        if !json {
+            diagnosis.write_engine_root(writer)?;
+        }
+        write_findings(&diagnosis, json, writer)?;
+        return Ok(diagnosis.exit_code());
     }
 
-    let runbook_path = crate::root::resolve(project_root).machine_class_path();
+    let roots = crate::root::resolve(project_root);
+    Scheduler::refuse_flat_residue_with_roots(&roots)
+        .map_err(|error| CliError::new(format!("doctor: {error}")))?;
+    let runbook_path = roots.machine_class_path();
+    // The roots-taking diagnosis is required to resolve this invocation once; swapping in the path-taking form is a silent regression no test can catch.
+    let diagnosis = crate::doctor::diagnose_with_roots(&runbook_path, &roots);
     if json {
-        let findings = crate::doctor::diagnose(&runbook_path);
-        write_findings(&findings, true, writer)?;
-        return Ok(crate::doctor::exit_code(&findings));
+        write_findings(&diagnosis, true, writer)?;
+        return Ok(diagnosis.exit_code());
     }
 
-    environment_report(project_root, writer)?;
-    let findings = crate::doctor::diagnose(&runbook_path);
-    write_findings(&findings, false, writer)?;
-    Ok(crate::doctor::exit_code(&findings))
+    environment_report(&roots, &diagnosis, writer)?;
+    write_findings(&diagnosis, false, writer)?;
+    Ok(diagnosis.exit_code())
 }
 
 /// AAL-002: write one runbook at a path that does not exist yet.
@@ -686,21 +716,25 @@ fn scaffold<W: Write>(args: &[String], writer: &mut W) -> Result<i32, CliError> 
 }
 
 fn write_findings<W: Write>(
-    findings: &[crate::doctor::Finding],
+    diagnosis: &crate::doctor::Diagnosis,
     json: bool,
     writer: &mut W,
 ) -> Result<(), CliError> {
     if json {
-        writer.write_all(crate::doctor::render_json(findings).as_bytes())?;
+        writer.write_all(diagnosis.render_json().as_bytes())?;
     } else {
-        writer.write_all(crate::doctor::render_report(findings).as_bytes())?;
+        writer.write_all(diagnosis.render_report().as_bytes())?;
     }
     Ok(())
 }
 
 /// ORS-002: the environment report - Engine identity, Runbook, State, and the
 /// next legitimate action.
-fn environment_report<W: Write>(project_root: &Path, writer: &mut W) -> Result<(), CliError> {
+fn environment_report<W: Write>(
+    roots: &crate::root::Roots,
+    diagnosis: &crate::doctor::Diagnosis,
+    writer: &mut W,
+) -> Result<(), CliError> {
     let engine_path = std::env::current_exe()
         .map_err(|error| CliError::new(format!("resolve Engine binary: {error}")))?;
     let engine_hash = sha256_file(&engine_path)
@@ -712,7 +746,7 @@ fn environment_report<W: Write>(project_root: &Path, writer: &mut W) -> Result<(
         engine_hash
     )?;
 
-    let roots = crate::root::resolve(project_root);
+    diagnosis.write_engine_root(writer)?;
     let runbook_path = roots.machine_class_path();
 
     if runbook_path.is_file() {
@@ -734,9 +768,9 @@ fn environment_report<W: Write>(project_root: &Path, writer: &mut W) -> Result<(
 
     // FDC-004: listing the resolved .ratmac/runs/ is the roster; each Run's
     // State File lives in its own directory.
-    let roster = crate::Scheduler::run_roster(project_root)
-        .map_err(|error| CliError::refusal(error.to_string()))?;
-    let runs_dir = roots.engine_root().join("runs");
+    let engine_root = roots.engine_root();
+    let roster = crate::Scheduler::run_roster_at(engine_root);
+    let runs_dir = engine_root.join("runs");
     if roster.is_empty() {
         writeln!(
             writer,

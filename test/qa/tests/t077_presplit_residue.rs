@@ -510,6 +510,30 @@ fn every_entry_point_refuses_each_presplit_artifact_without_mutation() {
     );
 }
 
+/// ENSV-010: direct library callers must see residue before run-address
+/// validation, because a live legacy artifact refuses every entry point.
+#[test]
+fn open_run_preflights_residue_before_invalid_run_address() {
+    let fixture = Fixture::evidence_only("open-run-residue-first");
+    plant_residue(&fixture, ".arca/ratmac.toml");
+    let before = tree_snapshot(&fixture.root);
+
+    let text = refusal_text(
+        ratmac::Scheduler::open_run(&fixture.root, "not-a-run"),
+        "Scheduler::open_run",
+    );
+    assert_named_residue_refusal("Scheduler::open_run", ".arca/ratmac.toml", &text);
+    assert!(
+        !text.contains("not one canonical minted path segment"),
+        "ENS-009: residue must refuse before invalid run addressing: {text}"
+    );
+    assert_eq!(
+        tree_snapshot(&fixture.root),
+        before,
+        "ENS-009: direct Scheduler::open_run must not change the project"
+    );
+}
+
 /// ENSV-010: direct scaffolding treats an Engine-directory target as owned by
 /// the project above it, so residue wins before the existing-file check.
 #[test]

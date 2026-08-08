@@ -17,7 +17,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
-use std::path::Path;
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
 
 use crate::machine::{GuardKind, MachineClass};
 
@@ -109,24 +110,88 @@ impl fmt::Display for Finding {
     }
 }
 
-/// Diagnose the runbook at `path`, reading it and nothing else.
-///
-/// The result is sorted, so two runs over the same bytes produce the same
-/// report (DRD-006).
+/// Findings paired with the exact Engine root used to diagnose them.
+pub(crate) struct Diagnosis {
+    findings: Vec<Finding>,
+    engine_root: PathBuf,
+}
+
+impl Diagnosis {
+    /// Render this diagnosis's selected Engine root for a human report.
+    pub(crate) fn write_engine_root<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+        writeln!(writer, "Engine root: {}", self.engine_root.display())
+    }
+
+    /// Render this diagnosis's findings as the human-readable report.
+    pub(crate) fn render_report(&self) -> String {
+        let mut out = String::new();
+        for finding in &self.findings {
+            out.push_str(&finding.to_string());
+            out.push('\n');
+        }
+        if self.findings.is_empty() {
+            out.push_str("No findings.\n");
+        }
+        out
+    }
+
+    /// Render this diagnosis's Engine root and findings as JSON.
+    pub(crate) fn render_json(&self) -> String {
+        let engine_root = self.engine_root.to_string_lossy();
+        let mut out = format!(
+            "{{\n  \"engine_root\": {},\n  \"findings\": [",
+            quote(&engine_root)
+        );
+        for (index, finding) in self.findings.iter().enumerate() {
+            out.push_str(if index == 0 { "\n" } else { ",\n" });
+            out.push_str(&format!(
+                "    {{\"code\": \"{}\", \"severity\": \"{}\", \"location\": {}, \"message\": {}}}",
+                finding.code(),
+                finding.severity(),
+                quote(finding.location()),
+                quote(finding.message())
+            ));
+        }
+        if !self.findings.is_empty() {
+            out.push('\n');
+            out.push_str("  ");
+        }
+        out.push_str("]\n}\n");
+        out
+    }
+
+    pub(crate) fn exit_code(&self) -> i32 {
+        exit_code(&self.findings)
+    }
+}
+
+/// Diagnose a runbook through the roots selected for its addressed project.
 pub fn diagnose(path: &Path) -> Vec<Finding> {
-    let shown = path.to_string_lossy().replace('\\', "/");
     let project_root = crate::root::addressed_project_root(path);
-    if let Err(error) = crate::Scheduler::refuse_flat_residue(&project_root) {
-        return vec![Finding::error("RB101", shown.clone(), error.to_string())];
+    let roots = crate::root::resolve(&project_root);
+    diagnose_with_roots(path, &roots).findings
+}
+
+/// Diagnose a runbook through roots already selected by the caller.
+pub(crate) fn diagnose_with_roots(path: &Path, roots: &crate::root::Roots) -> Diagnosis {
+    let shown = path.to_string_lossy().replace('\\', "/");
+    if let Err(error) = crate::Scheduler::refuse_flat_residue_with_roots(roots) {
+        return Diagnosis {
+            findings: vec![Finding::error("RB101", shown.clone(), error.to_string())],
+            engine_root: roots.engine_root().to_path_buf(),
+        };
     }
     let source = match std::fs::read_to_string(path) {
         Ok(source) => source,
         Err(error) => {
-            return vec![Finding::error(
-                "RB101",
-                shown.clone(),
-                format!("cannot read {shown}: {error}"),
-            )]
+            return Diagnosis {
+                findings: vec![Finding::error(
+                    "RB101",
+                    shown.clone(),
+                    format!("cannot read {shown}: {error}"),
+                )],
+                engine_root: roots.engine_root().to_path_buf(),
+            }
         }
     };
     let class = match MachineClass::from_toml(&source) {
@@ -134,18 +199,22 @@ pub fn diagnose(path: &Path) -> Vec<Finding> {
         // DRD-007: the parser named the defect; the doctor relays it rather
         // than re-classifying prose it did not produce.
         Err(error) => {
-            return vec![Finding::error(
-                error.code(),
-                error.location().to_owned(),
-                error.message().to_owned(),
-            )]
+            return Diagnosis {
+                findings: vec![Finding::error(
+                    error.code(),
+                    error.location().to_owned(),
+                    error.message().to_owned(),
+                )],
+                engine_root: roots.engine_root().to_path_buf(),
+            }
         }
     };
 
     let mut findings = Vec::new();
-    if let Some(workspace) = runbook_workspace(path) {
-        let engine = crate::root::resolve(&workspace);
-        if let Err(error) = class.validate_roots(&workspace, engine.engine_root()) {
+    if runbook_workspace(path).is_some() {
+        if let Err(error) =
+            class.validate_roots(roots.invoking_checkout_root(), roots.engine_root())
+        {
             findings.push(Finding::error(
                 error.code(),
                 format!("roots {:?}", error.role()),
@@ -158,7 +227,10 @@ pub fn diagnose(path: &Path) -> Vec<Finding> {
     lint_guards(&class, &mut findings);
     audit_ownership(&class, &shown, &mut findings);
     findings.sort();
-    findings
+    Diagnosis {
+        findings,
+        engine_root: roots.engine_root().to_path_buf(),
+    }
 }
 
 /// Return a workspace only for the conventional tracked runbook location.
@@ -187,40 +259,6 @@ pub fn exit_code(findings: &[Finding]) -> i32 {
     } else {
         1
     }
-}
-
-/// The human report: one line per finding, in the order they are held.
-pub fn render_report(findings: &[Finding]) -> String {
-    let mut out = String::new();
-    for finding in findings {
-        out.push_str(&finding.to_string());
-        out.push('\n');
-    }
-    if findings.is_empty() {
-        out.push_str("No findings.\n");
-    }
-    out
-}
-
-/// The machine-readable report (DRD-006): the same findings, as JSON.
-pub fn render_json(findings: &[Finding]) -> String {
-    let mut out = String::from("{\n  \"findings\": [");
-    for (index, finding) in findings.iter().enumerate() {
-        out.push_str(if index == 0 { "\n" } else { ",\n" });
-        out.push_str(&format!(
-            "    {{\"code\": \"{}\", \"severity\": \"{}\", \"location\": {}, \"message\": {}}}",
-            finding.code(),
-            finding.severity(),
-            quote(finding.location()),
-            quote(finding.message())
-        ));
-    }
-    if !findings.is_empty() {
-        out.push('\n');
-        out.push_str("  ");
-    }
-    out.push_str("]\n}\n");
-    out
 }
 
 /// JSON string escaping, by the letter of the grammar.
