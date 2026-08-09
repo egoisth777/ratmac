@@ -61,11 +61,14 @@ impl Finding {
         location: impl Into<String>,
         message: impl Into<String>,
     ) -> Self {
+        // ENS-010: a report spells every path one way, wherever the text
+        // came from, so a finding cannot smuggle a platform separator into a
+        // report whose other lines are already normalized.
         Self {
             code,
             severity,
-            location: location.into(),
-            message: message.into(),
+            location: crate::root::displayed_text(&location.into()),
+            message: crate::root::displayed_text(&message.into()),
         }
     }
 

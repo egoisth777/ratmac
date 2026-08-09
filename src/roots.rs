@@ -185,7 +185,7 @@ impl WorkflowRoots {
                 "roots",
                 format!(
                     "declared roots cannot validate Engine root {}: {error}",
-                    crate::root::displayed(engine_root)
+                    engine_root.display()
                 ),
             )
         })?;
@@ -230,7 +230,7 @@ impl WorkflowRoots {
                 role,
                 format!(
                     "declared root role {role:?} cannot validate Engine root {}: {error}",
-                    crate::root::displayed(engine_root)
+                    engine_root.display()
                 ),
             )
         })?;
@@ -252,7 +252,7 @@ fn canonical_workspace(workspace: &Path, role: &str) -> Result<PathBuf, RootVali
             role,
             format!(
                 "declared root role {role:?} cannot validate workspace {}: {error}",
-                crate::root::displayed(workspace)
+                workspace.display()
             ),
         )
     })
@@ -273,7 +273,7 @@ fn resolve_declared(
             role,
             format!(
                 "declared root role {role:?} path {} does not exist or is unreadable: {error}",
-                crate::root::displayed(&candidate)
+                candidate.display()
             ),
         )
     })?;
@@ -283,7 +283,7 @@ fn resolve_declared(
             role,
             format!(
                 "declared root role {role:?} path {} resolves outside the repository",
-                crate::root::displayed(&candidate)
+                candidate.display()
             ),
         ));
     }
@@ -293,7 +293,7 @@ fn resolve_declared(
             role,
             format!(
                 "declared root role {role:?} path {} cannot be inspected: {error}",
-                crate::root::displayed(&candidate)
+                candidate.display()
             ),
         )
     })?;
@@ -308,7 +308,7 @@ fn resolve_declared(
             role,
             format!(
                 "declared root role {role:?} path {} is {found}; expected a directory",
-                crate::root::displayed(&candidate)
+                candidate.display()
             ),
         ));
     }
@@ -321,8 +321,8 @@ fn resolve_declared(
             role,
             format!(
                 "declared root role {role:?} path {} overlaps the Engine root {}",
-                crate::root::displayed(&candidate),
-                crate::root::displayed(engine_root)
+                candidate.display(),
+                engine_root.display()
             ),
         ));
     }

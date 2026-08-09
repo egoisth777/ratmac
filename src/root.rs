@@ -71,7 +71,13 @@ pub fn resolve(invoking_checkout_root: impl AsRef<Path>) -> Roots {
 /// and parsed as JSON, so they carry one spelling; comparison and filesystem
 /// access keep using the `Path` itself, never this string.
 pub(crate) fn displayed(path: &Path) -> String {
-    path.to_string_lossy().replace('\\', "/")
+    displayed_text(&path.to_string_lossy())
+}
+
+/// Render text that carries a path - a diagnostic message, a location - in the
+/// same one spelling `displayed` gives a path.
+pub(crate) fn displayed_text(text: &str) -> String {
+    text.replace('\\', "/")
 }
 
 /// The project that owns a runbook addressed by path.

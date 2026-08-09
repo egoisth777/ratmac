@@ -256,6 +256,7 @@ engine = ".ratmac"
 
 [phases.plan]
 prompt = "Plan."
+guards = [{ kind = "command_exit", program = "no/such-program", args = [], expected = 0 }]
 
 [phases.done]
 prompt = "Done."
@@ -284,6 +285,11 @@ fn the_whole_doctor_report_renders_paths_one_way() {
 
     let doctor = rtm_at(&checkout, &["doctor"]);
     let report = String::from_utf8_lossy(&doctor.stdout).into_owned();
+    assert!(
+        report.contains("RB301"),
+        "fixture setup must make an unresolvable guard program render a pinning finding, whose \
+         text carries a path built by the Engine; report was:\n{report}"
+    );
     assert!(
         report.contains("RB604"),
         "fixture setup must make static validation render a root-overlap finding; report was:\n{report}"
