@@ -867,8 +867,12 @@ impl Scheduler {
     /// Render the Engine root selected when this Scheduler was opened.
     pub(crate) fn write_engine_root<W: Write>(&self, writer: &mut W) -> Result<(), StateError> {
         let engine_root = self.engine_root()?;
-        writeln!(writer, "Engine root: {}", engine_root.display())
-            .map_err(|error| StateError::new(format!("write Engine root: {error}")))?;
+        writeln!(
+            writer,
+            "Engine root: {}",
+            crate::root::displayed(engine_root)
+        )
+        .map_err(|error| StateError::new(format!("write Engine root: {error}")))?;
         Ok(())
     }
 

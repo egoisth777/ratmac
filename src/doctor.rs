@@ -119,7 +119,11 @@ pub(crate) struct Diagnosis {
 impl Diagnosis {
     /// Render this diagnosis's selected Engine root for a human report.
     pub(crate) fn write_engine_root<W: Write>(&self, writer: &mut W) -> io::Result<()> {
-        writeln!(writer, "Engine root: {}", self.engine_root.display())
+        writeln!(
+            writer,
+            "Engine root: {}",
+            crate::root::displayed(&self.engine_root)
+        )
     }
 
     /// Render this diagnosis's findings as the human-readable report.
@@ -137,7 +141,7 @@ impl Diagnosis {
 
     /// Render this diagnosis's Engine root and findings as JSON.
     pub(crate) fn render_json(&self) -> String {
-        let engine_root = self.engine_root.to_string_lossy();
+        let engine_root = crate::root::displayed(&self.engine_root);
         let mut out = format!(
             "{{\n  \"engine_root\": {},\n  \"findings\": [",
             quote(&engine_root)

@@ -63,6 +63,17 @@ pub fn resolve(invoking_checkout_root: impl AsRef<Path>) -> Roots {
     Roots::resolve(invoking_checkout_root)
 }
 
+/// Render an Engine path for a report in the one spelling the Engine shows.
+///
+/// Resolution mixes sources: Git prints checkout paths with forward slashes
+/// while `Path::join` and the no-Git fallback use the platform separator, so
+/// the same root reaches a report spelled two ways.  Reports are read, diffed,
+/// and parsed as JSON, so they carry one spelling; comparison and filesystem
+/// access keep using the `Path` itself, never this string.
+pub(crate) fn displayed(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
 /// The project that owns a runbook addressed by path.
 pub(crate) fn addressed_project_root(path: &Path) -> PathBuf {
     let parent = path
