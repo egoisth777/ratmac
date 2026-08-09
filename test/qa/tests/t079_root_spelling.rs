@@ -247,3 +247,86 @@ fn reported_engine_root_is_spelled_one_way() {
         linked_roots[0]
     );
 }
+
+/// A Machine Class whose declared root overlaps the Engine root, so static
+/// validation renders both paths into an `rtm doctor` finding (RB604).
+const OVERLAPPING_ROOTS: &str = r#"
+[roots]
+engine = ".ratmac"
+
+[phases.plan]
+prompt = "Plan."
+
+[phases.done]
+prompt = "Done."
+
+[[transitions]]
+from = "plan"
+to = "done"
+"#;
+
+/// ENSV-011: one `rtm doctor` report renders every path in one spelling - the
+/// Engine binary line and the diagnostic findings included, not only the
+/// `Engine root:` fact.
+#[test]
+fn the_whole_doctor_report_renders_paths_one_way() {
+    let sandbox = fresh_sandbox("report");
+    let checkout = sandbox.root.join("primary");
+    fs::create_dir_all(checkout.join(".ratmac")).expect("create Engine directory");
+    fs::write(checkout.join(".ratmac/ratmac.toml"), OVERLAPPING_ROOTS)
+        .expect("write overlapping Machine Class");
+    git_success(&checkout, &["init"]);
+    git_success(&checkout, &["config", "core.autocrlf", "false"]);
+    git_success(&checkout, &["config", "user.email", "qa@example.invalid"]);
+    git_success(&checkout, &["config", "user.name", "Ratmac QA"]);
+    git_success(&checkout, &["add", "--", ".ratmac/ratmac.toml"]);
+    git_success(&checkout, &["commit", "-m", "fixture base"]);
+
+    let doctor = rtm_at(&checkout, &["doctor"]);
+    let report = String::from_utf8_lossy(&doctor.stdout).into_owned();
+    assert!(
+        report.contains("RB604"),
+        "fixture setup must make static validation render a root-overlap finding; report was:\n{report}"
+    );
+
+    let engine_line = report
+        .lines()
+        .find_map(|line| line.strip_prefix("Engine: "))
+        .unwrap_or_else(|| panic!("ENS-010: the doctor report names its Engine binary\n{report}"));
+    let engine_path = engine_line
+        .split(" (sha256: ")
+        .next()
+        .expect("the Engine line carries its path before the hash");
+    assert!(
+        !engine_path.contains('\\'),
+        "ENS-010: the doctor report rendered its Engine binary as {engine_path:?}, mixing a \
+         platform separator into a reported path while the same report spells the Engine root \
+         with forward slashes"
+    );
+
+    for line in report.lines() {
+        assert!(
+            !line.contains('\\'),
+            "ENS-010: one doctor report renders every path in one spelling, but this line carries \
+             a platform separator: {line:?}\nfull report:\n{report}"
+        );
+    }
+
+    let json = rtm_at(&checkout, &["doctor", "--json"]);
+    let rendered = String::from_utf8_lossy(&json.stdout).into_owned();
+    let parsed = Json::parse(&rendered).unwrap_or_else(|error| {
+        panic!("ENS-010: the JSON report must stay parseable: {error:?}\n{rendered}")
+    });
+    let root = parsed
+        .field("engine_root")
+        .expect("the JSON report carries its Engine root");
+    assert!(
+        !root.contains('\\'),
+        "ENS-010: the JSON report rendered the Engine root as {root:?}"
+    );
+    assert!(
+        !rendered.contains("\\\\"),
+        "ENS-010: the JSON report escaped a platform separator, so a machine reader still sees a \
+         second spelling:\n{rendered}"
+    );
+}

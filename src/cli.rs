@@ -742,7 +742,7 @@ fn environment_report<W: Write>(
     writeln!(
         writer,
         "Engine: {} (sha256: {})",
-        engine_path.display(),
+        crate::root::displayed(&engine_path),
         engine_hash
     )?;
 
