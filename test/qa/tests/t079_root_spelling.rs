@@ -386,15 +386,28 @@ fn a_report_quotes_a_backslash_identifier_verbatim() {
 const STORED_BINDINGS: [&str; 1] =
     ["workspace: Some(child_workspace.to_string_lossy().into_owned()),"];
 
-/// Whether a line calls the standard `Path::display`.
+/// Whether a line is a comment.  These rules read source text, and prose
+/// about a rule is not a use of it: `src/root.rs` has to be able to say the
+/// name of the renderer it replaces.
+fn is_prose(line: &str) -> bool {
+    line.trim_start().starts_with("//")
+}
+
+/// Whether a line calls the standard `Path::display`, written either way.
 ///
 /// The scan reads the method identifier rather than the call, because
 /// `path.display /* gap */ ()` is the same call with a comment inside it and
 /// rustfmt accepts it.  `.displayed` is the Engine's own renderer and is what
-/// every one of these call sites is supposed to say.
+/// every one of these call sites is supposed to say.  The qualified spelling
+/// `Path::display(path)` carries no dot at all, so it is matched separately.
 fn names_the_standard_renderer(line: &str) -> bool {
-    line.match_indices(".display")
-        .any(|(start, _)| !line[start + ".display".len()..].starts_with('e'))
+    if is_prose(line) {
+        return false;
+    }
+    let method = line
+        .match_indices(".display")
+        .any(|(start, _)| !line[start + ".display".len()..].starts_with('e'));
+    method || line.contains("Path::display")
 }
 
 fn repository_root() -> PathBuf {
@@ -423,7 +436,14 @@ fn engine_sources() -> Vec<PathBuf> {
 /// Engine.  `Path::display` is the standard second spelling, so the Engine
 /// does not call it at all: `crate::root::Displayed` supplies `.displayed()`
 /// in its place.  A user reads a refusal with the same eyes as a report, so
-/// this holds by construction rather than by the fixtures a test can build.
+/// the rule covers every source line rather than the handful of messages a
+/// fixture can provoke.
+///
+/// What this test is: a guard against re-introduction, over the spellings
+/// that turn a path into text in this Engine.  What it is not: a proof that
+/// no such route exists.  Rust can reach text through `Debug`, through
+/// `as_os_str`, or through a helper this scan has never seen, and reading
+/// source text cannot rule that out.  A reviewer still reads the diff.
 #[test]
 fn no_engine_source_renders_a_path_with_the_standard_renderer() {
     let mut offenders = Vec::new();
@@ -454,7 +474,10 @@ fn no_engine_source_renders_a_path_with_the_standard_renderer() {
 /// holds the Engine's only two conversions - `displayed` for a whole path and
 /// `component` for one path component - so `to_string_lossy` appears nowhere
 /// else, with one pinned exception for a stored binding.  The rule names no
-/// identifier, so no rename slips past it.
+/// identifier, so no rename slips past it, and it reads the method name
+/// rather than the call, so no comment wedged into the parentheses does
+/// either.  Like the rule above it, this catches the known spellings and is
+/// not a proof that text cannot be reached some other way.
 #[test]
 fn no_engine_source_renders_a_path_by_hand() {
     let mut offenders = Vec::new();
@@ -474,7 +497,7 @@ fn no_engine_source_renders_a_path_by_hand() {
                 .enumerate()
                 // The identifier, not the call: `to_string_lossy /* gap */ ()`
                 // is one call with a comment in it, and rustfmt keeps it.
-                .filter(|(_, line)| line.contains("to_string_lossy"))
+                .filter(|(_, line)| !is_prose(line) && line.contains("to_string_lossy"))
                 // The exception is the whole line, not a substring of it, so a
                 // second conversion cannot ride along beside the pinned one.
                 .filter(|(_, line)| !STORED_BINDINGS.contains(&line.trim()))
