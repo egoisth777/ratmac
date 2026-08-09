@@ -611,6 +611,25 @@ fn an_authored_guard_path_is_quoted_as_the_runbook_spells_it() {
         "ENS-010: path spelling must not rewrite an authored guard field into `out/artifact`; \
          report was:\n{report}"
     );
+
+    // The Phase Prompt echoes the same authored fields (R-028), so it answers
+    // the same way.
+    let run = start_run(&checkout, &checkout.join(".ratmac"));
+    let status = rtm_at(&checkout, &["status", "--run", &run]);
+    let prompt = format!(
+        "{}{}",
+        String::from_utf8_lossy(&status.stdout),
+        String::from_utf8_lossy(&status.stderr)
+    );
+    assert!(
+        prompt.contains("out\\artifact"),
+        "ENS-010: the Phase Prompt lists the guard's authored fields, so it spells the path the \
+         way the runbook does; status was:\n{prompt}"
+    );
+    assert!(
+        !prompt.contains("out/artifact"),
+        "ENS-010: the Phase Prompt must not rewrite an authored guard field; status was:\n{prompt}"
+    );
 }
 
 /// ENSV-011: a value the Engine itself wrote to disk is not authored text.
