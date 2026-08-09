@@ -383,22 +383,24 @@ fn a_report_quotes_a_backslash_identifier_verbatim() {
 /// character, against what the filesystem answers.  These are state, not text
 /// for a reader, so they keep the platform's spelling; every report of them
 /// still goes through the renderer.
-///
-/// The uses of `to_string_lossy` that cannot carry a second spelling, because
-/// what they turn into text is one path component: a file name, a stem, or an
-/// extension holds no separator, so there is nothing for a renderer to
-/// normalize.  A line is accepted only if it names one of these; a whole path
-/// reaching `to_string_lossy` is a second renderer and fails the scan.
 const STORED_BINDINGS: [&str; 1] =
     ["workspace: Some(child_workspace.to_string_lossy().into_owned())"];
 
-const COMPONENT_RENDERS: [&str; 5] = [
-    "file_name()",
-    "|name|",
-    "|stem|",
-    "stem.to_string_lossy()",
-    "extension.to_string_lossy()",
-];
+/// The receivers whose `to_string_lossy` cannot carry a second spelling,
+/// because what they turn into text is one path component: a file name, a
+/// stem, or an extension holds no separator, so there is nothing to
+/// normalize.  The scan reads the receiver of each call, not the line, so a
+/// permitted component on a line never covers a whole path beside it.
+const COMPONENT_RECEIVERS: [&str; 5] = ["file_name()", "file_name()?", "stem", "extension", "name"];
+
+/// The receiver of the `to_string_lossy` call ending at `call_start`.
+fn receiver_of(line: &str, call_start: usize) -> &str {
+    let prefix = line[..call_start].trim_end_matches('.');
+    let start = prefix
+        .rfind(|character: char| !(character.is_alphanumeric() || "_()?".contains(character)))
+        .map_or(0, |index| index + 1);
+    &prefix[start..]
+}
 
 fn repository_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -472,12 +474,10 @@ fn no_engine_source_renders_a_path_by_hand() {
             source
                 .lines()
                 .enumerate()
-                .filter(|(_, line)| line.contains("to_string_lossy()"))
+                .filter(|(_, line)| !STORED_BINDINGS.iter().any(|stored| line.contains(stored)))
                 .filter(|(_, line)| {
-                    !COMPONENT_RENDERS
-                        .iter()
-                        .chain(STORED_BINDINGS.iter())
-                        .any(|allowed| line.contains(allowed))
+                    line.match_indices("to_string_lossy()")
+                        .any(|(start, _)| !COMPONENT_RECEIVERS.contains(&receiver_of(line, start)))
                 })
                 .map(|(index, line)| format!("src/{name}:{}: {}", index + 1, line.trim())),
         );
