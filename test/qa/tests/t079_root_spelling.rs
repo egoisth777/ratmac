@@ -384,7 +384,7 @@ fn a_report_quotes_a_backslash_identifier_verbatim() {
 /// for a reader, so it keeps the platform's spelling; every report of it goes
 /// through the renderer.
 const STORED_BINDINGS: [&str; 1] =
-    ["workspace: Some(child_workspace.to_string_lossy().into_owned())"];
+    ["workspace: Some(child_workspace.to_string_lossy().into_owned()),"];
 
 fn repository_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -462,7 +462,9 @@ fn no_engine_source_renders_a_path_by_hand() {
                 .lines()
                 .enumerate()
                 .filter(|(_, line)| line.contains("to_string_lossy()"))
-                .filter(|(_, line)| !STORED_BINDINGS.iter().any(|stored| line.contains(stored)))
+                // The exception is the whole line, not a substring of it, so a
+                // second conversion cannot ride along beside the pinned one.
+                .filter(|(_, line)| !STORED_BINDINGS.contains(&line.trim()))
                 .map(|(index, line)| format!("src/{name}:{}: {}", index + 1, line.trim())),
         );
     }
