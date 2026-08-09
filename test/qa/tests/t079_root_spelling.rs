@@ -386,6 +386,17 @@ fn a_report_quotes_a_backslash_identifier_verbatim() {
 const STORED_BINDINGS: [&str; 1] =
     ["workspace: Some(child_workspace.to_string_lossy().into_owned()),"];
 
+/// Whether a line calls the standard `Path::display`.
+///
+/// The scan reads the method identifier rather than the call, because
+/// `path.display /* gap */ ()` is the same call with a comment inside it and
+/// rustfmt accepts it.  `.displayed` is the Engine's own renderer and is what
+/// every one of these call sites is supposed to say.
+fn names_the_standard_renderer(line: &str) -> bool {
+    line.match_indices(".display")
+        .any(|(start, _)| !line[start + ".display".len()..].starts_with('e'))
+}
+
 fn repository_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
@@ -427,7 +438,7 @@ fn no_engine_source_renders_a_path_with_the_standard_renderer() {
             source
                 .lines()
                 .enumerate()
-                .filter(|(_, line)| line.contains(".display()"))
+                .filter(|(_, line)| names_the_standard_renderer(line))
                 .map(|(index, line)| format!("src/{name}:{}: {}", index + 1, line.trim())),
         );
     }
@@ -461,7 +472,9 @@ fn no_engine_source_renders_a_path_by_hand() {
             source
                 .lines()
                 .enumerate()
-                .filter(|(_, line)| line.contains("to_string_lossy()"))
+                // The identifier, not the call: `to_string_lossy /* gap */ ()`
+                // is one call with a comment in it, and rustfmt keeps it.
+                .filter(|(_, line)| line.contains("to_string_lossy"))
                 // The exception is the whole line, not a substring of it, so a
                 // second conversion cannot ride along beside the pinned one.
                 .filter(|(_, line)| !STORED_BINDINGS.contains(&line.trim()))
