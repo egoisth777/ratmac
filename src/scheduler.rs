@@ -1001,12 +1001,15 @@ impl Scheduler {
             ))
         })?;
         let workspace = PathBuf::from(recorded);
+        // The binding is compared as it was stored; a reader is shown the one
+        // spelling every other path in this message uses.
+        let shown = crate::root::displayed(recorded);
         if !workspace.is_absolute() {
             return Err(StateError::new(format!(
                 "run {} has a non-absolute workspace binding {:?} in {}; \
                  refusing to fall back to the caller's directory",
                 entry.id,
-                recorded,
+                shown,
                 ledger_path.displayed()
             )));
         }
@@ -1025,7 +1028,7 @@ impl Scheduler {
                     "run {} has an unusable workspace binding {:?} in {}: {error}; \
                      refusing to fall back to the caller's directory",
                     entry.id,
-                    recorded,
+                    shown,
                     ledger_path.displayed()
                 ))
             }

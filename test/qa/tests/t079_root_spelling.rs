@@ -571,3 +571,86 @@ fn a_refusing_report_command_spells_its_path_one_way() {
         );
     }
 }
+
+/// A runbook whose guard names a path with the platform separator, exactly as
+/// its author typed it.
+const BACKSLASH_GUARD: &str = r#"
+[phases.plan]
+prompt = "Plan."
+guards = [{ kind = "files_exact", path = 'out\artifact' }]
+
+[phases.done]
+prompt = "Done."
+
+[[transitions]]
+from = "plan"
+to = "done"
+"#;
+
+/// ENSV-011: the renderer spells paths the Engine resolved; it never rewrites
+/// the runbook's own words.  A guard field is authored text quoted back at its
+/// author, like a phase name, so a report that "fixed" its separator would
+/// send that author grepping for a line that is not in their file (R-028).
+#[test]
+fn an_authored_guard_path_is_quoted_as_the_runbook_spells_it() {
+    let sandbox = fresh_sandbox("guard-text");
+    let checkout = sandbox.root.join("plain");
+    fs::create_dir_all(checkout.join(".ratmac")).expect("create Engine directory");
+    fs::write(checkout.join(".ratmac/ratmac.toml"), BACKSLASH_GUARD)
+        .expect("write backslash-guard Machine Class");
+
+    let doctor = rtm_at(&checkout, &["doctor"]);
+    let report = String::from_utf8_lossy(&doctor.stdout).into_owned();
+    assert!(
+        report.contains("out\\\\artifact"),
+        "ENS-010: RB302 exists so an author can find the guard line in their runbook, so it \
+         quotes `out\\artifact` as authored; report was:\n{report}"
+    );
+    assert!(
+        !report.contains("out/artifact"),
+        "ENS-010: path spelling must not rewrite an authored guard field into `out/artifact`; \
+         report was:\n{report}"
+    );
+}
+
+/// ENSV-011: a value the Engine itself wrote to disk is not authored text.
+/// The spawn ledger's workspace binding is compared byte for byte against the
+/// filesystem, so it is stored in the platform's spelling - and every report
+/// of it still reaches the reader in the one spelling.
+#[test]
+fn a_reported_stored_binding_reaches_the_reader_in_one_spelling() {
+    let sandbox = fresh_sandbox("binding");
+    let checkout = sandbox.root.join("plain");
+    write_machine_class(&checkout);
+    let parent = start_run(&checkout, &checkout.join(".ratmac"));
+    let ledger = checkout
+        .join(".ratmac/runs")
+        .join(&parent)
+        .join("spawn-ledger");
+    fs::write(
+        &ledger,
+        "[[children]]\nid = \"run-002\"\nclass = \"ratmac.toml\"\nbind = {  }\n\
+         spawned_at = \"none\"\nabandoned = false\nworkspace = 'fixture\\stored-workspace'\n",
+    )
+    .expect("write a child binding the Engine will refuse");
+    let runs = checkout.join(".ratmac/runs");
+    fs::create_dir_all(runs.join("run-002")).expect("create the child Run directory");
+    let parent_state = fs::read(runs.join(&parent).join("state.toml")).expect("read parent state");
+    fs::write(runs.join("run-002/state.toml"), parent_state).expect("seat the child on the roster");
+
+    let status = rtm_at(&checkout, &["status", "--run", "run-002"]);
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&status.stdout),
+        String::from_utf8_lossy(&status.stderr)
+    );
+    assert!(
+        text.contains("workspace binding"),
+        "fixture setup must make the Engine refuse the planted binding; output was:\n{text}"
+    );
+    assert!(
+        !text.contains('\\'),
+        "ENS-010: the refusal named a stored binding with the platform separator, so one message \
+         holds two spellings of a path:\n{text}"
+    );
+}
