@@ -461,12 +461,22 @@ fn only_one_module_implements_the_renderer() {
             continue;
         }
         let source = fs::read_to_string(&path).expect("read Engine source");
-        let offenders = source
-            .lines()
-            .enumerate()
-            .filter(|(_, line)| line.contains("to_string_lossy().replace('\\\\'"))
-            .map(|(index, line)| format!("src/{name}:{}: {}", index + 1, line.trim()))
-            .collect::<Vec<_>>();
+        // A hand-rolled renderer can wrap across lines, so the scan reads the
+        // file with its whitespace squeezed out and then names the lines that
+        // spell any part of it.
+        let squeezed = source.split_whitespace().collect::<String>();
+        let offenders = if squeezed.contains("to_string_lossy().replace('\\\\'") {
+            source
+                .lines()
+                .enumerate()
+                .filter(|(_, line)| {
+                    line.contains("to_string_lossy()") || line.contains("replace('\\\\'")
+                })
+                .map(|(index, line)| format!("src/{name}:{}: {}", index + 1, line.trim()))
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
         assert!(
             offenders.is_empty(),
             "ENS-010: `crate::root::displayed` is the one path renderer, but these lines write \

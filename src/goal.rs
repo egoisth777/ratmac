@@ -93,11 +93,10 @@ fn collect(base: &Path, dir: &Path, out: &mut Vec<(String, Vec<u8>)>) -> Result<
         if kind.is_dir() {
             collect(base, &path, out)?;
         } else {
-            let relative = path
-                .strip_prefix(base)
-                .map_err(|error| RevisionError::other("relativize", &path, error.to_string()))?
-                .to_string_lossy()
-                .replace('\\', "/");
+            let relative =
+                crate::root::displayed(path.strip_prefix(base).map_err(|error| {
+                    RevisionError::other("relativize", &path, error.to_string())
+                })?);
             let bytes = fs::read(&path).map_err(|error| RevisionError::io("read", &path, error))?;
             out.push((relative, bytes));
         }

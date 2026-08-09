@@ -2588,7 +2588,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
     fn goal_address(&self) -> String {
         self.workflow_roots
             .path("goal")
-            .map(|path| path.to_string_lossy().replace('\\', "/"))
+            .map(crate::root::displayed)
             .unwrap_or_else(|| "goal".to_owned())
     }
     /// order, from the typed class - no second walk over runbook TOML.
@@ -3070,7 +3070,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
             )
         })?;
         let observed = crate::pin::Identity {
-            resolved: resolved.to_string_lossy().replace('\\', "/"),
+            resolved: crate::root::displayed(&resolved),
             sha256,
         };
 
