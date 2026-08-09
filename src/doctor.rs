@@ -61,6 +61,10 @@ impl Finding {
         location: impl Into<String>,
         message: impl Into<String>,
     ) -> Self {
+        // ENS-010: a finding is not normalized here. A message may name a
+        // runbook identifier that legitimately contains a backslash, and a
+        // report that rewrote it could not be matched back to the runbook.
+        // Whoever renders a path into a message calls `root::displayed`.
         Self {
             code,
             severity,
@@ -119,7 +123,11 @@ pub(crate) struct Diagnosis {
 impl Diagnosis {
     /// Render this diagnosis's selected Engine root for a human report.
     pub(crate) fn write_engine_root<W: Write>(&self, writer: &mut W) -> io::Result<()> {
-        writeln!(writer, "Engine root: {}", self.engine_root.display())
+        writeln!(
+            writer,
+            "Engine root: {}",
+            crate::root::displayed(&self.engine_root)
+        )
     }
 
     /// Render this diagnosis's findings as the human-readable report.
@@ -137,7 +145,7 @@ impl Diagnosis {
 
     /// Render this diagnosis's Engine root and findings as JSON.
     pub(crate) fn render_json(&self) -> String {
-        let engine_root = self.engine_root.to_string_lossy();
+        let engine_root = crate::root::displayed(&self.engine_root);
         let mut out = format!(
             "{{\n  \"engine_root\": {},\n  \"findings\": [",
             quote(&engine_root)
@@ -174,7 +182,7 @@ pub fn diagnose(path: &Path) -> Vec<Finding> {
 
 /// Diagnose a runbook through roots already selected by the caller.
 pub(crate) fn diagnose_with_roots(path: &Path, roots: &crate::root::Roots) -> Diagnosis {
-    let shown = path.to_string_lossy().replace('\\', "/");
+    let shown = crate::root::displayed(path);
     if let Err(error) = crate::Scheduler::refuse_flat_residue_with_roots(roots) {
         return Diagnosis {
             findings: vec![Finding::error("RB101", shown.clone(), error.to_string())],
@@ -238,8 +246,8 @@ pub(crate) fn diagnose_with_roots(path: &Path, roots: &crate::root::Roots) -> Di
 /// repository context in which named roots could be validated.
 fn runbook_workspace(path: &Path) -> Option<std::path::PathBuf> {
     let directory = path.parent()?;
-    if path.file_name()?.to_string_lossy() != MachineClass::FILE_NAME
-        || directory.file_name()?.to_string_lossy() != ".ratmac"
+    if crate::root::component(path.file_name()?) != MachineClass::FILE_NAME
+        || crate::root::component(directory.file_name()?) != ".ratmac"
     {
         return None;
     }

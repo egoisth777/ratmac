@@ -72,7 +72,7 @@ pub fn write_scaffold(path: &Path) -> Result<(), ScaffoldRefusal> {
     let project_root = crate::root::addressed_project_root(path);
     crate::Scheduler::refuse_flat_residue(&project_root)
         .map_err(|error| ScaffoldRefusal::Preflight(error.to_string()))?;
-    let shown = path.to_string_lossy().replace('\\', "/");
+    let shown = crate::root::displayed(path);
     if path.exists() {
         return Err(ScaffoldRefusal::Occupied(shown));
     }

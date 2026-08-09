@@ -277,7 +277,7 @@ pub fn gate_sensitivity_at(
     };
     let ticket_id = ticket_path
         .file_stem()
-        .map(|stem| stem.to_string_lossy().into_owned())
+        .map(crate::root::component)
         .unwrap_or_default();
     let declared = planned_tests(&ticket_source);
     let mut defects = Vec::new();
@@ -347,5 +347,5 @@ pub fn gate_sensitivity_at(
 }
 
 fn shown(path: &Path) -> String {
-    path.to_string_lossy().replace('\\', "/")
+    crate::root::displayed(path)
 }

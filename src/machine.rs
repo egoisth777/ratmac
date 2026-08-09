@@ -3,6 +3,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 use crate::graph::{Phase, Transition};
+use crate::root::Displayed;
 use crate::roots::{RootValidationError, ValidatedWorkflowRoots, WorkflowRoots};
 
 /// A parsed, status-free Machine Class declaration.
@@ -339,8 +340,8 @@ impl MachineClass {
         let source = std::fs::read_to_string(&path).map_err(|error| {
             MachineClassParseError::at(
                 "RB101",
-                path.display().to_string(),
-                format!("failed to read {}: {error}", path.display()),
+                path.displayed().to_string(),
+                format!("failed to read {}: {error}", path.displayed()),
             )
         })?;
         Self::from_toml(&source)

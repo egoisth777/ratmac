@@ -30,6 +30,7 @@ use std::time::{Duration, Instant};
 #[cfg(windows)]
 use std::os::windows::fs::OpenOptionsExt;
 
+use crate::root::Displayed;
 use crate::state::StateError;
 
 /// The fixed upper bound for waiting on a contended Engine lock.
@@ -198,7 +199,10 @@ impl OwnedLock {
     /// identifies the canonical pathname.
     fn ensure_current(&self) -> Result<(), StateError> {
         let file = self.file.as_ref().ok_or_else(|| {
-            StateError::new(format!("lock guard lost its file: {}", self.path.display()))
+            StateError::new(format!(
+                "lock guard lost its file: {}",
+                self.path.displayed()
+            ))
         })?;
         ensure_claim_is_current(file, &self.path)
     }
@@ -217,7 +221,7 @@ impl Drop for OwnedLock {
         if let Err(error) = hold_lock_if_requested("release", &self.path) {
             eprintln!(
                 "warning: release-boundary hold for lock {} failed: {error}",
-                self.path.display()
+                self.path.displayed()
             );
         }
 
@@ -229,23 +233,23 @@ impl Drop for OwnedLock {
                 if let Err(error) = remove_owned_lock(&file, &self.path) {
                     eprintln!(
                         "warning: released lock {} but could not remove its residue: {error}",
-                        self.path.display()
+                        self.path.displayed()
                     );
                 }
             }
             Ok(false) => eprintln!(
                 "warning: released lock {} but did not remove it because the pathname now names another file",
-                self.path.display()
+                self.path.displayed()
             ),
             Err(error) => eprintln!(
                 "warning: released lock {} but could not revalidate its pathname before cleanup: {error}",
-                self.path.display()
+                self.path.displayed()
             ),
         }
         if let Err(error) = unlock_file(&file) {
             eprintln!(
                 "warning: released lock {} but kernel unlock failed: {error}; closing its handle may release it",
-                self.path.display()
+                self.path.displayed()
             );
         }
         drop(file);
@@ -288,7 +292,7 @@ fn try_acquire_once(
         Err(error) => {
             return Err(StateError::new(format!(
                 "cannot open lock {}: {error}",
-                path.display()
+                path.displayed()
             )))
         }
     };
@@ -298,7 +302,7 @@ fn try_acquire_once(
         Err(error) => {
             return Err(StateError::new(format!(
                 "lock claim failed for {}: {error}",
-                path.display()
+                path.displayed()
             )))
         }
     }
@@ -314,7 +318,7 @@ fn try_acquire_once(
         unlock_after_failed_claim(&file, &path);
         return Err(StateError::new(format!(
             "write owner token for lock {}: {error}",
-            path.display()
+            path.displayed()
         )));
     }
     let lock = OwnedLock {
@@ -364,7 +368,7 @@ fn run_lock_is_contended(path: &Path) -> Result<bool, StateError> {
         Err(error) => {
             return Err(StateError::new(format!(
                 "cannot inspect lock {} while waiting: {error}",
-                path.display()
+                path.displayed()
             )))
         }
     }
@@ -374,7 +378,7 @@ fn run_lock_is_contended(path: &Path) -> Result<bool, StateError> {
         Err(error) => {
             return Err(StateError::new(format!(
                 "cannot probe lock {} while waiting: {error}",
-                path.display()
+                path.displayed()
             )))
         }
     };
@@ -383,7 +387,7 @@ fn run_lock_is_contended(path: &Path) -> Result<bool, StateError> {
             unlock_file(&file).map_err(|error| {
                 StateError::new(format!(
                     "cannot release availability probe for lock {}: {error}",
-                    path.display()
+                    path.displayed()
                 ))
             })?;
             Ok(false)
@@ -391,7 +395,7 @@ fn run_lock_is_contended(path: &Path) -> Result<bool, StateError> {
         Err(error) if lock_is_contended(&error) => Ok(true),
         Err(error) => Err(StateError::new(format!(
             "lock availability probe failed for {}: {error}",
-            path.display()
+            path.displayed()
         ))),
     }
 }
@@ -411,7 +415,7 @@ fn wait_expired(path: &Path) -> StateError {
     };
     StateError::new(format!(
         "lock wait expired: {}; {diagnostic}",
-        path.display()
+        path.displayed()
     ))
 }
 
@@ -490,7 +494,7 @@ fn classify_open_failure(path: &Path, error: &std::io::Error) -> OpenFailure {
         if let Err(unlock_error) = unlock_file(&probe) {
             eprintln!(
                 "warning: Windows shared lock probe on {} could not unlock: {unlock_error}; closing its handle may release it",
-                path.display()
+                path.displayed()
             );
         }
     }
@@ -510,7 +514,7 @@ fn prepare_lock_path(engine_root: &Path, path: &Path) -> Result<(), StateError> 
     } else {
         return Err(StateError::new(format!(
             "refusing non-canonical lock path {}; it was not modified",
-            path.display()
+            path.displayed()
         )));
     }
     inspect_lock_path_or_absent(path)
@@ -522,11 +526,11 @@ fn ensure_claim_is_current(file: &File, path: &Path) -> Result<(), StateError> {
         Ok(true) => Ok(()),
         Ok(false) => Err(StateError::new(format!(
             "lock path was replaced while held: {}; refusing to mutate; nothing was modified",
-            path.display()
+            path.displayed()
         ))),
         Err(error) => Err(StateError::new(format!(
             "revalidate lock {} before mutation: {error}",
-            path.display()
+            path.displayed()
         ))),
     }
 }
@@ -540,11 +544,11 @@ fn inspect_claim_components(path: &Path) -> Result<(), StateError> {
     let locks = runs
         .and_then(Path::parent)
         .or_else(|| path.parent())
-        .ok_or_else(|| StateError::new(format!("lock path has no parent: {}", path.display())))?;
+        .ok_or_else(|| StateError::new(format!("lock path has no parent: {}", path.displayed())))?;
     let engine_root = locks.parent().ok_or_else(|| {
         StateError::new(format!(
             "lock directory has no Engine root: {}",
-            locks.display()
+            locks.displayed()
         ))
     })?;
     inspect_lock_directory(engine_root, "Engine root")?;
@@ -565,7 +569,7 @@ fn ensure_lock_directory(path: &Path) -> Result<(), StateError> {
                 Err(create_error) => {
                     return Err(StateError::new(format!(
                         "create lock directory {}: {create_error}",
-                        path.display()
+                        path.displayed()
                     )))
                 }
             }
@@ -573,7 +577,7 @@ fn ensure_lock_directory(path: &Path) -> Result<(), StateError> {
         }
         Err(error) => Err(StateError::new(format!(
             "inspect lock directory {}: {error}",
-            path.display()
+            path.displayed()
         ))),
     }
 }
@@ -584,7 +588,7 @@ fn inspect_lock_path_or_absent(path: &Path) -> Result<(), StateError> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(StateError::new(format!(
             "inspect lock path {}: {error}",
-            path.display()
+            path.displayed()
         ))),
     }
 }
@@ -593,22 +597,23 @@ fn inspect_lock_leaf(path: &Path) -> Result<(), StateError> {
     let metadata = fs::symlink_metadata(path).map_err(|error| {
         StateError::new(format!(
             "revalidate lock {} before mutation: {error}",
-            path.display()
+            path.displayed()
         ))
     })?;
     reject_link_or_reparse(path, &metadata)
 }
 
 fn inspect_lock_directory(path: &Path, kind: &str) -> Result<(), StateError> {
-    let metadata = fs::symlink_metadata(path)
-        .map_err(|error| StateError::new(format!("inspect {kind} {}: {error}", path.display())))?;
+    let metadata = fs::symlink_metadata(path).map_err(|error| {
+        StateError::new(format!("inspect {kind} {}: {error}", path.displayed()))
+    })?;
     reject_link_or_reparse(path, &metadata)?;
     if metadata.is_dir() {
         Ok(())
     } else {
         Err(StateError::new(format!(
             "refusing {kind} {}: it is not a directory; it was not modified",
-            path.display()
+            path.displayed()
         )))
     }
 }
@@ -617,7 +622,7 @@ fn reject_link_or_reparse(path: &Path, metadata: &fs::Metadata) -> Result<(), St
     if is_link_or_reparse(metadata) {
         Err(StateError::new(format!(
             "refusing lock path {}: symbolic link or reparse point; it was not modified",
-            path.display()
+            path.displayed()
         )))
     } else {
         Ok(())
@@ -642,7 +647,7 @@ fn unlock_after_failed_claim(file: &File, path: &Path) {
     if let Err(error) = unlock_file(file) {
         eprintln!(
             "warning: failed acquisition could not unlock {}: {error}; closing its handle may release it",
-            path.display()
+            path.displayed()
         );
     }
 }
@@ -735,12 +740,12 @@ pub(crate) fn refuse_legacy(engine_root: &Path) -> Result<(), StateError> {
     match fs::symlink_metadata(&legacy_path) {
         Ok(_) => Err(StateError::new(format!(
             "refusing to run: legacy lock {} exists; explicitly migrate or remove that lock, then retry; it was not modified",
-            legacy_path.display()
+            legacy_path.displayed()
         ))),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(StateError::new(format!(
             "inspect legacy lock {}: {error}",
-            legacy_path.display()
+            legacy_path.displayed()
         ))),
     }
 }
@@ -750,7 +755,7 @@ fn inject_lock_fault(domain: &str, path: &Path) -> Result<(), StateError> {
     if std::env::var("RATMAC_TEST_LOCK_FAULT").ok().as_deref() == Some(domain) {
         return Err(StateError::new(format!(
             "injected lock fault after acquiring {domain} lock {}",
-            path.display()
+            path.displayed()
         )));
     }
     Ok(())
@@ -803,12 +808,12 @@ fn hold_lock_if_requested(domain: &str, path: &Path) -> Result<(), StateError> {
         .ok_or_else(|| StateError::new("RATMAC_TEST_LOCK_HOLD needs RATMAC_TEST_LOCK_RELEASE"))?;
     fs::write(
         &marker,
-        format!("holding {domain} lock {}\n", path.display()),
+        format!("holding {domain} lock {}\n", path.displayed()),
     )
     .map_err(|error| {
         StateError::new(format!(
             "write lock hold marker {}: {error}",
-            marker.display()
+            marker.displayed()
         ))
     })?;
 
@@ -821,7 +826,7 @@ fn hold_lock_if_requested(domain: &str, path: &Path) -> Result<(), StateError> {
         if now >= deadline {
             return Err(StateError::new(format!(
                 "injected lock hold expired for {domain} lock {}",
-                path.display()
+                path.displayed()
             )));
         }
         thread::sleep(RETRY_INTERVAL.min(deadline.saturating_duration_since(now)));

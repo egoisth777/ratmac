@@ -131,7 +131,9 @@ pub fn runbook_instructions(class: &MachineClass, shown: &str) -> Vec<Instructio
 
 /// Whether a concrete path names an Engine-owned project or per-Run artifact.
 pub fn is_scheduler_owned_path(path: &str) -> bool {
-    let normalized = path.replace('\\', "/");
+    // The comparison below reads a path as text, so it must read it in the
+    // one spelling the Engine writes: same owner, same substitution.
+    let normalized = crate::root::displayed(path);
     if normalized.ends_with(".ratmac/mint.toml")
         || normalized.ends_with(".ratmac/log.md")
         || normalized.ends_with(".ratmac/locks/root.lock")
@@ -164,7 +166,7 @@ pub fn template_instructions(dir: &Path) -> Vec<Instruction> {
         .filter_map(|path| {
             let text = fs::read_to_string(&path).ok()?;
             Some(Instruction {
-                source: path.to_string_lossy().replace('\\', "/"),
+                source: crate::root::displayed(path),
                 text,
             })
         })

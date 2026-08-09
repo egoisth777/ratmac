@@ -63,6 +63,44 @@ pub fn resolve(invoking_checkout_root: impl AsRef<Path>) -> Roots {
     Roots::resolve(invoking_checkout_root)
 }
 
+/// Render an Engine path for a report in the one spelling the Engine shows.
+///
+/// Resolution mixes sources: Git prints checkout paths with forward slashes
+/// while `Path::join` and the no-Git fallback use the platform separator, so
+/// the same root reaches a report spelled two ways.  Reports are read, diffed,
+/// and parsed as JSON, so they carry one spelling; comparison and filesystem
+/// access keep using the `Path` itself, never this string.
+pub(crate) fn displayed(path: impl AsRef<Path>) -> String {
+    path.as_ref().to_string_lossy().replace('\\', "/")
+}
+
+/// One path component - a file name, a stem, an extension - as text.
+///
+/// A component holds no separator, so there is nothing to normalize; it is
+/// named here so that `to_string_lossy` has exactly one home in the Engine and
+/// a scan can say so without reading identifiers at call sites.
+pub(crate) fn component(component: impl AsRef<std::ffi::OsStr>) -> String {
+    component.as_ref().to_string_lossy().into_owned()
+}
+
+/// `path.displayed()` at a call site that would otherwise call the standard
+/// `Path::display`.
+///
+/// The Engine names paths in messages everywhere, not only in reports, and a
+/// message is read by the same eyes as a report.  A method keeps the one
+/// renderer as convenient as the standard one it replaces, so a new call site
+/// has no reason to hand-roll a second spelling.
+pub(crate) trait Displayed {
+    /// This path in the one spelling the Engine shows.
+    fn displayed(&self) -> String;
+}
+
+impl<T: AsRef<Path> + ?Sized> Displayed for T {
+    fn displayed(&self) -> String {
+        displayed(self)
+    }
+}
+
 /// The project that owns a runbook addressed by path.
 pub(crate) fn addressed_project_root(path: &Path) -> PathBuf {
     let parent = path

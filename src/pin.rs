@@ -28,7 +28,7 @@ impl fmt::Display for Identity {
         write!(
             formatter,
             "path={} sha256={}",
-            self.resolved.replace('\\', "/"),
+            crate::root::displayed(&self.resolved),
             self.sha256
         )
     }
@@ -191,7 +191,7 @@ pub fn engine_identity() -> Option<Identity> {
     let path = std::env::current_exe().ok()?;
     let sha256 = sha256_file(&path).ok()?;
     Some(Identity {
-        resolved: path.to_string_lossy().replace('\\', "/"),
+        resolved: crate::root::displayed(&path),
         sha256,
     })
 }
@@ -204,16 +204,23 @@ pub fn engine_identity() -> Option<Identity> {
 pub fn resolve_program(root: &Path, program: &str) -> Result<PathBuf, String> {
     let path = locate_program(root, program)?;
 
-    let metadata = fs::symlink_metadata(&path)
-        .map_err(|error| format!("gate artifact is unreadable: {} ({error})", path.display()))?;
+    let metadata = fs::symlink_metadata(&path).map_err(|error| {
+        format!(
+            "gate artifact is unreadable: {} ({error})",
+            crate::root::displayed(&path)
+        )
+    })?;
     if metadata.file_type().is_symlink() {
         return Err(format!(
             "gate artifact is a symlink, which has no stable identity: {}",
-            path.display()
+            crate::root::displayed(&path)
         ));
     }
     if !metadata.is_file() {
-        return Err(format!("gate artifact is not a file: {}", path.display()));
+        return Err(format!(
+            "gate artifact is not a file: {}",
+            crate::root::displayed(&path)
+        ));
     }
     Ok(path)
 }
@@ -294,7 +301,7 @@ const SOURCE_EXTENSIONS: [&str; 7] = ["rs", "c", "cc", "cpp", "cxx", "go", "m"];
 pub fn build_invocation_reason(program: &str, args: &[&str]) -> Option<String> {
     let name = Path::new(program)
         .file_stem()
-        .map(|stem| stem.to_string_lossy().to_ascii_lowercase())
+        .map(|stem| crate::root::component(stem).to_ascii_lowercase())
         .unwrap_or_default();
     let lowered: Vec<String> = args.iter().map(|arg| arg.to_ascii_lowercase()).collect();
 
@@ -309,7 +316,7 @@ pub fn build_invocation_reason(program: &str, args: &[&str]) -> Option<String> {
                 || Path::new(arg)
                     .extension()
                     .map(|extension| {
-                        SOURCE_EXTENSIONS.contains(&extension.to_string_lossy().as_ref())
+                        SOURCE_EXTENSIONS.contains(&crate::root::component(extension).as_str())
                     })
                     .unwrap_or(false)
         })
