@@ -182,7 +182,7 @@ pub fn diagnose(path: &Path) -> Vec<Finding> {
 
 /// Diagnose a runbook through roots already selected by the caller.
 pub(crate) fn diagnose_with_roots(path: &Path, roots: &crate::root::Roots) -> Diagnosis {
-    let shown = path.to_string_lossy().replace('\\', "/");
+    let shown = crate::root::displayed(path);
     if let Err(error) = crate::Scheduler::refuse_flat_residue_with_roots(roots) {
         return Diagnosis {
             findings: vec![Finding::error("RB101", shown.clone(), error.to_string())],

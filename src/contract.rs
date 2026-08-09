@@ -181,7 +181,7 @@ pub fn gate_intake_at(goal_root: &Path, issue_root: &Path) -> Result<(), Vec<Con
                         &shown,
                         format!(
                             "spec contains a deferred ask; the complete issue must live under {}/deferred with status deferred",
-                            issue_root.to_string_lossy().replace('\\', "/")
+                            crate::root::displayed(issue_root)
                         ),
                     ));
                 }
@@ -227,7 +227,7 @@ pub fn gate_intake_at(goal_root: &Path, issue_root: &Path) -> Result<(), Vec<Con
                         &shown,
                         format!(
                             "archived issue still contains a deferred ask; restore the complete bundle to {}/deferred",
-                            issue_root.to_string_lossy().replace('\\', "/")
+                            crate::root::displayed(issue_root)
                         ),
                     ));
                 }
@@ -559,7 +559,7 @@ fn contract_roots(workspace: &Path, roles: &[&str]) -> Result<Vec<PathBuf>, Vec<
 }
 
 fn shown(path: &Path) -> String {
-    path.to_string_lossy().replace('\\', "/")
+    crate::root::displayed(path)
 }
 
 /// Issue bundles across intake, deferred, and archive.

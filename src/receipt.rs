@@ -347,5 +347,5 @@ pub fn gate_sensitivity_at(
 }
 
 fn shown(path: &Path) -> String {
-    path.to_string_lossy().replace('\\', "/")
+    crate::root::displayed(path)
 }

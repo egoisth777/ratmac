@@ -164,7 +164,7 @@ pub fn template_instructions(dir: &Path) -> Vec<Instruction> {
         .filter_map(|path| {
             let text = fs::read_to_string(&path).ok()?;
             Some(Instruction {
-                source: path.to_string_lossy().replace('\\', "/"),
+                source: crate::root::displayed(path),
                 text,
             })
         })

@@ -379,37 +379,129 @@ fn a_report_quotes_a_backslash_identifier_verbatim() {
     );
 }
 
-/// The modules whose findings carry a filesystem path into an `rtm doctor`
-/// report.  Each one renders through `crate::root::displayed`; a bare
-/// `.display()` here is how the report re-learns a second spelling.
-const PATH_RENDERING_REPORT_SOURCES: [&str; 2] = ["src/roots.rs", "src/pin.rs"];
+/// The modules that put a filesystem path into an `rtm doctor` report.  A
+/// path becomes text there, so it must become text through the one renderer:
+/// a bare `.display()` or a hand-rolled `to_string_lossy()` is how a second
+/// spelling gets back in.
+const PATH_RENDERING_REPORT_SOURCES: [&str; 3] = ["src/roots.rs", "src/pin.rs", "src/doctor.rs"];
 
-/// ENSV-011: the one-spelling rule holds by construction in the two modules
-/// that put a path into a finding, not only in the fixtures this test builds.
-#[test]
-fn modules_that_report_paths_render_them_through_one_renderer() {
-    let repository = Path::new(env!("CARGO_MANIFEST_DIR"))
+/// The named exceptions: these turn a path component into text to compare it,
+/// never to show it.  Each one is pinned by its exact code, so a new use has
+/// to be declared here before the scan will accept it.
+const NON_RENDERING_USES: [&str; 4] = [
+    "stem.to_string_lossy().to_ascii_lowercase()",
+    "SOURCE_EXTENSIONS.contains(&extension.to_string_lossy().as_ref())",
+    "path.file_name()?.to_string_lossy() != MachineClass::FILE_NAME",
+    "directory.file_name()?.to_string_lossy() != \".ratmac\"",
+];
+
+fn repository_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
         .nth(2)
         .expect("the QA crate sits two levels below the repository root")
-        .to_path_buf();
+        .to_path_buf()
+}
 
+fn source_of(relative: &str) -> String {
+    let path = repository_root().join(relative);
+    fs::read_to_string(&path).unwrap_or_else(|error| panic!("read {}: {error}", path.display()))
+}
+
+/// ENSV-011: the one-spelling rule holds by construction where a path enters a
+/// report, not only in the fixtures this test happens to build.
+#[test]
+fn modules_that_report_paths_render_them_through_one_renderer() {
     for relative in PATH_RENDERING_REPORT_SOURCES {
-        let path = repository.join(relative);
-        let source = fs::read_to_string(&path)
-            .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
+        let source = source_of(relative);
         let offenders = source
             .lines()
             .enumerate()
-            .filter(|(_, line)| line.contains(".display()"))
+            .filter(|(_, line)| line.contains(".display()") || line.contains("to_string_lossy()"))
+            .filter(|(_, line)| {
+                !NON_RENDERING_USES
+                    .iter()
+                    .any(|allowed| line.contains(allowed))
+            })
             .map(|(index, line)| format!("{relative}:{}: {}", index + 1, line.trim()))
             .collect::<Vec<_>>();
         assert!(
             offenders.is_empty(),
-            "ENS-010: {relative} renders a path into a doctor finding, so every path there goes \
-             through `crate::root::displayed`; these lines still call `.display()` and would put \
-             a second spelling in the report:\n{}",
+            "ENS-010: {relative} renders a path into a doctor report, so every path there goes \
+             through `crate::root::displayed`; these lines turn a path into text themselves and \
+             can carry a second spelling:\n{}",
             offenders.join("\n")
+        );
+    }
+}
+
+/// ENSV-011: one renderer, one implementation.  A second hand-rolled
+/// path-to-text normalizer anywhere in the Engine is a second policy that can
+/// drift, so `src/root.rs` is the only place the substitution is written.
+#[test]
+fn only_one_module_implements_the_renderer() {
+    let sources = fs::read_dir(repository_root().join("src"))
+        .expect("the Engine source directory is listable")
+        .map(|entry| entry.expect("source entry is readable").path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "rs"))
+        .collect::<Vec<_>>();
+    assert!(
+        sources.len() > 10,
+        "the scan must actually see the Engine source; it found {} files",
+        sources.len()
+    );
+
+    for path in sources {
+        let name = path
+            .file_name()
+            .expect("a source file has a name")
+            .to_string_lossy()
+            .into_owned();
+        if name == "root.rs" {
+            continue;
+        }
+        let source = fs::read_to_string(&path).expect("read Engine source");
+        let offenders = source
+            .lines()
+            .enumerate()
+            .filter(|(_, line)| line.contains("to_string_lossy().replace('\\\\'"))
+            .map(|(index, line)| format!("src/{name}:{}: {}", index + 1, line.trim()))
+            .collect::<Vec<_>>();
+        assert!(
+            offenders.is_empty(),
+            "ENS-010: `crate::root::displayed` is the one path renderer, but these lines write \
+             the substitution again:\n{}",
+            offenders.join("\n")
+        );
+    }
+}
+
+/// ENSV-011: when a report command refuses, the path it names is spelled the
+/// same way the report itself spells paths.  A pre-split layout makes both
+/// `rtm status` and `rtm doctor` refuse while naming the residue file.
+#[test]
+fn a_refusing_report_command_spells_its_path_one_way() {
+    let sandbox = fresh_sandbox("residue");
+    let checkout = sandbox.root.join("plain");
+    write_machine_class(&checkout);
+    fs::write(checkout.join(".ratmac/state.toml"), "phase = \"plan\"\n")
+        .expect("plant pre-split Engine residue");
+
+    for args in [vec!["doctor"], vec!["status", "--run", "run-001"]] {
+        let output = rtm_at(&checkout, &args);
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            text.contains("pre-split Engine residue"),
+            "fixture setup must make `rtm {args:?}` refuse over planted residue; output was:\n{text}"
+        );
+        assert!(
+            !text.contains('\\'),
+            "ENS-010: `rtm {args:?}` named the residue with a platform separator, so one command \
+             prints two spellings of a path:\n{text}"
         );
     }
 }

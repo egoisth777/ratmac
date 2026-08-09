@@ -549,5 +549,5 @@ fn receipt_files(directory: &Path) -> Vec<PathBuf> {
 }
 
 fn shown(path: &Path) -> String {
-    path.to_string_lossy().replace('\\', "/")
+    crate::root::displayed(path)
 }

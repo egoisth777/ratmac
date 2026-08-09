@@ -191,7 +191,7 @@ pub fn engine_identity() -> Option<Identity> {
     let path = std::env::current_exe().ok()?;
     let sha256 = sha256_file(&path).ok()?;
     Some(Identity {
-        resolved: path.to_string_lossy().replace('\\', "/"),
+        resolved: crate::root::displayed(&path),
         sha256,
     })
 }

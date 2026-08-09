@@ -654,7 +654,7 @@ impl Scheduler {
                     return Err(StateError::new(format!(
                         "refusing to run: pre-split Engine residue {} exists; migrate or remove \
                          it, then retry; nothing was modified",
-                        residue.display()
+                        crate::root::displayed(&residue)
                     )))
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
@@ -662,7 +662,7 @@ impl Scheduler {
                     return Err(StateError::new(format!(
                         "refusing to run: cannot inspect pre-split Engine residue {}: {error}; \
                          check its permissions or repair it, then retry; nothing was modified",
-                        residue.display()
+                        crate::root::displayed(&residue)
                     )))
                 }
             }

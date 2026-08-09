@@ -709,8 +709,8 @@ fn scaffold<W: Write>(args: &[String], writer: &mut W) -> Result<i32, CliError> 
     writeln!(
         writer,
         "Wrote {}. Diagnose it with `rtm doctor --json {}`.",
-        path.to_string_lossy().replace('\\', "/"),
-        path.to_string_lossy().replace('\\', "/")
+        crate::root::displayed(path),
+        crate::root::displayed(path)
     )?;
     Ok(0)
 }

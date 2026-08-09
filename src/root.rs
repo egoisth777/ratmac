@@ -70,8 +70,8 @@ pub fn resolve(invoking_checkout_root: impl AsRef<Path>) -> Roots {
 /// the same root reaches a report spelled two ways.  Reports are read, diffed,
 /// and parsed as JSON, so they carry one spelling; comparison and filesystem
 /// access keep using the `Path` itself, never this string.
-pub(crate) fn displayed(path: &Path) -> String {
-    path.to_string_lossy().replace('\\', "/")
+pub(crate) fn displayed(path: impl AsRef<Path>) -> String {
+    path.as_ref().to_string_lossy().replace('\\', "/")
 }
 
 /// The project that owns a runbook addressed by path.
