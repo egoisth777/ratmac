@@ -16,6 +16,7 @@ use std::fs::File;
 #[cfg(windows)]
 use std::os::windows::ffi::OsStrExt;
 
+use crate::root::Displayed;
 use crate::state::StateError;
 
 const RECORD_FILE: &str = "mint.toml";
@@ -42,7 +43,7 @@ pub fn next(engine_root: &Path) -> Result<String, StateError> {
     let next = highest.checked_add(1).ok_or_else(|| {
         StateError::new(format!(
             "mint namespace exhausted: record {} is already at the largest TOML integer ({}); no Run id was minted",
-            record_path.display(),
+            record_path.displayed(),
             i64::MAX,
         ))
     })?;
@@ -61,49 +62,49 @@ fn read_highest(path: &Path) -> Result<Option<i64>, StateError> {
         Err(error) => {
             return Err(StateError::new(format!(
                 "inspect mint record {}: {error}",
-                path.display()
+                path.displayed()
             )))
         }
     }
     let source = fs::read_to_string(path).map_err(|error| {
-        StateError::new(format!("read mint record {}: {error}", path.display()))
+        StateError::new(format!("read mint record {}: {error}", path.displayed()))
     })?;
     let document: toml::Value = source.parse().map_err(|error| {
         StateError::new(format!(
             "invalid mint record {}: malformed TOML: {error}",
-            path.display()
+            path.displayed()
         ))
     })?;
     let table = document.as_table().ok_or_else(|| {
         StateError::new(format!(
             "invalid mint record {}: expected a top-level table",
-            path.display()
+            path.displayed()
         ))
     })?;
     for key in table.keys() {
         if key != "highest" {
             return Err(StateError::new(format!(
                 "invalid mint record {}: unknown key {key:?}; only \"highest\" is allowed",
-                path.display()
+                path.displayed()
             )));
         }
     }
     let highest = table.get("highest").ok_or_else(|| {
         StateError::new(format!(
             "invalid mint record {}: missing required key \"highest\"",
-            path.display()
+            path.displayed()
         ))
     })?;
     let highest = highest.as_integer().ok_or_else(|| {
         StateError::new(format!(
             "invalid mint record {}: \"highest\" must be a non-negative integer",
-            path.display()
+            path.displayed()
         ))
     })?;
     if highest < 0 {
         Err(StateError::new(format!(
             "invalid mint record {}: \"highest\" must be a non-negative integer",
-            path.display()
+            path.displayed()
         )))
     } else {
         Ok(Some(highest))
@@ -121,23 +122,23 @@ fn highest_roster_ordinal(engine_root: &Path) -> Result<i64, StateError> {
         Err(error) => {
             return Err(StateError::new(format!(
                 "inspect Run roster {}: {error}",
-                runs_dir.display()
+                runs_dir.displayed()
             )))
         }
     }
     let entries = fs::read_dir(&runs_dir).map_err(|error| {
-        StateError::new(format!("read Run roster {}: {error}", runs_dir.display()))
+        StateError::new(format!("read Run roster {}: {error}", runs_dir.displayed()))
     })?;
 
     let mut highest = 0;
     for entry in entries {
         let entry = entry.map_err(|error| {
-            StateError::new(format!("read Run roster {}: {error}", runs_dir.display()))
+            StateError::new(format!("read Run roster {}: {error}", runs_dir.displayed()))
         })?;
         let file_type = entry.file_type().map_err(|error| {
             StateError::new(format!(
                 "inspect Run roster entry {}: {error}",
-                entry.path().display()
+                entry.path().displayed()
             ))
         })?;
         if !file_type.is_dir() {
@@ -192,14 +193,14 @@ fn persist(path: &Path, highest: i64) -> Result<(), StateError> {
                 .map_err(|error| StateError::new(format!("sync mint record parent: {error}"))),
             Err(_) if path.exists() => {
                 replace_existing(&temp_path, path).map_err(|error| {
-                    StateError::new(format!("replace mint record {}: {error}", path.display()))
+                    StateError::new(format!("replace mint record {}: {error}", path.displayed()))
                 })?;
                 sync_parent(parent)
                     .map_err(|error| StateError::new(format!("sync mint record parent: {error}")))
             }
             Err(error) => Err(StateError::new(format!(
                 "replace mint record {}: {error}",
-                path.display()
+                path.displayed()
             ))),
         }
     })();
@@ -236,17 +237,17 @@ fn persist(path: &Path, highest: i64) -> Result<(), StateError> {
             let _ = fs::remove_file(&temp_path);
             Err(StateError::new(format!(
                 "replace mint record {} with temporary record {}: {error}; the target remains readable",
-                path.display(),
-                temp_path.display()
+                path.displayed(),
+                temp_path.displayed()
             )))
         }
         Err(error) => Err(StateError::new(format!(
             "mint record replacement uncertain: failed to replace {} with temporary record {}: {error}; {} is missing or unreadable after the failed replacement; the durable mint record is in temporary file {}; preserve that file and recover it as {}",
-            path.display(),
-            temp_path.display(),
-            path.display(),
-            temp_path.display(),
-            path.display()
+            path.displayed(),
+            temp_path.displayed(),
+            path.displayed(),
+            temp_path.displayed(),
+            path.displayed()
         ))),
     }
 }
@@ -262,7 +263,7 @@ fn create_temporary_record(parent: &Path) -> Result<(PathBuf, fs::File), StateEr
             Err(error) => {
                 return Err(StateError::new(format!(
                     "create temporary mint record {}: {error}",
-                    path.display()
+                    path.displayed()
                 )))
             }
         }

@@ -33,6 +33,7 @@
 //! retired without appending a second terminal event, because the lock is
 //! transient invocation machinery and its removal is not Run history.
 
+use crate::root::Displayed;
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -280,7 +281,7 @@ pub fn plan_abandon(root: &Path, request: &AbandonRequest) -> Result<AbandonPlan
                     let raw = std::fs::read_to_string(&path).map_err(|read_error| {
                         refusal(format!(
                             "abandon cannot inspect defective spawn ledger {}: {read_error}; parse error: {error}",
-                            path.display()
+                            path.displayed()
                         ))
                     })?;
                     if raw.contains(&format!("id = {run:?}")) {
@@ -308,7 +309,7 @@ fn lock_path_present(path: &Path) -> Result<bool, AbandonRefusal> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
         Err(error) => Err(refusal(format!(
             "abandon cannot inspect lock {}: {error}",
-            path.display()
+            path.displayed()
         ))),
     }
 }
@@ -441,7 +442,7 @@ fn apply_live_abandon(
                     root_lock,
                     run,
                     terminal_event_written,
-                    format!("cannot retire {}: {error}", path.display()),
+                    format!("cannot retire {}: {error}", path.displayed()),
                 ));
             }
         }
@@ -520,7 +521,7 @@ fn revalidate_abandon_plan(engine_root: &Path, plan: &AbandonPlan) -> Result<(),
                 let raw = std::fs::read_to_string(&path).map_err(|read_error| {
                     refusal(format!(
                         "abandon cannot inspect defective spawn ledger {}: {read_error}; parse error: {error}",
-                        path.display()
+                        path.displayed()
                     ))
                 })?;
                 if raw.contains(&format!("id = {run:?}")) {
@@ -584,7 +585,7 @@ fn append_event_once(
         Err(error) => {
             return Err(refusal(format!(
                 "abandon cannot inspect terminal history {}: {error}",
-                path.display()
+                path.displayed()
             )))
         }
     };
@@ -600,7 +601,7 @@ fn run_roster_at(engine_root: &Path) -> Result<Vec<String>, AbandonRefusal> {
     let entries = fs::read_dir(&runs).map_err(|error| {
         refusal(format!(
             "abandon cannot read run roster {}: {error}",
-            runs.display()
+            runs.displayed()
         ))
     })?;
     let mut ids = Vec::new();
@@ -608,13 +609,13 @@ fn run_roster_at(engine_root: &Path) -> Result<Vec<String>, AbandonRefusal> {
         let entry = entry.map_err(|error| {
             refusal(format!(
                 "abandon cannot read an entry in run roster {}: {error}",
-                runs.display()
+                runs.displayed()
             ))
         })?;
         let file_type = entry.file_type().map_err(|error| {
             refusal(format!(
                 "abandon cannot inspect run roster entry {}: {error}",
-                entry.path().display()
+                entry.path().displayed()
             ))
         })?;
         if file_type.is_dir() {
@@ -628,18 +629,18 @@ fn ensure_retirement_file(path: &Path) -> Result<(), AbandonRefusal> {
     let metadata = fs::metadata(path).map_err(|error| {
         refusal(format!(
             "abandon cannot inspect {}: {error}",
-            path.display()
+            path.displayed()
         ))
     })?;
     if !metadata.is_file() {
         return Err(refusal(format!(
             "abandon cannot retire {}: it is not a regular file",
-            path.display()
+            path.displayed()
         )));
     }
     fs::File::open(path)
         .map(|_| ())
-        .map_err(|error| refusal(format!("abandon cannot read {}: {error}", path.display())))
+        .map_err(|error| refusal(format!("abandon cannot read {}: {error}", path.displayed())))
 }
 
 /// Ask the Scheduler-owned transition-log funnel to append while this

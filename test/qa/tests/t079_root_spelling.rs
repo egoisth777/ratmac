@@ -379,20 +379,25 @@ fn a_report_quotes_a_backslash_identifier_verbatim() {
     );
 }
 
-/// The modules that put a filesystem path into an `rtm doctor` report.  A
-/// path becomes text there, so it must become text through the one renderer:
-/// a bare `.display()` or a hand-rolled `to_string_lossy()` is how a second
-/// spelling gets back in.
-const PATH_RENDERING_REPORT_SOURCES: [&str; 3] = ["src/roots.rs", "src/pin.rs", "src/doctor.rs"];
+/// The values written to disk as a binding and later compared, character for
+/// character, against what the filesystem answers.  These are state, not text
+/// for a reader, so they keep the platform's spelling; every report of them
+/// still goes through the renderer.
+///
+/// The uses of `to_string_lossy` that cannot carry a second spelling, because
+/// what they turn into text is one path component: a file name, a stem, or an
+/// extension holds no separator, so there is nothing for a renderer to
+/// normalize.  A line is accepted only if it names one of these; a whole path
+/// reaching `to_string_lossy` is a second renderer and fails the scan.
+const STORED_BINDINGS: [&str; 1] =
+    ["workspace: Some(child_workspace.to_string_lossy().into_owned())"];
 
-/// The named exceptions: these turn a path component into text to compare it,
-/// never to show it.  Each one is pinned by its exact code, so a new use has
-/// to be declared here before the scan will accept it.
-const NON_RENDERING_USES: [&str; 4] = [
-    "stem.to_string_lossy().to_ascii_lowercase()",
-    "SOURCE_EXTENSIONS.contains(&extension.to_string_lossy().as_ref())",
-    "path.file_name()?.to_string_lossy() != MachineClass::FILE_NAME",
-    "directory.file_name()?.to_string_lossy() != \".ratmac\"",
+const COMPONENT_RENDERS: [&str; 5] = [
+    "file_name()",
+    "|name|",
+    "|stem|",
+    "stem.to_string_lossy()",
+    "extension.to_string_lossy()",
 ];
 
 fn repository_root() -> PathBuf {
@@ -403,36 +408,87 @@ fn repository_root() -> PathBuf {
         .to_path_buf()
 }
 
-fn source_of(relative: &str) -> String {
-    let path = repository_root().join(relative);
-    fs::read_to_string(&path).unwrap_or_else(|error| panic!("read {}: {error}", path.display()))
+fn engine_sources() -> Vec<PathBuf> {
+    let sources = fs::read_dir(repository_root().join("src"))
+        .expect("the Engine source directory is listable")
+        .map(|entry| entry.expect("source entry is readable").path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "rs"))
+        .collect::<Vec<_>>();
+    assert!(
+        sources.len() > 10,
+        "the scan must actually see the Engine source; it found {} files",
+        sources.len()
+    );
+    sources
 }
 
-/// ENSV-011: the one-spelling rule holds by construction where a path enters a
-/// report, not only in the fixtures this test happens to build.
+/// ENSV-011: a path becomes text through the one renderer, everywhere in the
+/// Engine.  `Path::display` is the standard second spelling, so the Engine
+/// does not call it at all: `crate::root::Displayed` supplies `.displayed()`
+/// in its place.  A user reads a refusal with the same eyes as a report, so
+/// this holds by construction rather than by the fixtures a test can build.
 #[test]
-fn modules_that_report_paths_render_them_through_one_renderer() {
-    for relative in PATH_RENDERING_REPORT_SOURCES {
-        let source = source_of(relative);
-        let offenders = source
-            .lines()
-            .enumerate()
-            .filter(|(_, line)| line.contains(".display()") || line.contains("to_string_lossy()"))
-            .filter(|(_, line)| {
-                !NON_RENDERING_USES
-                    .iter()
-                    .any(|allowed| line.contains(allowed))
-            })
-            .map(|(index, line)| format!("{relative}:{}: {}", index + 1, line.trim()))
-            .collect::<Vec<_>>();
-        assert!(
-            offenders.is_empty(),
-            "ENS-010: {relative} renders a path into a doctor report, so every path there goes \
-             through `crate::root::displayed`; these lines turn a path into text themselves and \
-             can carry a second spelling:\n{}",
-            offenders.join("\n")
+fn no_engine_source_renders_a_path_with_the_standard_renderer() {
+    let mut offenders = Vec::new();
+    for path in engine_sources() {
+        let name = path
+            .file_name()
+            .expect("a source file has a name")
+            .to_string_lossy()
+            .into_owned();
+        let source = fs::read_to_string(&path).expect("read Engine source");
+        offenders.extend(
+            source
+                .lines()
+                .enumerate()
+                .filter(|(_, line)| line.contains(".display()"))
+                .map(|(index, line)| format!("src/{name}:{}: {}", index + 1, line.trim())),
         );
     }
+    assert!(
+        offenders.is_empty(),
+        "ENS-010: the Engine names a path with `Path::display`, which spells it with the platform \
+         separator while a report spells it with forward slashes; call `.displayed()` instead:\n{}",
+        offenders.join("\n")
+    );
+}
+
+/// ENSV-011: no module turns a path into text by hand either.  `to_string_lossy`
+/// is how a second renderer gets written, so its uses are enumerated.
+#[test]
+fn no_engine_source_renders_a_path_by_hand() {
+    let mut offenders = Vec::new();
+    for path in engine_sources() {
+        let name = path
+            .file_name()
+            .expect("a source file has a name")
+            .to_string_lossy()
+            .into_owned();
+        if name == "root.rs" {
+            continue;
+        }
+        let source = fs::read_to_string(&path).expect("read Engine source");
+        offenders.extend(
+            source
+                .lines()
+                .enumerate()
+                .filter(|(_, line)| line.contains("to_string_lossy()"))
+                .filter(|(_, line)| {
+                    !COMPONENT_RENDERS
+                        .iter()
+                        .chain(STORED_BINDINGS.iter())
+                        .any(|allowed| line.contains(allowed))
+                })
+                .map(|(index, line)| format!("src/{name}:{}: {}", index + 1, line.trim())),
+        );
+    }
+    assert!(
+        offenders.is_empty(),
+        "ENS-010: `crate::root` owns the one path renderer; these lines turn a path into text \
+         themselves, so each is either a second spelling or a path component named in \
+         COMPONENT_RENDERS:\n{}",
+        offenders.join("\n")
+    );
 }
 
 /// ENSV-011: one renderer, one implementation.  A second hand-rolled

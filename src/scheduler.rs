@@ -14,6 +14,7 @@ use crate::ledger::LedgerEntry;
 use crate::lock::{RootLock, RunLock};
 use crate::machine::{GuardKind, MachineClass, PhaseDefinition};
 use crate::model::{Run, RunState, Status};
+use crate::root::Displayed;
 use crate::roots::ValidatedWorkflowRoots;
 use crate::state::{PhasePrompt, StateError, StateStore, StateWriteOutcome, StatusReport};
 
@@ -117,7 +118,7 @@ impl TransitionLogAppendFailure {
     fn failure_prefix(&self) -> String {
         format!(
             "append transition log {} failed: {}",
-            self.path.display(),
+            self.path.displayed(),
             self.error
         )
     }
@@ -126,7 +127,7 @@ impl TransitionLogAppendFailure {
         self.is_fragment().then(|| {
             format!(
                 "an incomplete record is present in transition log {}; a human must resolve it before retrying",
-                self.path.display()
+                self.path.displayed()
             )
         })
     }
@@ -425,13 +426,13 @@ impl Scheduler {
         match fs::symlink_metadata(&path) {
             Ok(metadata) if metadata.file_type().is_symlink() => Err(StateError::new(format!(
                 "refuse transition log {}: it is a symlink; Engine history must not resolve through another path",
-                path.display()
+                path.displayed()
             ))),
             Ok(_) => Ok(path),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(path),
             Err(error) => Err(StateError::new(format!(
                 "inspect transition log {}: {error}",
-                path.display()
+                path.displayed()
             ))),
         }
     }
@@ -689,7 +690,7 @@ impl Scheduler {
         fs::read(&path).map_err(|error| {
             StateError::new(format!(
                 "read .ratmac/ratmac.toml: {error} ({})",
-                path.display()
+                path.displayed()
             ))
         })
     }
@@ -711,7 +712,10 @@ impl Scheduler {
         let source = std::str::from_utf8(&bytes).map_err(|error| {
             StateError::new(format!(
                 "read .ratmac/ratmac.toml: invalid UTF-8: {error} ({})",
-                invoking_root.join(".ratmac").join("ratmac.toml").display()
+                invoking_root
+                    .join(".ratmac")
+                    .join("ratmac.toml")
+                    .displayed()
             ))
         })?;
         let class = MachineClass::from_toml(source).map_err(|error| {
@@ -973,7 +977,7 @@ impl Scheduler {
             let entries = crate::ledger::read_entries(&path).map_err(|error| {
                 StateError::new(format!(
                     "cannot read spawn ledger {} while resolving run {run_id}: {error}",
-                    path.display()
+                    path.displayed()
                 ))
             })?;
             if let Some(entry) = entries.into_iter().find(|entry| entry.id == run_id) {
@@ -993,7 +997,7 @@ impl Scheduler {
                 "run {} is a child recorded in {} but has no workspace binding; \
                  refusing to fall back to the caller's directory",
                 entry.id,
-                ledger_path.display()
+                ledger_path.displayed()
             ))
         })?;
         let workspace = PathBuf::from(recorded);
@@ -1003,7 +1007,7 @@ impl Scheduler {
                  refusing to fall back to the caller's directory",
                 entry.id,
                 recorded,
-                ledger_path.display()
+                ledger_path.displayed()
             )));
         }
         Self::refuse_flat_residue(&workspace)?;
@@ -1013,8 +1017,8 @@ impl Scheduler {
                     "run {} has a recorded workspace path {} in {} that no longer exists; \
                      refusing to fall back to the caller's directory",
                     entry.id,
-                    workspace.display(),
-                    ledger_path.display()
+                    workspace.displayed(),
+                    ledger_path.displayed()
                 ))
             } else {
                 StateError::new(format!(
@@ -1022,7 +1026,7 @@ impl Scheduler {
                      refusing to fall back to the caller's directory",
                     entry.id,
                     recorded,
-                    ledger_path.display()
+                    ledger_path.displayed()
                 ))
             }
         })?;
@@ -1036,9 +1040,9 @@ impl Scheduler {
                 "run {} has a recorded workspace path {} in {} that now resolves to {}; \
                  refusing to fall back to the caller's directory",
                 entry.id,
-                workspace.display(),
-                ledger_path.display(),
-                canonical.display()
+                workspace.displayed(),
+                ledger_path.displayed(),
+                canonical.displayed()
             )));
         }
         if !canonical.is_dir() {
@@ -1046,8 +1050,8 @@ impl Scheduler {
                 "run {} has a workspace binding {} in {} that is not a directory; \
                  refusing to fall back to the caller's directory",
                 entry.id,
-                canonical.display(),
-                ledger_path.display()
+                canonical.displayed(),
+                ledger_path.displayed()
             )));
         }
         Self::ensure_workspace_in_repository(engine_root, &canonical)?;
@@ -1069,7 +1073,7 @@ impl Scheduler {
         engine_root: &Path,
         workspace: &Path,
     ) -> Result<PathBuf, StateError> {
-        let spelling = workspace.to_string_lossy().into_owned();
+        let spelling = workspace.displayed();
         let candidate = Self::spawn_workspace_candidate(invoking_root, workspace);
         Self::refuse_flat_residue(&candidate)?;
         let metadata = fs::metadata(&candidate).map_err(|error| {
@@ -1113,7 +1117,7 @@ impl Scheduler {
         } else {
             Err(StateError::new(format!(
                 "workspace {} is outside this repository",
-                workspace.display()
+                workspace.displayed()
             )))
         }
     }
@@ -1130,7 +1134,7 @@ impl Scheduler {
             }),
             Err(error) => Err(StateError::new(format!(
                 "read spawn ledger {}: {error}",
-                path.display()
+                path.displayed()
             ))),
         }
     }
@@ -1190,13 +1194,13 @@ impl Scheduler {
             let current = Self::snapshot_ledger(&snapshot.path).map_err(|error| {
                 StateError::new(format!(
                     "state mutation refused for run {run_id}: a ledger the guards read changed while the step was being decided: {} could not be reread ({error}); reload it before retrying",
-                    snapshot.path.display()
+                    snapshot.path.displayed()
                 ))
             })?;
             if current.bytes != snapshot.bytes {
                 return Err(StateError::new(format!(
                     "state mutation refused for run {run_id}: a ledger the guards read changed while the step was being decided: {}; reload it before retrying",
-                    snapshot.path.display()
+                    snapshot.path.displayed()
                 )));
             }
         }
@@ -1310,7 +1314,7 @@ impl Scheduler {
             Ok(None) => {
                 let error = StateError::new(format!(
                     "mint cannot claim fresh Run lock {} without waiting while root is held",
-                    crate::lock::run_path(engine_root, &run_id).display()
+                    crate::lock::run_path(engine_root, &run_id).displayed()
                 ));
                 return Err(Self::cleanup_incomplete_mint(
                     root_lock, None, &run_dir, error,
@@ -1399,7 +1403,7 @@ impl Scheduler {
             fs::remove_dir_all(run_dir).map_err(|cleanup_error| {
                 StateError::new(format!(
                     "remove incomplete run directory {}: {cleanup_error}",
-                    run_dir.display()
+                    run_dir.displayed()
                 ))
             })
         })();
@@ -1433,13 +1437,13 @@ impl Scheduler {
         let metadata = fs::symlink_metadata(run_dir).map_err(|error| {
             StateError::new(format!(
                 "{operation} refused: cannot inspect minted Run directory {}: {error}",
-                run_dir.display()
+                run_dir.displayed()
             ))
         })?;
         if !metadata.file_type().is_dir() {
             return Err(StateError::new(format!(
                 "{operation} refused: minted Run directory {} was replaced",
-                run_dir.display()
+                run_dir.displayed()
             )));
         }
 
@@ -1447,7 +1451,7 @@ impl Scheduler {
         let entries = fs::read_dir(run_dir).map_err(|error| {
             StateError::new(format!(
                 "{operation} refused: cannot inspect minted Run directory {}: {error}",
-                run_dir.display()
+                run_dir.displayed()
             ))
         })?;
         for entry in entries {
@@ -1464,32 +1468,32 @@ impl Scheduler {
                 _ => {
                     return Err(StateError::new(format!(
                         "{operation} refused: minted Run directory {} changed (unexpected entry {name:?})",
-                        run_dir.display()
+                        run_dir.displayed()
                     )))
                 }
             };
             let file_type = entry.file_type().map_err(|error| {
                 StateError::new(format!(
                     "{operation} refused: cannot inspect minted Run entry {}: {error}",
-                    entry.path().display()
+                    entry.path().displayed()
                 ))
             })?;
             if !file_type.is_file() {
                 return Err(StateError::new(format!(
                     "{operation} refused: minted Run entry {} is no longer a regular file",
-                    entry.path().display()
+                    entry.path().displayed()
                 )));
             }
             let observed = fs::read(entry.path()).map_err(|error| {
                 StateError::new(format!(
                     "{operation} refused: cannot read minted Run entry {}: {error}",
-                    entry.path().display()
+                    entry.path().displayed()
                 ))
             })?;
             if observed != expected {
                 return Err(StateError::new(format!(
                     "{operation} refused: minted Run entry {} changed; it was not removed",
-                    entry.path().display()
+                    entry.path().displayed()
                 )));
             }
             seen.insert(name, ());
@@ -1498,7 +1502,7 @@ impl Scheduler {
             if !seen.contains_key(name) {
                 return Err(StateError::new(format!(
                     "{operation} refused: minted Run entry {} is missing; it was not removed",
-                    run_dir.join(name).display()
+                    run_dir.join(name).displayed()
                 )));
             }
         }
@@ -1524,7 +1528,7 @@ impl Scheduler {
         fs::remove_dir_all(&run_dir).map_err(|error| {
             StateError::new(format!(
                 "{operation} cannot remove minted Run directory {}: {error}",
-                run_dir.display()
+                run_dir.displayed()
             ))
         })
     }
@@ -1775,6 +1779,10 @@ composition is capped at one level (FDC-012)"
             class: child_class_name,
             bind: bindings.clone(),
             spawned_at,
+            // The ledger stores the binding, not a report of it: the guard
+            // above compares this exact string against `fs::canonicalize`,
+            // which answers in the platform's own spelling.  Normalizing here
+            // would make every child fail its own workspace check.
             workspace: Some(child_workspace.to_string_lossy().into_owned()),
             abandoned: false,
             supersedes: None,
@@ -1788,7 +1796,7 @@ composition is capped at one level (FDC-012)"
             LedgerAppendAftermath::RecordedAfterError(error) => {
                 eprintln!(
                     "warning: spawn ledger append for {child} reported {error}, but {} records the complete entry; treating the child as committed",
-                    ledger_path.display()
+                    ledger_path.displayed()
                 );
             }
             LedgerAppendAftermath::AbsentAfterError(error) => {
@@ -1814,8 +1822,8 @@ the child mint cleanup is incomplete: {cleanup_error}"
                 return Err(StateError::new(format!(
                     "spawn cannot determine whether its ledger entry committed for {child}: {detail}; \
 the ledger {} and minted child {} were left in place; inspect both paths before removing anything",
-                    ledger_path.display(),
-                    Self::runs_dir_at(&engine_root).join(&child).display()
+                    ledger_path.displayed(),
+                    Self::runs_dir_at(&engine_root).join(&child).displayed()
                 )));
             }
         }
@@ -2010,7 +2018,7 @@ the successor mint rollback is incomplete: {rollback}"
                 LedgerAppendAftermath::RecordedAfterError(error) => {
                     eprintln!(
                         "warning: successor ledger append for {successor} reported {error}, but {} records the complete entry; treating the successor as committed",
-                        ledger_path.display()
+                        ledger_path.displayed()
                     );
                 }
                 LedgerAppendAftermath::AbsentAfterError(error) => {
@@ -2036,8 +2044,8 @@ the successor mint rollback is incomplete: {rollback}"
                     return Err(StateError::new(format!(
                         "respawn cannot determine whether its successor entry committed for {successor}: {detail}; \
 the ledger {} and minted successor {} were left in place; inspect both paths before removing anything",
-                        ledger_path.display(),
-                        Self::runs_dir_at(&engine_root).join(&successor).display()
+                        ledger_path.displayed(),
+                        Self::runs_dir_at(&engine_root).join(&successor).displayed()
                     )));
                 }
             }
@@ -2251,7 +2259,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
                 Err(error) => {
                     return Err(StateError::new(format!(
                         "inspect verdict archive directory {}: {error}",
-                        archive_dir.display()
+                        archive_dir.displayed()
                     )))
                 }
             };
@@ -2299,7 +2307,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
             StateWriteOutcome::ReplacedWithParentSyncWarning(error) => {
                 eprintln!(
                     "warning: State File {} was replaced but its parent directory could not be synced: {error}; continuing because the State File is committed and transition history will be appended",
-                    state_path.display()
+                    state_path.displayed()
                 );
             }
         }
@@ -2363,7 +2371,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
     ) -> StateError {
         let prefix = format!(
             "append transition log {} failed: {append_error}",
-            log_path.display()
+            log_path.displayed()
         );
         let failure = |detail: String| StateError::new(format!("{prefix}; {detail}"));
 
@@ -2377,14 +2385,14 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
             Err(error) => {
                 return failure(format!(
                     "rollback refused because State File {} cannot be compared with the committed successor: {error}; the Engine restored nothing",
-                    state_path.display()
+                    state_path.displayed()
                 ))
             }
         };
         if current_state != committed_state {
             return failure(format!(
                 "rollback refused because State File {} disagreed with the bytes this step committed; the Engine restored nothing",
-                state_path.display()
+                state_path.displayed()
             ));
         }
         if written >= entry_len {
@@ -2400,14 +2408,14 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
                 Err(error) => {
                     return failure(format!(
                         "rollback refused because frozen evidence {} cannot be compared with its committed bytes: {error}; the Engine restored nothing",
-                        evidence.path.display()
+                        evidence.path.displayed()
                     ))
                 }
             };
             if current != evidence.committed {
                 return failure(format!(
                     "rollback refused because frozen evidence {} disagreed with the bytes this step committed; the Engine restored nothing",
-                    evidence.path.display()
+                    evidence.path.displayed()
                 ));
             }
         }
@@ -2417,13 +2425,13 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
                 Ok(_) => {
                     return failure(format!(
                         "rollback refused because live verdict {} is present after consumption; the Engine restored nothing",
-                        verdict.live_path.display()
+                        verdict.live_path.displayed()
                     ))
                 }
                 Err(error) => {
                     return failure(format!(
                         "rollback refused because live verdict {} cannot be inspected: {error}; the Engine restored nothing",
-                        verdict.live_path.display()
+                        verdict.live_path.displayed()
                     ))
                 }
             }
@@ -2432,14 +2440,14 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
                 Err(error) => {
                     return failure(format!(
                         "rollback refused because consumed verdict {} cannot be compared: {error}; the Engine restored nothing",
-                        verdict.archive_path.display()
+                        verdict.archive_path.displayed()
                     ))
                 }
             };
             if archived != verdict.bytes {
                 return failure(format!(
                     "rollback refused because consumed verdict {} disagreed with its pre-consumption bytes; the Engine restored nothing",
-                    verdict.archive_path.display()
+                    verdict.archive_path.displayed()
                 ));
             }
             if verdict.archive_dir_was_absent {
@@ -2457,7 +2465,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
                     Err(error) => {
                         return failure(format!(
                             "rollback refused because consumed verdict archive directory {} cannot be read: {error}; the Engine restored nothing",
-                            archive_dir.display()
+                            archive_dir.displayed()
                         ))
                     }
                 };
@@ -2468,7 +2476,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
                         Err(error) => {
                             return failure(format!(
                                 "rollback refused because consumed verdict archive directory {} cannot be inspected: {error}; the Engine restored nothing",
-                                archive_dir.display()
+                                archive_dir.displayed()
                             ))
                         }
                     };
@@ -2477,15 +2485,15 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
                     } else {
                         return failure(format!(
                             "rollback refused because consumed verdict archive directory {} contains additional evidence {}; the Engine restored nothing",
-                            archive_dir.display(),
-                            entry.path().display()
+                            archive_dir.displayed(),
+                            entry.path().displayed()
                         ));
                     }
                 }
                 if !found_archive {
                     return failure(format!(
                         "rollback refused because consumed verdict {} disappeared from its new archive directory; the Engine restored nothing",
-                        verdict.archive_path.display()
+                        verdict.archive_path.displayed()
                     ));
                 }
             }
@@ -2508,7 +2516,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
             if let Err(error) = restore_evidence(evidence) {
                 return failure(format!(
                     "rollback could not restore frozen evidence {}: {error}; State remains committed",
-                    evidence.path.display()
+                    evidence.path.displayed()
                 ));
             }
             restored.push("the frozen evidence");
@@ -2522,7 +2530,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
             if let Err(error) = restore_archived_verdict(verdict) {
                 return failure(format!(
                     "rollback could not restore the consumed verdict {}: {error}; State remains committed",
-                    verdict.live_path.display()
+                    verdict.live_path.displayed()
                 ));
             }
             restored.push("the consumed verdict");
@@ -2536,7 +2544,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
         {
             return failure(format!(
                 "rollback refused because State File {} no longer matches the bytes this step committed: {error}; the Engine stopped for repair",
-                state_path.display()
+                state_path.displayed()
             ));
         }
         restored.push("the prior State File");
@@ -2663,8 +2671,8 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
                                     "intake_contract",
                                     &format!(
                                         "{}, {}",
-                                        goal_root.display(),
-                                        issue_root.display()
+                                        goal_root.displayed(),
+                                        issue_root.displayed()
                                     ),
                                     crate::contract::gate_intake_at(&goal_root, &issue_root),
                                     "issue dispositions, status, and location agree across intake/deferred/archive; five-file shape intact; accepted IDs in the goal; live links resolving",
@@ -2693,9 +2701,9 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
                                     "record_contract",
                                     &format!(
                                         "{}, {}, {}",
-                                        goal_root.display(),
-                                        residual_root.display(),
-                                        ticket_root.display()
+                                        goal_root.displayed(),
+                                        residual_root.displayed(),
+                                        ticket_root.displayed()
                                     ),
                                     crate::contract::gate_records_at(
                                         root,
@@ -3501,13 +3509,13 @@ fn restore_exact_file(path: &Path, bytes: &[u8]) -> Result<(), StateError> {
         Ok(ReplaceFileOutcome::ReplacedWithParentSyncWarning(error)) => {
             eprintln!(
                 "warning: restored {} but could not sync its parent directory: {error}",
-                path.display()
+                path.displayed()
             );
             Ok(())
         }
         Err(error) => Err(StateError::new(format!(
             "replace exact bytes at {}: {error}",
-            path.display()
+            path.displayed()
         ))),
     }
 }
@@ -3523,25 +3531,25 @@ fn restore_exact_file_if_current(
     let metadata = fs::symlink_metadata(path).map_err(|error| {
         StateError::new(format!(
             "inspect {} before exact rollback replacement: {error}",
-            path.display()
+            path.displayed()
         ))
     })?;
     if metadata.file_type().is_symlink() {
         return Err(StateError::new(format!(
             "refuse exact rollback replacement through symlink {}",
-            path.display()
+            path.displayed()
         )));
     }
     let current = fs::read(path).map_err(|error| {
         StateError::new(format!(
             "read {} before exact rollback replacement: {error}",
-            path.display()
+            path.displayed()
         ))
     })?;
     if current != expected_current {
         return Err(StateError::new(format!(
             "current bytes at {} differ from the proved bytes",
-            path.display()
+            path.displayed()
         )));
     }
     restore_exact_file(path, replacement)
@@ -3553,43 +3561,43 @@ fn restore_evidence(evidence: &EvidenceRollback) -> Result<(), StateError> {
             let metadata = fs::symlink_metadata(&evidence.path).map_err(|error| {
                 StateError::new(format!(
                     "inspect newly written evidence {} before removal: {error}",
-                    evidence.path.display()
+                    evidence.path.displayed()
                 ))
             })?;
             if metadata.file_type().is_symlink() {
                 return Err(StateError::new(format!(
                     "refuse to remove newly written evidence through symlink {}",
-                    evidence.path.display()
+                    evidence.path.displayed()
                 )));
             }
             let current = fs::read(&evidence.path).map_err(|error| {
                 StateError::new(format!(
                     "read newly written evidence {} before removal: {error}",
-                    evidence.path.display()
+                    evidence.path.displayed()
                 ))
             })?;
             if current != evidence.committed {
                 return Err(StateError::new(format!(
                     "newly written evidence {} differs from the bytes this step committed",
-                    evidence.path.display()
+                    evidence.path.displayed()
                 )));
             }
             fs::remove_file(&evidence.path).map_err(|error| {
                 StateError::new(format!(
                     "remove newly written evidence {}: {error}",
-                    evidence.path.display()
+                    evidence.path.displayed()
                 ))
             })?;
             let parent = evidence.path.parent().ok_or_else(|| {
                 StateError::new(format!(
                     "evidence {} has no parent directory",
-                    evidence.path.display()
+                    evidence.path.displayed()
                 ))
             })?;
             if let Err(error) = sync_parent(parent) {
                 eprintln!(
                     "warning: removed newly written evidence {} but could not sync its parent directory: {error}",
-                    evidence.path.display()
+                    evidence.path.displayed()
                 );
             }
             Ok(())
@@ -3603,32 +3611,32 @@ fn restore_archived_verdict(verdict: &ArchivedVerdictRollback) -> Result<(), Sta
         Ok(_) => {
             return Err(StateError::new(format!(
                 "live verdict {} is present",
-                verdict.live_path.display()
+                verdict.live_path.displayed()
             )))
         }
         Err(error) => {
             return Err(StateError::new(format!(
                 "inspect live verdict {}: {error}",
-                verdict.live_path.display()
+                verdict.live_path.displayed()
             )))
         }
     }
     let archived = fs::read(&verdict.archive_path).map_err(|error| {
         StateError::new(format!(
             "read consumed verdict {}: {error}",
-            verdict.archive_path.display()
+            verdict.archive_path.displayed()
         ))
     })?;
     if archived != verdict.bytes {
         return Err(StateError::new(format!(
             "consumed verdict {} disagreed with its pre-consumption bytes",
-            verdict.archive_path.display()
+            verdict.archive_path.displayed()
         )));
     }
     let archive_dir = verdict.archive_path.parent().ok_or_else(|| {
         StateError::new(format!(
             "consumed verdict {} has no archive directory",
-            verdict.archive_path.display()
+            verdict.archive_path.displayed()
         ))
     })?;
     if verdict.archive_dir_was_absent {
@@ -3636,13 +3644,13 @@ fn restore_archived_verdict(verdict: &ArchivedVerdictRollback) -> Result<(), Sta
         for entry in fs::read_dir(archive_dir).map_err(|error| {
             StateError::new(format!(
                 "read new verdict archive directory {}: {error}",
-                archive_dir.display()
+                archive_dir.displayed()
             ))
         })? {
             let entry = entry.map_err(|error| {
                 StateError::new(format!(
                     "inspect new verdict archive directory {}: {error}",
-                    archive_dir.display()
+                    archive_dir.displayed()
                 ))
             })?;
             if entry.path() == verdict.archive_path {
@@ -3650,49 +3658,49 @@ fn restore_archived_verdict(verdict: &ArchivedVerdictRollback) -> Result<(), Sta
             } else {
                 return Err(StateError::new(format!(
                     "new verdict archive directory {} contains additional evidence {}",
-                    archive_dir.display(),
-                    entry.path().display()
+                    archive_dir.displayed(),
+                    entry.path().displayed()
                 )));
             }
         }
         if !found_archive {
             return Err(StateError::new(format!(
                 "consumed verdict {} is absent from its new archive directory",
-                verdict.archive_path.display()
+                verdict.archive_path.displayed()
             )));
         }
     }
     fs::rename(&verdict.archive_path, &verdict.live_path).map_err(|error| {
         StateError::new(format!(
             "move consumed verdict {} back to {}: {error}",
-            verdict.archive_path.display(),
-            verdict.live_path.display()
+            verdict.archive_path.displayed(),
+            verdict.live_path.displayed()
         ))
     })?;
     if verdict.archive_dir_was_absent {
         fs::remove_dir(archive_dir).map_err(|error| {
             StateError::new(format!(
                 "remove new verdict archive directory {}: {error}",
-                archive_dir.display()
+                archive_dir.displayed()
             ))
         })?;
     } else if let Err(error) = sync_parent(archive_dir) {
         eprintln!(
             "warning: restored live verdict {} but could not sync archive directory {}: {error}",
-            verdict.live_path.display(),
-            archive_dir.display()
+            verdict.live_path.displayed(),
+            archive_dir.displayed()
         );
     }
     let run_dir = verdict.live_path.parent().ok_or_else(|| {
         StateError::new(format!(
             "live verdict {} has no Run directory",
-            verdict.live_path.display()
+            verdict.live_path.displayed()
         ))
     })?;
     if let Err(error) = sync_parent(run_dir) {
         eprintln!(
             "warning: restored live verdict {} but could not sync its Run directory: {error}",
-            verdict.live_path.display()
+            verdict.live_path.displayed()
         );
     }
     Ok(())
@@ -3702,7 +3710,7 @@ fn replace_file_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<Replace
     let parent = path.parent().ok_or_else(|| {
         std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
-            format!("{} has no parent directory", path.display()),
+            format!("{} has no parent directory", path.displayed()),
         )
     })?;
     let sequence = ROLLBACK_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);

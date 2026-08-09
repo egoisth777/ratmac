@@ -358,7 +358,12 @@ fn state_mutators_honor_run_lock_while_status_is_read_only() {
         .clone()
         .initialize_state(state.clone())
         .expect_err("a state mutation must wait on the addressed Run lock");
-    let expected_refusal = format!("lock wait expired: {}", lock.display());
+    // ENS-010: the Engine names a path in one spelling, so the expectation
+    // reads the same way the refusal does.
+    let expected_refusal = format!(
+        "lock wait expired: {}",
+        lock.to_string_lossy().replace('\\', "/")
+    );
     assert!(
         initialize.to_string().starts_with(&expected_refusal),
         "the expiry refusal must name exactly the addressed Run lock before any optional diagnostic: {initialize}"

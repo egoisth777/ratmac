@@ -74,6 +74,23 @@ pub(crate) fn displayed(path: impl AsRef<Path>) -> String {
     path.as_ref().to_string_lossy().replace('\\', "/")
 }
 
+/// `path.displayed()` at a call site that used to read `path.displayed()`.
+///
+/// The Engine names paths in messages everywhere, not only in reports, and a
+/// message is read by the same eyes as a report.  A method keeps the one
+/// renderer as convenient as the standard one it replaces, so a new call site
+/// has no reason to hand-roll a second spelling.
+pub(crate) trait Displayed {
+    /// This path in the one spelling the Engine shows.
+    fn displayed(&self) -> String;
+}
+
+impl<T: AsRef<Path> + ?Sized> Displayed for T {
+    fn displayed(&self) -> String {
+        displayed(self)
+    }
+}
+
 /// The project that owns a runbook addressed by path.
 pub(crate) fn addressed_project_root(path: &Path) -> PathBuf {
     let parent = path

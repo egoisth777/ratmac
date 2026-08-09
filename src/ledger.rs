@@ -11,6 +11,7 @@
 //! unknown key, a malformed entry, or invalid TOML refuses by name rather
 //! than yielding a smaller expected set.
 
+use crate::root::Displayed;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fs;
@@ -70,7 +71,7 @@ pub fn is_recorded_child(runs_dir: &Path, run_id: &str) -> Result<bool, LedgerEr
         Err(error) => {
             return Err(LedgerError::new(format!(
                 "runs directory {} is unreadable: {error}",
-                runs_dir.display()
+                runs_dir.displayed()
             )));
         }
     };
@@ -78,7 +79,7 @@ pub fn is_recorded_child(runs_dir: &Path, run_id: &str) -> Result<bool, LedgerEr
         let entry = entry.map_err(|error| {
             LedgerError::new(format!(
                 "runs directory {} is unreadable: {error}",
-                runs_dir.display()
+                runs_dir.displayed()
             ))
         })?;
         let ledger_path = entry.path().join("spawn-ledger");
@@ -101,7 +102,7 @@ pub fn read_entries(path: &Path) -> Result<Vec<LedgerEntry>, LedgerError> {
         Err(error) => {
             return Err(LedgerError::new(format!(
                 "spawn ledger {} is unreadable: {error}",
-                path.display()
+                path.displayed()
             )))
         }
     };
@@ -118,7 +119,7 @@ pub(crate) fn parse_entries_bytes(
     let source = std::str::from_utf8(bytes).map_err(|error| {
         LedgerError::new(format!(
             "spawn ledger {} is unreadable: {error}",
-            path.display()
+            path.displayed()
         ))
     })?;
     if source.trim().is_empty() {
@@ -127,7 +128,7 @@ pub(crate) fn parse_entries_bytes(
     let value: toml::Value = source.parse().map_err(|error| {
         LedgerError::new(format!(
             "spawn ledger {} is not valid TOML: {error}",
-            path.display()
+            path.displayed()
         ))
     })?;
     let table = value
@@ -259,7 +260,7 @@ pub fn append_entry(path: &Path, entry: &LedgerEntry) -> Result<(), LedgerError>
         .map_err(|error| {
             LedgerError::new(format!(
                 "spawn ledger {} cannot open for append: {error}",
-                path.display()
+                path.displayed()
             ))
         })?;
     file.write_all(render(entry).as_bytes())
@@ -267,7 +268,7 @@ pub fn append_entry(path: &Path, entry: &LedgerEntry) -> Result<(), LedgerError>
         .map_err(|error| {
             LedgerError::new(format!(
                 "spawn ledger {} cannot append durably: {error}",
-                path.display()
+                path.displayed()
             ))
         })
 }
@@ -286,7 +287,7 @@ pub fn annotate_abandoned(path: &Path, child_id: &str) -> Result<bool, LedgerErr
     let source = fs::read_to_string(path).map_err(|error| {
         LedgerError::new(format!(
             "spawn ledger {} is unreadable: {error}",
-            path.display()
+            path.displayed()
         ))
     })?;
     let needle = format!("id = {}", toml_string(child_id));
@@ -311,7 +312,7 @@ pub fn annotate_abandoned(path: &Path, child_id: &str) -> Result<bool, LedgerErr
     fs::write(path, flipped).map_err(|error| {
         LedgerError::new(format!(
             "spawn ledger {} cannot record the abandoned mark: {error}",
-            path.display()
+            path.displayed()
         ))
     })?;
     Ok(true)

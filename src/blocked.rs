@@ -43,6 +43,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::contract::ISSUE_FILES;
+use crate::root::Displayed;
 #[cfg(windows)]
 use std::os::windows::ffi::OsStrExt;
 
@@ -113,14 +114,14 @@ fn wait_before_hold_boundary_if_requested(boundary: &str) -> Result<(), HoldRefu
         fs::create_dir_all(parent).map_err(|error| {
             refusal(format!(
                 "hold test barrier cannot create marker directory {}: {error}",
-                parent.display()
+                parent.displayed()
             ))
         })?;
     }
     fs::write(&marker, format!("holding before {boundary}\n")).map_err(|error| {
         refusal(format!(
             "hold test barrier cannot write marker {}: {error}",
-            marker.display()
+            marker.displayed()
         ))
     })?;
 
@@ -133,7 +134,7 @@ fn wait_before_hold_boundary_if_requested(boundary: &str) -> Result<(), HoldRefu
         if now >= deadline {
             return Err(refusal(format!(
                 "hold test barrier expired before {boundary} waiting for {}",
-                release.display()
+                release.displayed()
             )));
         }
         thread::sleep(Duration::from_millis(10).min(deadline.saturating_duration_since(now)));
@@ -271,7 +272,7 @@ pub fn plan_hold(root: &Path, request: &HoldRequest) -> Result<HoldPlan, HoldRef
     let source = fs::read_to_string(&ticket_path).map_err(|error| {
         refusal(format!(
             "hold refers to no ticket: {} is unreadable ({error})",
-            ticket_path.display()
+            ticket_path.displayed()
         ))
     })?;
     let status = field(&source, "status").unwrap_or_default();
@@ -331,7 +332,7 @@ fn verify_blocker(root: &Path, blocker: &str) -> Result<(), HoldRefusal> {
     let canonical_root = fs::canonicalize(root).map_err(|error| {
         refusal(format!(
             "cannot resolve project root {} while checking blocker {blocker}: {error}",
-            root.display()
+            root.displayed()
         ))
     })?;
     let candidate = canonical_root.join(relative);
@@ -400,8 +401,8 @@ pub fn apply_hold(root: &Path, plan: &HoldPlan) -> Result<(), HoldRefusal> {
     if current_ticket_path != plan.ticket_path {
         return Err(refusal(format!(
             "hold ticket root changed: planned path {} no longer matches declared path {}; re-plan the hold against the current ticket root",
-            plan.ticket_path.display(),
-            current_ticket_path.display()
+            plan.ticket_path.displayed(),
+            current_ticket_path.displayed()
         )));
     }
 
@@ -467,8 +468,8 @@ pub fn apply_hold(root: &Path, plan: &HoldPlan) -> Result<(), HoldRefusal> {
     if locked_ticket_path != plan.ticket_path {
         return Err(refusal(format!(
             "hold ticket root changed: planned path {} no longer matches declared path {}; re-plan the hold against the current ticket root",
-            plan.ticket_path.display(),
-            locked_ticket_path.display()
+            plan.ticket_path.displayed(),
+            locked_ticket_path.displayed()
         )));
     }
     let Some(route) = current_scheduler.machine().blocked_route_for(&state.phase) else {
@@ -490,13 +491,13 @@ pub fn apply_hold(root: &Path, plan: &HoldPlan) -> Result<(), HoldRefusal> {
     let current_ticket = fs::read_to_string(&plan.ticket_path).map_err(|error| {
         refusal(format!(
             "hold cannot reread ticket {}: {error}",
-            plan.ticket_path.display()
+            plan.ticket_path.displayed()
         ))
     })?;
     if current_ticket != source {
         return Err(refusal(format!(
             "hold ticket {} changed while the hold was being prepared; nothing was written",
-            plan.ticket_path.display()
+            plan.ticket_path.displayed()
         )));
     }
 
@@ -525,7 +526,7 @@ pub fn apply_hold(root: &Path, plan: &HoldPlan) -> Result<(), HoldRefusal> {
         crate::state::StateWriteOutcome::ReplacedWithParentSyncWarning(error) => {
             eprintln!(
                 "warning: hold State File {} was replaced but its parent directory could not be synced: {error}; continuing because the State File is committed and the hold will append history",
-                state_path.display()
+                state_path.displayed()
             );
         }
     }
@@ -541,11 +542,11 @@ pub fn apply_hold(root: &Path, plan: &HoldPlan) -> Result<(), HoldRefusal> {
             return match restore {
                 Ok(()) => Err(refusal(format!(
                     "hold ticket {} changed while the hold was being prepared; nothing was written",
-                    plan.ticket_path.display()
+                    plan.ticket_path.displayed()
                 ))),
                 Err(restore_error) => Err(refusal(format!(
                     "hold ticket {} changed while the hold was being prepared; state rollback incomplete: {restore_error}",
-                    plan.ticket_path.display()
+                    plan.ticket_path.displayed()
                 ))),
             };
         }
@@ -554,11 +555,11 @@ pub fn apply_hold(root: &Path, plan: &HoldPlan) -> Result<(), HoldRefusal> {
             return match restore {
                 Ok(()) => Err(refusal(format!(
                     "hold cannot reread ticket {}: {error}; nothing was written",
-                    plan.ticket_path.display()
+                    plan.ticket_path.displayed()
                 ))),
                 Err(restore_error) => Err(refusal(format!(
                     "hold cannot reread ticket {}: {error}; state rollback incomplete: {restore_error}",
-                    plan.ticket_path.display()
+                    plan.ticket_path.displayed()
                 ))),
             };
         }
@@ -624,7 +625,7 @@ pub fn apply_hold(root: &Path, plan: &HoldPlan) -> Result<(), HoldRefusal> {
     if let Some(error) = parent_sync_warning {
         eprintln!(
             "warning: hold ticket {} was replaced but its parent directory could not be synced: {error}; continuing because the ticket and Run state now agree",
-            plan.ticket_path.display()
+            plan.ticket_path.displayed()
         );
     }
 
@@ -694,13 +695,13 @@ fn restore_state_bytes(
         Ok(ReplaceFileOutcome::ReplacedWithParentSyncWarning(error)) => {
             eprintln!(
                 "warning: restored pre-hold State File {} but could not sync its parent directory: {error}",
-                state_path.display()
+                state_path.displayed()
             );
             Ok(())
         }
         Err(error) => Err(crate::state::StateError::new(format!(
             "restore pre-hold State File {}: {error}",
-            state_path.display()
+            state_path.displayed()
         ))),
     }
 }
@@ -716,7 +717,7 @@ fn replace_file_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<Replace
     let parent = path.parent().ok_or_else(|| {
         std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
-            format!("{} has no parent directory", path.display()),
+            format!("{} has no parent directory", path.displayed()),
         )
     })?;
     let sequence = HOLD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);

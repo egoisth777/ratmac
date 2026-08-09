@@ -12,6 +12,7 @@ use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::root::Displayed;
 use sha2::{Digest, Sha256};
 
 /// A failure while reading a declared goal directory.
@@ -46,7 +47,7 @@ impl fmt::Display for RevisionError {
             formatter,
             "cannot {} declared goal {}: {}",
             self.operation,
-            self.path.display(),
+            self.path.displayed(),
             self.detail
         )
     }
