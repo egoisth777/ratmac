@@ -489,6 +489,16 @@ fn no_engine_source_renders_a_path_by_hand() {
     );
 }
 
+/// Every way the backslash-to-slash substitution can be written, with the
+/// whitespace squeezed out.  Rust accepts the separator as a `char` or as a
+/// `&str` on either side, so each spelling is listed rather than inferred.
+const SUBSTITUTIONS: [&str; 4] = [
+    "replace('\\\\',\"/\")",
+    "replace(\"\\\\\",\"/\")",
+    "replace('\\\\','/')",
+    "replace(\"\\\\\",'/')",
+];
+
 /// ENSV-011: one renderer, one implementation.  A second hand-rolled
 /// path-to-text normalizer anywhere in the Engine is a second policy that can
 /// drift, so `src/root.rs` is the only place the substitution is written.
@@ -515,17 +525,21 @@ fn only_one_module_implements_the_renderer() {
             continue;
         }
         let source = fs::read_to_string(&path).expect("read Engine source");
-        // A hand-rolled renderer can wrap across lines, so the scan reads the
-        // file with its whitespace squeezed out and then names the lines that
-        // spell any part of it.
+        // The substitution itself is the policy, whatever it is applied to:
+        // a `String` that already holds a path is normalized by the same rule
+        // as a `Path`, so the scan looks for the replacement and not for the
+        // conversion that usually precedes it.  A hand-rolled renderer can
+        // wrap across lines, so the file is read with its whitespace squeezed
+        // out and the offending lines are then named individually.
         let squeezed = source.split_whitespace().collect::<String>();
-        let offenders = if squeezed.contains("to_string_lossy().replace('\\\\'") {
+        let offenders = if SUBSTITUTIONS
+            .iter()
+            .any(|written| squeezed.contains(written))
+        {
             source
                 .lines()
                 .enumerate()
-                .filter(|(_, line)| {
-                    line.contains("to_string_lossy()") || line.contains("replace('\\\\'")
-                })
+                .filter(|(_, line)| line.contains("replace(") || line.contains("\\\\"))
                 .map(|(index, line)| format!("src/{name}:{}: {}", index + 1, line.trim()))
                 .collect::<Vec<_>>()
         } else {

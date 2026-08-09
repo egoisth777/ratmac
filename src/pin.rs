@@ -28,7 +28,7 @@ impl fmt::Display for Identity {
         write!(
             formatter,
             "path={} sha256={}",
-            self.resolved.replace('\\', "/"),
+            crate::root::displayed(&self.resolved),
             self.sha256
         )
     }

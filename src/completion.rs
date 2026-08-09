@@ -232,11 +232,7 @@ fn collect(root: &Path, path: &Path, rows: &mut Vec<String>) -> Result<(), Strin
     let mut hasher = Sha256::new();
     hasher.update(&bytes);
     let relative = path.strip_prefix(root).unwrap_or(path);
-    rows.push(format!(
-        "{}\0{:x}",
-        shown(relative).replace('\\', "/"),
-        hasher.finalize()
-    ));
+    rows.push(format!("{}\0{:x}", shown(relative), hasher.finalize()));
     Ok(())
 }
 
