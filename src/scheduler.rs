@@ -817,7 +817,7 @@ impl Scheduler {
                     .map(|file_type| file_type.is_dir())
                     .unwrap_or(false)
             })
-            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .map(|entry| crate::root::component(entry.file_name()))
             .collect();
         ids.sort();
         ids
@@ -1463,7 +1463,7 @@ impl Scheduler {
                     "{operation} refused: cannot inspect a minted Run entry: {error}"
                 ))
             })?;
-            let name = entry.file_name().to_string_lossy().into_owned();
+            let name = crate::root::component(entry.file_name());
             let expected = match name.as_str() {
                 "state.toml" => snapshot.state_bytes.as_slice(),
                 crate::pin::EVIDENCE_FILE => snapshot.evidence_bytes.as_slice(),
@@ -2967,7 +2967,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
             })?
             .map(|entry| {
                 entry
-                    .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                    .map(|entry| crate::root::component(entry.file_name()))
                     .map_err(|error| {
                         guard_failure("files_exact", path, error.to_string(), "readable entry")
                     })

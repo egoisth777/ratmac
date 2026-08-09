@@ -246,8 +246,8 @@ pub(crate) fn diagnose_with_roots(path: &Path, roots: &crate::root::Roots) -> Di
 /// repository context in which named roots could be validated.
 fn runbook_workspace(path: &Path) -> Option<std::path::PathBuf> {
     let directory = path.parent()?;
-    if path.file_name()?.to_string_lossy() != MachineClass::FILE_NAME
-        || directory.file_name()?.to_string_lossy() != ".ratmac"
+    if crate::root::component(path.file_name()?) != MachineClass::FILE_NAME
+        || crate::root::component(directory.file_name()?) != ".ratmac"
     {
         return None;
     }

@@ -218,7 +218,7 @@ fn collect(root: &Path, path: &Path, rows: &mut Vec<String>) -> Result<(), Strin
             .map_err(|error| format!("unreadable directory {}: {error}", shown(path)))?;
         for entry in entries {
             let entry = entry.map_err(|error| format!("unreadable entry: {error}"))?;
-            let name = entry.file_name().to_string_lossy().into_owned();
+            let name = crate::root::component(entry.file_name());
             // Build output and VCS internals are not the work being claimed.
             if name == "target" || name == ".git" {
                 continue;
@@ -361,7 +361,7 @@ pub fn gate_completion_at(
     })?;
     let ticket_id = ticket_path
         .file_stem()
-        .map(|stem| stem.to_string_lossy().into_owned())
+        .map(crate::root::component)
         .unwrap_or_default();
     let directory = crate::receipt::run_evidence_dir(engine_root, run_id).join(COMPLETION_DIR);
 

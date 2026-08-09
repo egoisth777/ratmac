@@ -144,7 +144,7 @@ fn highest_roster_ordinal(engine_root: &Path) -> Result<i64, StateError> {
         if !file_type.is_dir() {
             continue;
         }
-        let id = entry.file_name().to_string_lossy().into_owned();
+        let id = crate::root::component(entry.file_name());
         if let Some(ordinal) = canonical_run_ordinal(&id) {
             highest = highest.max(ordinal);
         }

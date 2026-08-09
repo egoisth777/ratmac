@@ -70,7 +70,7 @@ pub fn required_phrase(root: &Path, run: Option<&str>) -> String {
 fn project_name(root: &Path) -> String {
     let named = |path: &Path| {
         path.file_name()
-            .map(|name| name.to_string_lossy().into_owned())
+            .map(crate::root::component)
             .filter(|name| !name.is_empty() && name != "." && name != "..")
     };
     named(root)
@@ -619,7 +619,7 @@ fn run_roster_at(engine_root: &Path) -> Result<Vec<String>, AbandonRefusal> {
             ))
         })?;
         if file_type.is_dir() {
-            ids.push(entry.file_name().to_string_lossy().into_owned());
+            ids.push(crate::root::component(entry.file_name()));
         }
     }
     ids.sort();

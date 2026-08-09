@@ -301,7 +301,7 @@ const SOURCE_EXTENSIONS: [&str; 7] = ["rs", "c", "cc", "cpp", "cxx", "go", "m"];
 pub fn build_invocation_reason(program: &str, args: &[&str]) -> Option<String> {
     let name = Path::new(program)
         .file_stem()
-        .map(|stem| stem.to_string_lossy().to_ascii_lowercase())
+        .map(|stem| crate::root::component(stem).to_ascii_lowercase())
         .unwrap_or_default();
     let lowered: Vec<String> = args.iter().map(|arg| arg.to_ascii_lowercase()).collect();
 
@@ -316,7 +316,7 @@ pub fn build_invocation_reason(program: &str, args: &[&str]) -> Option<String> {
                 || Path::new(arg)
                     .extension()
                     .map(|extension| {
-                        SOURCE_EXTENSIONS.contains(&extension.to_string_lossy().as_ref())
+                        SOURCE_EXTENSIONS.contains(&crate::root::component(extension).as_str())
                     })
                     .unwrap_or(false)
         })

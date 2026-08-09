@@ -364,7 +364,7 @@ fn verify_blocker(root: &Path, blocker: &str) -> Result<(), HoldRefusal> {
     if path.is_file() {
         let name = path
             .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
+            .map(crate::root::component)
             .unwrap_or_default();
         if name.starts_with("res-") && name.ends_with(".md") {
             return Ok(());

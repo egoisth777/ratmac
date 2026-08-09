@@ -133,12 +133,12 @@ pub fn gate_intake_at(goal_root: &Path, issue_root: &Path) -> Result<(), Vec<Con
                             &shown,
                             format!(
                                 "unexpected directory {:?} inside a five-file issue folder",
-                                entry.file_name().to_string_lossy()
+                                crate::root::component(entry.file_name())
                             ),
                         ));
                         continue;
                     }
-                    present.insert(entry.file_name().to_string_lossy().into_owned());
+                    present.insert(crate::root::component(entry.file_name()));
                 }
             }
             Err(error) => {
@@ -579,10 +579,7 @@ fn issue_folders(issue_root: &Path) -> Vec<(String, PathBuf, IssueLocation)> {
             if !path.is_dir() {
                 continue;
             }
-            let Some(name) = path
-                .file_name()
-                .map(|name| name.to_string_lossy().into_owned())
-            else {
+            let Some(name) = path.file_name().map(crate::root::component) else {
                 continue;
             };
             if name.starts_with("i-") {
@@ -613,7 +610,7 @@ fn files_in(dir: PathBuf, extension: &str) -> Vec<PathBuf> {
 
 fn stem(path: &Path) -> String {
     path.file_stem()
-        .map(|stem| stem.to_string_lossy().into_owned())
+        .map(crate::root::component)
         .unwrap_or_default()
 }
 

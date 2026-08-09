@@ -379,28 +379,12 @@ fn a_report_quotes_a_backslash_identifier_verbatim() {
     );
 }
 
-/// The values written to disk as a binding and later compared, character for
-/// character, against what the filesystem answers.  These are state, not text
-/// for a reader, so they keep the platform's spelling; every report of them
-/// still goes through the renderer.
+/// The one value written to disk as a binding and later compared, character
+/// for character, against what the filesystem answers.  It is state, not text
+/// for a reader, so it keeps the platform's spelling; every report of it goes
+/// through the renderer.
 const STORED_BINDINGS: [&str; 1] =
     ["workspace: Some(child_workspace.to_string_lossy().into_owned())"];
-
-/// The receivers whose `to_string_lossy` cannot carry a second spelling,
-/// because what they turn into text is one path component: a file name, a
-/// stem, or an extension holds no separator, so there is nothing to
-/// normalize.  The scan reads the receiver of each call, not the line, so a
-/// permitted component on a line never covers a whole path beside it.
-const COMPONENT_RECEIVERS: [&str; 5] = ["file_name()", "file_name()?", "stem", "extension", "name"];
-
-/// The receiver of the `to_string_lossy` call ending at `call_start`.
-fn receiver_of(line: &str, call_start: usize) -> &str {
-    let prefix = line[..call_start].trim_end_matches('.');
-    let start = prefix
-        .rfind(|character: char| !(character.is_alphanumeric() || "_()?".contains(character)))
-        .map_or(0, |index| index + 1);
-    &prefix[start..]
-}
 
 fn repository_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -455,8 +439,11 @@ fn no_engine_source_renders_a_path_with_the_standard_renderer() {
     );
 }
 
-/// ENSV-011: no module turns a path into text by hand either.  `to_string_lossy`
-/// is how a second renderer gets written, so its uses are enumerated.
+/// ENSV-011: no module turns a path into text by hand either.  `src/root.rs`
+/// holds the Engine's only two conversions - `displayed` for a whole path and
+/// `component` for one path component - so `to_string_lossy` appears nowhere
+/// else, with one pinned exception for a stored binding.  The rule names no
+/// identifier, so no rename slips past it.
 #[test]
 fn no_engine_source_renders_a_path_by_hand() {
     let mut offenders = Vec::new();
@@ -474,19 +461,15 @@ fn no_engine_source_renders_a_path_by_hand() {
             source
                 .lines()
                 .enumerate()
+                .filter(|(_, line)| line.contains("to_string_lossy()"))
                 .filter(|(_, line)| !STORED_BINDINGS.iter().any(|stored| line.contains(stored)))
-                .filter(|(_, line)| {
-                    line.match_indices("to_string_lossy()")
-                        .any(|(start, _)| !COMPONENT_RECEIVERS.contains(&receiver_of(line, start)))
-                })
                 .map(|(index, line)| format!("src/{name}:{}: {}", index + 1, line.trim())),
         );
     }
     assert!(
         offenders.is_empty(),
-        "ENS-010: `crate::root` owns the one path renderer; these lines turn a path into text \
-         themselves, so each is either a second spelling or a path component named in \
-         COMPONENT_RENDERS:\n{}",
+        "ENS-010: `crate::root` owns the Engine's only path conversions, `displayed` for a whole \
+         path and `component` for one component; these lines turn a path into text themselves:\n{}",
         offenders.join("\n")
     );
 }

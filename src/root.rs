@@ -74,7 +74,17 @@ pub(crate) fn displayed(path: impl AsRef<Path>) -> String {
     path.as_ref().to_string_lossy().replace('\\', "/")
 }
 
-/// `path.displayed()` at a call site that used to read `path.displayed()`.
+/// One path component - a file name, a stem, an extension - as text.
+///
+/// A component holds no separator, so there is nothing to normalize; it is
+/// named here so that `to_string_lossy` has exactly one home in the Engine and
+/// a scan can say so without reading identifiers at call sites.
+pub(crate) fn component(component: impl AsRef<std::ffi::OsStr>) -> String {
+    component.as_ref().to_string_lossy().into_owned()
+}
+
+/// `path.displayed()` at a call site that would otherwise call the standard
+/// `Path::display`.
 ///
 /// The Engine names paths in messages everywhere, not only in reports, and a
 /// message is read by the same eyes as a report.  A method keeps the one
