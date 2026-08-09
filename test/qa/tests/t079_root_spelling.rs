@@ -336,3 +336,80 @@ fn the_whole_doctor_report_renders_paths_one_way() {
          second spelling:\n{rendered}"
     );
 }
+
+/// A Machine Class whose phase name legitimately carries a backslash, so the
+/// report must quote it back exactly.  A phase key is an identifier, not a
+/// path: a report that rewrote it could not be matched to the runbook.
+const BACKSLASH_PHASE: &str = "
+[phases.plan]
+prompt = \"Plan.\"
+
+[phases.'alpha\\beta']
+prompt = \"Unreachable.\"
+
+[phases.done]
+prompt = \"Done.\"
+
+[[transitions]]
+from = \"plan\"
+to = \"done\"
+";
+
+/// ENSV-011: rendering one spelling for paths must not rewrite report text
+/// that is not a path.
+#[test]
+fn a_report_quotes_a_backslash_identifier_verbatim() {
+    let sandbox = fresh_sandbox("identifier");
+    let checkout = sandbox.root.join("plain");
+    fs::create_dir_all(checkout.join(".ratmac")).expect("create Engine directory");
+    fs::write(checkout.join(".ratmac/ratmac.toml"), BACKSLASH_PHASE)
+        .expect("write backslash-identifier Machine Class");
+
+    let doctor = rtm_at(&checkout, &["doctor"]);
+    let report = String::from_utf8_lossy(&doctor.stdout).into_owned();
+    assert!(
+        report.contains("alpha\\\\beta"),
+        "ENS-010: a report names a runbook identifier exactly as the runbook spells it, so a \
+         phase named `alpha\\beta` must appear with its backslash; report was:\n{report}"
+    );
+    assert!(
+        !report.contains("alpha//beta"),
+        "ENS-010: path spelling must not rewrite a runbook identifier into `alpha//beta`; report \
+         was:\n{report}"
+    );
+}
+
+/// The modules whose findings carry a filesystem path into an `rtm doctor`
+/// report.  Each one renders through `crate::root::displayed`; a bare
+/// `.display()` here is how the report re-learns a second spelling.
+const PATH_RENDERING_REPORT_SOURCES: [&str; 2] = ["src/roots.rs", "src/pin.rs"];
+
+/// ENSV-011: the one-spelling rule holds by construction in the two modules
+/// that put a path into a finding, not only in the fixtures this test builds.
+#[test]
+fn modules_that_report_paths_render_them_through_one_renderer() {
+    let repository = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .expect("the QA crate sits two levels below the repository root")
+        .to_path_buf();
+
+    for relative in PATH_RENDERING_REPORT_SOURCES {
+        let path = repository.join(relative);
+        let source = fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
+        let offenders = source
+            .lines()
+            .enumerate()
+            .filter(|(_, line)| line.contains(".display()"))
+            .map(|(index, line)| format!("{relative}:{}: {}", index + 1, line.trim()))
+            .collect::<Vec<_>>();
+        assert!(
+            offenders.is_empty(),
+            "ENS-010: {relative} renders a path into a doctor finding, so every path there goes \
+             through `crate::root::displayed`; these lines still call `.display()` and would put \
+             a second spelling in the report:\n{}",
+            offenders.join("\n")
+        );
+    }
+}

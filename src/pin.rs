@@ -204,16 +204,23 @@ pub fn engine_identity() -> Option<Identity> {
 pub fn resolve_program(root: &Path, program: &str) -> Result<PathBuf, String> {
     let path = locate_program(root, program)?;
 
-    let metadata = fs::symlink_metadata(&path)
-        .map_err(|error| format!("gate artifact is unreadable: {} ({error})", path.display()))?;
+    let metadata = fs::symlink_metadata(&path).map_err(|error| {
+        format!(
+            "gate artifact is unreadable: {} ({error})",
+            crate::root::displayed(&path)
+        )
+    })?;
     if metadata.file_type().is_symlink() {
         return Err(format!(
             "gate artifact is a symlink, which has no stable identity: {}",
-            path.display()
+            crate::root::displayed(&path)
         ));
     }
     if !metadata.is_file() {
-        return Err(format!("gate artifact is not a file: {}", path.display()));
+        return Err(format!(
+            "gate artifact is not a file: {}",
+            crate::root::displayed(&path)
+        ));
     }
     Ok(path)
 }

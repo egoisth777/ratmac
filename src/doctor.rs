@@ -61,14 +61,15 @@ impl Finding {
         location: impl Into<String>,
         message: impl Into<String>,
     ) -> Self {
-        // ENS-010: a report spells every path one way, wherever the text
-        // came from, so a finding cannot smuggle a platform separator into a
-        // report whose other lines are already normalized.
+        // ENS-010: a finding is not normalized here. A message may name a
+        // runbook identifier that legitimately contains a backslash, and a
+        // report that rewrote it could not be matched back to the runbook.
+        // Whoever renders a path into a message calls `root::displayed`.
         Self {
             code,
             severity,
-            location: crate::root::displayed_text(&location.into()),
-            message: crate::root::displayed_text(&message.into()),
+            location: location.into(),
+            message: message.into(),
         }
     }
 
