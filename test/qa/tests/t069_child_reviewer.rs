@@ -7,39 +7,39 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-/// A composed machine whose parent `delegate` Phase both spawns the reviewer
+/// A composed machine whose parent `delegate` State both spawns the reviewer
 /// and branches on the reviewer's transition input, behind the join.
 const REVIEWER_RUNBOOK: &str = r#"
 [classes.reviewer.bindings.ticket]
 required = true
 
-[classes.reviewer.phases.review]
+[classes.reviewer.states.review]
 prompt = "Review the delegated ticket."
 
-[classes.reviewer.phases.approved]
+[classes.reviewer.states.approved]
 prompt = "Approved."
 
 [[classes.reviewer.transitions]]
 from = "review"
 to = "approved"
 
-[phases.plan]
+[states.plan]
 prompt = "Plan."
 
-[phases.delegate]
+[states.delegate]
 prompt = "Delegate and wait."
 inputs = ["approve", "rework"]
 guards = [{ kind = "join", require = "all_passed", min = 1 }]
 
-[[phases.delegate.spawns]]
+[[states.delegate.spawns]]
 class = "reviewer"
 name = "rev"
 bind = ["ticket"]
 
-[phases.done]
+[states.done]
 prompt = "Done."
 
-[phases.rework]
+[states.rework]
 prompt = "Rework."
 
 [[transitions]]

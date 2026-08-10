@@ -142,7 +142,7 @@ fn backticked(cell: &str) -> BTreeSet<String> {
 
 /// A one-phase runbook whose single guard is the given inline table.
 fn runbook_with_guard(guard: &str) -> String {
-    format!("[phases.build]\nprompt = \"Build it.\"\nguards = [{guard}]\n")
+    format!("[states.build]\nprompt = \"Build it.\"\nguards = [{guard}]\n")
 }
 
 /// The parse error for a runbook, or a panic naming what was expected.
@@ -158,7 +158,7 @@ fn refusal(source: &str) -> String {
 #[test]
 fn unknown_guard_kind_is_a_parse_error() {
     let source = "\
-[phases.build]
+[states.build]
 prompt = \"Build it.\"
 guards = [
   { kind = \"files_exact\", path = \"artifacts\" },
@@ -315,7 +315,7 @@ fn the_runbook_has_exactly_one_reader() {
 fn doctor_ownership_audit_reuses_the_typed_class() {
     let project = Project::with_runbook(
         "doctor-ownership-typed",
-        "[phases.build]\nprompt = \"Write .ratmac/log.md before leaving.\"\n",
+        "[states.build]\nprompt = \"Write .ratmac/log.md before leaving.\"\n",
     );
     let runbook = project.path(".ratmac/ratmac.toml");
     let findings = ratmac::doctor::diagnose(&runbook);
@@ -325,7 +325,7 @@ fn doctor_ownership_audit_reuses_the_typed_class() {
         .expect("ownership violation must still be diagnosed");
     assert!(
         violation.location().contains(".ratmac/ratmac.toml")
-            && violation.location().contains("[phases.build] prompt"),
+            && violation.location().contains("[states.build] prompt"),
         "the typed path must preserve the ownership diagnostic location: {violation:?}"
     );
     assert!(
@@ -378,7 +378,7 @@ issue = \"workflow/issue\"
 residual = \"workflow/residual\"
 ticket = \"workflow/ticket\"
 
-[phases.build]
+[states.build]
 prompt = \"Build it.\"
 guards = [
   { kind = \"files_exact\", path = \"artifacts\" },
@@ -393,7 +393,7 @@ guards = [
   { kind = \"record_contract\" },
 ]
 
-[phases.review]
+[states.review]
 prompt = \"Review it.\"
 guards = [{ kind = \"record_contract\" }, { kind = \"intake_contract\" }]
 
@@ -403,7 +403,7 @@ to = \"review\"
 ";
     let class = MachineClass::from_toml(source).expect("every declared guard is well formed");
 
-    let build = class.phases().get("build").expect("build phase");
+    let build = class.states().get("build").expect("build phase");
     let kinds = build
         .guards()
         .iter()
@@ -426,7 +426,7 @@ to = \"review\"
         "TRP-004: guards are retained in declaration order"
     );
 
-    let review = class.phases().get("review").expect("review phase");
+    let review = class.states().get("review").expect("review phase");
     assert_eq!(
         review
             .guards()
@@ -504,9 +504,9 @@ fn absent_runbook_refuses_by_name() {
 fn decided_refusals_are_unchanged() {
     // R-002 / R-003: status is not a Machine Class dimension.
     for source in [
-        "status = \"planned\"\n[phases.build]\nprompt = \"p\"\n",
-        "[phases.build]\nprompt = \"p\"\nstatus = \"planned\"\n",
-        "[phases.build]\nprompt = \"p\"\n[[transitions]]\nfrom = \"build\"\nto = \"build\"\nstatus = \"planned\"\n",
+        "status = \"planned\"\n[states.build]\nprompt = \"p\"\n",
+        "[states.build]\nprompt = \"p\"\nstatus = \"planned\"\n",
+        "[states.build]\nprompt = \"p\"\n[[transitions]]\nfrom = \"build\"\nto = \"build\"\nstatus = \"planned\"\n",
     ] {
         let message = refusal(source);
         assert!(
@@ -517,10 +517,10 @@ fn decided_refusals_are_unchanged() {
 
     // R-011: unknown keys are hard errors wherever they appear.
     for (source, key) in [
-        ("[phases.build]\nprompt = \"p\"\nextra = 1\n", "extra"),
-        ("[phases.build]\nprompt = \"p\"\n[bogus]\nx = 1\n", "bogus"),
+        ("[states.build]\nprompt = \"p\"\nextra = 1\n", "extra"),
+        ("[states.build]\nprompt = \"p\"\n[bogus]\nx = 1\n", "bogus"),
         (
-            "[phases.build]\nprompt = \"p\"\n[[transitions]]\nfrom = \"build\"\nto = \"build\"\nwhen = \"now\"\n",
+            "[states.build]\nprompt = \"p\"\n[[transitions]]\nfrom = \"build\"\nto = \"build\"\nwhen = \"now\"\n",
             "when",
         ),
     ] {
@@ -532,7 +532,7 @@ fn decided_refusals_are_unchanged() {
     }
 
     // R-028: a phase without a string prompt still refuses.
-    for source in ["[phases.build]\n", "[phases.build]\nprompt = 42\n"] {
+    for source in ["[states.build]\n", "[states.build]\nprompt = 42\n"] {
         assert!(
             refusal(source).contains("prompt"),
             "R-028: the prompt refusal must name the field"
@@ -541,7 +541,7 @@ fn decided_refusals_are_unchanged() {
 
     // ETB-003: the only freeze is the goal freeze.
     let message = refusal(
-        "[phases.build]\nprompt = \"p\"\n[[transitions]]\nfrom = \"build\"\nto = \"build\"\nfreeze = \"tree\"\n",
+        "[states.build]\nprompt = \"p\"\n[[transitions]]\nfrom = \"build\"\nto = \"build\"\nfreeze = \"tree\"\n",
     );
     assert!(
         message.contains("freeze") && message.contains("goal"),
@@ -557,7 +557,7 @@ fn the_projects_own_runbook_parses_typed() {
         .expect("read own machine class");
     let class = MachineClass::from_toml(&source).expect("the project's own machine class is valid");
     let guards = class
-        .phases()
+        .states()
         .values()
         .flat_map(|phase| phase.guards())
         .count();
@@ -572,30 +572,30 @@ fn the_projects_own_runbook_parses_typed() {
 #[test]
 fn hostile_runbooks_refuse_without_panic() {
     let cases = [
-        ("[phases.build]\nprompt = \"p\"\nguards = 1\n", "guards"),
-        ("[phases.build]\nprompt = \"p\"\nguards = [1]\n", "guard"),
+        ("[states.build]\nprompt = \"p\"\nguards = 1\n", "guards"),
+        ("[states.build]\nprompt = \"p\"\nguards = [1]\n", "guard"),
         (
-            "[phases.build]\nprompt = \"p\"\nguards = [{ kind = \"\" }]\n",
+            "[states.build]\nprompt = \"p\"\nguards = [{ kind = \"\" }]\n",
             "kind",
         ),
         (
-            "[phases.build]\nprompt = \"p\"\nguards = [{ kind = 7 }]\n",
+            "[states.build]\nprompt = \"p\"\nguards = [{ kind = 7 }]\n",
             "kind",
         ),
         (
-            "[phases.build]\nprompt = \"p\"\nguards = [{ path = \"a\" }]\n",
+            "[states.build]\nprompt = \"p\"\nguards = [{ path = \"a\" }]\n",
             "kind",
         ),
         (
-            "[phases.build]\nprompt = \"p\"\nguards = [{ kind = \"files_exact\", path = 7 }]\n",
+            "[states.build]\nprompt = \"p\"\nguards = [{ kind = \"files_exact\", path = 7 }]\n",
             "path",
         ),
         (
-            "[phases.build]\nprompt = \"p\"\nguards = [{ kind = \"command_exit\", program = \"x\", expected = \"0\" }]\n",
+            "[states.build]\nprompt = \"p\"\nguards = [{ kind = \"command_exit\", program = \"x\", expected = \"0\" }]\n",
             "expected",
         ),
-        ("[phases]\n", "phase"),
-        ("[phases.\"\"]\nprompt = \"p\"\n", "empty"),
+        ("[states]\n", "state"),
+        ("[states.\"\"]\nprompt = \"p\"\n", "empty"),
     ];
     for (source, expected) in cases {
         let message = refusal(source);
@@ -604,7 +604,7 @@ fn hostile_runbooks_refuse_without_panic() {
             "TRP-002: the refusal for\n{source}\nmust name {expected:?}: {message}"
         );
         assert!(
-            message.contains("build") || message.contains("phase") || message.contains("ratmac"),
+            message.contains("build") || message.contains("state") || message.contains("ratmac"),
             "TRP-002: the refusal must locate itself: {message}"
         );
     }
@@ -617,14 +617,14 @@ fn a_retained_guard_still_refuses_a_real_step() {
     let project = Project::with_runbook(
         "real-step",
         "\
-[phases.build]
+[states.build]
 prompt = \"Build it.\"
 guards = [
   { kind = \"files_exact\", path = \"artifacts\" },
   { kind = \"file_contains\", path = \"artifacts/release.txt\", contains = \"ready\" },
 ]
 
-[phases.done]
+[states.done]
 prompt = \"Done.\"
 
 [[transitions]]
@@ -662,7 +662,7 @@ to = \"done\"
 fn refusal_under_a_live_run_mutates_nothing() {
     let project = Project::with_runbook(
         "live-run",
-        "[phases.build]\nprompt = \"Build it.\"\n[phases.done]\nprompt = \"Done.\"\n[[transitions]]\nfrom = \"build\"\nto = \"done\"\n",
+        "[states.build]\nprompt = \"Build it.\"\n[states.done]\nprompt = \"Done.\"\n[[transitions]]\nfrom = \"build\"\nto = \"done\"\n",
     );
     let mut scheduler = Scheduler::open(project.path("")).expect("open the project");
     let run = scheduler.start().expect("start the Run");
@@ -728,14 +728,14 @@ fn an_unreadable_runbook_is_not_an_absent_one() {
 #[test]
 fn freeze_blocked_route_and_pinning_survive_the_typed_path() {
     let source = "\
-[phases.intake]
+[states.intake]
 prompt = \"Intake.\"
 guards = [{ kind = \"command_exit\", program = \"rustc\", args = [\"--version\"], expected = 0, exempt = true }]
 
-[phases.build]
+[states.build]
 prompt = \"Build.\"
 
-[phases.blocked]
+[states.blocked]
 prompt = \"Blocked.\"
 
 [[transitions]]
@@ -762,7 +762,7 @@ blocked-route = true
         .count();
     assert_eq!(blocked, 1, "PGE-006: the blocked route survives the parse");
 
-    let intake = class.phases().get("intake").expect("intake phase");
+    let intake = class.states().get("intake").expect("intake phase");
     let guard = intake.guards().first().expect("the pinned guard survives");
     assert_eq!(guard.name(), "command_exit");
     assert!(
@@ -771,17 +771,17 @@ blocked-route = true
     );
 
     // A blocked route deliberately confers no inbound edge, so the Run fixture
-    // is the ordinary spine: one initial Phase, one freeze, one pinned probe.
+    // is the ordinary spine: one initial State, one freeze, one pinned probe.
     let project = Project::with_runbook(
         "cross-feature",
         "\
 [roots]
 goal = \".arca/goal\"
 
-[phases.intake]
+[states.intake]
 prompt = \"Intake.\"
 
-[phases.build]
+[states.build]
 prompt = \"Build.\"
 
 [[transitions]]

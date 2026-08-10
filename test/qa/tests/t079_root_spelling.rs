@@ -20,10 +20,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 const MACHINE_CLASS: &str = r#"
-[phases.plan]
+[states.plan]
 prompt = "Plan."
 
-[phases.done]
+[states.done]
 prompt = "Done."
 
 [[transitions]]
@@ -254,11 +254,11 @@ const OVERLAPPING_ROOTS: &str = r#"
 [roots]
 engine = ".ratmac"
 
-[phases.plan]
+[states.plan]
 prompt = "Plan."
 guards = [{ kind = "command_exit", program = "no/such-program", args = [], expected = 0 }]
 
-[phases.done]
+[states.done]
 prompt = "Done."
 
 [[transitions]]
@@ -341,13 +341,13 @@ fn the_whole_doctor_report_renders_paths_one_way() {
 /// report must quote it back exactly.  A phase key is an identifier, not a
 /// path: a report that rewrote it could not be matched to the runbook.
 const BACKSLASH_PHASE: &str = "
-[phases.plan]
+[states.plan]
 prompt = \"Plan.\"
 
-[phases.'alpha\\beta']
+[states.'alpha\\beta']
 prompt = \"Unreachable.\"
 
-[phases.done]
+[states.done]
 prompt = \"Done.\"
 
 [[transitions]]
@@ -610,11 +610,11 @@ fn a_refusing_report_command_spells_its_path_one_way() {
 /// A runbook whose guard names a path with the platform separator, exactly as
 /// its author typed it.
 const BACKSLASH_GUARD: &str = r#"
-[phases.plan]
+[states.plan]
 prompt = "Plan."
 guards = [{ kind = "files_exact", path = 'out\artifact' }]
 
-[phases.done]
+[states.done]
 prompt = "Done."
 
 [[transitions]]
@@ -647,7 +647,7 @@ fn an_authored_guard_path_is_quoted_as_the_runbook_spells_it() {
          report was:\n{report}"
     );
 
-    // The Phase Prompt echoes the same authored fields (R-028), so it answers
+    // The State Prompt echoes the same authored fields (R-028), so it answers
     // the same way.
     let run = start_run(&checkout, &checkout.join(".ratmac"));
     let status = rtm_at(&checkout, &["status", "--run", &run]);
@@ -658,12 +658,12 @@ fn an_authored_guard_path_is_quoted_as_the_runbook_spells_it() {
     );
     assert!(
         prompt.contains("out\\artifact"),
-        "ENS-010: the Phase Prompt lists the guard's authored fields, so it spells the path the \
+        "ENS-010: the State Prompt lists the guard's authored fields, so it spells the path the \
          way the runbook does; status was:\n{prompt}"
     );
     assert!(
         !prompt.contains("out/artifact"),
-        "ENS-010: the Phase Prompt must not rewrite an authored guard field; status was:\n{prompt}"
+        "ENS-010: the State Prompt must not rewrite an authored guard field; status was:\n{prompt}"
     );
 }
 

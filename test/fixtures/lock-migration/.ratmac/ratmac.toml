@@ -1,12 +1,12 @@
-[phases.prepare]
+[states.prepare]
 prompt = "Prepare the run."
 
-[[phases.prepare.guards]]
+[[states.prepare.guards]]
 kind = "files_exact"
 path = "artifacts"
 entries = ["required.txt"]
 
-[phases.review]
+[states.review]
 prompt = "Review the run."
 
 [[transitions]]

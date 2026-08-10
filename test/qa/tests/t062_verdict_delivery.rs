@@ -11,13 +11,13 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 const STRAIGHT_RUNBOOK: &str = r#"
-[phases.start]
+[states.start]
 prompt = "Start."
 
-[phases.middle]
+[states.middle]
 prompt = "Continue."
 
-[phases.done]
+[states.done]
 prompt = "Done."
 
 [[transitions]]
@@ -30,14 +30,14 @@ to = "done"
 "#;
 
 const TERMINAL_BRANCH_RUNBOOK: &str = r#"
-[phases.review]
+[states.review]
 prompt = "Review."
 inputs = ["approve", "rework"]
 
-[phases.approved]
+[states.approved]
 prompt = "Approved."
 
-[phases.rework]
+[states.rework]
 prompt = "Rework."
 
 [[transitions]]
@@ -52,17 +52,17 @@ input = "approve"
 "#;
 
 const REPEATED_BRANCH_RUNBOOK: &str = r#"
-[phases.start]
+[states.start]
 prompt = "Start."
 
-[phases.review]
+[states.review]
 prompt = "Review."
 inputs = ["approve", "rework"]
 
-[phases.approved]
+[states.approved]
 prompt = "Approved."
 
-[phases.rework]
+[states.rework]
 prompt = "Rework."
 
 [[transitions]]
@@ -89,15 +89,15 @@ to = "review"
 "#;
 
 const GUARDED_BRANCH_RUNBOOK: &str = r#"
-[phases.review]
+[states.review]
 prompt = "Review."
 inputs = ["approve", "rework"]
 guards = [{ kind = "file_contains", path = "gate.txt", contains = "ready" }]
 
-[phases.approved]
+[states.approved]
 prompt = "Approved."
 
-[phases.rework]
+[states.rework]
 prompt = "Rework."
 
 [[transitions]]
@@ -342,18 +342,18 @@ fn empty_slot_and_straight_line_contract() {
         "FDC-003: a new Run has no consumed verdict evidence"
     );
 
-    let stray = verdict("start", "invented", "a straight Phase has no input");
+    let stray = verdict("start", "invented", "a straight State has no input");
     fixture.publish(&stray);
     let before = fixture.run_snapshot();
     let refused = fixture.step();
     let diagnostic = combined(&refused).to_ascii_lowercase();
     assert!(
         diagnostic.contains("step refused"),
-        "FDC-003: a live verdict at a straight-line Phase must refuse: {diagnostic}"
+        "FDC-003: a live verdict at a straight-line State must refuse: {diagnostic}"
     );
     assert!(
         diagnostic.contains("verdict") && diagnostic.contains("straight"),
-        "the refusal must explain that a straight-line Phase rejects a verdict: {diagnostic}"
+        "the refusal must explain that a straight-line State rejects a verdict: {diagnostic}"
     );
     assert_eq!(
         fixture.run_snapshot(),
@@ -621,7 +621,7 @@ fn interruption_windows_preserve_consume_then_advance() {
     assert_eq!(
         before_state.state(),
         old_state,
-        "the State File remains in the old Phase after consumption"
+        "the State File remains in the old State after consumption"
     );
     assert!(!before_state.verdict_path().exists());
     assert_eq!(

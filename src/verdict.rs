@@ -162,13 +162,13 @@ fn parse_and_validate(
     }
     if phase != current_phase {
         return Err(VerdictRefusal::new(
-            format!("verdict.toml phase {phase:?} does not match current Phase {current_phase:?}"),
+            format!("verdict.toml phase {phase:?} does not match current State {current_phase:?}"),
             format!("phase = {current_phase:?}"),
         ));
     }
     if !legal_inputs.iter().any(|legal| legal == &input) {
         return Err(VerdictRefusal::new(
-            format!("verdict.toml input {input:?} is not legal for Phase {current_phase:?}"),
+            format!("verdict.toml input {input:?} is not legal for State {current_phase:?}"),
             format!("one of [{}]", legal_inputs.join(", ")),
         ));
     }

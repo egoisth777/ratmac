@@ -59,7 +59,7 @@ fn step_request_refuses_when_guard_fails() {
     );
     assert_eq!(
         after.phase, before.phase,
-        "refused request cannot advance Phase"
+        "refused request cannot advance State"
     );
     let _ = fs::remove_dir_all(project);
 }
@@ -83,7 +83,7 @@ fn step_request_advances_when_guards_pass() {
     assert_eq!(before.phase, "build");
     assert_eq!(
         after.phase, "review",
-        "passing guards advance to next Phase"
+        "passing guards advance to next State"
     );
     let _ = fs::remove_dir_all(project);
 }

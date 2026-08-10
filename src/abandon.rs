@@ -1,6 +1,6 @@
 //! PGE-007: safe human-confirmed Run abandonment.
 //!
-//! A Run can break in ways no Phase transition can fix. The honest exit is not
+//! A Run can break in ways no State transition can fix. The honest exit is not
 //! an agent deleting Scheduler-owned files - the schema forbids that - but a
 //! human running
 //!
@@ -13,7 +13,7 @@
 //! write. On that phrase, and only then, `rtm` itself:
 //!
 //! 1. records a terminal abandoned event in the append-only history, naming
-//!    the retired Run's Phase, status, and revisions;
+//!    the retired Run's State, status, and revisions;
 //! 2. retires the admission state (`.ratmac/runs/<id>/state.toml`) so a fresh
 //!    Run can start;
 //! 3. retires the Run-scoped evidence (`.ratmac/runs/<id>/evidence.toml`) so
@@ -93,7 +93,7 @@ pub struct AbandonRequest {
 pub struct AbandonPlan {
     /// The terminal event to append, present only when a Run is admitted.
     pub event: Option<String>,
-    /// The retired Run's Phase, for the operator-facing report.
+    /// The retired Run's State, for the operator-facing report.
     pub phase: Option<String>,
     /// Scheduler-owned paths to retire, in order.
     pub retire: Vec<PathBuf>,

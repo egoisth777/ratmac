@@ -8,21 +8,21 @@
 use std::path::Path;
 
 /// The smallest runbook that is both doctor-clean and runnable: one initial
-/// Phase, one terminal Phase, one edge between them, and no guards to argue
+/// State, one terminal State, one edge between them, and no guards to argue
 /// with. Every schema fact it needs is a pointer, never a restatement.
 pub const SCAFFOLD: &str = r#"# A runbook: the Machine Class this project runs.
 #
 # What may appear here is defined once in the runbook specification.
 # How to grow it - edit, `rtm doctor --json <path>`, repair by code, repeat -
 # is documented in the runbook authoring guide.
-# A branch adds `inputs = ["approve", "rework"]` to its Phase and one matching
+# A branch adds `inputs = ["approve", "rework"]` to its State and one matching
 # `input = "approve"` or `input = "rework"` to each ordinary transition; the
 # exact contract and repairs remain in the two documents above.
 
-[phases.build]
+[states.build]
 prompt = "Do the work, then report what you produced."
 
-[phases.review]
+[states.review]
 prompt = "Review the work against the ticket and report the verdict."
 
 [[transitions]]

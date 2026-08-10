@@ -21,13 +21,13 @@ ticket = ".arca/ticket"
 [classes.reviewer.bindings.ticket]
 required = true
 
-[classes.reviewer.phases.delegate]
+[classes.reviewer.states.delegate]
 prompt = "Review the delegated ticket."
 
-[classes.reviewer.phases.done]
+[classes.reviewer.states.done]
 prompt = "Finish delegated review."
 
-[classes.reviewer.phases.blocked]
+[classes.reviewer.states.blocked]
 prompt = "Record a delegated blocker."
 
 [[classes.reviewer.transitions]]
@@ -43,18 +43,18 @@ from = "delegate"
 to = "blocked"
 blocked-route = true
 
-[phases.intake]
+[states.intake]
 prompt = "Integrate the ticket."
 
-[phases.delegate]
+[states.delegate]
 prompt = "Delegate the ticket."
 
-[[phases.delegate.spawns]]
+[[states.delegate.spawns]]
 class = "reviewer"
 name = "review"
 bind = ["ticket"]
 
-[phases.done]
+[states.done]
 prompt = "Finish the ticket."
 
 [[transitions]]
@@ -71,10 +71,10 @@ to = "intake"
 blocked-route = true
 "#;
 const EVIDENCE_CONTROL_RUNBOOK: &str = r#"
-[phases.intake]
+[states.intake]
 prompt = "Inspect archived evidence."
 
-[phases.done]
+[states.done]
 prompt = "Complete normally."
 
 [[transitions]]

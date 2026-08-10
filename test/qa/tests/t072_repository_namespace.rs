@@ -13,35 +13,35 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 /// One top-level parent with a declared reviewer child.  The child has a real
-/// transition to its terminal Phase so the linked worktree can step it before
+/// transition to its terminal State so the linked worktree can step it before
 /// the primary checkout evaluates the parent's `join` guard.
 const COMPOSED_RUNBOOK: &str = r#"
 [classes.reviewer.bindings.ticket]
 required = true
 
-[classes.reviewer.phases.review]
+[classes.reviewer.states.review]
 prompt = "Review the delegated ticket."
 
-[classes.reviewer.phases.approved]
+[classes.reviewer.states.approved]
 prompt = "Approved."
 
 [[classes.reviewer.transitions]]
 from = "review"
 to = "approved"
 
-[phases.plan]
+[states.plan]
 prompt = "Plan."
 
-[phases.delegate]
+[states.delegate]
 prompt = "Delegate and wait."
 guards = [{ kind = "join", require = "all_passed", min = 1 }]
 
-[[phases.delegate.spawns]]
+[[states.delegate.spawns]]
 class = "reviewer"
 name = "review"
 bind = ["ticket"]
 
-[phases.done]
+[states.done]
 prompt = "Done."
 
 [[transitions]]
@@ -287,11 +287,11 @@ fn run_created_in_primary_is_addressable_from_linked_worktree() {
     let delegate_text = combined(&enter_delegate);
     assert!(
         enter_delegate.status.success(),
-        "primary step into the spawning Phase succeeds: {delegate_text}"
+        "primary step into the spawning State succeeds: {delegate_text}"
     );
     assert!(
         delegate_text.contains("Delegate and wait."),
-        "step renders the declared spawning Phase Prompt: {delegate_text}"
+        "step renders the declared spawning State Prompt: {delegate_text}"
     );
 
     let spawn = rtm_at(
@@ -351,7 +351,7 @@ fn run_created_in_primary_is_addressable_from_linked_worktree() {
     );
     assert!(
         child_step_text.contains("Approved."),
-        "linked step renders the child terminal Phase Prompt: {child_step_text}"
+        "linked step renders the child terminal State Prompt: {child_step_text}"
     );
     let child_state = fs::read_to_string(child_dir.join("state.toml"))
         .expect("the primary child State File remains readable after linked step");
@@ -384,7 +384,7 @@ fn run_created_in_primary_is_addressable_from_linked_worktree() {
     );
     assert!(
         join_text.contains("Done."),
-        "the joined parent renders its terminal Phase Prompt: {join_text}"
+        "the joined parent renders its terminal State Prompt: {join_text}"
     );
     let parent_state = fs::read_to_string(
         fixture

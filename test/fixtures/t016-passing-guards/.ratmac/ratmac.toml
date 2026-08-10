@@ -1,11 +1,11 @@
-[phases.build]
+[states.build]
 prompt = "Produce the build artifact."
 
-[[phases.build.guards]]
+[[states.build.guards]]
 kind = "files_exact"
 path = "artifacts/ready.txt"
 
-[phases.review]
+[states.review]
 prompt = "Review the produced artifact."
 
 [[transitions]]

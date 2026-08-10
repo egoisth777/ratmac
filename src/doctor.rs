@@ -293,14 +293,14 @@ fn quote(text: &str) -> String {
 /// DRD-002: entry, reachability, and edge shape.
 ///
 /// Only ordinary transitions carry routing: `rtm step` never takes a blocked
-/// route (PGE-006), so a Phase reachable only through one is not reachable.
+/// route (PGE-006), so a State reachable only through one is not reachable.
 fn inspect_graph(class: &MachineClass, findings: &mut Vec<Finding>) {
-    let phases = class.phases();
-    if phases.is_empty() {
+    let states = class.states();
+    if states.is_empty() {
         findings.push(Finding::error(
             "RB201",
-            "phases",
-            "the runbook declares no Phase",
+            "states",
+            "the runbook declares no State",
         ));
         return;
     }
@@ -333,14 +333,14 @@ fn inspect_graph(class: &MachineClass, findings: &mut Vec<Finding>) {
             findings.push(Finding::warning(
                 "RB207",
                 route,
-                "this transition leaves and enters the same Phase, so taking it makes no progress",
+                "this transition leaves and enters the same State, so taking it makes no progress",
             ));
         }
     }
 
     let mut inbound = BTreeMap::new();
     let mut outbound: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
-    for name in phases.keys() {
+    for name in states.keys() {
         inbound.insert(name.as_str(), 0_usize);
         outbound.insert(name.as_str(), Vec::new());
     }
@@ -364,7 +364,7 @@ fn inspect_graph(class: &MachineClass, findings: &mut Vec<Finding>) {
         0 => findings.push(Finding::error(
             "RB202",
             "transitions",
-            "no initial Phase: every Phase has an inbound transition, so a Run has nowhere to start",
+            "no initial State: every State has an inbound transition, so a Run has nowhere to start",
         )),
         1 => {}
         _ => {
@@ -373,7 +373,7 @@ fn inspect_graph(class: &MachineClass, findings: &mut Vec<Finding>) {
                     "RB203",
                     format!("phase {name:?}"),
                     format!(
-                        "several initial Phases ({}); a Run starts in exactly one",
+                        "several initial States ({}); a Run starts in exactly one",
                         initial
                             .iter()
                             .map(|name| format!("{name:?}"))
@@ -396,12 +396,12 @@ fn inspect_graph(class: &MachineClass, findings: &mut Vec<Finding>) {
                 stack.push(next);
             }
         }
-        for name in phases.keys() {
+        for name in states.keys() {
             if !reached.contains(name.as_str()) {
                 findings.push(Finding::error(
                     "RB204",
                     format!("phase {name:?}"),
-                    format!("unreachable from the initial Phase {entry:?}"),
+                    format!("unreachable from the initial State {entry:?}"),
                 ));
             }
         }
@@ -418,7 +418,7 @@ fn inspect_graph(class: &MachineClass, findings: &mut Vec<Finding>) {
                 "RB205",
                 format!("phase {name:?}"),
                 format!(
-                    "one of {} terminal Phases; one ending is the ordinary shape, several usually mean a missing edge",
+                    "one of {} terminal States; one ending is the ordinary shape, several usually mean a missing edge",
                     terminal.len()
                 ),
             ));
@@ -428,15 +428,15 @@ fn inspect_graph(class: &MachineClass, findings: &mut Vec<Finding>) {
 
 /// FDC-008: cycle termination as guard-kind membership (RB214).
 ///
-/// Every Phase on a cycle over ordinary edges must carry at least one
+/// Every State on a cycle over ordinary edges must carry at least one
 /// receipt-class (`sensitivity_receipts`, `completion_gate`) or
 /// contract-class (`intake_contract`, `record_contract`) guard: that guard
-/// gates the Phase's ordinary out-edges, so kind membership alone proves the
+/// gates the State's ordinary out-edges, so kind membership alone proves the
 /// cycle can end. Nothing is executed, and a blocked route satisfies
 /// nothing - `rtm step` never takes one.
 fn audit_termination(class: &MachineClass, findings: &mut Vec<Finding>) {
     let graph = crate::graph::MachineGraph::new(
-        class.phases().keys().map(String::as_str),
+        class.states().keys().map(String::as_str),
         class.transitions().to_vec(),
     );
     for cycle in graph.ordinary_cycles() {
@@ -444,7 +444,7 @@ fn audit_termination(class: &MachineClass, findings: &mut Vec<Finding>) {
             .iter()
             .filter(|phase| {
                 class
-                    .phases()
+                    .states()
                     .get(phase.as_str())
                     .is_none_or(|definition| !definition.guards().iter().any(guard_terminates))
             })
@@ -461,9 +461,9 @@ fn audit_termination(class: &MachineClass, findings: &mut Vec<Finding>) {
         route.push_str(" -> ");
         route.push_str(&format!("{:?}", cycle[0].as_str()));
         let (noun, verb) = if offenders.len() == 1 {
-            ("Phase", "carries")
+            ("State", "carries")
         } else {
-            ("Phases", "carry")
+            ("States", "carry")
         };
         findings.push(Finding::error(
             "RB214",
@@ -492,7 +492,7 @@ fn guard_terminates(kind: &GuardKind) -> bool {
 /// DRD-002: what a guard's verdict actually rests on.
 fn lint_guards(class: &MachineClass, findings: &mut Vec<Finding>) {
     let root = Path::new(".");
-    for (name, definition) in class.phases() {
+    for (name, definition) in class.states() {
         for (index, guard) in definition.guards().iter().enumerate() {
             let location = format!("phase {name:?} guard {index}");
             match guard {

@@ -156,7 +156,7 @@ fn successful_step(project_root: &Path) {
         .expect("passing guards should return a transition outcome");
     assert!(
         matches!(outcome, StepOutcome::Advanced { .. }),
-        "all artifact guards passing must advance the Phase"
+        "all artifact guards passing must advance the State"
     );
 }
 
@@ -211,11 +211,11 @@ fn successful_step_appends_one_transition_record() {
     );
     assert!(
         record.contains("prepare"),
-        "record identifies the source Phase"
+        "record identifies the source State"
     );
     assert!(
         record.contains("done"),
-        "record identifies the target Phase"
+        "record identifies the target State"
     );
     assert_eq!(state_phase(&state_path), "done");
 }

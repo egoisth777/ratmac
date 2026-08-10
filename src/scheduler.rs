@@ -9,10 +9,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use sha2::{Digest, Sha256};
 
-use crate::graph::{MachineGraph, Phase};
+use crate::graph::{MachineGraph, State};
 use crate::ledger::LedgerEntry;
 use crate::lock::{RootLock, RunLock};
-use crate::machine::{GuardKind, MachineClass, PhaseDefinition};
+use crate::machine::{GuardKind, MachineClass, StateDefinition};
 use crate::model::{Run, RunState, Status};
 use crate::root::Displayed;
 use crate::roots::ValidatedWorkflowRoots;
@@ -242,7 +242,7 @@ impl fmt::Display for GuardFailure {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum StepOutcome {
-    Advanced { from: Phase, to: Phase },
+    Advanced { from: State, to: State },
     Refused { failures: Vec<GuardFailure> },
 }
 
@@ -918,8 +918,8 @@ impl Scheduler {
     }
 
     fn graph_of(class: &MachineClass) -> MachineGraph {
-        let phases = class.phases().keys().map(Phase::new).collect::<Vec<_>>();
-        MachineGraph::new(phases, class.transitions().to_vec())
+        let states = class.states().keys().map(State::new).collect::<Vec<_>>();
+        MachineGraph::new(states, class.transitions().to_vec())
     }
     /// Resolve a declared workflow role from this Scheduler's validated
     /// addressed workspace mapping.
@@ -1237,7 +1237,7 @@ impl Scheduler {
         self.machine = Self::graph_of(snapshot.class());
         let phase = self.initial_phase()?;
         let goal_baseline = self.goal_revision(&root)?;
-        // FDC-002: a Run beginning in a terminal Phase — no ordinary outgoing
+        // FDC-002: a Run beginning in a terminal State — no ordinary outgoing
         // edge — is complete from its first State File. The Engine writes the
         // terminal fact; no agent claim participates.
         let initial_status = if self.machine.has_ordinary_outgoing(phase.as_str()) {
@@ -1538,7 +1538,7 @@ impl Scheduler {
 
     /// FDC-007: `rtm spawn` is ordinary checked motion - no confirmation
     /// phrase. Legal only while the addressed parent occupies the spawning
-    /// Phase and only for a spawn that Phase declares. The child is minted as
+    /// State and only for a spawn that State declares. The child is minted as
     /// an ordinary flat top-level Run in the single run-id namespace - same
     /// State File, evidence, terminal facts, and reserved spawn-ledger path;
     /// the ledger's written entry is FDC-011, a later increment.
@@ -1679,7 +1679,7 @@ composition is capped at one level (FDC-012)"
                     "spawn refused: run {parent_id} is held (status blocked): the blocked route admits no spawn"
                 )));
             }
-            let definition = class.phases().get(&state.phase).ok_or_else(|| {
+            let definition = class.states().get(&state.phase).ok_or_else(|| {
                 StateError::new(format!(
                     "State File phase {:?} is undeclared in ratmac.toml",
                     state.phase
@@ -1688,7 +1688,7 @@ composition is capped at one level (FDC-012)"
             let declared = definition.spawns();
             if declared.is_empty() {
                 return Err(StateError::new(format!(
-                    "spawn refused: phase {:?} declares no spawns; run {parent_id} is outside a spawning Phase",
+                    "spawn refused: phase {:?} declares no spawns; run {parent_id} is outside a spawning State",
                     state.phase
                 )));
             }
@@ -1722,9 +1722,9 @@ composition is capped at one level (FDC-012)"
             })?;
             let child_machine = MachineGraph::new(
                 child_class
-                    .phases()
+                    .states()
                     .keys()
-                    .map(Phase::new)
+                    .map(State::new)
                     .collect::<Vec<_>>(),
                 child_class.transitions().to_vec(),
             );
@@ -1924,9 +1924,9 @@ the ledger {} and minted child {} were left in place; inspect both paths before 
                 })?;
                 let child_machine = MachineGraph::new(
                     child_class
-                        .phases()
+                        .states()
                         .keys()
-                        .map(Phase::new)
+                        .map(State::new)
                         .collect::<Vec<_>>(),
                     child_class.transitions().to_vec(),
                 );
@@ -2154,7 +2154,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
                 return Ok(StepOutcome::Refused { failures });
             }
 
-            let from = Phase::new(state.phase.clone());
+            let from = State::new(state.phase.clone());
             let transition_input = if let Some(inputs) = definition.inputs() {
                 match crate::verdict::load_live(&run_dir, &state.phase, inputs) {
                     Ok(record) => Some(record.input().to_owned()),
@@ -2175,7 +2175,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
                         failures: vec![guard_failure(
                             "verdict",
                             "verdict.toml",
-                            "live record presented to a straight-line Phase",
+                            "live record presented to a straight-line State",
                             "absent live verdict slot",
                         )],
                     });
@@ -2190,7 +2190,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
                         "transition",
                         state.phase,
                         "no matching outgoing transition",
-                        "one transition selected by the current Phase and input",
+                        "one transition selected by the current State and input",
                     )],
                 });
             };
@@ -2563,7 +2563,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
             ))
         }
     }
-    /// TRP-001, TRP-004: evaluate the Phase's retained guards, in declaration
+    /// TRP-001, TRP-004: evaluate the State's retained guards, in declaration
     fn resolve_guard_root(
         &self,
         workspace: &Path,
@@ -2605,7 +2605,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
     /// order, from the typed class - no second walk over runbook TOML.
     fn guard_failures(
         &self,
-        definition: &PhaseDefinition,
+        definition: &StateDefinition,
     ) -> Result<(Vec<GuardFailure>, Vec<LedgerSnapshot>), StateError> {
         let root = match self.root.as_ref() {
             Some(root) => root,
@@ -3119,18 +3119,18 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
         }
     }
 
-    fn initial_phase(&self) -> Result<Phase, StateError> {
+    fn initial_phase(&self) -> Result<State, StateError> {
         Self::initial_phase_of(&self.machine)
     }
 
-    /// The unique Phase no ordinary transition enters. Shared by `start` for
+    /// The unique State no ordinary transition enters. Shared by `start` for
     /// the project machine and by `spawn`/`respawn` for child machines.
-    fn initial_phase_of(machine: &MachineGraph) -> Result<Phase, StateError> {
+    fn initial_phase_of(machine: &MachineGraph) -> Result<State, StateError> {
         let candidates = machine
-            .phases()
+            .states()
             .filter(|phase| {
                 // A blocked route points backwards by design; it never makes
-                // its destination a non-initial Phase.
+                // its destination a non-initial State.
                 !machine
                     .transitions()
                     .any(|transition| transition.to() == *phase && !transition.is_blocked_route())
@@ -3140,10 +3140,10 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
         match candidates.as_slice() {
             [phase] => Ok(phase.clone()),
             [] => Err(StateError::new(
-                "cannot start: Machine Class has no unique initial Phase",
+                "cannot start: Machine Class has no unique initial State",
             )),
             _ => Err(StateError::new(
-                "cannot start: Machine Class has multiple initial Phases",
+                "cannot start: Machine Class has multiple initial States",
             )),
         }
     }
@@ -3266,11 +3266,11 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
         self.store()?.load()
     }
 
-    /// FDC-001: the routing function depends only on current Phase and the
+    /// FDC-001: the routing function depends only on current State and the
     /// exact validated input. Declaration order and guards do not select.
     fn route_for<'a>(
         machine: &'a MachineGraph,
-        phase: &Phase,
+        phase: &State,
         input: Option<&str>,
     ) -> Option<&'a crate::graph::Transition> {
         machine.transition_for_input(phase, input)
@@ -3315,14 +3315,14 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
         class: &'a MachineClass,
         state_phase: &str,
         child_class_name: Option<&str>,
-    ) -> Result<(&'a PhaseDefinition, MachineGraph), StateError> {
+    ) -> Result<(&'a StateDefinition, MachineGraph), StateError> {
         if let Some(child_class_name) = child_class_name {
             let child_class = class.classes().get(child_class_name).ok_or_else(|| {
                 StateError::new(format!(
                     "recorded child class {child_class_name:?} is not declared in ratmac.toml"
                 ))
             })?;
-            let definition = child_class.phases().get(state_phase).ok_or_else(|| {
+            let definition = child_class.states().get(state_phase).ok_or_else(|| {
                 StateError::new(format!(
                     "State File phase {state_phase:?} is undeclared in recorded child class \
                      {child_class_name:?}"
@@ -3330,32 +3330,32 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
             })?;
             let machine = MachineGraph::new(
                 child_class
-                    .phases()
+                    .states()
                     .keys()
-                    .map(Phase::new)
+                    .map(State::new)
                     .collect::<Vec<_>>(),
                 child_class.transitions().to_vec(),
             );
             return Ok((definition, machine));
         }
 
-        if let Some(definition) = class.phases().get(state_phase) {
+        if let Some(definition) = class.states().get(state_phase) {
             return Ok((definition, Self::graph_of(class)));
         }
         if let Some(child_class) = class
             .classes()
             .values()
-            .find(|child| child.phases().contains_key(state_phase))
+            .find(|child| child.states().contains_key(state_phase))
         {
             let definition = child_class
-                .phases()
+                .states()
                 .get(state_phase)
                 .expect("the owning child class carries the phase definition");
             let machine = MachineGraph::new(
                 child_class
-                    .phases()
+                    .states()
                     .keys()
-                    .map(Phase::new)
+                    .map(State::new)
                     .collect::<Vec<_>>(),
                 child_class.transitions().to_vec(),
             );
@@ -3366,10 +3366,10 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
         )))
     }
 
-    /// R-028: the Phase Prompt is the authored prose plus the generated list of
-    /// this Phase's Exit Guards - rendered from the typed guards, so what the
+    /// R-028: the State Prompt is the authored prose plus the generated list of
+    /// this State's Exit Guards - rendered from the typed guards, so what the
     /// agent reads is what the Scheduler will evaluate.
-    fn render_phase_prompt(definition: &PhaseDefinition) -> Result<PhasePrompt, StateError> {
+    fn render_phase_prompt(definition: &StateDefinition) -> Result<PhasePrompt, StateError> {
         let mut rendered = definition.prompt().to_owned();
         let guards = definition.guards();
         if !guards.is_empty() {
@@ -3399,7 +3399,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
         Ok(PhasePrompt::new(rendered))
     }
 
-    fn pending_guard_labels(definition: &PhaseDefinition) -> Vec<String> {
+    fn pending_guard_labels(definition: &StateDefinition) -> Vec<String> {
         definition
             .guards()
             .iter()

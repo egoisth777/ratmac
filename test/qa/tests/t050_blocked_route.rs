@@ -66,9 +66,9 @@ impl Fixture {
             root.join(".ratmac/ratmac.toml"),
             "[roots]\n\
              ticket = \".arca/ticket\"\n\n\
-             [phases.intake]\nprompt = \"Integrate the issues.\"\n\n\
-             [phases.build]\nprompt = \"Build the ticket.\"\n\n\
-             [phases.build-review]\nprompt = \"Review the ticket.\"\n\n\
+             [states.intake]\nprompt = \"Integrate the issues.\"\n\n\
+             [states.build]\nprompt = \"Build the ticket.\"\n\n\
+             [states.build-review]\nprompt = \"Review the ticket.\"\n\n\
              [[transitions]]\nfrom = \"intake\"\nto = \"build\"\n\n\
              [[transitions]]\nfrom = \"build\"\nto = \"intake\"\nblocked-route = true\n\n\
              [[transitions]]\nfrom = \"build\"\nto = \"build-review\"\n",
@@ -464,7 +464,7 @@ fn held_ticket_cannot_be_passed() {
         .status
         .success());
 
-    // The Machine state is a Phase; `held` never appears there.
+    // The Machine state is a State; `held` never appears there.
     let state = fs::read_to_string(fixture.state_path()).expect("read state");
     assert!(
         !state.contains("held"),

@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use crate::graph::{Phase, Transition};
+use crate::graph::{State, Transition};
 use crate::root::Displayed;
 use crate::roots::{RootValidationError, ValidatedWorkflowRoots, WorkflowRoots};
 
@@ -10,16 +10,16 @@ use crate::roots::{RootValidationError, ValidatedWorkflowRoots, WorkflowRoots};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MachineClass {
     roots: WorkflowRoots,
-    phases: BTreeMap<String, PhaseDefinition>,
+    states: BTreeMap<String, StateDefinition>,
     transitions: Vec<Transition>,
     classes: BTreeMap<String, ChildClass>,
 }
 
-/// A Phase declaration: its prompt text and its Exit Guards, in the order the
+/// A State declaration: its prompt text and its Exit Guards, in the order the
 /// author wrote them.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PhaseDefinition {
-    phase: Phase,
+pub struct StateDefinition {
+    state: State,
     prompt: String,
     inputs: Option<Vec<String>>,
     guards: Vec<GuardKind>,
@@ -28,18 +28,18 @@ pub struct PhaseDefinition {
 
 /// FDC-009: one inline child Machine Class. A class body is a whole machine
 /// under the same rules as the top level, plus its binding declarations, and
-/// exactly one level deep - it accepts no `classes` and its Phases no
+/// exactly one level deep - it accepts no `classes` and its States no
 /// `spawns` (the shape FDC-012 caps).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ChildClass {
-    phases: BTreeMap<String, PhaseDefinition>,
+    states: BTreeMap<String, StateDefinition>,
     transitions: Vec<Transition>,
     bindings: BTreeMap<String, BindingDeclaration>,
 }
 
 impl ChildClass {
-    pub fn phases(&self) -> &BTreeMap<String, PhaseDefinition> {
-        &self.phases
+    pub fn states(&self) -> &BTreeMap<String, StateDefinition> {
+        &self.states
     }
 
     pub fn transitions(&self) -> &[Transition] {
@@ -65,8 +65,8 @@ impl BindingDeclaration {
     }
 }
 
-/// FDC-009: one child Run a Phase may create - a declared class, an
-/// instance name unique within the Phase, and the binding names the
+/// FDC-009: one child Run a State may create - a declared class, an
+/// instance name unique within the State, and the binding names the
 /// spawner supplies. The supplied names must cover the class's required
 /// set exactly (RB505).
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -201,7 +201,7 @@ impl GuardKind {
         matches!(self, Self::CommandExit { exempt: true, .. })
     }
 
-    /// The guard's authored fields, rendered as TOML, in the order the Phase
+    /// The guard's authored fields, rendered as TOML, in the order the State
     /// Prompt lists them (R-028).
     pub fn rendered_fields(&self) -> Vec<(&'static str, String)> {
         let string = |value: &str| toml::Value::String(value.to_owned()).to_string();
@@ -298,8 +298,8 @@ impl MachineClassParseError {
         }
     }
 
-    /// Where the defect lives: `top-level`, `phases`, `phase "build"`,
-    /// `phase "build" guard 0`, or the transition that carries it.
+    /// Where the defect lives: `top-level`, `states`, `state "build"`,
+    /// `state "build" guard 0`, or the transition that carries it.
     pub fn location(&self) -> &str {
         &self.location
     }
@@ -371,7 +371,7 @@ impl MachineClass {
         }
         Self::reject_unknown_keys(
             root,
-            &["roots", "phases", "transitions", "classes"],
+            &["roots", "states", "transitions", "classes"],
             "top-level",
         )?;
         let roots = WorkflowRoots::parse(root.get("roots")).map_err(Self::roots_parse_error)?;
@@ -382,13 +382,13 @@ impl MachineClass {
             None => BTreeMap::new(),
             Some(value) => Self::parse_classes(value)?,
         };
-        let (phases, transitions) = Self::parse_machine_body(root, "", true)?;
-        Self::validate_spawns(&phases, &classes)?;
-        Self::validate_guard_roots(&phases, &classes, &roots)?;
+        let (states, transitions) = Self::parse_machine_body(root, "", true)?;
+        Self::validate_spawns(&states, &classes)?;
+        Self::validate_guard_roots(&states, &classes, &roots)?;
 
         Ok(Self {
             roots,
-            phases,
+            states,
             transitions,
             classes,
         })
@@ -404,19 +404,19 @@ impl MachineClass {
     }
 
     fn validate_guard_roots(
-        phases: &BTreeMap<String, PhaseDefinition>,
+        states: &BTreeMap<String, StateDefinition>,
         classes: &BTreeMap<String, ChildClass>,
         roots: &WorkflowRoots,
     ) -> Result<(), MachineClassParseError> {
-        for (phase_name, definition) in phases {
-            Self::validate_definition_roots(definition, roots, &format!("phase {phase_name:?}"))?;
+        for (state_name, definition) in states {
+            Self::validate_definition_roots(definition, roots, &format!("state {state_name:?}"))?;
         }
         for (class_name, class) in classes {
-            for (phase_name, definition) in class.phases() {
+            for (state_name, definition) in class.states() {
                 Self::validate_definition_roots(
                     definition,
                     roots,
-                    &format!("class {class_name:?} phase {phase_name:?}"),
+                    &format!("class {class_name:?} state {state_name:?}"),
                 )?;
             }
         }
@@ -424,12 +424,12 @@ impl MachineClass {
     }
 
     fn validate_definition_roots(
-        definition: &PhaseDefinition,
+        definition: &StateDefinition,
         roots: &WorkflowRoots,
-        phase_location: &str,
+        state_location: &str,
     ) -> Result<(), MachineClassParseError> {
         for (index, guard) in definition.guards().iter().enumerate() {
-            let location = format!("{phase_location} guard {index}");
+            let location = format!("{state_location} guard {index}");
             match guard {
                 GuardKind::FilesExact {
                     root: Some(role), ..
@@ -506,7 +506,7 @@ impl MachineClass {
     }
     /// FDC-009: parse the `classes` table - each entry one inline child
     /// machine under the same rules, one level deep - a class body accepts no
-    /// `classes` key and its Phases accept no `spawns`.
+    /// `classes` key and its States accept no `spawns`.
     fn parse_classes(
         value: &toml::Value,
     ) -> Result<BTreeMap<String, ChildClass>, MachineClassParseError> {
@@ -547,16 +547,16 @@ impl MachineClass {
             }
             Self::reject_unknown_keys(
                 body,
-                &["phases", "transitions", "bindings"],
+                &["states", "transitions", "bindings"],
                 &format!("class {name:?}"),
             )?;
             let bindings = Self::parse_bindings(body.get("bindings"), name)?;
             let scope = format!("class {name:?} ");
-            let (phases, transitions) = Self::parse_machine_body(body, &scope, false)?;
+            let (states, transitions) = Self::parse_machine_body(body, &scope, false)?;
             classes.insert(
                 name.clone(),
                 ChildClass {
-                    phases,
+                    states,
                     transitions,
                     bindings,
                 },
@@ -619,7 +619,7 @@ impl MachineClass {
         Ok(bindings)
     }
 
-    /// FDC-009: parse one Phase's spawn declarations.
+    /// FDC-009: parse one State's spawn declarations.
     fn parse_spawns(
         value: &toml::Value,
         location: &str,
@@ -731,18 +731,18 @@ impl MachineClass {
     /// (RB504) and its binding names cover the class's required set exactly
     /// while naming nothing the class does not declare (RB505).
     fn validate_spawns(
-        phases: &BTreeMap<String, PhaseDefinition>,
+        states: &BTreeMap<String, StateDefinition>,
         classes: &BTreeMap<String, ChildClass>,
     ) -> Result<(), MachineClassParseError> {
-        for (phase_name, definition) in phases {
+        for (state_name, definition) in states {
             for spawn in &definition.spawns {
-                let location = format!("phase {phase_name:?} spawn {:?}", spawn.name);
+                let location = format!("state {state_name:?} spawn {:?}", spawn.name);
                 let Some(class) = classes.get(&spawn.class) else {
                     return Err(MachineClassParseError::at(
                         "RB504",
                         location.clone(),
                         format!(
-                            "invalid phase {phase_name:?}: spawn {:?} names undeclared class {:?}",
+                            "invalid state {state_name:?}: spawn {:?} names undeclared class {:?}",
                             spawn.name, spawn.class
                         ),
                     ));
@@ -753,7 +753,7 @@ impl MachineClass {
                             "RB505",
                             location.clone(),
                             format!(
-                                "invalid phase {phase_name:?}: spawn {:?} does not supply required binding {binding_name:?} of class {:?}",
+                                "invalid state {state_name:?}: spawn {:?} does not supply required binding {binding_name:?} of class {:?}",
                                 spawn.name, spawn.class
                             ),
                         ));
@@ -765,7 +765,7 @@ impl MachineClass {
                             "RB505",
                             location.clone(),
                             format!(
-                                "invalid phase {phase_name:?}: spawn {:?} supplies binding {bound:?} that class {:?} does not declare",
+                                "invalid state {state_name:?}: spawn {:?} supplies binding {bound:?} that class {:?} does not declare",
                                 spawn.name, spawn.class
                             ),
                         ));
@@ -776,56 +776,56 @@ impl MachineClass {
         Ok(())
     }
 
-    /// One whole machine body - a `phases` table and its `transitions` -
+    /// One whole machine body - a `states` table and its `transitions` -
     /// parsed under the same rules at the top level and inside a class body,
     /// every location prefixed with `scope`.
     fn parse_machine_body(
         root: &toml::map::Map<String, toml::Value>,
         scope: &str,
         spawns_allowed: bool,
-    ) -> Result<(BTreeMap<String, PhaseDefinition>, Vec<Transition>), MachineClassParseError> {
-        let phases_value = root.get("phases").ok_or_else(|| {
+    ) -> Result<(BTreeMap<String, StateDefinition>, Vec<Transition>), MachineClassParseError> {
+        let states_value = root.get("states").ok_or_else(|| {
             MachineClassParseError::at(
                 "RB201",
-                format!("{scope}phases"),
-                "invalid ratmac.toml: missing phases table".to_owned(),
+                format!("{scope}states"),
+                "invalid ratmac.toml: missing states table".to_owned(),
             )
         })?;
-        let phases_table = phases_value.as_table().ok_or_else(|| {
+        let states_table = states_value.as_table().ok_or_else(|| {
             MachineClassParseError::at(
                 "RB110",
-                format!("{scope}phases"),
-                "invalid ratmac.toml: phases must be a table".to_owned(),
+                format!("{scope}states"),
+                "invalid ratmac.toml: states must be a table".to_owned(),
             )
         })?;
 
-        if phases_table.is_empty() {
+        if states_table.is_empty() {
             return Err(MachineClassParseError::at(
                 "RB201",
-                format!("{scope}phases"),
-                "invalid ratmac.toml: phases declares no phase".to_owned(),
+                format!("{scope}states"),
+                "invalid ratmac.toml: states declares no state".to_owned(),
             ));
         }
 
-        let mut phases = BTreeMap::new();
-        for (name, value) in phases_table {
+        let mut states = BTreeMap::new();
+        for (name, value) in states_table {
             if name.trim().is_empty() {
                 return Err(MachineClassParseError::at(
                     "RB105",
-                    format!("{scope}phases"),
-                    "invalid ratmac.toml: phase name must not be empty".to_owned(),
+                    format!("{scope}states"),
+                    "invalid ratmac.toml: state name must not be empty".to_owned(),
                 ));
             }
             let definition = value.as_table().ok_or_else(|| {
                 MachineClassParseError::at(
                     "RB110",
-                    format!("{scope}phase {name:?}"),
-                    format!("invalid phase {name:?}: expected a table"),
+                    format!("{scope}state {name:?}"),
+                    format!("invalid state {name:?}: expected a table"),
                 )
             })?;
             if definition.contains_key("status") {
                 return Err(Self::status_error(&format!(
-                    "{scope}phase {name:?} status dimension"
+                    "{scope}state {name:?} status dimension"
                 )));
             }
             let allowed: &[&str] = if spawns_allowed {
@@ -833,18 +833,18 @@ impl MachineClass {
             } else {
                 &["prompt", "inputs", "guards"]
             };
-            Self::reject_unknown_keys(definition, allowed, &format!("{scope}phase {name:?}"))?;
+            Self::reject_unknown_keys(definition, allowed, &format!("{scope}state {name:?}"))?;
             let mut guards = Vec::new();
             if let Some(declared) = definition.get("guards") {
                 let declared = declared.as_array().ok_or_else(|| {
                     MachineClassParseError::at(
                         "RB110",
-                        format!("{scope}phase {name:?}"),
-                        format!("invalid phase {name:?} guards: expected an array"),
+                        format!("{scope}state {name:?}"),
+                        format!("invalid state {name:?} guards: expected an array"),
                     )
                 })?;
                 for (index, guard) in declared.iter().enumerate() {
-                    let location = format!("{scope}phase {name:?} guard {index}");
+                    let location = format!("{scope}state {name:?} guard {index}");
                     let guard = guard.as_table().ok_or_else(|| {
                         MachineClassParseError::at(
                             "RB110",
@@ -855,11 +855,11 @@ impl MachineClass {
                     guards.push(Self::parse_guard(guard, &location)?);
                 }
             }
-            // FDC-009: dormant spawn declarations; only top-level Phases
+            // FDC-009: dormant spawn declarations; only top-level States
             // accept them (one level deep).
             let spawns = match definition.get("spawns") {
                 None => Vec::new(),
-                Some(value) => Self::parse_spawns(value, &format!("{scope}phase {name:?}"))?,
+                Some(value) => Self::parse_spawns(value, &format!("{scope}state {name:?}"))?,
             };
             let inputs = match definition.get("inputs") {
                 None => None,
@@ -867,17 +867,17 @@ impl MachineClass {
                     let declared = value.as_array().ok_or_else(|| {
                         MachineClassParseError::at(
                             "RB208",
-                            format!("{scope}phase {name:?}"),
+                            format!("{scope}state {name:?}"),
                             format!(
-                                "invalid phase {name:?} inputs: expected a non-empty array of unique strings"
+                                "invalid state {name:?} inputs: expected a non-empty array of unique strings"
                             ),
                         )
                     })?;
                     if declared.is_empty() {
                         return Err(MachineClassParseError::at(
                             "RB208",
-                            format!("{scope}phase {name:?}"),
-                            format!("invalid phase {name:?} inputs: list must not be empty"),
+                            format!("{scope}state {name:?}"),
+                            format!("invalid state {name:?} inputs: list must not be empty"),
                         ));
                     }
                     let mut seen = BTreeSet::new();
@@ -886,18 +886,18 @@ impl MachineClass {
                         let input = value.as_str().ok_or_else(|| {
                             MachineClassParseError::at(
                                 "RB208",
-                                format!("{scope}phase {name:?}"),
+                                format!("{scope}state {name:?}"),
                                 format!(
-                                    "invalid phase {name:?} inputs[{index}]: expected a non-empty string"
+                                    "invalid state {name:?} inputs[{index}]: expected a non-empty string"
                                 ),
                             )
                         })?;
                         if input.is_empty() || !seen.insert(input.to_owned()) {
                             return Err(MachineClassParseError::at(
                                 "RB208",
-                                format!("{scope}phase {name:?}"),
+                                format!("{scope}state {name:?}"),
                                 format!(
-                                    "invalid phase {name:?} inputs: values must be non-empty and unique; found {input:?}"
+                                    "invalid state {name:?} inputs: values must be non-empty and unique; found {input:?}"
                                 ),
                             ));
                         }
@@ -912,23 +912,23 @@ impl MachineClass {
                 .ok_or_else(|| {
                     MachineClassParseError::at(
                         "RB105",
-                        format!("{scope}phase {name:?}"),
-                        format!("invalid phase {name:?}: missing required prompt"),
+                        format!("{scope}state {name:?}"),
+                        format!("invalid state {name:?}: missing required prompt"),
                     )
                 })?
                 .as_str()
                 .ok_or_else(|| {
                     MachineClassParseError::at(
                         "RB110",
-                        format!("{scope}phase {name:?}"),
-                        format!("invalid phase {name:?}: prompt must be a string"),
+                        format!("{scope}state {name:?}"),
+                        format!("invalid state {name:?}: prompt must be a string"),
                     )
                 })?
                 .to_owned();
-            phases.insert(
+            states.insert(
                 name.clone(),
-                PhaseDefinition {
-                    phase: Phase::new(name.clone()),
+                StateDefinition {
+                    state: State::new(name.clone()),
                     prompt,
                     inputs,
                     guards,
@@ -958,11 +958,11 @@ impl MachineClass {
                         table
                             .get("from")
                             .and_then(toml::Value::as_str)
-                            .ok_or_else(|| MachineClassParseError::at("RB105", format!("{scope}transition {index}"), "invalid transition: missing from phase".to_owned()))?;
+                            .ok_or_else(|| MachineClassParseError::at("RB105", format!("{scope}transition {index}"), "invalid transition: missing from state".to_owned()))?;
                     let to = table
                         .get("to")
                         .and_then(toml::Value::as_str)
-                        .ok_or_else(|| MachineClassParseError::at("RB105", format!("{scope}transition {index}"), "invalid transition: missing to phase".to_owned()))?;
+                        .ok_or_else(|| MachineClassParseError::at("RB105", format!("{scope}transition {index}"), "invalid transition: missing to state".to_owned()))?;
                     let mut transition = Transition::new(from, to);
                     if let Some(value) = table.get("input") {
                         let input = value.as_str().ok_or_else(|| {
@@ -1006,7 +1006,7 @@ impl MachineClass {
                     "invalid ratmac.toml: transition endpoints must not be empty".to_owned(),
                 ));
             }
-            if !phases.contains_key(transition.from().as_str()) {
+            if !states.contains_key(transition.from().as_str()) {
                 return Err(MachineClassParseError::at(
                     "RB108",
                     format!(
@@ -1020,7 +1020,7 @@ impl MachineClass {
                     ),
                 ));
             }
-            if !phases.contains_key(transition.to().as_str()) {
+            if !states.contains_key(transition.to().as_str()) {
                 return Err(MachineClassParseError::at(
                     "RB108",
                     format!(
@@ -1050,7 +1050,7 @@ impl MachineClass {
             ));
         }
 
-        for (name, definition) in &phases {
+        for (name, definition) in &states {
             let ordinary = transitions
                 .iter()
                 .filter(|transition| {
@@ -1066,9 +1066,9 @@ impl MachineClass {
                     {
                         return Err(MachineClassParseError::at(
                             "RB212",
-                            format!("{scope}phase {name:?}"),
+                            format!("{scope}state {name:?}"),
                             format!(
-                                "invalid phase {name:?}: a terminal or straight-line Phase must not declare inputs or an input-labelled ordinary edge"
+                                "invalid state {name:?}: a terminal or straight-line State must not declare inputs or an input-labelled ordinary edge"
                             ),
                         ));
                     }
@@ -1077,9 +1077,9 @@ impl MachineClass {
                     let inputs = definition.inputs.as_ref().ok_or_else(|| {
                         MachineClassParseError::at(
                             "RB209",
-                            format!("{scope}phase {name:?}"),
+                            format!("{scope}state {name:?}"),
                             format!(
-                                "invalid phase {name:?}: a branching Phase must declare its closed inputs list"
+                                "invalid state {name:?}: a branching State must declare its closed inputs list"
                             ),
                         )
                     })?;
@@ -1091,18 +1091,18 @@ impl MachineClass {
                     if !labelled.is_empty() && labelled.len() != ordinary.len() {
                         return Err(MachineClassParseError::at(
                             "RB212",
-                            format!("{scope}phase {name:?}"),
+                            format!("{scope}state {name:?}"),
                             format!(
-                                "invalid phase {name:?}: labelled and unlabelled ordinary edges must not be mixed"
+                                "invalid state {name:?}: labelled and unlabelled ordinary edges must not be mixed"
                             ),
                         ));
                     }
                     if labelled.is_empty() {
                         return Err(MachineClassParseError::at(
                             "RB210",
-                            format!("{scope}phase {name:?}"),
+                            format!("{scope}state {name:?}"),
                             format!(
-                                "invalid phase {name:?}: no ordinary edge covers the declared inputs"
+                                "invalid state {name:?}: no ordinary edge covers the declared inputs"
                             ),
                         ));
                     }
@@ -1120,16 +1120,16 @@ impl MachineClass {
                                     transition.to().as_str()
                                 ),
                                 format!(
-                                    "invalid phase {name:?}: transition input {input:?} is covered more than once"
+                                    "invalid state {name:?}: transition input {input:?} is covered more than once"
                                 ),
                             ));
                         }
                         if !inputs.iter().any(|declared| declared == input) {
                             return Err(MachineClassParseError::at(
                                 "RB212",
-                                format!("{scope}phase {name:?}"),
+                                format!("{scope}state {name:?}"),
                                 format!(
-                                    "invalid phase {name:?}: transition input {input:?} is outside the closed inputs list"
+                                    "invalid state {name:?}: transition input {input:?} is outside the closed inputs list"
                                 ),
                             ));
                         }
@@ -1140,9 +1140,9 @@ impl MachineClass {
                     {
                         return Err(MachineClassParseError::at(
                             "RB210",
-                            format!("{scope}phase {name:?}"),
+                            format!("{scope}state {name:?}"),
                             format!(
-                                "invalid phase {name:?}: no ordinary edge covers input {missing:?}"
+                                "invalid state {name:?}: no ordinary edge covers input {missing:?}"
                             ),
                         ));
                     }
@@ -1150,7 +1150,7 @@ impl MachineClass {
             }
         }
 
-        Ok((phases, transitions))
+        Ok((states, transitions))
     }
 
     fn reject_unknown_keys(
@@ -1289,8 +1289,8 @@ impl MachineClass {
         )
     }
 
-    pub fn phases(&self) -> &BTreeMap<String, PhaseDefinition> {
-        &self.phases
+    pub fn states(&self) -> &BTreeMap<String, StateDefinition> {
+        &self.states
     }
 
     pub fn transitions(&self) -> &[Transition] {
@@ -1304,26 +1304,26 @@ impl MachineClass {
     }
 }
 
-impl PhaseDefinition {
-    pub fn phase(&self) -> &Phase {
-        &self.phase
+impl StateDefinition {
+    pub fn state(&self) -> &State {
+        &self.state
     }
 
     pub fn prompt(&self) -> &str {
         &self.prompt
     }
 
-    /// FDC-001: the closed legal values for a branching Phase.
+    /// FDC-001: the closed legal values for a branching State.
     pub fn inputs(&self) -> Option<&[String]> {
         self.inputs.as_deref()
     }
 
-    /// The Phase's Exit Guards, in declaration order (TRP-004).
+    /// The State's Exit Guards, in declaration order (TRP-004).
     pub fn guards(&self) -> &[GuardKind] {
         &self.guards
     }
 
-    /// FDC-009: the dormant spawn declarations this Phase carries, in
+    /// FDC-009: the dormant spawn declarations this State carries, in
     /// declaration order. Empty for every pre-composition shape.
     pub fn spawns(&self) -> &[SpawnDeclaration] {
         &self.spawns

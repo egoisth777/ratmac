@@ -203,6 +203,6 @@ fn binary_status_prints_report_and_phase_prompt() {
     }
     assert!(
         stdout.contains("Prepare the run."),
-        "status missing Phase Prompt: {stdout}"
+        "status missing State Prompt: {stdout}"
     );
 }

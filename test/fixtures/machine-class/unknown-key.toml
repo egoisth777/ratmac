@@ -1,10 +1,10 @@
 # Valid Machine Class declarations plus one deliberately unknown key.
 unexpected_key = "must be rejected"
 
-[phases.prepare]
+[states.prepare]
 prompt = "Prepare the inputs."
 
-[phases.done]
+[states.done]
 prompt = "Finish the run."
 
 [[transitions]]

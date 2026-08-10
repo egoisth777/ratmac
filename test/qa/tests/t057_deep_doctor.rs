@@ -133,66 +133,66 @@ fn defect_catalogue() -> Vec<(&'static str, &'static str, &'static str)> {
         (
             "rb601",
             "RB601",
-            "[roots]\nwork = \"../outside\"\n\n[phases.a]\nprompt = \"p\"\n",
+            "[roots]\nwork = \"../outside\"\n\n[states.a]\nprompt = \"p\"\n",
         ),
         (
             "rb602",
             "RB602",
-            "[phases.a]\nprompt = \"p\"\nguards = [{ kind = \"files_exact\", root = \"work\", path = \"out\" }]\n",
+            "[states.a]\nprompt = \"p\"\nguards = [{ kind = \"files_exact\", root = \"work\", path = \"out\" }]\n",
         ),
         ("rb102", "RB102", "this is not = = toml\n"),
-        ("rb103", "RB103", "[phases.a]\nprompt = \"p\"\nextra = 1\n"),
-        ("rb104", "RB104", "status = \"planned\"\n[phases.a]\nprompt = \"p\"\n"),
-        ("rb105", "RB105", "[phases.a]\n"),
+        ("rb103", "RB103", "[states.a]\nprompt = \"p\"\nextra = 1\n"),
+        ("rb104", "RB104", "status = \"planned\"\n[states.a]\nprompt = \"p\"\n"),
+        ("rb105", "RB105", "[states.a]\n"),
         (
             "rb106",
             "RB106",
-            "[phases.a]\nprompt = \"p\"\nguards = [{ kind = \"nope\" }]\n",
+            "[states.a]\nprompt = \"p\"\nguards = [{ kind = \"nope\" }]\n",
         ),
         (
             "rb107",
             "RB107",
-            "[phases.a]\nprompt = \"p\"\nguards = [{ kind = \"intake_contract\", path = \"x\" }]\n",
+            "[states.a]\nprompt = \"p\"\nguards = [{ kind = \"intake_contract\", path = \"x\" }]\n",
         ),
         (
             "rb108",
             "RB108",
-            "[phases.a]\nprompt = \"p\"\n[[transitions]]\nfrom = \"a\"\nto = \"ghost\"\n",
+            "[states.a]\nprompt = \"p\"\n[[transitions]]\nfrom = \"a\"\nto = \"ghost\"\n",
         ),
         (
             "rb109",
             "RB109",
-            "[phases.a]\nprompt = \"p\"\n[[transitions]]\nfrom = \"a\"\nto = \"a\"\nfreeze = \"tree\"\n",
+            "[states.a]\nprompt = \"p\"\n[[transitions]]\nfrom = \"a\"\nto = \"a\"\nfreeze = \"tree\"\n",
         ),
-        ("rb110", "RB110", "[phases.a]\nprompt = 42\n"),
-        ("rb201", "RB201", "[phases]\n"),
+        ("rb110", "RB110", "[states.a]\nprompt = 42\n"),
+        ("rb201", "RB201", "[states]\n"),
         (
             "rb202",
             "RB202",
-            "[phases.a]\nprompt = \"p\"\n[phases.b]\nprompt = \"p\"\n[[transitions]]\nfrom = \"a\"\nto = \"b\"\n[[transitions]]\nfrom = \"b\"\nto = \"a\"\n",
+            "[states.a]\nprompt = \"p\"\n[states.b]\nprompt = \"p\"\n[[transitions]]\nfrom = \"a\"\nto = \"b\"\n[[transitions]]\nfrom = \"b\"\nto = \"a\"\n",
         ),
         (
             "rb203",
             "RB203",
-            "[phases.a]\nprompt = \"p\"\n[phases.b]\nprompt = \"p\"\n",
+            "[states.a]\nprompt = \"p\"\n[states.b]\nprompt = \"p\"\n",
         ),
         (
             "rb204",
             "RB204",
-            "[phases.a]\nprompt = \"p\"\n[phases.b]\nprompt = \"p\"\n[phases.c]\nprompt = \"p\"\n[phases.d]\nprompt = \"p\"\n\
+            "[states.a]\nprompt = \"p\"\n[states.b]\nprompt = \"p\"\n[states.c]\nprompt = \"p\"\n[states.d]\nprompt = \"p\"\n\
              [[transitions]]\nfrom = \"a\"\nto = \"b\"\n[[transitions]]\nfrom = \"c\"\nto = \"d\"\n[[transitions]]\nfrom = \"d\"\nto = \"c\"\n",
         ),
         (
             "rb205",
             "RB205",
-            "[phases.a]\nprompt = \"p\"\ninputs = [\"b\", \"c\"]\n[phases.b]\nprompt = \"p\"\n[phases.c]\nprompt = \"p\"\n\
+            "[states.a]\nprompt = \"p\"\ninputs = [\"b\", \"c\"]\n[states.b]\nprompt = \"p\"\n[states.c]\nprompt = \"p\"\n\
              [[transitions]]\nfrom = \"a\"\nto = \"b\"\ninput = \"b\"\n\
              [[transitions]]\nfrom = \"a\"\nto = \"c\"\ninput = \"c\"\n",
         ),
         (
             "rb206",
             "RB206",
-            "[phases.a]\nprompt = \"p\"\n[phases.b]\nprompt = \"p\"\n\
+            "[states.a]\nprompt = \"p\"\n[states.b]\nprompt = \"p\"\n\
              [[transitions]]\nfrom = \"a\"\nto = \"b\"\n\
              [[transitions]]\nfrom = \"b\"\nto = \"a\"\nblocked-route = true\n\
              [[transitions]]\nfrom = \"b\"\nto = \"a\"\nblocked-route = true\n",
@@ -200,52 +200,52 @@ fn defect_catalogue() -> Vec<(&'static str, &'static str, &'static str)> {
         (
             "rb207",
             "RB207",
-            "[phases.a]\nprompt = \"p\"\n[[transitions]]\nfrom = \"a\"\nto = \"a\"\n",
+            "[states.a]\nprompt = \"p\"\n[[transitions]]\nfrom = \"a\"\nto = \"a\"\n",
         ),
         (
             "rb208",
             "RB208",
-            "[phases.a]\nprompt = \"p\"\ninputs = []\n",
+            "[states.a]\nprompt = \"p\"\ninputs = []\n",
         ),
         (
             "rb209",
             "RB209",
-            "[phases.a]\nprompt = \"p\"\n[phases.b]\nprompt = \"p\"\n[phases.c]\nprompt = \"p\"\n\
+            "[states.a]\nprompt = \"p\"\n[states.b]\nprompt = \"p\"\n[states.c]\nprompt = \"p\"\n\
              [[transitions]]\nfrom = \"a\"\nto = \"b\"\n\
              [[transitions]]\nfrom = \"a\"\nto = \"c\"\n",
         ),
         (
             "rb210",
             "RB210",
-            "[phases.a]\nprompt = \"p\"\ninputs = [\"b\", \"c\", \"d\"]\n[phases.b]\nprompt = \"p\"\n[phases.c]\nprompt = \"p\"\n\
+            "[states.a]\nprompt = \"p\"\ninputs = [\"b\", \"c\", \"d\"]\n[states.b]\nprompt = \"p\"\n[states.c]\nprompt = \"p\"\n\
              [[transitions]]\nfrom = \"a\"\nto = \"b\"\ninput = \"b\"\n\
              [[transitions]]\nfrom = \"a\"\nto = \"c\"\ninput = \"c\"\n",
         ),
         (
             "rb211",
             "RB211",
-            "[phases.a]\nprompt = \"p\"\ninputs = [\"b\", \"c\"]\n[phases.b]\nprompt = \"p\"\n[phases.c]\nprompt = \"p\"\n\
+            "[states.a]\nprompt = \"p\"\ninputs = [\"b\", \"c\"]\n[states.b]\nprompt = \"p\"\n[states.c]\nprompt = \"p\"\n\
              [[transitions]]\nfrom = \"a\"\nto = \"b\"\ninput = \"b\"\n\
              [[transitions]]\nfrom = \"a\"\nto = \"c\"\ninput = \"b\"\n",
         ),
         (
             "rb212",
             "RB212",
-            "[phases.a]\nprompt = \"p\"\n[phases.b]\nprompt = \"p\"\n\
+            "[states.a]\nprompt = \"p\"\n[states.b]\nprompt = \"p\"\n\
              [[transitions]]\nfrom = \"a\"\nto = \"b\"\ninput = \"foreign\"\n",
         ),
         (
             "rb213",
             "RB213",
-            "[phases.a]\nprompt = \"p\"\n[phases.b]\nprompt = \"p\"\n\
+            "[states.a]\nprompt = \"p\"\n[states.b]\nprompt = \"p\"\n\
              [[transitions]]\nfrom = \"a\"\nto = \"b\"\n\
              [[transitions]]\nfrom = \"b\"\nto = \"a\"\nblocked-route = true\ninput = \"hold\"\n",
         ),
         (
             "rb214",
             "RB214",
-            "[phases.entry]\nprompt = \"p\"\n[phases.a]\nprompt = \"p\"\n\
-             [phases.b]\nprompt = \"p\"\n\
+            "[states.entry]\nprompt = \"p\"\n[states.a]\nprompt = \"p\"\n\
+             [states.b]\nprompt = \"p\"\n\
              [[transitions]]\nfrom = \"entry\"\nto = \"a\"\n\
              [[transitions]]\nfrom = \"a\"\nto = \"b\"\n\
              [[transitions]]\nfrom = \"b\"\nto = \"a\"\n",
@@ -253,47 +253,47 @@ fn defect_catalogue() -> Vec<(&'static str, &'static str, &'static str)> {
         (
             "rb301",
             "RB301",
-            "[phases.a]\nprompt = \"p\"\nguards = [{ kind = \"command_exit\", program = \"no-such-program-anywhere\", expected = 0 }]\n",
+            "[states.a]\nprompt = \"p\"\nguards = [{ kind = \"command_exit\", program = \"no-such-program-anywhere\", expected = 0 }]\n",
         ),
         (
             "rb302",
             "RB302",
-            "[phases.a]\nprompt = \"p\"\nguards = [{ kind = \"files_exact\", path = \"out\" }]\n",
+            "[states.a]\nprompt = \"p\"\nguards = [{ kind = \"files_exact\", path = \"out\" }]\n",
         ),
         (
             "rb401",
             "RB401",
-            "[phases.a]\nprompt = \"Write .ratmac/runs/run-1/state.toml when you are done.\"\n",
+            "[states.a]\nprompt = \"Write .ratmac/runs/run-1/state.toml when you are done.\"\n",
         ),
         (
             "rb501",
             "RB501",
-            "classes = 1\n[phases.a]\nprompt = \"p\"\n",
+            "classes = 1\n[states.a]\nprompt = \"p\"\n",
         ),
         (
             "rb502",
             "RB502",
-            "[classes.c]\nbindings = 1\n\n[classes.c.phases.x]\nprompt = \"p\"\n\n[phases.a]\nprompt = \"p\"\n",
+            "[classes.c]\nbindings = 1\n\n[classes.c.states.x]\nprompt = \"p\"\n\n[states.a]\nprompt = \"p\"\n",
         ),
         (
             "rb503",
             "RB503",
-            "[classes.c.phases.x]\nprompt = \"p\"\n\n[phases.a]\nprompt = \"p\"\nspawns = 1\n",
+            "[classes.c.states.x]\nprompt = \"p\"\n\n[states.a]\nprompt = \"p\"\nspawns = 1\n",
         ),
         (
             "rb504",
             "RB504",
-            "[phases.a]\nprompt = \"p\"\n[[phases.a.spawns]]\nclass = \"ghost\"\nname = \"g\"\n",
+            "[states.a]\nprompt = \"p\"\n[[states.a.spawns]]\nclass = \"ghost\"\nname = \"g\"\n",
         ),
         (
             "rb505",
             "RB505",
-            "[classes.c.bindings.ticket]\nrequired = true\n\n[classes.c.phases.x]\nprompt = \"p\"\n\n[phases.a]\nprompt = \"p\"\n[[phases.a.spawns]]\nclass = \"c\"\nname = \"n\"\n",
+            "[classes.c.bindings.ticket]\nrequired = true\n\n[classes.c.states.x]\nprompt = \"p\"\n\n[states.a]\nprompt = \"p\"\n[[states.a.spawns]]\nclass = \"c\"\nname = \"n\"\n",
         ),
         (
             "rb506",
             "RB506",
-            "[phases.a]\nprompt = \"p\"\nguards = [{ kind = \"join\", require = \"any_passed\" }]\n",
+            "[states.a]\nprompt = \"p\"\nguards = [{ kind = \"join\", require = \"any_passed\" }]\n",
         ),
     ]
 }
@@ -344,7 +344,7 @@ fn each_defect_class_reports_its_code() {
     // transition that carries the defect.
     let path = bench.runbook(
         "located",
-        "[phases.build]\nprompt = \"p\"\nguards = [{ kind = \"nope\" }]\n",
+        "[states.build]\nprompt = \"p\"\nguards = [{ kind = \"nope\" }]\n",
     );
     let finding = doctor::diagnose(&path)
         .into_iter()
@@ -363,7 +363,7 @@ fn json_output_is_parsable_and_deterministic() {
     let bench = Bench::new("json");
     let path = bench.runbook(
         "defective",
-        "[phases.a]\nprompt = \"p\"\nguards = [{ kind = \"files_exact\", path = \"out\" }]\n[phases.b]\nprompt = \"p\"\n",
+        "[states.a]\nprompt = \"p\"\nguards = [{ kind = \"files_exact\", path = \"out\" }]\n[states.b]\nprompt = \"p\"\n",
     );
     let root = repo_root();
     let shown = path.to_string_lossy().into_owned();
@@ -415,13 +415,13 @@ fn exit_codes_are_differentiated() {
 
     let clean = bench.runbook(
         "clean",
-        "[phases.a]\nprompt = \"Do the work.\"\n[phases.b]\nprompt = \"Done.\"\n[[transitions]]\nfrom = \"a\"\nto = \"b\"\n",
+        "[states.a]\nprompt = \"Do the work.\"\n[states.b]\nprompt = \"Done.\"\n[[transitions]]\nfrom = \"a\"\nto = \"b\"\n",
     );
     let warning = bench.runbook(
         "warning",
-        "[phases.a]\nprompt = \"Do the work.\"\nguards = [{ kind = \"files_exact\", path = \"out\" }]\n[phases.b]\nprompt = \"Done.\"\n[[transitions]]\nfrom = \"a\"\nto = \"b\"\n",
+        "[states.a]\nprompt = \"Do the work.\"\nguards = [{ kind = \"files_exact\", path = \"out\" }]\n[states.b]\nprompt = \"Done.\"\n[[transitions]]\nfrom = \"a\"\nto = \"b\"\n",
     );
-    let error = bench.runbook("error", "[phases.a]\nprompt = 42\n");
+    let error = bench.runbook("error", "[states.a]\nprompt = 42\n");
 
     for (path, expected, label) in [
         (&clean, 0, "a clean runbook"),
@@ -448,7 +448,7 @@ fn exit_codes_are_differentiated() {
 fn parse_refusal_is_rendered_as_a_finding() {
     let bench = Bench::new("parse");
     let source =
-        "[phases.a]\nprompt = \"p\"\nguards = [{ kind = \"files_exact\", contains = \"x\" }]\n";
+        "[states.a]\nprompt = \"p\"\nguards = [{ kind = \"files_exact\", contains = \"x\" }]\n";
     let path = bench.runbook("refused", source);
 
     let parse_error = ratmac::machine::MachineClass::from_toml(source)
@@ -485,7 +485,7 @@ fn ownership_violations_surface_through_the_doctor() {
     let bench = Bench::new("ownership");
     let path = bench.runbook(
         "owned",
-        "[phases.a]\nprompt = \"Record your progress in .ratmac/runs/run-1/state.toml before you finish.\"\n",
+        "[states.a]\nprompt = \"Record your progress in .ratmac/runs/run-1/state.toml before you finish.\"\n",
     );
     let finding = doctor::diagnose(&path)
         .into_iter()
@@ -519,7 +519,7 @@ fn ownership_violations_surface_through_the_doctor() {
 #[test]
 fn arbitrary_path_is_diagnosed_read_only() {
     let bench = Bench::new("path");
-    let outside = bench.runbook("outside", "[phases.a]\nprompt = 42\n");
+    let outside = bench.runbook("outside", "[states.a]\nprompt = 42\n");
     let shown = outside.to_string_lossy().into_owned();
     let before = fs::read(&outside).expect("read the runbook");
 
@@ -539,7 +539,7 @@ fn arbitrary_path_is_diagnosed_read_only() {
     // Argument-free doctor keeps its environment report (ORS-002).
     let project = bench.project(
         "inside",
-        "[phases.a]\nprompt = \"Do the work.\"\n[phases.b]\nprompt = \"Done.\"\n[[transitions]]\nfrom = \"a\"\nto = \"b\"\n",
+        "[states.a]\nprompt = \"Do the work.\"\n[states.b]\nprompt = \"Done.\"\n[[transitions]]\nfrom = \"a\"\nto = \"b\"\n",
     );
     let (code, report) = rtm(&project, &["doctor"]);
     assert_eq!(code, 0, "a clean project exits 0: {report}");
@@ -556,7 +556,7 @@ fn arbitrary_path_is_diagnosed_read_only() {
 #[test]
 fn the_environment_report_survives_the_deepening() {
     let bench = Bench::new("ors002");
-    let runbook = "[phases.a]\nprompt = \"Do the work.\"\n[phases.b]\nprompt = \"Done.\"\n[[transitions]]\nfrom = \"a\"\nto = \"b\"\n";
+    let runbook = "[states.a]\nprompt = \"Do the work.\"\n[states.b]\nprompt = \"Done.\"\n[[transitions]]\nfrom = \"a\"\nto = \"b\"\n";
 
     let idle = bench.project("idle", runbook);
     let (_, report) = rtm(&idle, &["doctor"]);
@@ -600,7 +600,7 @@ fn hostile_arguments_refuse_by_name() {
     let bench = Bench::new("hostile");
     let root = repo_root();
     let good = bench
-        .runbook("good", "[phases.a]\nprompt = \"p\"\n")
+        .runbook("good", "[states.a]\nprompt = \"p\"\n")
         .to_string_lossy()
         .into_owned();
     let directory = bench.root.to_string_lossy().into_owned();
@@ -630,7 +630,7 @@ fn a_blocked_route_confers_no_reachability() {
     let codes = codes_for(
         &bench,
         "blocked-route",
-        "[phases.a]\nprompt = \"p\"\n[phases.b]\nprompt = \"p\"\n[phases.held]\nprompt = \"p\"\n\
+        "[states.a]\nprompt = \"p\"\n[states.b]\nprompt = \"p\"\n[states.held]\nprompt = \"p\"\n\
          [[transitions]]\nfrom = \"a\"\nto = \"b\"\n[[transitions]]\nfrom = \"b\"\nto = \"held\"\nblocked-route = true\n",
     );
     assert!(
@@ -646,7 +646,7 @@ fn every_invocation_is_write_free() {
     let bench = Bench::new("readonly");
     let project = bench.project(
         "tree",
-        "[phases.a]\nprompt = \"p\"\nguards = [{ kind = \"files_exact\", path = \"out\" }]\n",
+        "[states.a]\nprompt = \"p\"\nguards = [{ kind = \"files_exact\", path = \"out\" }]\n",
     );
     let runbook = project.join(".ratmac/ratmac.toml");
     let shown = runbook.to_string_lossy().into_owned();
@@ -708,11 +708,11 @@ fn emitted_codes_and_documented_codes_are_one_set() {
     for (name, source) in [
         (
             "rb603",
-            "[roots]\nwork = \"missing\"\n\n[phases.a]\nprompt = \"p\"\n",
+            "[roots]\nwork = \"missing\"\n\n[states.a]\nprompt = \"p\"\n",
         ),
         (
             "rb604",
-            "[roots]\nwork = \".ratmac\"\n\n[phases.a]\nprompt = \"p\"\n",
+            "[roots]\nwork = \".ratmac\"\n\n[states.a]\nprompt = \"p\"\n",
         ),
     ] {
         let project = bench.project(name, source);

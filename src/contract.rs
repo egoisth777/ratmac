@@ -529,7 +529,7 @@ fn declared_gate_kinds(root: &Path) -> BTreeSet<String> {
         return BTreeSet::new();
     };
     class
-        .phases()
+        .states()
         .values()
         .flat_map(|phase| phase.guards())
         .map(|guard| guard.name().to_owned())

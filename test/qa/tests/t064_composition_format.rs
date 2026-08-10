@@ -8,28 +8,28 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Output};
 
-/// A composed machine: one declared child class, one spawning Phase, one
-/// join-guarded Phase. The declarations are dormant this increment.
+/// A composed machine: one declared child class, one spawning State, one
+/// join-guarded State. The declarations are dormant this increment.
 const COMPOSED_RUNBOOK: &str = r#"
 [classes.reviewer.bindings.ticket]
 required = true
 
-[classes.reviewer.phases.review]
+[classes.reviewer.states.review]
 prompt = "Review the delegated ticket."
 
-[phases.plan]
+[states.plan]
 prompt = "Plan."
 
-[phases.delegate]
+[states.delegate]
 prompt = "Delegate and wait."
 guards = [{ kind = "join", require = "all_passed", min = 1 }]
 
-[[phases.delegate.spawns]]
+[[states.delegate.spawns]]
 class = "reviewer"
 name = "rev"
 bind = ["ticket"]
 
-[phases.done]
+[states.done]
 prompt = "Done."
 
 [[transitions]]
@@ -43,13 +43,13 @@ to = "done"
 
 /// The composed runbook with a blocked route beside the new tables.
 const COMPOSED_BLOCKED_RUNBOOK: &str = r#"
-[classes.reviewer.phases.review]
+[classes.reviewer.states.review]
 prompt = "Review."
 
-[phases.plan]
+[states.plan]
 prompt = "Plan."
 
-[phases.done]
+[states.done]
 prompt = "Done."
 
 [[transitions]]
@@ -116,7 +116,7 @@ fn combined(output: &Output) -> String {
 }
 
 /// PT-064-01: the composed declaration parses, is doctor-clean, and stays
-/// dormant - `rtm start` still begins ordinarily at the initial Phase.
+/// dormant - `rtm start` still begins ordinarily at the initial State.
 #[test]
 fn composed_declaration_parses_and_is_doctor_clean() {
     let fixture = Fixture::create("clean", COMPOSED_RUNBOOK);
@@ -147,7 +147,7 @@ fn composed_declaration_parses_and_is_doctor_clean() {
     let state = fs::read_to_string(runs[0].join("state.toml")).expect("read State File");
     assert!(
         state.contains("phase = \"plan\""),
-        "the Run begins at the initial Phase; declarations never route:\n{state}"
+        "the Run begins at the initial State; declarations never route:\n{state}"
     );
     assert!(
         state.contains("status = \"planned\""),
@@ -167,13 +167,13 @@ fn malformed_composition_refuses_by_stable_code() {
 [classes.reviewer.bindings.ticket]
 required = true
 
-[classes.reviewer.phases.review]
+[classes.reviewer.states.review]
 prompt = "Review."
 
-[phases.done]
+[states.done]
 prompt = "Done."
 
-[[phases.done.spawns]]
+[[states.done.spawns]]
 class = "reviewer"
 name = "rev"
 "#,
@@ -192,10 +192,10 @@ name = "rev"
     // (b) A spawn entry naming an undeclared class.
     fixture.write_runbook(
         r#"
-[phases.done]
+[states.done]
 prompt = "Done."
 
-[[phases.done.spawns]]
+[[states.done.spawns]]
 class = "ghost"
 name = "g"
 "#,
@@ -214,11 +214,11 @@ name = "g"
     // (c) A join value outside the closed vocabulary.
     fixture.write_runbook(
         r#"
-[phases.wait]
+[states.wait]
 prompt = "Wait."
 guards = [{ kind = "join", require = "any_passed" }]
 
-[phases.done]
+[states.done]
 prompt = "Done."
 
 [[transitions]]
@@ -240,11 +240,11 @@ to = "done"
     // A min below the least legal count refuses by the same class.
     fixture.write_runbook(
         r#"
-[phases.wait]
+[states.wait]
 prompt = "Wait."
 guards = [{ kind = "join", require = "all_passed", min = 0 }]
 
-[phases.done]
+[states.done]
 prompt = "Done."
 
 [[transitions]]

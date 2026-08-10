@@ -1,7 +1,7 @@
-[phases.prepare]
+[states.prepare]
 prompt = "Prepare the run."
 
-[phases.review]
+[states.review]
 prompt = "Review the run."
 
 [[transitions]]

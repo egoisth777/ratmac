@@ -2,9 +2,9 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-use crate::graph::Phase;
+use crate::graph::State;
 
-/// Lifecycle metadata recorded alongside a Run's machine Phase.
+/// Lifecycle metadata recorded alongside a Run's machine State.
 #[derive(
     Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
 )]
@@ -120,7 +120,7 @@ impl RunArtifacts {
 /// A Run's phase-local lifecycle record.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Run {
-    phase: Phase,
+    phase: State,
     status: Status,
     blocker: Option<String>,
     id: Option<String>,
@@ -128,7 +128,7 @@ pub struct Run {
 }
 
 impl Run {
-    pub fn new(phase: impl Into<Phase>, status: Status) -> Self {
+    pub fn new(phase: impl Into<State>, status: Status) -> Self {
         Self {
             phase: phase.into(),
             status,
@@ -143,7 +143,7 @@ impl Run {
         self.id.as_deref()
     }
 
-    pub fn phase(&self) -> &Phase {
+    pub fn phase(&self) -> &State {
         &self.phase
     }
 

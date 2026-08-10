@@ -65,7 +65,7 @@ fn assert_stayed(root: &Path, before: &[u8], reason: &str) {
         after
             .windows(b"phase = \"guarded\"".len())
             .any(|window| { window == b"phase = \"guarded\"" }),
-        "failing artifact guard must not advance Phase: {reason}"
+        "failing artifact guard must not advance State: {reason}"
     );
 }
 
@@ -141,7 +141,7 @@ fn guards_use_artifacts_not_agent_claims() {
         after_pass
             .windows(b"phase = \"complete\"".len())
             .any(|window| window == b"phase = \"complete\""),
-        "all artifact guards passing must advance to the defined next Phase"
+        "all artifact guards passing must advance to the defined next State"
     );
 
     fs::remove_dir_all(root).expect("remove isolated project");

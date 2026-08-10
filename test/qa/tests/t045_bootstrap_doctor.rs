@@ -59,7 +59,7 @@ impl Boot {
         fs::write(root.join("src/main.rs"), "fn main() {}\n").expect("write fixture source");
         fs::write(
             root.join(".ratmac/ratmac.toml"),
-            "[phases.build]\nprompt = \"Build the selected artifact.\"\n",
+            "[states.build]\nprompt = \"Build the selected artifact.\"\n",
         )
         .expect("write runbook");
         fs::copy(bootstrap_source(), root.join("tools/rtm.ps1")).expect("install the bootstrap");

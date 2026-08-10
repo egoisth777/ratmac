@@ -68,11 +68,11 @@ fn runbook(declared_path: &str, guard_root: &str) -> String {
         r#"[roots]
 work = "{declared_path}"
 
-[phases.verify]
+[states.verify]
 prompt = "Verify the named root."
 guards = [{{ kind = "files_exact", root = "{guard_root}", path = "release", entries = ["proof.txt"] }}]
 
-[phases.done]
+[states.done]
 prompt = "Named-root guard passed."
 
 [[transitions]]

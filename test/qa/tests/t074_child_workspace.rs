@@ -19,28 +19,28 @@ use std::process::{Command, Output};
 /// is deliberately different between the caller's checkout and each child
 /// workspace.
 const WORKSPACE_RUNBOOK: &str = r#"
-[classes.worker.phases.work]
+[classes.worker.states.work]
 prompt = "Work in the child's bound workspace."
 guards = [{ kind = "file_contains", path = "workspace-gate.txt", contains = "ready" }]
 
-[classes.worker.phases.done]
+[classes.worker.states.done]
 prompt = "The child completed its workspace-bound work."
 
 [[classes.worker.transitions]]
 from = "work"
 to = "done"
 
-[phases.plan]
+[states.plan]
 prompt = "Prepare the parent."
 
-[phases.delegate]
+[states.delegate]
 prompt = "Spawn workspace-bound children."
 
-[[phases.delegate.spawns]]
+[[states.delegate.spawns]]
 class = "worker"
 name = "worker"
 
-[phases.done]
+[states.done]
 prompt = "The parent is done."
 
 [[transitions]]
@@ -116,7 +116,7 @@ impl GitFixture {
         let step = rtm_at(&self.primary, &["step", "--run", &parent]);
         assert!(
             step.status.success(),
-            "fixture parent enters its spawning Phase: {}",
+            "fixture parent enters its spawning State: {}",
             combined(&step)
         );
         parent
@@ -350,7 +350,7 @@ fn assert_child_advanced(fixture: &GitFixture, child: &str, label: &str) {
         .expect("advanced child State File is readable");
     assert!(
         state.contains("phase = \"done\""),
-        "ENSV-007 {label}: the child reaches its terminal Phase: {state}"
+        "ENSV-007 {label}: the child reaches its terminal State: {state}"
     );
 }
 

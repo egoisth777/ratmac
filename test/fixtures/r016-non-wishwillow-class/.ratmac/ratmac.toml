@@ -1,18 +1,18 @@
-[phases.inspect]
+[states.inspect]
 prompt = "Inspect the source material and produce an inspection artifact."
 
-[[phases.inspect.guards]]
+[[states.inspect.guards]]
 kind = "files_exact"
 path = "artifacts"
 entries = ["composition.ok", "inspection.ok"]
-[phases.compose]
+[states.compose]
 prompt = "Compose the result from the inspected material."
 
-[[phases.compose.guards]]
+[[states.compose.guards]]
 kind = "files_exact"
 path = "artifacts"
 entries = ["composition.ok", "inspection.ok"]
-[phases.publish]
+[states.publish]
 prompt = "Publish the completed result."
 
 [[transitions]]

@@ -9,32 +9,32 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 /// A composed machine whose child class reuses the phase name `delegate`.
-/// The top-level `delegate` is the initial spawning Phase; a child Run born
-/// at its class-initial `delegate` therefore resolves to a Phase name that
+/// The top-level `delegate` is the initial spawning State; a child Run born
+/// at its class-initial `delegate` therefore resolves to a State name that
 /// the top level declares spawns for - the exact hole the cap must plug.
 const NESTED_NAME_RUNBOOK: &str = r#"
 [classes.reviewer.bindings.ticket]
 required = true
 
-[classes.reviewer.phases.delegate]
+[classes.reviewer.states.delegate]
 prompt = "Review the delegated ticket."
 
-[classes.reviewer.phases.wrap]
+[classes.reviewer.states.wrap]
 prompt = "Wrap up."
 
 [[classes.reviewer.transitions]]
 from = "delegate"
 to = "wrap"
 
-[phases.delegate]
+[states.delegate]
 prompt = "Delegate and wait."
 
-[[phases.delegate.spawns]]
+[[states.delegate.spawns]]
 class = "reviewer"
 name = "rev"
 bind = ["ticket"]
 
-[phases.done]
+[states.done]
 prompt = "Done."
 
 [[transitions]]
@@ -75,7 +75,7 @@ impl Fixture {
             .expect("invoke rtm")
     }
 
-    /// Start a Run; the initial Phase `delegate` is already the spawning one.
+    /// Start a Run; the initial State `delegate` is already the spawning one.
     fn start(&self) -> String {
         let output = self.rtm(&["start"]);
         let text = combined(&output);

@@ -5,7 +5,7 @@
 //! PT-065-03 `abandon_phrase_names_the_run_id`
 //!
 //! `rtm spawn` is ordinary checked motion: no confirmation phrase, legal only
-//! while the parent occupies the spawning Phase and only for a declared spawn.
+//! while the parent occupies the spawning State and only for a declared spawn.
 //! `rtm respawn --run <id>` and abandon-with-run-id refuse without a
 //! confirmation phrase naming that run id; the phrase is typed at invocation,
 //! never read from a file. Every refusal is behavioral evidence - exit code
@@ -16,28 +16,28 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-/// The t-064 composed machine: one declared child class, one spawning Phase
-/// (`delegate`), one join-guarded out-edge. `plan` is the initial Phase.
+/// The t-064 composed machine: one declared child class, one spawning State
+/// (`delegate`), one join-guarded out-edge. `plan` is the initial State.
 const COMPOSED_RUNBOOK: &str = r#"
 [classes.reviewer.bindings.ticket]
 required = true
 
-[classes.reviewer.phases.review]
+[classes.reviewer.states.review]
 prompt = "Review the delegated ticket."
 
-[phases.plan]
+[states.plan]
 prompt = "Plan."
 
-[phases.delegate]
+[states.delegate]
 prompt = "Delegate and wait."
 guards = [{ kind = "join", require = "all_passed", min = 1 }]
 
-[[phases.delegate.spawns]]
+[[states.delegate.spawns]]
 class = "reviewer"
 name = "rev"
 bind = ["ticket"]
 
-[phases.done]
+[states.done]
 prompt = "Done."
 
 [[transitions]]
@@ -173,23 +173,23 @@ fn runs_snapshot(runs: &Path) -> BTreeMap<String, Vec<u8>> {
 }
 
 /// PT-065-01: `rtm spawn` proceeds with no `--confirm` while the parent
-/// occupies the spawning Phase; outside it, or for an undeclared spawn, the
+/// occupies the spawning State; outside it, or for an undeclared spawn, the
 /// same verb refuses by name and writes nothing.
 #[test]
 fn spawn_is_ordinary_checked_motion_without_phrase() {
     let fixture = Fixture::create("spawn");
     let parent = fixture.start();
 
-    // Outside the spawning Phase: `plan` declares no spawns.
+    // Outside the spawning State: `plan` declares no spawns.
     let early = fixture.rtm(&["spawn", "rev", "--run", &parent]);
     let early_text = combined(&early);
     assert!(
         !early.status.success(),
-        "spawn outside the spawning Phase refuses: {early_text}"
+        "spawn outside the spawning State refuses: {early_text}"
     );
     assert!(
         early_text.contains("plan"),
-        "the refusal names the parent's Phase: {early_text}"
+        "the refusal names the parent's State: {early_text}"
     );
     assert_eq!(
         fixture.roster(),
@@ -197,11 +197,11 @@ fn spawn_is_ordinary_checked_motion_without_phrase() {
         "a refused spawn mints nothing"
     );
 
-    // Enter the spawning Phase.
+    // Enter the spawning State.
     let step = fixture.rtm(&["step", "--run", &parent]);
     assert!(
         combined(&step).contains("delegate") || step.status.success(),
-        "the parent steps into the spawning Phase: {}",
+        "the parent steps into the spawning State: {}",
         combined(&step)
     );
 
@@ -227,7 +227,7 @@ fn spawn_is_ordinary_checked_motion_without_phrase() {
     let spawn_text = combined(&spawn);
     assert!(
         spawn.status.success(),
-        "a declared spawn in the spawning Phase is ordinary motion: {spawn_text}"
+        "a declared spawn in the spawning State is ordinary motion: {spawn_text}"
     );
     let roster = fixture.roster();
     assert_eq!(
@@ -243,11 +243,11 @@ fn spawn_is_ordinary_checked_motion_without_phrase() {
     let state = fs::read_to_string(fixture.state_path(&child)).expect("child State File exists");
     assert!(
         state.contains("phase = \"review\""),
-        "the child begins at its class's initial Phase: {state}"
+        "the child begins at its class's initial State: {state}"
     );
     assert!(
         state.contains("status = \"passed\""),
-        "a child born in a terminal Phase carries the Engine-written terminal fact (FDC-002): {state}"
+        "a child born in a terminal State carries the Engine-written terminal fact (FDC-002): {state}"
     );
 }
 

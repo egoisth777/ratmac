@@ -42,13 +42,13 @@ impl Fixture {
             "[roots]\n\
              goal = \".arca/goal\"\n\
              \n\
-             [phases.intake]\n\
+             [states.intake]\n\
              prompt = \"Integrate the issues.\"\n\
-             [phases.gaps]\n\
+             [states.gaps]\n\
              prompt = \"Find the gaps.\"\n\
              guards = [{gaps_guards}]\n\
              \n\
-             [phases.tickets]\n\
+             [states.tickets]\n\
              prompt = \"Cut the tickets.\"\n\
              \n\
              [[transitions]]\n\

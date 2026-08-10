@@ -161,18 +161,18 @@ fn repair_actions() -> BTreeMap<String, String> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Spot {
     File,
-    Phase(String),
+    State(String),
     Guard(String, usize),
     Edge(String, String),
     Index(usize),
 }
 
 fn parse_spot(location: &str) -> Spot {
-    // `<path> [phases.build] prompt` - the ownership audit's own wording.
-    if let Some(at) = location.find("[phases.") {
-        let rest = &location[at + "[phases.".len()..];
+    // `<path> [states.build] prompt` - the ownership audit's own wording.
+    if let Some(at) = location.find("[states.") {
+        let rest = &location[at + "[states.".len()..];
         if let Some(end) = rest.find(']') {
-            return Spot::Phase(rest[..end].to_owned());
+            return Spot::State(rest[..end].to_owned());
         }
     }
     if let Some(rest) = location.strip_prefix("phase ") {
@@ -185,7 +185,7 @@ fn parse_spot(location: &str) -> Spot {
         if let Some(index) = parts.next() {
             return Spot::Guard(name, index.trim().parse().unwrap_or(0));
         }
-        return Spot::Phase(rest.trim_matches('"').to_owned());
+        return Spot::State(rest.trim_matches('"').to_owned());
     }
     if let Some(rest) = location.strip_prefix("transition ") {
         if let Some((from, to)) = rest.split_once(" -> ") {
@@ -266,7 +266,7 @@ impl Draft {
     /// Replace one phase block with the scaffold's version of it, or with a
     /// bare working phase when the scaffold has no such phase.
     fn restore_phase(&mut self, name: &str, scaffold: &str) {
-        let header = format!("[phases.{name}]");
+        let header = format!("[states.{name}]");
         let replacement = Draft::new(scaffold)
             .block(&header)
             .map(|block| Draft::new(scaffold).lines[block.0..block.1].to_vec())
@@ -286,7 +286,7 @@ impl Draft {
 
     /// Drop the phase and every edge that touches it.
     fn drop_phase(&mut self, name: &str) {
-        if let Some(block) = self.block(&format!("[phases.{name}]")) {
+        if let Some(block) = self.block(&format!("[states.{name}]")) {
             self.remove(block);
         }
         loop {
@@ -302,7 +302,7 @@ impl Draft {
     }
 
     fn guards_line(&self, phase: &str) -> Option<usize> {
-        let block = self.block(&format!("[phases.{phase}]"))?;
+        let block = self.block(&format!("[states.{phase}]"))?;
         self.lines[block.0..block.1]
             .iter()
             .position(|line| line.trim_start().starts_with("guards"))
@@ -377,7 +377,7 @@ impl Draft {
     }
 
     fn straighten_branch(&mut self, phase: &str) {
-        if let Some(block) = self.block(&format!("[phases.{phase}]")) {
+        if let Some(block) = self.block(&format!("[states.{phase}]")) {
             self.remove_field(block, "inputs");
         }
         let ordinary = self
@@ -412,7 +412,7 @@ fn apply(
     match action {
         "restore-file" => return scaffold.to_owned(),
         "restore-location" => match spot {
-            Spot::Phase(name) => draft.restore_phase(name, scaffold),
+            Spot::State(name) => draft.restore_phase(name, scaffold),
             Spot::Guard(phase, _) => {
                 if let Some(at) = draft.guards_line(phase) {
                     draft.lines.remove(at);
@@ -439,7 +439,7 @@ fn apply(
         },
         "straighten-branch" => {
             let phase = match spot {
-                Spot::Phase(name) | Spot::Edge(name, _) => Some(name.as_str()),
+                Spot::State(name) | Spot::Edge(name, _) => Some(name.as_str()),
                 _ => None,
             };
             if let Some(phase) = phase {
@@ -452,17 +452,17 @@ fn apply(
             }
         }
         "drop-phase" => {
-            if let Spot::Phase(name) = spot {
+            if let Spot::State(name) = spot {
                 draft.drop_phase(name);
             }
         }
         "merge-initial" | "connect-terminal" => {
-            if let Spot::Phase(name) = spot {
+            if let Spot::State(name) = spot {
                 // The other findings of the same code name the other ends.
                 let partner = findings
                     .iter()
                     .filter_map(|(_, location)| match parse_spot(location) {
-                        Spot::Phase(other) if other != *name => Some(other),
+                        Spot::State(other) if other != *name => Some(other),
                         _ => None,
                     })
                     .next();
@@ -579,27 +579,27 @@ fn seeds(scaffold: &str) -> Vec<(&'static str, String)> {
     vec![
         ("RB101", String::new()),
         ("RB102", plain("\nthis is not = = toml\n")),
-        ("RB103", scaffold.replace("[phases.build]", "[phases.build]\nextra = 1")),
+        ("RB103", scaffold.replace("[states.build]", "[states.build]\nextra = 1")),
         ("RB104", format!("status = \"planned\"\n\n{scaffold}")),
         (
             "RB105",
             scaffold.replace(
-                "[phases.review]\nprompt = \"Review the work against the ticket and report the verdict.\"",
-                "[phases.review]",
+                "[states.review]\nprompt = \"Review the work against the ticket and report the verdict.\"",
+                "[states.review]",
             ),
         ),
         (
             "RB106",
             scaffold.replace(
-                "[phases.build]",
-                "[phases.build]\nguards = [{ kind = \"no_such_kind\" }]",
+                "[states.build]",
+                "[states.build]\nguards = [{ kind = \"no_such_kind\" }]",
             ),
         ),
         (
             "RB107",
             scaffold.replace(
-                "[phases.build]",
-                "[phases.build]\nguards = [{ kind = \"intake_contract\", path = \"somewhere\" }]",
+                "[states.build]",
+                "[states.build]\nguards = [{ kind = \"intake_contract\", path = \"somewhere\" }]",
             ),
         ),
         ("RB108", plain("\n[[transitions]]\nfrom = \"review\"\nto = \"ghost\"\n")),
@@ -618,34 +618,34 @@ fn seeds(scaffold: &str) -> Vec<(&'static str, String)> {
         (
             "RB602",
             scaffold.replace(
-                "[phases.build]",
-                "[phases.build]\nguards = [{ kind = \"files_exact\", root = \"work\", path = \"out\" }]",
+                "[states.build]",
+                "[states.build]\nguards = [{ kind = \"files_exact\", root = \"work\", path = \"out\" }]",
             ),
         ),
         ("RB603", format!("[roots]\nwork = \"missing\"\n\n{scaffold}")),
         ("RB604", format!("[roots]\nwork = \".ratmac\"\n\n{scaffold}")),
-        ("RB201", "[phases]\n".to_owned()),
+        ("RB201", "[states]\n".to_owned()),
         ("RB202", plain("\n[[transitions]]\nfrom = \"review\"\nto = \"build\"\n")),
         (
             "RB203",
-            plain("\n[phases.stray]\nprompt = \"An orphan with no way in.\"\n"),
+            plain("\n[states.stray]\nprompt = \"An orphan with no way in.\"\n"),
         ),
         (
             "RB204",
             plain(
-                "\n[phases.left]\nprompt = \"An island.\"\n\n[phases.right]\nprompt = \"The other half.\"\n\n\
+                "\n[states.left]\nprompt = \"An island.\"\n\n[states.right]\nprompt = \"The other half.\"\n\n\
                  [[transitions]]\nfrom = \"left\"\nto = \"right\"\n\n[[transitions]]\nfrom = \"right\"\nto = \"left\"\n",
             ),
         ),
         (
             "RB205",
             format!(
-                "{}\n[phases.done]\nprompt = \"A second ending.\"\n\n\
+                "{}\n[states.done]\nprompt = \"A second ending.\"\n\n\
                  [[transitions]]\nfrom = \"build\"\nto = \"done\"\ninput = \"done\"\n",
                 scaffold
                     .replace(
-                        "[phases.build]",
-                        "[phases.build]\ninputs = [\"review\", \"done\"]"
+                        "[states.build]",
+                        "[states.build]\ninputs = [\"review\", \"done\"]"
                     )
                     .replace(
                         "from = \"build\"\nto = \"review\"",
@@ -663,7 +663,7 @@ fn seeds(scaffold: &str) -> Vec<(&'static str, String)> {
         ("RB207", plain("\n[[transitions]]\nfrom = \"review\"\nto = \"review\"\n")),
         (
             "RB208",
-            scaffold.replace("[phases.build]", "[phases.build]\ninputs = []"),
+            scaffold.replace("[states.build]", "[states.build]\ninputs = []"),
         ),
         (
             "RB209",
@@ -675,8 +675,8 @@ fn seeds(scaffold: &str) -> Vec<(&'static str, String)> {
                 "{}\n[[transitions]]\nfrom = \"build\"\nto = \"review\"\ninput = \"two\"\n",
                 scaffold
                     .replace(
-                        "[phases.build]",
-                        "[phases.build]\ninputs = [\"one\", \"two\", \"three\"]"
+                        "[states.build]",
+                        "[states.build]\ninputs = [\"one\", \"two\", \"three\"]"
                     )
                     .replace(
                         "from = \"build\"\nto = \"review\"",
@@ -690,8 +690,8 @@ fn seeds(scaffold: &str) -> Vec<(&'static str, String)> {
                 "{}\n[[transitions]]\nfrom = \"build\"\nto = \"review\"\ninput = \"one\"\n",
                 scaffold
                     .replace(
-                        "[phases.build]",
-                        "[phases.build]\ninputs = [\"one\", \"two\"]"
+                        "[states.build]",
+                        "[states.build]\ninputs = [\"one\", \"two\"]"
                     )
                     .replace(
                         "from = \"build\"\nto = \"review\"",
@@ -715,7 +715,7 @@ fn seeds(scaffold: &str) -> Vec<(&'static str, String)> {
         (
             "RB214",
             plain(
-                "\n[phases.spin]\nprompt = \"Spin until the guard says stop.\"\n\
+                "\n[states.spin]\nprompt = \"Spin until the guard says stop.\"\n\
                  [[transitions]]\nfrom = \"review\"\nto = \"spin\"\n\
                  [[transitions]]\nfrom = \"spin\"\nto = \"review\"\n",
             ),
@@ -723,15 +723,15 @@ fn seeds(scaffold: &str) -> Vec<(&'static str, String)> {
         (
             "RB301",
             scaffold.replace(
-                "[phases.build]",
-                "[phases.build]\nguards = [{ kind = \"command_exit\", program = \"no-such-program-anywhere\", expected = 0 }]",
+                "[states.build]",
+                "[states.build]\nguards = [{ kind = \"command_exit\", program = \"no-such-program-anywhere\", expected = 0 }]",
             ),
         ),
         (
             "RB302",
             scaffold.replace(
-                "[phases.build]",
-                "[phases.build]\nguards = [{ kind = \"files_exact\", path = \"artifacts\" }]",
+                "[states.build]",
+                "[states.build]\nguards = [{ kind = \"files_exact\", path = \"artifacts\" }]",
             ),
         ),
         (
@@ -744,27 +744,27 @@ fn seeds(scaffold: &str) -> Vec<(&'static str, String)> {
         ("RB501", format!("classes = 1\n\n{scaffold}")),
         (
             "RB502",
-            plain("\n[classes.helper]\nbindings = 1\n\n[classes.helper.phases.work]\nprompt = \"Work.\"\n"),
+            plain("\n[classes.helper]\nbindings = 1\n\n[classes.helper.states.work]\nprompt = \"Work.\"\n"),
         ),
         (
             "RB503",
-            scaffold.replace("[phases.build]", "[phases.build]\nspawns = 1"),
+            scaffold.replace("[states.build]", "[states.build]\nspawns = 1"),
         ),
         (
             "RB504",
-            plain("\n[[phases.build.spawns]]\nclass = \"ghost\"\nname = \"child\"\n"),
+            plain("\n[[states.build.spawns]]\nclass = \"ghost\"\nname = \"child\"\n"),
         ),
         (
             "RB505",
             plain(
-                "\n[classes.helper.bindings.ticket]\nrequired = true\n\n[classes.helper.phases.work]\nprompt = \"Work.\"\n\n[[phases.build.spawns]]\nclass = \"helper\"\nname = \"child\"\n",
+                "\n[classes.helper.bindings.ticket]\nrequired = true\n\n[classes.helper.states.work]\nprompt = \"Work.\"\n\n[[states.build.spawns]]\nclass = \"helper\"\nname = \"child\"\n",
             ),
         ),
         (
             "RB506",
             scaffold.replace(
-                "[phases.build]",
-                "[phases.build]\nguards = [{ kind = \"join\", require = \"any_passed\" }]",
+                "[states.build]",
+                "[states.build]\nguards = [{ kind = \"join\", require = \"any_passed\" }]",
             ),
         ),
     ]
@@ -1012,7 +1012,7 @@ fn the_scaffold_is_a_runnable_machine() {
     assert_eq!(code, 0, "AAL-002: the scaffold steps: {stepped}");
     assert_ne!(
         first, stepped,
-        "AAL-002: the Run actually routes to the next Phase"
+        "AAL-002: the Run actually routes to the next State"
     );
 }
 

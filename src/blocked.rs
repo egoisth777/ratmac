@@ -18,7 +18,7 @@
 //! - the ticket exists and is not already passed;
 //! - the blocker reference resolves to a complete five-file issue folder or a
 //!   named residual record;
-//! - the current Phase declares a blocked route.
+//! - the current State declares a blocked route.
 //!
 //! An admission refusal before the route write leaves Scheduler-owned files
 //! byte-identical. A ticket replacement failure before it reaches its
@@ -297,7 +297,7 @@ pub fn plan_hold(root: &Path, request: &HoldRequest) -> Result<HoldPlan, HoldRef
     }
     let Some(route) = scheduler.machine().blocked_route_for(&from_phase) else {
         return Err(refusal(format!(
-            "Phase {from_phase:?} declares no blocked route; add a transition with blocked-route = true"
+            "State {from_phase:?} declares no blocked route; add a transition with blocked-route = true"
         )));
     };
 
@@ -378,7 +378,7 @@ fn verify_blocker(root: &Path, blocker: &str) -> Result<(), HoldRefusal> {
     )))
 }
 
-/// Apply a verified hold: ticket state, routed Phase, and one history entry.
+/// Apply a verified hold: ticket state, routed State, and one history entry.
 ///
 /// The plan's cheap non-ticket checks happen before the lock pair. The exact
 /// planned state is compared after acquisition. The shared ticket is a

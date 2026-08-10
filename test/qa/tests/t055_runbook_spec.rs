@@ -127,7 +127,7 @@ fn specification_is_routed_and_states_the_shape() {
 
     for section in [
         "## Top level",
-        "## Phases",
+        "## States",
         "## Transitions",
         "## Guard kinds",
         "## Ownership",
@@ -145,14 +145,14 @@ fn specification_is_routed_and_states_the_shape() {
         .iter()
         .flat_map(|row| backticked(&row[0]))
         .collect::<BTreeSet<_>>();
-    for key in ["phases", "transitions"] {
+    for key in ["states", "transitions"] {
         assert!(
             top_keys.contains(key),
             "RBS-001: the top-level table must state the {key:?} key, found {top_keys:?}"
         );
     }
 
-    let phase_keys = table_rows(&text, "## Phases")
+    let phase_keys = table_rows(&text, "## States")
         .iter()
         .flat_map(|row| backticked(&row[0]))
         .collect::<BTreeSet<_>>();

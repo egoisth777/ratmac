@@ -19,14 +19,14 @@ const RUNBOOK: &str = r#"
 [roots]
 ticket = ".arca/ticket"
 
-[phases.intake]
+[states.intake]
 prompt = "Integrate the issue."
 
-[phases.build]
+[states.build]
 prompt = "Build the ticket."
 guards = [{ kind = "file_contains", path = "artifacts/ready.txt", contains = "ready" }]
 
-[phases.review]
+[states.review]
 prompt = "Review the completed ticket."
 
 [[transitions]]
@@ -278,7 +278,7 @@ fn scheduler_writes_only_ratmac_transition_log() {
     assert_eq!(
         fixture.phase(&first_run),
         "build",
-        "the first addressed Run reached its guarded build Phase"
+        "the first addressed Run reached its guarded build State"
     );
     assert_human_history_unchanged(&fixture, &human_before, "the ordinary first-Run step");
     let after_first_step = fixture.engine_log();
@@ -638,7 +638,7 @@ fn hold_and_abandon_surface_the_shared_fragment_refusal() {
     let held_step = held.rtm(&["step", "--run", &held_run]);
     assert!(
         held_step.status.success(),
-        "the held Run reaches the blocked route source Phase: {}",
+        "the held Run reaches the blocked route source State: {}",
         combined(&held_step)
     );
     let held_log_before = held.engine_log();

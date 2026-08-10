@@ -16,29 +16,29 @@ const RUNBOOK: &str = r#"
 [classes.reviewer.bindings.ticket]
 required = true
 
-[classes.reviewer.phases.review]
+[classes.reviewer.states.review]
 prompt = "Review the delegated ticket."
 
-[classes.reviewer.phases.approved]
+[classes.reviewer.states.approved]
 prompt = "Approved."
 
 [[classes.reviewer.transitions]]
 from = "review"
 to = "approved"
 
-[phases.plan]
+[states.plan]
 prompt = "Plan."
 
-[phases.delegate]
+[states.delegate]
 prompt = "Delegate and wait."
 guards = [{ kind = "join", require = "all_passed", min = 1 }]
 
-[[phases.delegate.spawns]]
+[[states.delegate.spawns]]
 class = "reviewer"
 name = "review"
 bind = ["ticket"]
 
-[phases.done]
+[states.done]
 prompt = "Done."
 
 [[transitions]]
@@ -232,7 +232,7 @@ fn spawn_child(fixture: &GitFixture) -> String {
     let enter_delegate = rtm_at(&fixture.primary, &["step", "--run", fixture.run.as_str()]);
     assert!(
         enter_delegate.status.success(),
-        "fixture setup must enter the spawning Phase: {}",
+        "fixture setup must enter the spawning State: {}",
         combined(&enter_delegate)
     );
 

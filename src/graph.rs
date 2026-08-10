@@ -3,9 +3,9 @@ use std::fmt;
 
 /// A named position in a machine graph.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct Phase(String);
+pub struct State(String);
 
-impl Phase {
+impl State {
     pub fn new(name: impl Into<String>) -> Self {
         Self(name.into())
     }
@@ -15,41 +15,41 @@ impl Phase {
     }
 }
 
-impl AsRef<str> for Phase {
+impl AsRef<str> for State {
     fn as_ref(&self) -> &str {
         self.as_str()
     }
 }
 
-impl From<&str> for Phase {
+impl From<&str> for State {
     fn from(name: &str) -> Self {
         Self::new(name)
     }
 }
 
-impl From<String> for Phase {
+impl From<String> for State {
     fn from(name: String) -> Self {
         Self::new(name)
     }
 }
 
-impl From<&Phase> for Phase {
-    fn from(phase: &Phase) -> Self {
-        phase.clone()
+impl From<&State> for State {
+    fn from(state: &State) -> Self {
+        state.clone()
     }
 }
 
-impl fmt::Display for Phase {
+impl fmt::Display for State {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(self.as_str())
     }
 }
 
-/// A directed edge between two phases.
+/// A directed edge between two states.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Transition {
-    from: Phase,
-    to: Phase,
+    from: State,
+    to: State,
     /// FDC-001: the exact closed-list value selecting this ordinary edge.
     /// Straight-line and blocked routes carry no input.
     input: Option<String>,
@@ -62,7 +62,7 @@ pub struct Transition {
 }
 
 impl Transition {
-    pub fn new(from: impl Into<Phase>, to: impl Into<Phase>) -> Self {
+    pub fn new(from: impl Into<State>, to: impl Into<State>) -> Self {
         Self {
             from: from.into(),
             to: to.into(),
@@ -102,11 +102,11 @@ impl Transition {
         self.blocked_route
     }
 
-    pub fn from(&self) -> &Phase {
+    pub fn from(&self) -> &State {
         &self.from
     }
 
-    pub fn to(&self) -> &Phase {
+    pub fn to(&self) -> &State {
         &self.to
     }
 }
@@ -114,37 +114,37 @@ impl Transition {
 /// The machine's graph. Lifecycle information is deliberately not represented here.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct MachineGraph {
-    phases: BTreeSet<Phase>,
+    states: BTreeSet<State>,
     transitions: Vec<Transition>,
 }
 
 impl MachineGraph {
-    pub fn new<I, P, J>(phases: I, transitions: J) -> Self
+    pub fn new<I, P, J>(states: I, transitions: J) -> Self
     where
         I: IntoIterator<Item = P>,
-        P: Into<Phase>,
+        P: Into<State>,
         J: IntoIterator<Item = Transition>,
     {
         Self {
-            phases: phases.into_iter().map(Into::into).collect(),
+            states: states.into_iter().map(Into::into).collect(),
             transitions: transitions.into_iter().collect(),
         }
     }
 
-    pub fn phases(&self) -> impl Iterator<Item = &Phase> {
-        self.phases.iter()
+    pub fn states(&self) -> impl Iterator<Item = &State> {
+        self.states.iter()
     }
 
     pub fn transitions(&self) -> impl Iterator<Item = &Transition> {
         self.transitions.iter()
     }
 
-    /// Finds the sole unlabelled ordinary transition leaving `phase`.
+    /// Finds the sole unlabelled ordinary transition leaving `state`.
     ///
     /// Branching edges are selected only by [`Self::transition_for_input`].
     /// Blocked routes are skipped: only a human-confirmed hold may take one.
-    pub fn transition_for<P: AsRef<str>>(&self, phase: P) -> Option<&Transition> {
-        self.transition_for_input(phase, None)
+    pub fn transition_for<P: AsRef<str>>(&self, state: P) -> Option<&Transition> {
+        self.transition_for_input(state, None)
     }
 
     /// FDC-001: select the ordinary edge carrying exactly `input`.
@@ -153,12 +153,12 @@ impl MachineGraph {
     /// unlabelled straight-line edge; blocked routes never participate.
     pub fn transition_for_input<P: AsRef<str>>(
         &self,
-        phase: P,
+        state: P,
         input: Option<&str>,
     ) -> Option<&Transition> {
-        let phase = phase.as_ref();
+        let state = state.as_ref();
         let mut matches = self.transitions.iter().filter(|transition| {
-            transition.from.as_str() == phase
+            transition.from.as_str() == state
                 && !transition.blocked_route
                 && transition.input() == input
         });
@@ -169,9 +169,9 @@ impl MachineGraph {
     /// FDC-008: every elementary cycle over ordinary edges.
     ///
     /// Each cycle is reported exactly once, rooted at its lexicographically
-    /// smallest Phase, in deterministic order. Blocked routes never form
+    /// smallest State, in deterministic order. Blocked routes never form
     /// cycles: `rtm step` cannot take one, so they carry no repetition.
-    pub fn ordinary_cycles(&self) -> Vec<Vec<Phase>> {
+    pub fn ordinary_cycles(&self) -> Vec<Vec<State>> {
         let mut adjacency: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
         for transition in &self.transitions {
             if transition.blocked_route {
@@ -188,16 +188,16 @@ impl MachineGraph {
             at: &'a str,
             adjacency: &BTreeMap<&'a str, BTreeSet<&'a str>>,
             path: &mut Vec<&'a str>,
-            cycles: &mut Vec<Vec<Phase>>,
+            cycles: &mut Vec<Vec<State>>,
         ) {
             let Some(nexts) = adjacency.get(at) else {
                 return;
             };
             for &next in nexts {
                 if next == root {
-                    cycles.push(path.iter().map(|name| Phase::new(*name)).collect());
+                    cycles.push(path.iter().map(|name| State::new(*name)).collect());
                 } else if next > root && !path.contains(&next) {
-                    // Restricting the walk to Phases after the root reports
+                    // Restricting the walk to States after the root reports
                     // each cycle once, at its smallest member.
                     path.push(next);
                     explore(root, next, adjacency, path, cycles);
@@ -207,52 +207,52 @@ impl MachineGraph {
         }
 
         let mut cycles = Vec::new();
-        for phase in &self.phases {
-            let root = phase.as_str();
+        for state in &self.states {
+            let root = state.as_str();
             let mut path = vec![root];
             explore(root, root, &adjacency, &mut path, &mut cycles);
         }
         cycles
     }
 
-    /// PGE-006: the blocked route leaving `phase`, if the Runbook declares one.
-    pub fn blocked_route_for<P: AsRef<str>>(&self, phase: P) -> Option<&Transition> {
-        let phase = phase.as_ref();
+    /// PGE-006: the blocked route leaving `state`, if the Runbook declares one.
+    pub fn blocked_route_for<P: AsRef<str>>(&self, state: P) -> Option<&Transition> {
+        let state = state.as_ref();
         self.transitions
             .iter()
-            .find(|transition| transition.from.as_str() == phase && transition.blocked_route)
+            .find(|transition| transition.from.as_str() == state && transition.blocked_route)
     }
 
-    /// FDC-002: true when `phase` has at least one ordinary
-    /// (non-blocked-route) outgoing transition. A Phase without one is
+    /// FDC-002: true when `state` has at least one ordinary
+    /// (non-blocked-route) outgoing transition. A State without one is
     /// structurally terminal: entering it completes ordinary execution.
-    pub fn has_ordinary_outgoing<P: AsRef<str>>(&self, phase: P) -> bool {
-        let phase = phase.as_ref();
+    pub fn has_ordinary_outgoing<P: AsRef<str>>(&self, state: P) -> bool {
+        let state = state.as_ref();
         self.transitions
             .iter()
-            .any(|transition| transition.from.as_str() == phase && !transition.blocked_route)
+            .any(|transition| transition.from.as_str() == state && !transition.blocked_route)
     }
 
-    /// Finds the first destination of a transition leaving `phase`.
-    pub fn next_phase<P: AsRef<str>>(&self, phase: P) -> Option<&Phase> {
-        self.transition_for(phase).map(Transition::to)
+    /// Finds the first destination of a transition leaving `state`.
+    pub fn next_state<P: AsRef<str>>(&self, state: P) -> Option<&State> {
+        self.transition_for(state).map(Transition::to)
     }
 }
 
 /// Runtime machine position. It has no lifecycle/status dimension.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MachineState {
-    phase: Phase,
+    state: State,
 }
 
 impl MachineState {
-    pub fn new(phase: impl Into<Phase>) -> Self {
+    pub fn new(state: impl Into<State>) -> Self {
         Self {
-            phase: phase.into(),
+            state: state.into(),
         }
     }
 
-    pub fn phase(&self) -> &Phase {
-        &self.phase
+    pub fn state(&self) -> &State {
+        &self.state
     }
 }

@@ -1,13 +1,13 @@
 # A valid class whose first phase has an unsatisfied artifact guard.
-[phases.prepare]
+[states.prepare]
 prompt = "Prepare the required output."
 
-[[phases.prepare.guards]]
+[[states.prepare.guards]]
 kind = "files_exact"
 path = "required"
 entries = ["output.txt"]
 
-[phases.done]
+[states.done]
 prompt = "The run is complete."
 
 [[transitions]]

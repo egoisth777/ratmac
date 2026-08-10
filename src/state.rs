@@ -210,7 +210,7 @@ fn replace_existing(temp: &Path, destination: &Path) -> std::io::Result<()> {
     fs::rename(temp, destination)
 }
 
-/// The rendered Phase Prompt shown by status.
+/// The rendered State Prompt shown by status.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PhasePrompt {
     text: String,

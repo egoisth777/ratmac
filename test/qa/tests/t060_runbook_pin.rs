@@ -48,8 +48,8 @@ impl Fixture {
         fs::write(root.join(".arca/goal/spec.md"), "# Spec\n").expect("write goal");
         fs::write(
             root.join(".ratmac/ratmac.toml"),
-            "[phases.intake]\nprompt = \"Integrate the issues.\"\n\n\
-             [phases.build]\nprompt = \"Build the ticket.\"\n\n\
+            "[states.intake]\nprompt = \"Integrate the issues.\"\n\n\
+             [states.build]\nprompt = \"Build the ticket.\"\n\n\
              [[transitions]]\nfrom = \"intake\"\nto = \"build\"\n",
         )
         .expect("write machine class");
@@ -340,9 +340,9 @@ fn hold_applies_residue_and_runbook_pin_preflight() {
     fs::write(
         fixture.path(".ratmac/ratmac.toml"),
         "[roots]\nticket = \".arca/ticket\"\n\n\
-         [phases.intake]\nprompt = \"Integrate the issues.\"\n\n\
-         [phases.build]\nprompt = \"Build the ticket.\"\n\n\
-         [phases.review]\nprompt = \"Review the ticket.\"\n\n\
+         [states.intake]\nprompt = \"Integrate the issues.\"\n\n\
+         [states.build]\nprompt = \"Build the ticket.\"\n\n\
+         [states.review]\nprompt = \"Review the ticket.\"\n\n\
          [[transitions]]\nfrom = \"intake\"\nto = \"build\"\n\n\
          [[transitions]]\nfrom = \"build\"\nto = \"intake\"\nblocked-route = true\n\n\
          [[transitions]]\nfrom = \"build\"\nto = \"review\"\n",

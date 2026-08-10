@@ -1,17 +1,17 @@
-[phases.build]
+[states.build]
 prompt = "Build the selected artifact only."
 
-[[phases.build.guards]]
+[[states.build.guards]]
 kind = "files_exact"
 path = "artifacts"
 entries = ["release.txt"]
 
-[[phases.build.guards]]
+[[states.build.guards]]
 kind = "file_contains"
 path = "artifacts/release.txt"
 contains = "ready: true"
 
-[[phases.build.guards]]
+[[states.build.guards]]
 kind = "command_exit"
 program = "rustc"
 args = ["--version"]
@@ -19,10 +19,10 @@ expected = 0
 # ETB-001: a toolchain probe reads no project state and is marked as such.
 exempt = true
 
-[phases.build-review]
+[states.build-review]
 prompt = "Review the selected artifact."
 
-[phases.build-done]
+[states.build-done]
 prompt = "Finish the selected artifact."
 
 [[transitions]]

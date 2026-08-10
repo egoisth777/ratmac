@@ -10,18 +10,18 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-/// One Phase, no transitions: structurally terminal from the first byte.
+/// One State, no transitions: structurally terminal from the first byte.
 const TERMINAL_ONLY_RUNBOOK: &str = r#"
-[phases.done]
+[states.done]
 prompt = "Everything is already done."
 "#;
 
-/// Two Phases on a straight line; `done` has no ordinary outgoing edge.
+/// Two States on a straight line; `done` has no ordinary outgoing edge.
 const STRAIGHT_RUNBOOK: &str = r#"
-[phases.start]
+[states.start]
 prompt = "Start."
 
-[phases.done]
+[states.done]
 prompt = "Done."
 
 [[transitions]]
@@ -29,16 +29,16 @@ from = "start"
 to = "done"
 "#;
 
-/// A branching Phase whose two labelled destinations are both terminal.
+/// A branching State whose two labelled destinations are both terminal.
 const TERMINAL_BRANCH_RUNBOOK: &str = r#"
-[phases.review]
+[states.review]
 prompt = "Review."
 inputs = ["approve", "rework"]
 
-[phases.approved]
+[states.approved]
 prompt = "Approved."
 
-[phases.rework]
+[states.rework]
 prompt = "Rework."
 
 [[transitions]]
@@ -54,11 +54,11 @@ input = "approve"
 
 /// A straight line behind a readiness guard that fails until `gate.txt` says so.
 const GUARDED_STRAIGHT_RUNBOOK: &str = r#"
-[phases.start]
+[states.start]
 prompt = "Start."
 guards = [{ kind = "file_contains", path = "gate.txt", contains = "ready" }]
 
-[phases.done]
+[states.done]
 prompt = "Done."
 
 [[transitions]]
@@ -216,7 +216,7 @@ fn assert_terminal_refusal(fixture: &Fixture, label: &str) {
     );
 }
 
-/// PT-063-01 / FDCV-011: `rtm start` beginning in a Phase with no ordinary
+/// PT-063-01 / FDCV-011: `rtm start` beginning in a State with no ordinary
 /// outgoing edge writes `passed` in the very first State File.
 #[test]
 fn terminal_initial_phase_is_passed_on_start() {
@@ -231,13 +231,13 @@ fn terminal_initial_phase_is_passed_on_start() {
     assert_eq!(
         fixture.state_field("status"),
         "passed",
-        "FDC-002: starting in a terminal Phase writes the Engine-owned passed fact"
+        "FDC-002: starting in a terminal State writes the Engine-owned passed fact"
     );
     assert_terminal_refusal(&fixture, "post-start step");
 }
 
-/// PT-063-02 / FDCV-012: arrival at a Phase with no ordinary outgoing edge
-/// writes Phase and `passed` in one replacement — on a straight line and on a
+/// PT-063-02 / FDCV-012: arrival at a State with no ordinary outgoing edge
+/// writes State and `passed` in one replacement — on a straight line and on a
 /// verdict-routed branch, where the archive still precedes the passed state.
 #[test]
 fn step_into_terminal_phase_writes_passed() {
@@ -246,7 +246,7 @@ fn step_into_terminal_phase_writes_passed() {
     assert_eq!(
         straight.state_field("status"),
         "planned",
-        "a non-terminal initial Phase stays planned"
+        "a non-terminal initial State stays planned"
     );
     let advance = straight.step();
     assert!(
@@ -258,7 +258,7 @@ fn step_into_terminal_phase_writes_passed() {
     assert_eq!(
         straight.state_field("status"),
         "passed",
-        "FDC-002: arrival at the terminal Phase writes passed in the same replacement"
+        "FDC-002: arrival at the terminal State writes passed in the same replacement"
     );
     assert_terminal_refusal(&straight, "post-arrival step");
 
@@ -267,7 +267,7 @@ fn step_into_terminal_phase_writes_passed() {
     assert_eq!(
         branch.state_field("status"),
         "planned",
-        "a branching initial Phase has ordinary outgoing edges and is not terminal"
+        "a branching initial State has ordinary outgoing edges and is not terminal"
     );
     branch.publish_verdict("review", "approve", "The packet is complete.");
     let advance = branch.step();
@@ -280,7 +280,7 @@ fn step_into_terminal_phase_writes_passed() {
     assert_eq!(
         branch.state_field("status"),
         "passed",
-        "FDC-002: a verdict-routed arrival at a terminal Phase writes passed"
+        "FDC-002: a verdict-routed arrival at a terminal State writes passed"
     );
     assert!(
         branch.run_dir().join("verdicts/000001.toml").is_file(),
@@ -334,7 +334,7 @@ fn abandonment_records_event_before_state_retirement() {
     );
     assert!(
         event.contains("start"),
-        "the event names the retired Run's last Phase: {event:?}"
+        "the event names the retired Run's last State: {event:?}"
     );
     assert!(
         event.contains("status planned"),
@@ -396,6 +396,6 @@ fn guard_refusal_is_non_terminal_and_failed_is_never_written() {
     assert_eq!(
         fixture.state_field("status"),
         "passed",
-        "the advance ended in the terminal Phase with the Engine-owned passed fact"
+        "the advance ended in the terminal State with the Engine-owned passed fact"
     );
 }

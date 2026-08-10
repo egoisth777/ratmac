@@ -337,11 +337,11 @@ fn barrier_runbook() -> String {
         .replace('\\', "\\\\")
         .replace('"', "\\\"");
     format!(
-        r#"[phases.prepare]
+        r#"[states.prepare]
 prompt = "Park at the deterministic guard barrier."
 guards = [{{ kind = "command_exit", program = "{program}", expected = 0 }}]
 
-[phases.done]
+[states.done]
 prompt = "The guarded transition completed."
 
 [[transitions]]

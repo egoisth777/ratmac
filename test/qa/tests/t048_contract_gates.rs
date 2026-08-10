@@ -207,15 +207,15 @@ impl Tree {
              residual = \".arca/residual\"\n\
              ticket = \".arca/ticket\"\n\
              \n\
-             [phases.intake]\n\
+             [states.intake]\n\
              prompt = \"Integrate.\"\n\
              guards = [{ kind = \"intake_contract\" }]\n\
              \n\
-             [phases.gaps]\n\
+             [states.gaps]\n\
              prompt = \"Find gaps.\"\n\
              guards = [{ kind = \"record_contract\" }]\n\
              \n\
-             [phases.build]\n\
+             [states.build]\n\
              prompt = \"Build.\"\n\
              guards = [{ kind = \"sensitivity_receipts\", root = \"ticket\", ticket = \"t-100.md\" }]\n\
              \n\
@@ -314,7 +314,7 @@ fn intake_contract_verified() {
     );
 
     // The same predicate must run inside the pinned boundary: the Engine's own
-    // gate refuses the step and leaves the Phase where it was.
+    // gate refuses the step and leaves the State where it was.
     tree.rtm(&["start"]);
     // FDC-004: address the live run — the Engine roster entry carries its State File.
     let live = fs::read_dir(tree.root.join(".ratmac/runs"))
@@ -333,7 +333,7 @@ fn intake_contract_verified() {
     let status = tree.rtm(&["status", "--run", &live]);
     assert!(
         status.contains("intake"),
-        "a refused gate leaves the Phase unchanged: {status}"
+        "a refused gate leaves the State unchanged: {status}"
     );
 }
 
@@ -590,7 +590,7 @@ fn no_vacuous_satisfaction() {
          issue = \".arca/issue\"\n\
          residual = \".arca/residual\"\n\
          ticket = \".arca/ticket\"\n\n\
-         [phases.build]\nprompt = \"Build.\"\n\n[phases.done]\nprompt = \"Done.\"\n\n\
+         [states.build]\nprompt = \"Build.\"\n\n[states.done]\nprompt = \"Done.\"\n\n\
          [[transitions]]\nfrom = \"build\"\nto = \"done\"\n",
     )
     .expect("write gateless machine class");

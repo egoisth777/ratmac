@@ -3,7 +3,7 @@
 //! PT-067-01 `guarded_cycle_passes_termination`
 //! PT-067-02 `unguarded_cycle_fails_naming_phases_and_class`
 //!
-//! Termination is guard-kind membership, never execution: every Phase on a
+//! Termination is guard-kind membership, never execution: every State on a
 //! cycle must carry at least one out-edge guarded by a receipt-class
 //! (`sensitivity_receipts`, `completion_gate`) or contract-class
 //! (`intake_contract`, `record_contract`) guard. The doctor reports the
@@ -48,7 +48,7 @@ impl Bench {
 }
 
 /// A cycle `plan <-> review` entered from `intake`, exiting to `done`.
-/// Both cycle Phases carry a guard of the given kinds.
+/// Both cycle States carry a guard of the given kinds.
 fn cycle_runbook(plan_guard: &str, review_guard: &str) -> String {
     format!(
         r#"[roots]
@@ -57,18 +57,18 @@ issue = "workflow/issue"
 residual = "workflow/residual"
 ticket = "workflow/ticket"
 
-[phases.intake]
+[states.intake]
 prompt = "Intake."
-[phases.plan]
+[states.plan]
 prompt = "Plan."
 {plan_guard}
 
-[phases.review]
+[states.review]
 prompt = "Review."
 inputs = ["revise", "approve"]
 {review_guard}
 
-[phases.done]
+[states.done]
 prompt = "Done."
 
 [[transitions]]
@@ -99,7 +99,7 @@ fn termination_findings(path: &std::path::Path) -> Vec<doctor::Finding> {
         .collect()
 }
 
-/// PT-067-01: a cycle whose every Phase carries a receipt-class guarded
+/// PT-067-01: a cycle whose every State carries a receipt-class guarded
 /// out-edge passes with zero termination findings; the contract-class twin
 /// passes identically.
 #[test]
@@ -120,7 +120,7 @@ fn guarded_cycle_passes_termination() {
     );
     assert!(
         termination_findings(&receipt).is_empty(),
-        "receipt-class guards on every cycle Phase satisfy termination"
+        "receipt-class guards on every cycle State satisfy termination"
     );
 
     let contract = bench.runbook(
@@ -137,13 +137,13 @@ fn guarded_cycle_passes_termination() {
     );
     assert!(
         termination_findings(&contract).is_empty(),
-        "contract-class guards on every cycle Phase satisfy termination"
+        "contract-class guards on every cycle State satisfy termination"
     );
 }
 
-/// PT-067-02: stripping the guarded out-edge from one cycle Phase fails the
-/// pass with the stable code, naming the cycle's Phases, the offending
-/// Phase, and the missing guard-kind classes. A cycle-free runbook is never
+/// PT-067-02: stripping the guarded out-edge from one cycle State fails the
+/// pass with the stable code, naming the cycle's States, the offending
+/// State, and the missing guard-kind classes. A cycle-free runbook is never
 /// named.
 #[test]
 fn unguarded_cycle_fails_naming_phases_and_class() {
@@ -172,21 +172,21 @@ fn unguarded_cycle_fails_naming_phases_and_class() {
     for needle in ["plan", "review", "receipt", "contract"] {
         assert!(
             text.contains(needle),
-            "the finding names the cycle's Phases and the missing guard-kind \
+            "the finding names the cycle's States and the missing guard-kind \
              classes; missing {needle:?} in: {text}"
         );
     }
     assert!(
         !text.contains("intake") && !text.contains("done"),
-        "off-cycle Phases are not named: {text}"
+        "off-cycle States are not named: {text}"
     );
 
     let straight = bench.runbook(
         "straight",
-        r#"[phases.plan]
+        r#"[states.plan]
 prompt = "Plan."
 
-[phases.done]
+[states.done]
 prompt = "Done."
 
 [[transitions]]

@@ -22,11 +22,11 @@ fn code(source: &str) -> &'static str {
         .code()
 }
 
-fn branch(phases: &str, transitions: &str) -> String {
+fn branch(states: &str, transitions: &str) -> String {
     format!(
-        "[phases.review]\nprompt = \"Review.\"\n{phases}\n\
-         [phases.approve]\nprompt = \"Approve.\"\n\n\
-         [phases.rework]\nprompt = \"Rework.\"\n\n\
+        "[states.review]\nprompt = \"Review.\"\n{states}\n\
+         [states.approve]\nprompt = \"Approve.\"\n\n\
+         [states.rework]\nprompt = \"Rework.\"\n\n\
          {transitions}"
     )
 }
@@ -40,7 +40,7 @@ fn typed_input_contract_is_retained() {
     );
     let class = parse(&source);
     assert_eq!(
-        class.phases()["review"].inputs(),
+        class.states()["review"].inputs(),
         Some(&["approve".to_owned(), "rework".to_owned()][..])
     );
     assert_eq!(
@@ -53,10 +53,10 @@ fn typed_input_contract_is_retained() {
     );
 
     let straight = parse(
-        "[phases.a]\nprompt = \"A.\"\n[phases.b]\nprompt = \"B.\"\n\n\
+        "[states.a]\nprompt = \"A.\"\n[states.b]\nprompt = \"B.\"\n\n\
          [[transitions]]\nfrom = \"a\"\nto = \"b\"\n",
     );
-    assert_eq!(straight.phases()["a"].inputs(), None);
+    assert_eq!(straight.states()["a"].inputs(), None);
     assert_eq!(straight.transitions()[0].input(), None);
 }
 
@@ -126,7 +126,7 @@ fn selection_is_input_only_and_prompt_discloses_values() {
          [[transitions]]\nfrom = \"review\"\nto = \"approve\"\ninput = \"approve\"\n",
     );
     let class = parse(&source);
-    let graph = MachineGraph::new(class.phases().keys().cloned(), class.transitions().to_vec());
+    let graph = MachineGraph::new(class.states().keys().cloned(), class.transitions().to_vec());
     assert_eq!(
         graph
             .transition_for_input("review", Some("approve"))
@@ -178,7 +178,7 @@ fn selection_is_input_only_and_prompt_discloses_values() {
     fs::create_dir_all(straight_root.join(".ratmac")).expect("create straight project");
     fs::write(
         straight_root.join(".ratmac/ratmac.toml"),
-        "[phases.a]\nprompt = \"A.\"\n[phases.b]\nprompt = \"B.\"\n\
+        "[states.a]\nprompt = \"A.\"\n[states.b]\nprompt = \"B.\"\n\
          [[transitions]]\nfrom = \"a\"\nto = \"b\"\n",
     )
     .expect("write straight machine class");

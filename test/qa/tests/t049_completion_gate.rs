@@ -116,9 +116,9 @@ impl Fixture {
         fs::write(
             self.root.join(".ratmac/ratmac.toml"),
             format!(
-                "[phases.implement]\nprompt = \"Implement the ticket.\"\n\
+                "[states.implement]\nprompt = \"Implement the ticket.\"\n\
                  guards = [{{ kind = \"completion_gate\", ticket = \"{TICKET_PATH}\" }}]\n\n\
-                 [phases.done]\nprompt = \"Finish.\"\n\n\
+                 [states.done]\nprompt = \"Finish.\"\n\n\
                  [[transitions]]\nfrom = \"implement\"\nto = \"done\"\n"
             ),
         )
@@ -243,13 +243,13 @@ fn completion_requires_receipts() {
         engine
             .rtm(&["status", "--run", &live])
             .contains("implement"),
-        "a refused completion leaves the Phase where it was"
+        "a refused completion leaves the State where it was"
     );
     engine.record_all();
     engine.rtm(&["step", "--run", &live]);
     assert!(
         engine.rtm(&["status", "--run", &live]).contains("done"),
-        "recorded work advances the Phase: {}",
+        "recorded work advances the State: {}",
         engine.rtm(&["status", "--run", &live])
     );
 

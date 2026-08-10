@@ -50,11 +50,11 @@ fn fixture(label: &str, mode: &str, extra: Option<&str>) -> Fixture {
         None => format!("\"{mode}\""),
     };
     let class = format!(
-        "[phases.prepare]\n\
+        "[states.prepare]\n\
          prompt = \"Prepare the run.\"\n\
          guards = [{{ kind = \"command_exit\", program = \"{probe}\", args = [{args}], expected = 0 }}]\n\
          \n\
-         [phases.done]\n\
+         [states.done]\n\
          prompt = \"Complete the run.\"\n\
          \n\
          [[transitions]]\n\

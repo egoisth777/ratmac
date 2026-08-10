@@ -1,6 +1,6 @@
-# The graph has phases only. The input_revision prerequisite is intentionally absent.
-[phases.plan]
+# The graph has states only. The input_revision prerequisite is intentionally absent.
+[states.plan]
 prompt = "Prepare input"
 
-[phases.execute]
+[states.execute]
 prompt = "Execute work"

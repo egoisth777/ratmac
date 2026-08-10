@@ -68,8 +68,8 @@ impl Fixture {
         fs::write(root.join(".arca/goal/spec.md"), "# Spec\n").expect("write goal");
         fs::write(
             root.join(".ratmac/ratmac.toml"),
-            "[phases.intake]\nprompt = \"Integrate the issues.\"\n\n\
-             [phases.build]\nprompt = \"Build the ticket.\"\n\n\
+            "[states.intake]\nprompt = \"Integrate the issues.\"\n\n\
+             [states.build]\nprompt = \"Build the ticket.\"\n\n\
              [[transitions]]\nfrom = \"intake\"\nto = \"build\"\n",
         )
         .expect("write machine class");

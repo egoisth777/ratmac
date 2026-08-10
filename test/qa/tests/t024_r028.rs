@@ -65,9 +65,9 @@ fn phase_prompt_renders_inline_prose_then_generated_guards() {
 
 #[test]
 fn phase_prompt_requires_a_string_prompt_field() {
-    for source in ["[phases.prepare]\n", "[phases.prepare]\nprompt = 42\n"] {
+    for source in ["[states.prepare]\n", "[states.prepare]\nprompt = 42\n"] {
         let error = MachineClass::from_toml(source)
-            .expect_err("a Phase without a string prompt must be rejected");
+            .expect_err("a State without a string prompt must be rejected");
         let message = error.to_string();
         assert!(
             message.contains("prompt"),

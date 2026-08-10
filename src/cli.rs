@@ -392,7 +392,7 @@ fn hold<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Resul
 /// The confirmation phrase is checked before the first write; the retirement
 /// itself is all-or-nothing.
 /// FDC-007: ordinary checked motion. No confirmation phrase; the Scheduler
-/// checks the parent's Phase and the declared spawn before any write.
+/// checks the parent's State and the declared spawn before any write.
 fn spawn<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Result<(), CliError> {
     let mut name: Option<String> = None;
     let mut run: Option<String> = None;

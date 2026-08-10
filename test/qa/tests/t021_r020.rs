@@ -76,7 +76,7 @@ fn failure_step_is_idempotent() {
     assert_eq!(
         state_and_log(&root),
         before,
-        "repeated refusal must preserve Phase, Status, counters, and log bytes"
+        "repeated refusal must preserve State, Status, counters, and log bytes"
     );
     assert!(!state_and_log(&root)
         .0

@@ -47,11 +47,11 @@ impl Fixture {
         fs::create_dir_all(root.join("test/qa/tests")).expect("create test tree");
         fs::write(
             root.join(".ratmac/ratmac.toml"),
-            "[phases.build]\n\
+            "[states.build]\n\
              prompt = \"Write the test, then the code.\"\n\
              guards = [{ kind = \"sensitivity_receipts\", ticket = \".arca/ticket/t-900.md\" }]\n\
              \n\
-             [phases.review]\n\
+             [states.review]\n\
              prompt = \"Review the work.\"\n\
              \n\
              [[transitions]]\n\
@@ -292,11 +292,11 @@ fn ownership_audit_is_sensitive() {
     let fixture = Fixture::new("ownership");
     fs::write(
         fixture.root.join(".ratmac/ratmac.toml"),
-        "[phases.build]\n\
+        "[states.build]\n\
          prompt = \"Do the work.\"\n\
          guards = [{ kind = \"file_contains\", path = \".ratmac/runs/run-1/state.toml\", contains = \"passed\" }]\n\
          \n\
-         [phases.review]\n\
+         [states.review]\n\
          prompt = \"Review.\"\n\
          \n\
          [[transitions]]\n\

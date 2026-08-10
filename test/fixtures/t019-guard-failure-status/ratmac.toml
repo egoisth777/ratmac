@@ -1,11 +1,11 @@
-[phases.prepare]
+[states.prepare]
 prompt = "Prepare the run."
 
-[[phases.prepare.guards]]
+[[states.prepare.guards]]
 kind = "files_exact"
 path = "required"
 entries = ["output.txt"]
-[phases.done]
+[states.done]
 prompt = "Complete the run."
 
 [[transitions]]

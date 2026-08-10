@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use ratmac::graph::Phase;
+use ratmac::graph::State;
 use ratmac::model::{Run, Runs, Status};
 
 fn fixture_phase(path: &str) -> String {
@@ -26,11 +26,11 @@ fn r021_model_represents_multiple_runs() {
     assert_ne!(phase_a, phase_b);
 
     let run_a = Run::new(
-        Phase::new(phase_a),
+        State::new(phase_a),
         Status::from_str("planned").expect("planned is a valid lifecycle status"),
     );
     let run_b = Run::new(
-        Phase::new(phase_b),
+        State::new(phase_b),
         Status::from_str("planned").expect("planned is a valid lifecycle status"),
     );
 
@@ -39,6 +39,6 @@ fn r021_model_represents_multiple_runs() {
     runs.push(run_b);
     assert_eq!(runs.len(), 2);
 
-    let phases: Vec<_> = runs.iter().map(|run| run.phase().as_str()).collect();
-    assert_eq!(phases, ["prepare", "review"]);
+    let states: Vec<_> = runs.iter().map(|run| run.phase().as_str()).collect();
+    assert_eq!(states, ["prepare", "review"]);
 }

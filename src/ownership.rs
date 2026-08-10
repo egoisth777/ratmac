@@ -1,6 +1,6 @@
 //! PGE-004: Engine-owned artifacts are never an agent's job.
 //!
-//! A Phase Prompt or gate contract may not instruct an agent to write an
+//! A State Prompt or gate contract may not instruct an agent to write an
 //! Engine-owned file. Per-Run state, evidence, and motion locks live under
 //! `.ratmac/runs/<id>/` or `.ratmac/locks/runs/`; project history and the
 //! root lock remain under the Engine root. Agent-authored receipts stay in
@@ -104,9 +104,9 @@ pub fn audit_ownership(instructions: &[Instruction]) -> Result<(), Vec<Ownership
 /// every phase prompt and every guard contract path.
 pub fn runbook_instructions(class: &MachineClass, shown: &str) -> Vec<Instruction> {
     let mut instructions = Vec::new();
-    for (name, phase) in class.phases() {
+    for (name, phase) in class.states() {
         instructions.push(Instruction {
-            source: format!("{shown} [phases.{name}] prompt"),
+            source: format!("{shown} [states.{name}] prompt"),
             text: phase.prompt().to_owned(),
         });
         for (index, guard) in phase.guards().iter().enumerate() {
@@ -120,7 +120,7 @@ pub fn runbook_instructions(class: &MachineClass, shown: &str) -> Vec<Instructio
             };
             if !target.is_empty() {
                 instructions.push(Instruction {
-                    source: format!("{shown} [phases.{name}] guard {index} path"),
+                    source: format!("{shown} [states.{name}] guard {index} path"),
                     text: format!("the gate requires the agent to write {target}"),
                 });
             }

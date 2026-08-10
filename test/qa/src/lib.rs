@@ -14,7 +14,7 @@ pub mod trial;
 
 #[cfg(test)]
 mod tests {
-    use ratmac::graph::{MachineGraph, MachineState, Phase, Transition};
+    use ratmac::graph::{MachineGraph, MachineState, State, Transition};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -33,16 +33,16 @@ mod tests {
             "/../fixtures/phase-only-class/ratmac.toml"
         ));
         let document: toml::Value = fixture.parse().expect("phase-only fixture is valid TOML");
-        let phases = document
-            .get("phases")
+        let states = document
+            .get("states")
             .and_then(toml::Value::as_table)
-            .expect("fixture declares phases");
+            .expect("fixture declares states");
         let transitions = document
             .get("transitions")
             .and_then(toml::Value::as_array)
             .expect("fixture declares transitions");
 
-        let declared_phases: Vec<_> = phases.keys().map(Phase::new).collect();
+        let declared_phases: Vec<_> = states.keys().map(State::new).collect();
         let declared_transitions: Vec<_> = transitions
             .iter()
             .map(|transition| {
@@ -61,17 +61,17 @@ mod tests {
             .collect();
 
         let graph = MachineGraph::new(declared_phases, declared_transitions);
-        assert_eq!(graph.phases().count(), 3);
+        assert_eq!(graph.states().count(), 3);
         assert_eq!(graph.transitions().count(), 2);
 
-        let prepare = Phase::new("prepare");
-        let review = Phase::new("review");
-        let finish = Phase::new("finish");
+        let prepare = State::new("prepare");
+        let review = State::new("review");
+        let finish = State::new("finish");
         let state = MachineState::new(prepare.clone());
-        assert_eq!(state.phase(), &prepare);
-        assert_eq!(graph.next_phase(state.phase()), Some(&review));
-        assert_eq!(graph.next_phase(review.clone()), Some(&finish));
-        assert_eq!(graph.next_phase(finish), None);
+        assert_eq!(state.state(), &prepare);
+        assert_eq!(graph.next_state(state.state()), Some(&review));
+        assert_eq!(graph.next_state(review.clone()), Some(&finish));
+        assert_eq!(graph.next_state(finish), None);
 
         // Status is intentionally test-local: it cannot alter state identity or lookup.
         for status in [
@@ -82,8 +82,8 @@ mod tests {
             TestLifecycleStatus::Failed,
         ] {
             let _status = status;
-            assert_eq!(state.phase(), &prepare);
-            assert_eq!(graph.next_phase(state.phase()), Some(&review));
+            assert_eq!(state.state(), &prepare);
+            assert_eq!(graph.next_state(state.state()), Some(&review));
         }
     }
 
@@ -112,22 +112,22 @@ mod tests {
             .expect("status fixture must declare a status");
 
         let graph = MachineGraph::new(
-            vec![Phase::new("build"), Phase::new("verify")],
+            vec![State::new("build"), State::new("verify")],
             vec![Transition::new("build", "verify")],
         );
-        let expected_transition = graph.next_phase(Phase::new(phase_name));
+        let expected_transition = graph.next_state(State::new(phase_name));
         assert_eq!(configured_status, "planned");
 
         for raw_status in STATUS_VALUES {
             let status = Status::from_str(raw_status).unwrap_or_else(|error| {
                 panic!("{raw_status:?} must be a valid lifecycle status: {error}")
             });
-            let run = Run::new(Phase::new(phase_name), status);
+            let run = Run::new(State::new(phase_name), status);
 
-            assert_eq!(run.phase(), &Phase::new(phase_name));
+            assert_eq!(run.phase(), &State::new(phase_name));
             assert_eq!(run.status().to_string(), raw_status);
             assert_eq!(
-                graph.next_phase(run.phase().clone()),
+                graph.next_state(run.phase().clone()),
                 expected_transition,
                 "status {raw_status:?} must not affect transition lookup"
             );
@@ -145,7 +145,7 @@ mod tests {
     const STATUS_DIMENSION_FIXTURE: &str =
         include_str!("../../fixtures/machine-class/status-dimension.toml");
 
-    /// PT-003-01 / T-13: Machine Class declarations have phases and transitions,
+    /// PT-003-01 / T-13: Machine Class declarations have states and transitions,
     /// but lifecycle status is not a graph dimension.
     #[test]
     fn test_machine_class_rejects_status_dimension() {
@@ -161,10 +161,10 @@ mod tests {
         );
 
         let phase_transition_class = r#"
-            [phases.prepare]
+            [states.prepare]
             prompt = "Prepare the inputs."
 
-            [phases.done]
+            [states.done]
             prompt = "Finish the run."
 
             [[transitions]]
@@ -174,7 +174,7 @@ mod tests {
         let class = MachineClass::from_toml(phase_transition_class)
             .expect("phase/transition-only Machine Classes must be accepted");
 
-        assert_eq!(class.phases().len(), 2);
+        assert_eq!(class.states().len(), 2);
         assert_eq!(class.transitions().len(), 1);
     }
 
@@ -297,7 +297,7 @@ mod t006 {
     use std::fs;
     use std::path::PathBuf;
 
-    use ratmac::graph::{MachineGraph, Phase, Transition};
+    use ratmac::graph::{MachineGraph, State, Transition};
     use ratmac::model::{Run, Status};
     use ratmac::scheduler::{EntryPrerequisites, Scheduler};
 
@@ -328,13 +328,13 @@ mod t006 {
         );
 
         // `blocked` is produced by the Scheduler's entry check, not by the
-        // Phase graph or by constructing an ordinary lifecycle status.
+        // State graph or by constructing an ordinary lifecycle status.
         let machine = MachineGraph::new(
-            vec![Phase::new("plan"), Phase::new("execute")],
+            vec![State::new("plan"), State::new("execute")],
             vec![Transition::new("plan", "execute")],
         );
         let mut scheduler = Scheduler::new(machine);
-        let run = Run::new(Phase::new("plan"), Status::Planned);
+        let run = Run::new(State::new("plan"), Status::Planned);
         let blocked = scheduler.evaluate_entry_prerequisites(
             run,
             EntryPrerequisites::new(fixture.join("input_revision")),
@@ -342,14 +342,14 @@ mod t006 {
 
         assert_eq!(blocked.status(), &Status::Blocked);
         assert_eq!(blocked.blocker(), Some("input_revision"));
-        assert_eq!(blocked.phase(), &Phase::new("plan"));
-        assert_eq!(scheduler.machine().phases().count(), 2);
+        assert_eq!(blocked.phase(), &State::new("plan"));
+        assert_eq!(scheduler.machine().states().count(), 2);
         assert_eq!(scheduler.machine().transitions().count(), 1);
         assert!(
             !scheduler
                 .machine()
-                .phases()
-                .any(|phase| phase == &Phase::new("blocked")),
+                .states()
+                .any(|phase| phase == &State::new("blocked")),
             "blocked must not become a machine-graph node"
         );
 
@@ -364,17 +364,17 @@ mod t006 {
             Status::Failed,
         ] {
             let mut scheduler = Scheduler::new(MachineGraph::new(
-                vec![Phase::new("plan"), Phase::new("execute")],
+                vec![State::new("plan"), State::new("execute")],
                 vec![Transition::new("plan", "execute")],
             ));
             let state = scheduler.evaluate_entry_prerequisites(
-                Run::new(Phase::new("plan"), status),
+                Run::new(State::new("plan"), status),
                 EntryPrerequisites::new(present.clone()),
             );
             assert_eq!(state.status(), &status);
             assert_eq!(state.blocker(), None);
-            assert_eq!(state.phase(), &Phase::new("plan"));
-            assert_eq!(scheduler.machine().phases().count(), 2);
+            assert_eq!(state.phase(), &State::new("plan"));
+            assert_eq!(scheduler.machine().states().count(), 2);
         }
         fs::remove_dir_all(present.parent().expect("present fixture has a parent"))
             .expect("remove present input fixture");
@@ -586,7 +586,7 @@ mod t008_state_writer_tests {
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    const RATMAC: &str = r#"[phases.p4]
+    const RATMAC: &str = r#"[states.p4]
     prompt = "Produce the P4 output."
     "#;
 
@@ -710,7 +710,7 @@ mod t010 {
         assert_eq!(
             run.phase().as_str(),
             "prepare",
-            "start must choose the unique Phase with no incoming transition"
+            "start must choose the unique State with no incoming transition"
         );
 
         let run_id = run.id().expect("start mints a run id");
@@ -755,7 +755,7 @@ mod t005 {
     //! Contract tests for strict `ratmac.toml` Machine Class parsing.
     //!
     //! The parser API exercised here is intentionally small: `MachineClass::from_toml`
-    //! returns a `Result`, while `phases()` and `transitions()` expose the accepted
+    //! returns a `Result`, while `states()` and `transitions()` expose the accepted
     //! graph. Product code is owned by a later build phase; these tests are the P4
     //! proof boundary for R-011.
 
@@ -797,9 +797,9 @@ mod t005 {
         });
 
         assert_eq!(
-            class.phases().len(),
+            class.states().len(),
             2,
-            "positive control must contain both declared phases"
+            "positive control must contain both declared states"
         );
         assert_eq!(
             class.transitions().len(),
@@ -862,13 +862,13 @@ mod t005 {
     fn test_machine_class_accepts_standard_guard_fields() {
         let class = MachineClass::from_toml(KNOWN_GUARD_FIELDS_FIXTURE)
             .expect("standard files_exact/file_contains/command_exit fields must parse");
-        assert_eq!(class.phases().len(), 2);
+        assert_eq!(class.states().len(), 2);
         assert_eq!(class.transitions().len(), 1);
     }
     #[test]
     fn test_machine_class_rejects_empty_or_undeclared_transition_endpoints() {
         let empty = r#"
-[phases.prepare]
+[states.prepare]
 prompt = "Prepare"
 
 [[transitions]]
@@ -876,15 +876,15 @@ from = ""
 to = "prepare"
 "#;
         let undeclared = r#"
-[phases.prepare]
+[states.prepare]
 prompt = "Prepare"
 
 [[transitions]]
 from = "prepare"
 to = "missing"
 "#;
-        let empty_phase = "[phases.\"\"]\nprompt = \"Empty\"\n";
-        let whitespace_phase = "[phases.\"   \"]\nprompt = \"Whitespace\"\n";
+        let empty_phase = "[states.\"\"]\nprompt = \"Empty\"\n";
+        let whitespace_phase = "[states.\"   \"]\nprompt = \"Whitespace\"\n";
         assert!(MachineClass::from_toml(empty).is_err());
         assert!(MachineClass::from_toml(undeclared)
             .expect_err("undeclared transition endpoint must fail")
@@ -903,7 +903,7 @@ to = "missing"
         fs::create_dir_all(root.join(".ratmac")).unwrap();
         fs::write(
             root.join(".ratmac/ratmac.toml"),
-            "[phases.prepare]\nprompt = \"Prepare\"\n",
+            "[states.prepare]\nprompt = \"Prepare\"\n",
         )
         .unwrap();
         root
@@ -916,7 +916,7 @@ to = "missing"
         scheduler.start().unwrap();
         fs::write(
             root.join(".ratmac/ratmac.toml"),
-            "unknown = true\n[phases.prepare]\nprompt = \"Prepare\"\n",
+            "unknown = true\n[states.prepare]\nprompt = \"Prepare\"\n",
         )
         .unwrap();
         assert!(scheduler.status().is_err());
@@ -934,7 +934,7 @@ to = "missing"
         // guard under test is ever evaluated.
         fs::write(
             root.join(".ratmac/ratmac.toml"),
-            "[phases.prepare]\nprompt = \"Prepare\"\nguards = [{ kind = \"file_contains\", path = \"../arca-t005-outside.txt\", contains = \"SECRET\" }]\n\n[phases.done]\nprompt = \"Done\"\n\n[[transitions]]\nfrom = \"prepare\"\nto = \"done\"\n",
+            "[states.prepare]\nprompt = \"Prepare\"\nguards = [{ kind = \"file_contains\", path = \"../arca-t005-outside.txt\", contains = \"SECRET\" }]\n\n[states.done]\nprompt = \"Done\"\n\n[[transitions]]\nfrom = \"prepare\"\nto = \"done\"\n",
         )
         .unwrap();
         let mut scheduler = Scheduler::open(&root).unwrap();
@@ -954,7 +954,7 @@ to = "missing"
         fs::write(
             absolute_root.join(".ratmac/ratmac.toml"),
             format!(
-                "[phases.prepare]\nprompt = \"Prepare\"\nguards = [{{ kind = \"file_contains\", path = {absolute_path}, contains = \"SECRET\" }}]\n\n[phases.done]\nprompt = \"Done\"\n\n[[transitions]]\nfrom = \"prepare\"\nto = \"done\"\n"
+                "[states.prepare]\nprompt = \"Prepare\"\nguards = [{{ kind = \"file_contains\", path = {absolute_path}, contains = \"SECRET\" }}]\n\n[states.done]\nprompt = \"Done\"\n\n[[transitions]]\nfrom = \"prepare\"\nto = \"done\"\n"
             ),
         )
         .unwrap();

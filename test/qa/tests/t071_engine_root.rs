@@ -16,8 +16,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-const RUNBOOK: &str = "[phases.intake]\nprompt = \"Integrate the issues.\"\n\n\
-    [phases.build]\nprompt = \"Build the ticket.\"\n\n\
+const RUNBOOK: &str = "[states.intake]\nprompt = \"Integrate the issues.\"\n\n\
+    [states.build]\nprompt = \"Build the ticket.\"\n\n\
     [[transitions]]\nfrom = \"intake\"\nto = \"build\"\n";
 
 fn repo_root() -> PathBuf {
@@ -369,7 +369,7 @@ fn engine_root_holds_runtime_and_never_writes_arca() {
     );
     assert!(
         combined(&status_before).contains("Integrate the issues."),
-        "ENS-001: initial status must report the Run's initial Phase: {}",
+        "ENS-001: initial status must report the Run's initial State: {}",
         combined(&status_before)
     );
 
@@ -394,7 +394,7 @@ fn engine_root_holds_runtime_and_never_writes_arca() {
     );
     assert!(
         combined(&status_after).contains("Build the ticket."),
-        "ENS-001: the Run must advance to its second Phase: {}",
+        "ENS-001: the Run must advance to its second State: {}",
         combined(&status_after)
     );
     let state: toml::Value = fs::read_to_string(
@@ -410,7 +410,7 @@ fn engine_root_holds_runtime_and_never_writes_arca() {
     assert_eq!(
         state["phase"].as_str(),
         Some("build"),
-        "ENS-001: the relocated State File records the advanced Phase"
+        "ENS-001: the relocated State File records the advanced State"
     );
 
     assert_eq!(
@@ -459,7 +459,7 @@ fn linked_worktree_shares_primary_runtime_but_reads_its_own_class() {
     );
     assert!(
         combined(&linked_status).contains("Integrate the issues."),
-        "ENS-002: linked status must observe the shared Run's current Phase: {}",
+        "ENS-002: linked status must observe the shared Run's current State: {}",
         combined(&linked_status)
     );
     assert_eq!(
@@ -590,7 +590,7 @@ fn bare_repository_worktrees_share_a_non_bare_engine_root() {
     );
     assert!(
         combined(&first_status).contains("Integrate the issues."),
-        "ENS-003: the first linked worktree must observe the shared Run's current Phase: {}",
+        "ENS-003: the first linked worktree must observe the shared Run's current State: {}",
         combined(&first_status)
     );
     let second_status = rtm_at(&second, &["status", "--run", &run_id]);
@@ -601,7 +601,7 @@ fn bare_repository_worktrees_share_a_non_bare_engine_root() {
     );
     assert!(
         combined(&second_status).contains("Integrate the issues."),
-        "ENS-003: the second linked worktree must observe the shared Run's current Phase: {}",
+        "ENS-003: the second linked worktree must observe the shared Run's current State: {}",
         combined(&second_status)
     );
     assert_eq!(

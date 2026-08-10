@@ -1,15 +1,15 @@
-[phases.prepare]
+[states.prepare]
 prompt = "Prepare the rebrand smoke run."
 
-[[phases.prepare.guards]]
+[[states.prepare.guards]]
 kind = "files_exact"
 path = "artifacts"
 entries = ["required.txt"]
 
-[phases.review]
+[states.review]
 prompt = "Review the rebrand smoke run."
 
-[phases.done]
+[states.done]
 prompt = "Finish the rebrand smoke run."
 
 [[transitions]]

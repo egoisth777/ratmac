@@ -17,28 +17,28 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Output};
 
-/// The t-064 composed machine: one declared child class, one spawning Phase
-/// (`delegate`), one join-guarded out-edge. `plan` is the initial Phase.
+/// The t-064 composed machine: one declared child class, one spawning State
+/// (`delegate`), one join-guarded out-edge. `plan` is the initial State.
 const COMPOSED_RUNBOOK: &str = r#"
 [classes.reviewer.bindings.ticket]
 required = true
 
-[classes.reviewer.phases.review]
+[classes.reviewer.states.review]
 prompt = "Review the delegated ticket."
 
-[phases.plan]
+[states.plan]
 prompt = "Plan."
 
-[phases.delegate]
+[states.delegate]
 prompt = "Delegate and wait."
 guards = [{ kind = "join", require = "all_passed", min = 1 }]
 
-[[phases.delegate.spawns]]
+[[states.delegate.spawns]]
 class = "reviewer"
 name = "rev"
 bind = ["ticket"]
 
-[phases.done]
+[states.done]
 prompt = "Done."
 
 [[transitions]]
@@ -95,7 +95,7 @@ impl Fixture {
             .to_owned()
     }
 
-    /// Start and step the parent into the spawning Phase `delegate`.
+    /// Start and step the parent into the spawning State `delegate`.
     fn start_at_delegate(&self) -> String {
         let parent = self.start();
         let step = self.rtm(&["step", "--run", &parent]);

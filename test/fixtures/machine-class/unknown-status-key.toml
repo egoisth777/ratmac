@@ -1,10 +1,10 @@
 # Valid Machine Class declarations plus the forbidden status dimension.
 status = ["planned", "executing", "blocked", "passed", "failed"]
 
-[phases.prepare]
+[states.prepare]
 prompt = "Prepare the inputs."
 
-[phases.done]
+[states.done]
 prompt = "Finish the run."
 
 [[transitions]]

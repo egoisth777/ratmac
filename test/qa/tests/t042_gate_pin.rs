@@ -41,11 +41,11 @@ impl Fixture {
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join(".ratmac")).expect("create fixture project");
         let class = format!(
-            "[phases.prepare]\n\
+            "[states.prepare]\n\
              prompt = \"Prepare the run.\"\n\
              guards = [{guard_table}]\n\
              \n\
-             [phases.done]\n\
+             [states.done]\n\
              prompt = \"Complete the run.\"\n\
              \n\
              [[transitions]]\n\
@@ -210,7 +210,7 @@ fn tamper_refuses_and_restore_proceeds() {
         "pristine gate passes: {text}"
     );
 
-    // Re-arm: rewind the same Run to the guarded Phase over its recorded
+    // Re-arm: rewind the same Run to the guarded State over its recorded
     // evidence. FDC-004 makes evidence run-scoped, so a fresh Run would
     // record a fresh pin; the recorded pin under test lives with this run.
     let state_path = fixture.state_path();
@@ -421,7 +421,7 @@ fn pin_refusal_carries_identity_and_diagnostic_framing() {
         "pin recorded"
     );
 
-    // FDC-004: evidence is run-scoped — rewind this run to the guarded Phase
+    // FDC-004: evidence is run-scoped — rewind this run to the guarded State
     // so the recorded pin stays the authority under test.
     let state_path = fixture.state_path();
     let rewound = fs::read_to_string(&state_path)

@@ -89,7 +89,7 @@ fn status_prints_current_phase_prompt() {
     );
     assert!(
         !output.contains("Complete the run."),
-        "status must not print another Phase: {output}"
+        "status must not print another State: {output}"
     );
     assert_eq!(fs::read(engine.join("ratmac.toml")).unwrap(), before[0]);
     assert_eq!(

@@ -1,11 +1,11 @@
-[phases.P4]
+[states.P4]
 prompt = "Implement and report the Scheduler State File."
 
-[[phases.P4.guards]]
+[[states.P4.guards]]
 kind = "files_exact"
 path = ".arca/state.toml"
 
-[[phases.P4.guards]]
+[[states.P4.guards]]
 kind = "command_exit"
 program = "cargo"
 args = ["test"]

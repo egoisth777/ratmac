@@ -1,11 +1,11 @@
 # Phase-only fixture: lifecycle values intentionally do not appear in the graph.
-[phases.prepare]
+[states.prepare]
 prompt = "Prepare the inputs."
 
-[phases.review]
+[states.review]
 prompt = "Review the prepared inputs."
 
-[phases.finish]
+[states.finish]
 prompt = "Finish the run."
 
 [[transitions]]

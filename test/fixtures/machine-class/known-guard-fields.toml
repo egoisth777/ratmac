@@ -1,4 +1,4 @@
-[phases.prepare]
+[states.prepare]
 prompt = "Prepare the run."
 guards = [
   { kind = "files_exact", path = "artifacts", entries = ["proof.txt"] },
@@ -6,7 +6,7 @@ guards = [
   { kind = "command_exit", program = "echo", args = ["ok"], expected = 0 },
 ]
 
-[phases.done]
+[states.done]
 prompt = "Complete the run."
 
 [[transitions]]
