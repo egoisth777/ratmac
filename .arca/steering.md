@@ -174,9 +174,12 @@ wrote down is drift.
 Derived record. Regenerated wholesale at P1 close from the signed issue set;
 never hand-edited, never a progress report. Stage lives in the tree.
 
-Freeze stamp: pending - planning step 2 records the P1 integration HEAD and the
-canonical goal revision computed by `src/goal.rs::revision` over the checked-out
-goal. P1 opened 2026-08-10 on the promoted State-not-Phase wish.
+Freeze stamp: `git:4f78de5` +
+`goal-sha256:a98320c3730c32a38f88afb889948ec150fb7778a244355dc081d9d7c9a30f4f`
+- the P1 integration HEAD and the canonical goal revision computed by
+`src/goal.rs::revision` over the checked-out goal. P1 opened and closed
+2026-08-10 on the promoted State-not-Phase wish; the gap check and the tickets
+were cut against this stamp.
 
 A sprint starts when enough issues have collected to be worth integrating
 into the goal, and runs the cycle - plan, then build - until the gap check
@@ -223,6 +226,13 @@ with a `state` field, pre-cutover artifacts refuse and instruct without
 migrating, diagnostic codes keep their identity, archived history keeps its
 bytes under an enumerated allowlist, and no routing, guard, lock, mint, spawn,
 join, hold, abandon, completion, receipt, or exit-code behavior has moved.
+
+Waiting in intake: `i-027-duplicate-engine-binary`, filed 2026-08-10 while
+taking this sprint's gap-check baseline. Two packages build the engine command
+to the same output path, so which build a full-repository test run launches
+depends on build order. It does not reopen this sprint's P1 - it waits for the
+next planning pass - but it is why the last ticket, `t-085`, carries a blocker
+note: the sprint's own behavior-unchanged proof has to be one command's output.
 
 Held: the roots-table ticket `t-076` is paused with `blocker-ref`
 `i-026-namespace-row-rulings` - two engine-namespace rows contradict the rules
