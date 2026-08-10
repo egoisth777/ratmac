@@ -1,5 +1,5 @@
-# State File template — written ONLY by the Scheduler (`rtm`); agents read, never write.
-phase = "{{Idle|P1|P2|P3|P4|P5}}"
+# Run Record template — written ONLY by the Scheduler (`rtm`); agents read, never write.
+state = "{{Idle|P1|P2|P3|P4|P5}}"
 status = "{{planned|executing|blocked|passed|failed}}"
 goal_revision = "{{revision-identifier}}"
 input_revision = "{{revision-identifier}}"

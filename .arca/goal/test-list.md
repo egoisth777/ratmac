@@ -241,3 +241,17 @@ Behavior checks derived from [spec.md](spec.md). Each is a testable one-liner.
 | ENSV-011 | `rtm status` and `rtm doctor` report the resolved Engine-root path. | ENS-010 |
 | ENSV-012 | A Git fixture proves that `.ratmac/runs/`, `.ratmac/mint.toml`, `.ratmac/locks/`, and `.ratmac/log.md` are ignored, while `.ratmac/ratmac.toml` and receipts under `.ratmac/evidence/<run-id>/` are tracked, so a ticket-branch commit contains no Run state. | ENS-001 |
 | ENSV-013 | Two parallel sibling child Runs write receipts under distinct `.ratmac/evidence/<run-id>/` paths; their tracked receipts merge without collision. | ENS-001, ENS-006 |
+
+## Integrated state-vocabulary verification
+
+| ID | Check | Requirement |
+|---|---|---|
+| SVCV-001 | A written check over the settled vocabulary: the working rules, the glossary, and the runbook specification each define State, Run Record, and Run separately, and no live document defines two of them with the same word. | SVC-001, SVC-002 |
+| SVCV-002 | A runbook written with `states`, `[[states.<name>.spawns]]`, and `[classes.<name>.states]` parses, passes the doctor clean, and runs a Run from start to a Terminal State; every other key keeps its behavior. | SVC-003 |
+| SVCV-003 | A runbook that declares `phases` refuses with the new dedicated diagnostic naming the rename and the repair, not the generic unknown-key error, and no Run, Run Record, or evidence file is created. | SVC-003, SVC-005 |
+| SVCV-004 | A started Run writes `.ratmac/runs/<run-id>/run.toml` whose position field is `state`; the strict parse, the atomic replacement, and the refusal on a corrupt record are unchanged, and no file at the pre-cutover name is created. | SVC-004 |
+| SVCV-005 | With a pre-cutover Run Record planted, every public entry point refuses before its first read, path join, parse, or write, names the artifact and the repair, and leaves both the addressed project and the invoking checkout byte-identical. | SVC-005 |
+| SVCV-006 | The doctor's documented code table equals the Engine's table; each pre-existing defect still reports its original code, and the pre-cutover runbook residue reports a code not previously in use. | SVC-006 |
+| SVCV-007 | Every caller-visible surface — the State Prompt, `rtm status`, the human doctor report, `--json` findings, and refusal text — names the position State, and an executable scan finds no live occurrence of the pre-cutover spelling in those surfaces. | SVC-002 |
+| SVCV-008 | Routing, guard evaluation, freeze and drift, locking, minting, spawning, joining, holding, abandoning, completion, receipts, and exit codes are proven unchanged: the existing suites pass with their meanings intact after the rename. | SVC-007 |
+| SVCV-009 | The live-surface audit passes over the whole tracked tree with an enumerated allowlist; removing any allowlist entry makes it fail on that history, and planting the pre-cutover spelling in a live surface makes it fail there. | SVC-008 |

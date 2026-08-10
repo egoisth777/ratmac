@@ -71,7 +71,7 @@ without prompting. Return to Idle when no gap record says `missing` or `partial`
    if the user corrects it, redo the affected pieces — don't start over.
 3. **Ask** — put every open question into one message, and meanwhile keep doing all work that does not
    depend on the answers. Put the open question in that one message; when entry prerequisites are missing,
-   `rtm` records them in `blocker` in the addressed Run's `.ratmac/runs/<run-id>/state.toml`.
+   `rtm` records them in `blocker` in the addressed Run's `.ratmac/runs/<run-id>/run.toml`.
 
 An unanswered question pauses only the piece that needs it, never the whole.
 
@@ -288,13 +288,13 @@ contradicts another gets a log line plus a follow-up ticket, not a stop):
 | Output/Filesystem   | Issue folder shape, required files, relative links, never touching user files, writing only where allowed |
 | Cross-Feature       | Two or more features used together                                                       |
 
-# State
+# Runtime layout
 
 - **Engine root.** The shared runtime root is the primary checkout's `.ratmac/`; its
   Git-ignored runtime is `runs/`, `mint.toml`, `locks/`, and `log.md`.
 - **Machine Class.** The invoking checkout reads its tracked `.ratmac/ratmac.toml`;
   receipts under `.ratmac/evidence/<run-id>/` stay tracked.
-- **Per-Run State File.** `.ratmac/runs/<run-id>/state.toml` records `phase`,
+- **Per-Run Run Record.** `.ratmac/runs/<run-id>/run.toml` records `state`,
   `status: planned|executing|blocked|passed|failed`, versions in play, and `blocker`
   (the missing entry prerequisite recorded by `rtm` — nothing else).
 - `.arca/log.md` is human-only append-only history: new lines only, never edited; one line per
@@ -309,10 +309,10 @@ below and bind at integration while minting no goal row, gap record, or ticket.
 
 Integrated from [issue i-024](issue/archive/i-024-engine-namespace-split/spec.md#requirement-records).
 
-The working rules name no pre-split Engine path or flat State File. `.arca/schema.md` and
+The working rules name no pre-split Engine path and no pre-cutover Run Record. `.arca/schema.md` and
 [index.md](index.md) name the Engine root `.ratmac/`, its runtime contents, and the per-Run
-State File `.ratmac/runs/<run-id>/state.toml`. Archived and frozen records stay byte-for-byte
-unchanged.
+Run Record `.ratmac/runs/<run-id>/run.toml` (renamed from the flat and per-Run `state.toml`
+spellings by goal `SVC-004`). Archived and frozen records stay byte-for-byte unchanged.
 
 ### ENS-012 — Engine-root tracking policy
 
@@ -324,6 +324,35 @@ Git, while the Machine Class `.ratmac/ratmac.toml` and receipts under
 branch or a merge, and run-scoped receipt paths keep two parallel child Runs from colliding on
 the same receipt filename.
 
+## State vocabulary
+
+`SVC-009`–`SVC-010` are working-authority requirements: accepted asks resolve to the headings
+below and bind at integration while minting no goal row, gap record, or ticket.
+
+### SVC-009 — state vocabulary in the working rules
+
+Integrated from [issue i-025](issue/archive/i-025-state-vocabulary/spec.md#requirement-records).
+
+The working rules and the orientation they point at speak the settled vocabulary: `.arca/schema.md`,
+[index.md](index.md), `.arca/dict.md`, `.arca/runbook-spec.md`, `.arca/runbook-authoring.md`,
+`.arca/steering.md`, and the blank forms in `.arca/tpl/` name **State** (the position in the machine
+graph), **Run Record** (the one file the Engine writes for one Run), **Run** (the whole live
+instance), and `status` (Engine-owned lifecycle, never a position). The glossary's `Phase` entry is
+replaced by entries for State and Run Record. Verified by a written check that every one of those
+files reads in the settled vocabulary and that the blank Run Record form moves with the file and its
+field.
+
+### SVC-010 — renaming a term never rewrites history
+
+Integrated from [issue i-025](issue/archive/i-025-state-vocabulary/spec.md#requirement-records).
+
+`.arca/dict.md`'s rule "when a term is replaced, delete every mention of the old term" applies to
+live documents only. Where it meets [Evidence and archive rules](#evidence-and-archive-rules) —
+a completed record keeps its bytes — preservation wins: archived issue bundles, archived tickets,
+archived gap records, and `.arca/log.md` keep the old wording exactly, and the glossary states this
+in its own words. An audit proving no live surface carries a retired spelling enumerates those
+historical carriers explicitly instead of skipping an unbounded set.
+
 # Caller policy for `rtm`
 
 One policy, and the same one on every surface (goal `ORS-001`, which supersedes the earlier rule reserving start for humans alone):
@@ -331,9 +360,9 @@ One policy, and the same one on every surface (goal `ORS-001`, which supersedes 
 - A human may invoke argument-free `rtm start` directly.
 - The Main-Agent may invoke `rtm start` only after explicit human Run-start sign-off for the current target project;
   conversational sign-off is enough, and nothing in the Engine records it.
-- A Subagent never invokes any `rtm` command; it reads its assigned Run's State File and does the ticket work.
+- A Subagent never invokes any `rtm` command; it reads its assigned Run's Run Record and does the ticket work.
 - Only the Main-Agent or the human invokes `rtm step`; the Scheduler stays the sole writer of
-  `.ratmac/runs/<run-id>/state.toml`.
+  `.ratmac/runs/<run-id>/run.toml`.
 
 # Evidence and archive rules
 
@@ -463,7 +492,7 @@ The confirmation phrase is the human's act - typed at invocation, never read
 from a file an agent can write. The Engine keeps no caller identity (ORS-001);
 it checks only that the exact phrase was typed. The blocker must resolve to a
 complete five-file issue folder or a named residual record, and the current
-Phase must declare a blocked route:
+State must declare a blocked route:
 
 ```toml
 [[transitions]]
@@ -488,10 +517,10 @@ A Run that cannot be repaired is retired by `rtm`, never by hand:
 rtm abandon --confirm "abandon <project directory name>"
 ```
 
-Agents never delete or edit `.ratmac/runs/<run-id>/state.toml`, a Run lock under
+Agents never delete or edit `.ratmac/runs/<run-id>/run.toml`, a Run lock under
 `.ratmac/locks/`, or the Engine transition log `.ratmac/log.md`; `rtm abandon` is the only
 path that retires its state, Run evidence, and lock. On the exact phrase - typed at invocation,
-never read from a file - `rtm` records a terminal abandoned event naming the retired Phase, status,
+never read from a file - `rtm` records a terminal abandoned event naming the retired State, status,
 and goal revision, then retires the admission state, the Run evidence, and the lock, so a fresh
 `rtm start` can begin and records its own baseline and pins.
 
@@ -529,7 +558,7 @@ nothing.
 ## Contract gates
 
 Two gate kinds read the records themselves, so a status edit cannot route the
-loop. Declare them in the Runbook phase that must not be left without them:
+loop. Declare them in the Runbook State that must not be left without them:
 
 - `intake_contract` — reads intake, deferred, and archive as one issue-id namespace and derives ask
   dispositions from each `spec.md`, never from status alone. Every bundle keeps its exact five-file shape;
@@ -573,7 +602,7 @@ them is created after every check ([Deliberate damage and discard safety](#delib
 
 Scheduler-owned runtime files - `.ratmac/runs/`, `.ratmac/mint.toml`, `.ratmac/locks/`, and
 `.ratmac/log.md` - belong to `rtm` for as long as a Run is active: while one exists, `rtm` writes
-them and no agent does. Independently of any Run, no Phase Prompt and no gate
+them and no agent does. Independently of any Run, no State Prompt and no gate
 contract may ever instruct an agent to write them - that is the unconditional
 rule `ratmac::ownership::audit_ownership` enforces, and it is why an
 agent-authored note belongs in `.ratmac/evidence/<run-id>/` instead.
@@ -688,7 +717,7 @@ Don't:
 
 - Don't apply `.arca/goal/` product rules to working files — decide by rule set and keep going.
 - Don't write state yourself — only `rtm` writes the addressed Run's
-  `.ratmac/runs/<run-id>/state.toml`; `blocked` marks missing entry prerequisites only (.arca/goal/design.md, ADR-0006).
+  `.ratmac/runs/<run-id>/run.toml`; `blocked` marks missing entry prerequisites only (.arca/goal/design.md, ADR-0006).
 - Don't mark a gap record `satisfied` without proof.
 - Don't edit the frozen goal while tickets are open.
 - Don't stop on failed checks or rule clashes — fix, log, keep going.

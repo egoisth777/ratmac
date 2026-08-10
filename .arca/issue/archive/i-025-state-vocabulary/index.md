@@ -2,8 +2,8 @@
 
 ```yaml
 issue-id: "i-025-state-vocabulary"
-provenance: "Promoted from the wishlist entry 'Use State, not Phase, for machine position' (Billy, filed 2026-07-30, promoted 2026-08-10) in [.arca/wishlist.md](../../wishlist.md)."
-status: "pending"
+provenance: "Promoted from the wishlist entry 'Use State, not Phase, for machine position' (Billy, filed 2026-07-30, promoted 2026-08-10) in [.arca/wishlist.md](../../../wishlist.md)."
+status: "integrated"
 ```
 
 ## Summary

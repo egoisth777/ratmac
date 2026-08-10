@@ -10,7 +10,7 @@ overrides `.arca/goal/spec.md` on what the running program does.
 ## What we are building
 
 ratmac (`rtm`) is a small Rust engine that runs agent work as an explicit
-state machine. A Machine Class - a runbook, plain TOML data - declares phases,
+state machine. A Machine Class - a runbook, plain TOML data - declares States,
 prompts, guards, and transitions; the Engine
 instantiates it into a Run and is the only writer of run state. Progress is
 proven by machine-checked guards over artifacts on disk, never by an agent's
@@ -93,21 +93,18 @@ at P1 is safe - and an exit - the direction-level fact its integration would
 make true. Conditions forecast what selection would require and deliver;
 they select nothing.
 
-1. **The engine-namespace split** - the next promotion target, but still a
-   future issue, not yet minted: the files the Engine owns or consumes (the
-   runbook, the runs roster, the lock, the receipts) move out of `.arca/` to
-   an engine-named root, and the arca folder roots the contract guards read
-   become runbook data, retiring the hard-coded-path debt (R-016). Entry:
-   none among these items - it consumes neither routing, delivery,
-   completion, nor composition. Those contracts are landed and no
-   unanswered fork blocks the split, making it the only unblocked
-   critical-path item. Exit: one owner per root - everything under the
-   engine's root is Engine-written or Engine-consumed, `src/` carries no
-   `.arca/` literal, and a second project runs `rtm` without an `.arca/`
-   folder existing. The future issue, not this forecast, must choose the new
-   root. Before the cycle because a self-hosting runbook freezes every path
-   it reads: splitting afterwards would re-path the live machine governing
-   this repository and churn the namespace twice.
+1. **The engine-namespace split** - promoted and integrated as
+   `i-024-engine-namespace-split` (`ENS-001`-`ENS-012`): the files the Engine
+   owns or consumes (the runbook, the runs roster, the locks, the receipts) now
+   live under the engine-named root `.ratmac/`, and the arca folder roots the
+   contract guards read became runbook data, retiring most of the
+   hard-coded-path debt (R-016). Exit - one owner per root - is reached except
+   for the roots-table ticket `t-076`, which is held: two of its rows
+   contradict the rules that mechanize them, and the ruling waits in
+   `i-026-namespace-row-rulings`. Entry for finishing it: a human rules where a
+   held ticket's fact lives and who may name a retired folder in Engine source.
+   Until then `src/` still carries one declared `.arca` exception and the gap
+   records `res-106` and `res-113` stay unproven.
 2. **The Plan-Build Runbook** - the cycle-as-runbook issue
    (`i-015-cycle-as-runbook`), waiting whole in the deferred buffer:
    self-hosting this repository's P1-P5 loop. Entry: routing, delivery,
@@ -127,10 +124,12 @@ they select nothing.
    deliberate-damage step and the intake gate's acceptance of
    working-authority requirement headings. Those responsibilities and the
    entry conditions are unchanged.
-   The State-not-Phase wishlist entry is neither promoted nor an entry
-   condition here. If a human promotes it, settle it before this item, or
-   the Plan-Build Runbook will first be authored with `Phase` and later need
-   a runbook format migration.
+   The State-not-Phase wish is no longer a forecast: Billy promoted it on
+   2026-08-10, it entered as `i-025-state-vocabulary` (`SVC-001`-`SVC-010`),
+   and it is the current sprint. That satisfies the ordering this item always
+   demanded - the machine position is renamed before the Plan-Build Runbook is
+   authored, so the shop's own runbook is written once, in `states`, and never
+   needs a format migration.
 3. **The `failed`-outcome contract** - a blocked, independent side path that
    names the concrete Engine-observable failure event granting the third
    terminal. Entry: a human answers the failure-event fork below with that
@@ -156,7 +155,7 @@ wrote down is drift.
   that refuses afterwards, or the surrounding harness gains hooks that make
   the write impossible. Undecided. One branch is already closed: a check the
   Engine computes from the file it is checking cannot catch a deliberate
-  writer, because whoever edits `.arca/state.toml` recomputes the same
+  writer, because whoever edits `.ratmac/runs/<run-id>/run.toml` recomputes the same
   unkeyed digest over it. Detecting an intentional writer needs an
   authenticator anchored outside what that writer can reach - which is the
   harness branch under another name. A self-contained digest is worth having
@@ -175,50 +174,64 @@ wrote down is drift.
 Derived record. Regenerated wholesale at P1 close from the signed issue set;
 never hand-edited, never a progress report. Stage lives in the tree.
 
-Freeze stamp: P1 integration HEAD
-`95786be39739db7a5fc0e727c1bfd9cc053af05a`, canonical goal revision
-goal SHA-256
-`d4feb91e20a21ba9e09edee4577a27d32bc8860d87ab588d1155344e046eb14e`,
-computed 2026-08-04 by `src/goal.rs::revision` over the checked-out goal -
-planning step 1 closed 2026-08-04.
+Freeze stamp: pending - planning step 2 records the P1 integration HEAD and the
+canonical goal revision computed by `src/goal.rs::revision` over the checked-out
+goal. P1 opened 2026-08-10 on the promoted State-not-Phase wish.
 
 A sprint starts when enough issues have collected to be worth integrating
 into the goal, and runs the cycle - plan, then build - until the gap check
 comes back clean.
 
-This sprint: make the human `rtm doctor` report name the exact Engine bytes
-without changing any machine decision, trust check, or write boundary.
+This sprint: rename the machine position from `Phase` to `State` across every
+live surface, after separating the three words that "state" was carrying at
+once - the graph position, the file the Engine writes for a Run, and the whole
+live instance - and move nothing but names.
 
-Signed issue set: i-023-doctor-full-fingerprint (`DFP-001` accepted as one
-product requirement refining `ORS-002` and `DRD-005`). The complete issue
-bundle is archived; its trial is evidence only and contributes no
-implementation or test bytes.
+Signed issue set: i-025-state-vocabulary. `SVC-001` through `SVC-008` are
+accepted product requirements; `SVC-009` and `SVC-010` are accepted
+working-authority requirements resolving to headings in `.arca/schema.md`. The
+carrying Ideal-shape property is **Authored, not imitated** - the written
+schema is the only way the format is meant to be learned, so its words must
+describe the machine that exists; **Refusals are branchable** is served too,
+because pre-cutover residue gets its own stable code while every existing code
+keeps its identity.
 
 Route - an ordered dependency list, one why per edge. It says what depends
 on what, never when.
 
-1. Independent red proof - hash the exact test-built executable separately,
-   require the argument-free human report to equal all 64 lowercase
-   hexadecimal characters, and snapshot the fixture before and after;
-   first because the existing 16-character report must fail for the stated
-   reason before production changes.
-2. Narrow rendering change - render the whole digest already computed by
-   the environment report; after the red proof because no trial bytes or
-   remembered patch may substitute for fresh evidence.
-3. Inherited behavior and review - run both doctor suites, the public
-   workspace, formatting, Clippy, and all six hidden-lane assessments;
-   after the narrow change because selection, trust, state, Runbook,
-   findings, and `--json` must remain unchanged.
-4. Re-gap and close - classify `DFP-001` from fresh evidence and return to
-   Idle only when the exact digest and every inherited boundary are proven.
+1. Settle the three words - State, Run Record, Run, with `status` untouched -
+   in the authorities before any file moves; first because a rename onto an
+   occupied word would re-create the collision the wish was filed about.
+2. Format and Run Record surfaces - the runbook's `states` tables and the
+   Run Record at `.ratmac/runs/<run-id>/run.toml` with its `state` field;
+   after the words are settled because both are the words written down on disk.
+3. Residue refusal and diagnostics - a pre-cutover `phases` runbook or Run
+   Record refuses before any read, join, parse, or write with its own new
+   code, while every pre-existing code keeps its exact identity; after the new
+   surfaces exist because a refusal must name the repair the new format wants.
+4. Caller-visible text and the live-surface audit - State Prompt, `rtm status`,
+   the human doctor report, `--json` findings, and refusal text, proven by an
+   audit whose history allowlist is enumerated; after the surfaces so the audit
+   measures the finished cutover rather than a half-renamed tree.
+5. Behavior-unchanged proof, then re-gap and close - the existing suites pass
+   with their meanings intact, then every `SVC` row is classified from fresh
+   evidence.
 
-Endpoint: argument-free `rtm doctor` reports the complete 64-character
-lowercase SHA-256 of the exact executable it runs, remains write-free, and
-changes no executable selection, pin or trust behavior, state report,
-Runbook finding, arbitrary-path diagnosis, or `--json` behavior.
+Endpoint: no live product surface names the machine position `Phase`. The
+runbook declares `states`, a Run is recorded in `.ratmac/runs/<run-id>/run.toml`
+with a `state` field, pre-cutover artifacts refuse and instruct without
+migrating, diagnostic codes keep their identity, archived history keeps its
+bytes under an enumerated allowlist, and no routing, guard, lock, mint, spawn,
+join, hold, abandon, completion, receipt, or exit-code behavior has moved.
 
-Deferred: the Plan-Build Runbook (`i-015-cycle-as-runbook`) follows the
-engine-namespace split and now also carries the machine enforcement of the
+Held: the roots-table ticket `t-076` is paused with `blocker-ref`
+`i-026-namespace-row-rulings` - two engine-namespace rows contradict the rules
+that mechanize them, and only a human can rule where the held fact lives and
+who may name a retired folder in Engine source. Its gap records `res-106` and
+`res-113` stay unproven until that issue is selected.
+
+Deferred: the Plan-Build Runbook (`i-015-cycle-as-runbook`) now waits only on
+this cutover and on `i-026`; it still carries the machine enforcement of the
 discard guard - the dirty-tree refusal before any deliberate-damage step
 and the intake gate's acceptance of working-authority requirement headings
 (`PCR-001`, extended 2026-08-03); the `failed`-outcome contract awaits a

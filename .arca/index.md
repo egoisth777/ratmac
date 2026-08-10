@@ -2,7 +2,7 @@
 
 ratmac (`rtm`) is a Rust engine that runs agent work as an explicit state
 machine. Its shared runtime root is the primary checkout's `.ratmac/`; the Machine Class
-(`.ratmac/ratmac.toml`, plain TOML) is read from the invoking checkout and declares phases,
+(`.ratmac/ratmac.toml`, plain TOML) is read from the invoking checkout and declares States,
 prompts, guards, and transitions; the Engine instantiates it into a Run and is the only writer
 of run state. Progress is proven by machine-checked guards over artifacts on disk - never by an
 agent's claim. Deterministic and offline: no network, no installs, no hidden global state.
@@ -17,7 +17,7 @@ residuals without tickets -> P3; goal frozen but residuals stale -> P2; a
 `pending` issue bundle directly under `.arca/issue/` -> P1; none of the above
 -> Idle. Bundles in `.arca/issue/deferred/` are live waiting work but do not
 force P1. Selecting one visibly moves that same complete bundle to the intake
-work area and changes its status to `pending`. (`.ratmac/runs/<run-id>/state.toml` answers only
+work area and changes its status to `pending`. (The addressed Run's Run Record answers only
 for a live `rtm` Run; until the **Plan-Build Runbook** is this project's
 Machine Class, the tree is the oracle - see steering.md, Current sprint endpoint.)
 
@@ -33,6 +33,13 @@ behavior remains green, and `.arca-private/t-058/` through
 `.arca-private/t-070/` hold the current hidden lanes. Every Architecture,
 Binary, Modules, and Tests row below describes this landed tree. Refresh at
 each cycle close (gap check green).
+
+One caveat on vocabulary: the state-vocabulary cutover (`SVC-001`-`SVC-010`,
+goal `ADR-0012`) is integrated into the authorities but not yet landed in code,
+so the Architecture, Modules, and Tests rows below still show the identifiers
+the tree actually carries today - the type `Phase`, per-State `phases` tables,
+and `state.toml`. Rules and paths outside this stamped cache already read
+State, Run Record, and `run.toml`; these rows follow when the cutover lands.
 
 ### Architecture
 
@@ -106,7 +113,7 @@ runbook that starts clean.
 
 ### Runbook shape (`.ratmac/ratmac.toml`)
 
-Defined once, in [runbook-spec.md](runbook-spec.md): top level, Phase and
+Defined once, in [runbook-spec.md](runbook-spec.md): top level, State and
 transition fields, the closed guard-kind vocabulary with each kind's required
 and optional fields, the ownership rules, and the `RB*` diagnostic codes. This
 map deliberately keeps no copy - a second copy would be a second schema.
@@ -167,7 +174,7 @@ All agent routing and documentation must use these paths.
 | `.arca/residual/` | Gap records, one per requirement - proven yet? |
 | `.arca/ticket/` | Small self-contained work units, cut from gap records. |
 | `.ratmac/` | Shared Engine runtime root at the primary checkout: Git-ignored `runs/`, `mint.toml`, `locks/`, and `log.md`; the invoking checkout's Machine Class `ratmac.toml` and receipts under `evidence/<run-id>/` stay tracked. |
-| `.ratmac/runs/<run-id>/state.toml` | Per-Run State File - written ONLY by `rtm`; everyone else reads. |
+| `.ratmac/runs/<run-id>/run.toml` | Per-Run Run Record - written ONLY by `rtm`; everyone else reads. |
 | `.arca/log.md` | Human-only append-only history; every human landing leaves a line. `rtm` logs transitions in `.ratmac/log.md`. |
 | `.arca/tpl/` | Blank forms; a form filled in at its proper path is the real thing. |
 | `.arca/vis/` | Shared pictures and graphs. |

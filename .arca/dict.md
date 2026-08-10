@@ -1,6 +1,6 @@
 # dict.md — Glossary
 
-Plain-word definitions for terms used in work with Billy. Consult this file before coining a new term; reuse an entry if one fits. When a response must introduce a term not listed here, add a short entry. When a term is replaced, delete every mention of the old term outside log.md — no "retired" markers anywhere; the replacement is recorded once, in log.md.
+Plain-word definitions for terms used in work with Billy. Consult this file before coining a new term; reuse an entry if one fits. When a response must introduce a term not listed here, add a short entry. When a term is replaced, delete every mention of the old term outside log.md — no "retired" markers anywhere; the replacement is recorded once, in log.md. That deletion rule covers live documents only: where it meets the archive rule that a completed record keeps its bytes, preservation wins, so archived issue bundles, archived tickets, archived gap records, and log.md keep the old wording exactly, and an audit over live surfaces enumerates those historical carriers instead of skipping an unbounded set (schema.md `SVC-010`).
 
 ## State machines
 
@@ -39,11 +39,12 @@ Plain-word definitions for terms used in work with Billy. Consult this file befo
 ## ratmac / agent orchestration
 
 - **Harness**: The agent product hosting the model (Claude Code, etc.).
-- **Scaffold**: The fixed structure (prompts, phases, gates) wrapped around model calls.
-- **Runbook**: The TOML file defining phases, per-phase prompts, and transitions for an agent run. Its schema also carries the validity rules — what a runbook may or may not contain (e.g. no lifecycle status as a graph dimension).
-- **Phase**: One state in a runbook.
+- **Scaffold**: The fixed structure (prompts, states, gates) wrapped around model calls.
+- **Runbook**: The TOML file defining states, per-state prompts, and transitions for an agent run. Its schema also carries the validity rules — what a runbook may or may not contain (e.g. no lifecycle status as a graph dimension).
+- **State**: Where a Run sits in its machine graph — one node of a runbook's machine. The only dimension of machine position; `status` is separate runtime lifecycle.
+- **Run Record**: The one file the Engine writes for one Run, `.ratmac/runs/<run-id>/run.toml`, holding that Run's current `state`, `status`, and run-scoped fields. Only the Scheduler writes it.
 - **Artifact**: A file or output produced by real work (test log, build output, git commit).
-- **Artifact guard / artifact-verified exit**: A phase can be left only when an artifact proves the work happened — read from process outputs (exit codes, compiler, git) the agent cannot write.
+- **Artifact guard / artifact-verified exit**: A State can be left only when an artifact proves the work happened — read from process outputs (exit codes, compiler, git) the agent cannot write.
 - **Sensitivity receipt**: Proof that a test can actually fail (seen red before green). Blocks fake or always-passing tests.
 - **Advisory vs enforced**: Advisory = the agent is asked to follow rules (~70% compliance). Enforced = a mechanism blocks violations (hooks ~100%).
 - **Hook / PreToolUse**: A program the harness runs before each tool call; it can deny the call. The "wall" that stops an agent from editing scheduler-owned files.
@@ -59,10 +60,10 @@ Plain-word definitions for terms used in work with Billy. Consult this file befo
 - **Guard lint**: A doctor check that every exit guard reads an agent-uncontrolled source (exit code, git state) — flags fake-able guards.
 - **Property-based testing**: Testing by generating many random inputs and asserting a property always holds, instead of hand-picked cases.
 - **Lean**: A theorem prover: you write mathematical statements and machine-checked proofs. Heavy; proves only properties you explicitly state.
-- **Active refs** (`active_refs`): One of the seven State File fields (R-025) — the Scheduler-written list of what a Run is currently working on, ticket and requirement ids. In the format and in the fixtures since the start; nothing populates it yet.
+- **Active refs** (`active_refs`): One of the seven Run Record fields (R-025) — the Scheduler-written list of what a Run is currently working on, ticket and requirement ids. In the format and in the fixtures since the start; nothing populates it yet.
 - **Per-ticket gate**: An exit guard whose verdict is about one named ticket — `sensitivity_receipts` (its planned tests each have a red-before-green receipt) and `completion_gate` (its declared checks each have a green, fresh receipt). Both need a ticket id, which a read-only runbook cannot supply per loop turn.
-- **Verdict format**: The strict live `verdict.toml` record has exactly three non-empty string fields: current `phase`, one legal transition `input`, and the external reviewer's `rationale`. The Engine stores no reviewer identity and adds no value; atomic archival preserves the original bytes.
-- **Input list**: The closed transition-input values a branching Phase accepts, declared in the runbook and mapped one-to-one to its ordinary outgoing edges. A verdict input outside the list is refused, not routed; the list is also the reviewer's menu for that Phase.
+- **Verdict format**: The strict live `verdict.toml` record has exactly three non-empty string fields: current `state`, one legal transition `input`, and the external reviewer's `rationale`. The Engine stores no reviewer identity and adds no value; atomic archival preserves the original bytes.
+- **Input list**: The closed transition-input values a branching State accepts, declared in the runbook and mapped one-to-one to its ordinary outgoing edges. A verdict input outside the list is refused, not routed; the list is also the reviewer's menu for that State.
 
 ## Shop process (.arca)
 
