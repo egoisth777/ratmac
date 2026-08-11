@@ -127,7 +127,7 @@ impl Fixture {
     }
 
     fn rtm(&self, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_rtm"))
+        Command::new(ratmac_qa::engine_bin!())
             .args(args)
             .current_dir(&self.root)
             .output()
@@ -145,7 +145,7 @@ impl Fixture {
     }
 
     fn start_child(&self) -> Child {
-        Command::new(env!("CARGO_BIN_EXE_rtm"))
+        Command::new(ratmac_qa::engine_bin!())
             .arg("start")
             .current_dir(&self.root)
             .stdin(Stdio::null())
@@ -156,7 +156,7 @@ impl Fixture {
     }
 
     fn step_at_barrier(&self, run_id: &str, marker: &Path, barrier: &FileBarrier) -> Child {
-        Command::new(env!("CARGO_BIN_EXE_rtm"))
+        Command::new(ratmac_qa::engine_bin!())
             .args(["step", "--run", run_id])
             .current_dir(&self.root)
             .env("RATMAC_QA_BARRIER_MARKER", marker)
@@ -531,7 +531,7 @@ fn spawn_start_then_release(
     let release = release.to_path_buf();
     let timeout_marker = timeout_marker.to_path_buf();
     let handle = thread::spawn(move || {
-        let output = Command::new(env!("CARGO_BIN_EXE_rtm"))
+        let output = Command::new(ratmac_qa::engine_bin!())
             .arg("start")
             .current_dir(root)
             .output();

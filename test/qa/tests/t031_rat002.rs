@@ -44,7 +44,10 @@ fn canonical_package_and_binary_metadata() {
     let qa_manifest = std::fs::read_to_string(root.join("test/qa/Cargo.toml"))
         .expect("QA manifest must be readable");
     assert!(qa_manifest.contains("name = \"ratmac-qa\""));
-    assert!(qa_manifest.contains("name = \"rtm\""));
+    // DEB-001: the harness builds the canonical Engine source under its own
+    // target name, so it never writes over the shipped `rtm`.
+    assert!(qa_manifest.contains("name = \"rtm-qa\""));
+    assert!(!qa_manifest.contains("name = \"rtm\""));
     assert!(qa_manifest.contains("path = \"../../src/bin/rtm.rs\""));
     assert!(!qa_manifest.contains("arca-scheduler"));
     assert!(!qa_manifest.contains("schd"));

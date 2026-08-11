@@ -66,7 +66,7 @@ fn fixture(label: &str, mode: &str, extra: Option<&str>) -> Fixture {
 }
 
 fn rtm(fixture: &Fixture, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_rtm"))
+    Command::new(ratmac_qa::engine_bin!())
         .args(args)
         .current_dir(&fixture.root)
         .output()

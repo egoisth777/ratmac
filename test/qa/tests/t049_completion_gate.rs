@@ -126,7 +126,7 @@ impl Fixture {
     }
 
     fn rtm(&self, args: &[&str]) -> String {
-        let output = Command::new(env!("CARGO_BIN_EXE_rtm"))
+        let output = Command::new(ratmac_qa::engine_bin!())
             .args(args)
             .current_dir(&self.root)
             .output()

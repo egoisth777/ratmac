@@ -166,7 +166,7 @@ fn repo_root() -> PathBuf {
 }
 
 fn rtm_command(root: &Path, args: &[&str]) -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_rtm"));
+    let mut command = Command::new(ratmac_qa::engine_bin!());
     command
         .args(args)
         .current_dir(root)

@@ -134,7 +134,7 @@ impl Fixture {
         fs::write(root.join(".ratmac/ratmac.toml"), runbook).expect("write fixture machine class");
         fs::write(root.join("src/lib.rs"), "pub fn fixture() {}\n").expect("write fixture source");
 
-        let start = Command::new(env!("CARGO_BIN_EXE_rtm"))
+        let start = Command::new(ratmac_qa::engine_bin!())
             .arg("start")
             .current_dir(&root)
             .output()
@@ -195,7 +195,7 @@ impl Fixture {
     }
 
     fn step_with_fault(&self, fault: Option<&str>) -> Output {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_rtm"));
+        let mut command = Command::new(ratmac_qa::engine_bin!());
         command
             .args(["step", "--run", self.run_id.as_str()])
             .current_dir(&self.root)

@@ -182,7 +182,7 @@ fn fixture_project(label: &str) -> PathBuf {
 }
 
 fn run_rtm(project: &Path, args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_rtm"))
+    Command::new(ratmac_qa::engine_bin!())
         .args(args)
         .current_dir(project)
         .output()

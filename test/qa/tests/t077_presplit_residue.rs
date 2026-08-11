@@ -156,7 +156,7 @@ impl Fixture {
     }
 
     fn rtm(&self, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_rtm"))
+        Command::new(ratmac_qa::engine_bin!())
             .args(args)
             .current_dir(&self.root)
             .output()
@@ -251,7 +251,7 @@ impl LinkedFixture {
     }
 
     fn rtm_at(&self, root: &Path, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_rtm"))
+        Command::new(ratmac_qa::engine_bin!())
             .args(args)
             .current_dir(root)
             .output()

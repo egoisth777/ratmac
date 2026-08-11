@@ -115,7 +115,7 @@ impl Fixture {
     }
 
     fn rtm(&self, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_rtm"))
+        Command::new(ratmac_qa::engine_bin!())
             .args(args)
             .current_dir(&self.root)
             .output()
@@ -545,7 +545,7 @@ fn runbook_swap_before_hold_state_write_refuses_without_a_half_route() {
     let barrier_dir = fixture.root.join(".ratmac/test-hold-snapshot");
     let marker = barrier_dir.join("marker");
     let release = barrier_dir.join("release");
-    let mut child = Command::new(env!("CARGO_BIN_EXE_rtm"))
+    let mut child = Command::new(ratmac_qa::engine_bin!())
         .args([
             "hold",
             TICKET,

@@ -71,7 +71,7 @@ impl Boot {
         let target = self.root.join("target/debug");
         fs::create_dir_all(&target).expect("create build directory");
         let binary = target.join(engine_file_name());
-        fs::copy(env!("CARGO_BIN_EXE_rtm"), &binary).expect("place a prebuilt Engine");
+        fs::copy(ratmac_qa::engine_bin!(), &binary).expect("place a prebuilt Engine");
         binary
     }
 
@@ -84,7 +84,7 @@ impl Boot {
     }
 
     fn rtm(&self, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_rtm"))
+        Command::new(ratmac_qa::engine_bin!())
             .args(args)
             .current_dir(&self.root)
             .output()

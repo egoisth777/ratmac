@@ -78,7 +78,7 @@ impl Fixture {
 }
 
 fn rtm_at(root: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_rtm"))
+    Command::new(ratmac_qa::engine_bin!())
         .args(args)
         .current_dir(root)
         .output()
@@ -86,7 +86,7 @@ fn rtm_at(root: &Path, args: &[&str]) -> Output {
 }
 
 fn rtm_at_with_env(root: &Path, args: &[&str], environment: &[(&str, &Path)]) -> Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_rtm"));
+    let mut command = Command::new(ratmac_qa::engine_bin!());
     command.args(args).current_dir(root);
     for &(name, value) in environment {
         command.env(name, value);

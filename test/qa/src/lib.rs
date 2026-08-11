@@ -4,12 +4,26 @@
 //! `tests/`; the private `tests` module holds the behavior checks that need
 //! no fixture sharing.
 
+/// The path of the Engine command this suite is compiled against.
+///
+/// `DEB-001`: one place in the harness names the build target, so no test can
+/// launch a build other than the one it was compiled with. Cargo defines
+/// `CARGO_BIN_EXE_<target>` for integration tests only, so this is a macro
+/// expanded in the test crate rather than a constant in the library.
+#[macro_export]
+macro_rules! engine_bin {
+    () => {
+        env!("CARGO_BIN_EXE_rtm-qa")
+    };
+}
+
 pub mod archive;
 pub mod json;
 pub mod policy;
 pub mod rebrand;
 pub mod role;
 pub mod snapshot;
+pub mod targets;
 pub mod tempgit;
 pub mod trial;
 

@@ -18,8 +18,10 @@ path = "src/bin/snapshot_manifest.rs"
 name = "lock-barrier"
 path = "src/bin/lock_barrier.rs"
 
+# DEB-001: the harness copy of the Engine command is named for what it is,
+# so it never writes over the shipped `rtm`.
 [[bin]]
-name = "rtm"
+name = "rtm-qa"
 path = "../../src/bin/rtm.rs"
 
 [dependencies]
