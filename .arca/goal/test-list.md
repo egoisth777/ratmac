@@ -255,3 +255,13 @@ Behavior checks derived from [spec.md](spec.md). Each is a testable one-liner.
 | SVCV-007 | Every caller-visible surface — the State Prompt, `rtm status`, the human doctor report, `--json` findings, and refusal text — names the position State, and an executable scan finds no live occurrence of the pre-cutover spelling in those surfaces. | SVC-002 |
 | SVCV-008 | Routing, guard evaluation, freeze and drift, locking, minting, spawning, joining, holding, abandoning, completion, receipts, and exit codes are proven unchanged: the existing suites pass with their meanings intact after the rename. | SVC-007 |
 | SVCV-009 | The live-surface audit passes over the whole tracked tree with an enumerated allowlist; removing any allowlist entry makes it fail on that history, and planting the pre-cutover spelling in a live surface makes it fail there. | SVC-008 |
+
+## Integrated single-engine-binary verification
+
+| ID | Check | Requirement |
+|---|---|---|
+| DEBV-001 | A clean build of the whole repository prints no output filename collision, and no two build targets declared anywhere in the repository resolve to one output path. | DEB-001, DEB-002 |
+| DEBV-002 | The binary a test launches carries the pause-point wiring: the hold barrier check that stops the Engine before it writes Run state reaches its barrier and passes from a whole-repository test run, not only from a package-scoped one. | DEB-001 |
+| DEBV-003 | The shipped command keeps its name and its identity: the bootstrap entry point still resolves a command called `rtm`, the pin check still reports one path and one hash, and that command carries no pause-point wiring. | DEB-001 |
+| DEBV-004 | Declaring a second build target that would write an existing output path fails by name, and the failure names both declarations; removing the duplicate makes it pass again. | DEB-002 |
+

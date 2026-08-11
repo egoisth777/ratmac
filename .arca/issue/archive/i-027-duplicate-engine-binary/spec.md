@@ -19,4 +19,4 @@ proposed `accepted`.
 No engine behavior changes here: routing, guards, locking, receipts, and exit codes are
 untouched. The state-vocabulary cutover is a separate sprint and depends on this issue only
 for how its regression evidence is taken, which its gap record already names
-([res-122](../../residual/res-122.md)).
+([res-122](../../../residual/res-122.md)).

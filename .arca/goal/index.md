@@ -94,3 +94,13 @@ Engine-root, repository-wide Run identity, split locking, workspace binding, dec
 ## Integrated state vocabulary
 
 The machine position is named State, not Phase, and the Engine's per-Run file is the Run Record. Requirements are integrated from [i-025-state-vocabulary](../issue/archive/i-025-state-vocabulary/index.md): `SVC-001` through `SVC-008`. Three words are separated first — State is the graph position, Run Record is the one file the Engine writes for a Run, Run is the whole live instance, and `status` stays Engine-owned lifecycle — then the rename lands on every live surface: `[states.<name>]` in the runbook, `state` in `.ratmac/runs/<run-id>/run.toml`, and State Prompt in place of Phase Prompt. Pre-cutover runbooks and Run Records refuse and instruct instead of migrating, diagnostic codes keep their identity while their text changes, no behavior moves, and archived history keeps its bytes under an enumerated allowlist. The carrying Ideal-shape property is **Authored, not imitated**: the written schema is the only way the format is meant to be learned, so its words must describe the machine that exists rather than a linear pipeline. **Refusals are branchable** is served too, because the residue gets its own stable code and every pre-existing code survives the rename.
+
+## Integrated single engine binary
+
+One command proves the suite. Requirements are integrated from
+[i-027-duplicate-engine-binary](../issue/archive/i-027-duplicate-engine-binary/index.md):
+`DEB-001` and `DEB-002`. The test package's copy of the Engine command gets its own target
+name so it stops overwriting the shipped one, tests launch the build they were compiled
+against, and a check over the package manifests refuses a future collision by name. No Engine
+behaviour changes; see [ADR-0013](design.md#one-engine-binary-per-build-target-adr-0013).
+

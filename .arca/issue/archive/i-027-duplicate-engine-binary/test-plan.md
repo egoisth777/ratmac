@@ -13,5 +13,5 @@
 
 | Trace | Where it lands |
 | :--- | :--- |
-| The one-command evidence rule | The working rules' statement of how a turn's suite is run — today the gap record [res-122](../../residual/res-122.md) has to name a package-scoped command instead. |
+| The one-command evidence rule | The working rules' statement of how a turn's suite is run — today the gap record [res-122](../../../residual/res-122.md) has to name a package-scoped command instead. |
 | The pause-point boundary | The existing barrier checks in `test/qa/tests/t050_blocked_route.rs`, which are the direct witnesses of the defect. |

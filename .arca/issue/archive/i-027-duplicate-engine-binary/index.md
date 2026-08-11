@@ -3,7 +3,7 @@
 ```yaml
 issue-id: "i-027-duplicate-engine-binary"
 provenance: "Found while taking the P2 baseline for the state-vocabulary sprint on 2026-08-10: `cargo test --workspace` failed one blocked-route check that passes under `cargo test -p ratmac-qa`, and the difference is which package wrote target/debug/rtm.exe last (.arca/residual/res-122.md)."
-status: "pending"
+status: "integrated"
 ```
 
 ## Summary

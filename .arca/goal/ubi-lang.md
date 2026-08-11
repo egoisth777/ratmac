@@ -109,3 +109,7 @@ Glossary of ubiquitous language. One term, one meaning. Terms not listed here mu
 | Per-Run lock | The lock that protects motion on one addressed Run. It permits different Runs to move independently while serializing concurrent motion on that Run. |
 | Workspace binding | The canonical path recorded in a child ledger entry. A child without an explicit binding inherits its parent's workspace, and its guards and motion resolve files there. |
 | Roots table | The top-level runbook `[roots]` table mapping role names to repository-relative paths. Guards name a root rather than a hard-coded workflow path. |
+| Build target | One thing the build produces from source: a command a person can run, or a library other code links. Each target has a name and one output file. |
+| Output collision | Two build targets that write the same output file. The one that finishes last survives, so the result depends on build order rather than on what was asked for. |
+| Pause point | A wiring seam compiled in only for testing, letting a test stop the Engine at a named moment mid-operation, inspect the tree, and let it continue. Absent from the shipped command by design. |
+

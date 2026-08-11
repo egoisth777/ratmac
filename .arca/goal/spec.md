@@ -222,3 +222,11 @@ Requirement records distilled from the accepted decisions. Sources cite the deci
 | SVC-006 | Diagnostic identity survives the cutover: a defect that has a code keeps that exact code while its message text changes, the pre-cutover runbook residue gets its own new code, and the documented code table still equals the Engine's. Restates `DRD-006` and `RBS-005` under the rename. | [issue SVC-006](../issue/archive/i-025-state-vocabulary/spec.md#requirement-records) |
 | SVC-007 | The cutover changes names only. Edge selection, guard evaluation, readiness, routing, freeze and drift, locking, minting, spawning, joining, holding, abandoning, completion, receipts, and exit codes behave exactly as before, and every existing check keeps its meaning. | [issue SVC-007](../issue/archive/i-025-state-vocabulary/spec.md#requirement-records) |
 | SVC-008 | Historical bytes are preserved, not rewritten. Archived issue bundles, archived tickets, archived gap records, and `.arca/log.md` keep the old wording exactly, and the audit proving no live surface says `Phase` carries them as an explicit, enumerated allowlist rather than an unbounded skip. | [issue SVC-008](../issue/archive/i-025-state-vocabulary/spec.md#requirement-records) |
+
+## Integrated single-engine-binary requirements
+
+| Req ID | Requirement | Source |
+|---|---|---|
+| DEB-001 | One command proves the suite. No two build targets in this repository write the same output file, and every test that launches the Engine launches the build it was compiled against, pause points included, whether the run is whole-repository or package-scoped. The shipped command keeps its name `rtm`, its source, and its identity: the bootstrap still resolves one path and reports one hash, and the pause points stay out of it. | [issue DEB-001](../issue/archive/i-027-duplicate-engine-binary/spec.md#requirement-records) |
+| DEB-002 | A build-output collision cannot come back silently. A check reads every package manifest in the repository and fails by name, naming both declarations, when two build targets resolve to one output path. | [issue DEB-002](../issue/archive/i-027-duplicate-engine-binary/spec.md#requirement-records) |
+

@@ -317,3 +317,38 @@ The top-level runbook `[roots]` table maps role names to repository-relative pat
 - *History is evidence.* Archived bundles, archived tickets, archived gap records, and `.arca/log.md` keep their bytes. The audit that proves no live surface says `Phase` carries them as an enumerated allowlist, never an open-ended skip, so the allowlist itself stays reviewable.
 
 **Consequences.** This decision supersedes `ADR-0001`'s and `ADR-0003`'s term spellings and the `state.toml` filename that `ADR-0011` recorded; the decisions themselves — one position dimension, status outside the graph, one writer — are unchanged. Every Run Record, runbook, and message produced before the cutover is refused rather than read, so the cutover is a hard boundary with no dual-reading window. The `[roots]` table, guard kinds, spawn and join contracts, and lock and mint rules keep their shape.
+
+## One engine binary per build target (ADR-0013)
+
+**Context.** The repository declares the Engine command twice. The root package builds `rtm`
+from `src/bin/rtm.rs`; the test package builds a second command from that same source file
+with the test-only pause points compiled in. Both land at `target/debug/rtm`, so cargo warns
+about an output filename collision and the last writer wins. Measured at `f9692cf`: after a
+whole-repository build the file carries no pause-point wiring and the hold barrier check
+`t050_blocked_route::runbook_swap_before_hold_state_write_refuses_without_a_half_route` fails
+with "hold did not reach the pre-State snapshot barrier"; after a test-package build it
+carries the wiring and the same check passes. The suite's colour therefore reports build
+order, and that sentence is the evidence half of every ticket the shop lands.
+
+**Decision.** Two targets, two names, one source file.
+
+- *The shipped command keeps its name.* The root package still builds `rtm` from
+  `src/bin/rtm.rs`. Nothing about bootstrap, pin check, doctor identity, or the pause-point
+  boundary moves: the shipped command is still built without the test-only feature.
+- *The test copy is named for what it is.* The test package's target gets its own name, so it
+  writes its own output file, and every test that launches the Engine names that target. A
+  test therefore always launches the build it was compiled against.
+- *The rule is stated in the shop's own words.* A check reads the package manifests, resolves
+  each build target to its output file, and fails naming both declarations when two targets
+  agree. Reading the declaration rather than the build keeps the check independent of how the
+  toolchain words its warning, and of whether the toolchain keeps warning at all.
+- *Rejected: compile the pause points everywhere.* Turning the test-only feature on in the
+  shipping package would make both copies identical and the collision harmless. The pause
+  points read environment variables and stop the Engine mid-write; that belongs in a test
+  build and nowhere near a shipped command.
+
+**Consequences.** `cargo test --workspace` becomes admissible evidence, which is what
+`SVC-007`'s behaviour-unchanged proof needs. No Engine behaviour changes: routing, guards,
+locking, receipts, and exit codes are untouched, and the rename is mechanical - a target name
+and the constant every test uses to find it.
+
