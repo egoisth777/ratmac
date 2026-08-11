@@ -42,8 +42,9 @@ Glossary of ubiquitous language. One term, one meaning. Terms not listed here mu
 | Evidence receipt | A structured, tamper-evident record of one executed check: the command or predicate, the exercised target, the observed result, and a content digest binding them. |
 | Sensitivity receipt | An evidence receipt proving a planned test can fail: a recorded baseline failure before implementation or a controlled mutation that flips it. |
 | Agent-writable evidence artifact | A file agents may author to carry notes and receipts, distinct from Scheduler-owned files; the append-only log remains Engine-owned. |
-| Blocked route | A human-authorized Runbook route that moves a Run forward while an executing ticket is held with a linked blocker, preserving its honest partial evidence. |
-| Blocker record | The concrete artifact a held ticket links to — a new five-file issue or a named residual — stating why the ticket cannot pass. |
+| Blocked route | A human-authorized Runbook route that moves a Run forward while the work it carries is paused against a linked blocker, preserving its honest partial evidence. The Engine records the pause in the Run Record; whether a work-item document is annotated is the shop’s business, not the Engine’s (`NRR-001`). |
+| Blocker record | The concrete artifact a paused Run links to, stating why the work cannot pass. To the Engine it is an opaque reference that must exist beneath a declared root; that this shop requires a five-file issue folder or a named residual is a working rule, not an Engine rule (`NRR-001`). |
+| Paused mark | The Engine-owned record that a Run is held: a field in the Run Record naming its blocker reference, written by `rtm hold` and read by the completion gate. It is the only place the Engine learns that work is paused. |
 | Run abandonment | The human-authorized terminal retirement of a broken active Run: RTM records a terminal abandoned event and safely retires the Run's admission state so a fresh Run can start. |
 | Reviewable snapshot | Candidate content whose every exercised path is visible to git review (tracked or staged), so the tested tree can be reconstructed and audited from the recorded change. |
 | Snapshot manifest | The recorded enumeration binding an evidence claim to its snapshot: per declared root, the git tracking state and a content digest. |

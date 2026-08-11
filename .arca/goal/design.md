@@ -352,3 +352,41 @@ order, and that sentence is the evidence half of every ticket the shop lands.
 locking, receipts, and exit codes are untouched, and the rename is mechanical - a target name
 and the constant every test uses to find it.
 
+
+## The Engine has no work-item concept (ADR-0014)
+
+**Context.** Two rules in force contradicted each other. `ENS-001` says the Engine writes no
+file under `.arca/`; the working rules and `PGE-006` said an authorized `rtm hold` marks the
+ticket file `held` with its blocker, and `src/blocked.rs` did exactly that - reading the
+ticket to check its status, rewriting two of its fields, and refusing on a work-item shape
+the Engine invented (`a complete five-file issue folder or a named residual record`). The
+completion gate then re-read that same contributor file to learn a ticket was held. One
+contributor file was both the Engine's write target and the Engine's index.
+
+**Decision.** The Engine is a generic state-machine runner, so it does not know what a ticket
+is. The narrow fix - name the write as an allowed exception - was refused for the wider one.
+
+- *Pause is Run state.* `rtm hold` writes the paused mark and the blocker reference into the
+  Run Record under the Run lock, and appends one entry to the Engine transition log. Nothing
+  else is written, and nothing under a workflow root is written at all.
+- *The blocker is an opaque reference.* The Engine checks that it exists and resolves beneath
+  a declared runbook root, and nothing more. "A five-file issue folder or a named residual"
+  is this shop's rule about its own records, enforced by this shop's own intake check, not by
+  a generic runner.
+- *One reader, one source.* The completion gate learns that work is paused from the Run
+  Record, never from a document a contributor writes. A gate that reads the agent's own file
+  to decide whether the agent may pass is exactly the evidence-not-claim rule inverted.
+- *Marks are shop actions.* A human-readable `held` mark on a ticket is still useful, so the
+  working rules keep asking a contributor to write one. A contributor writing it is not an
+  Engine write, and no Engine decision may depend on it.
+- *Names stay generic.* No Engine argument, message, refusal, field, or path may spell a
+  work-item document, its fields, or its filename shape.
+
+**Consequences.** `PGE-006`'s ticket-file mechanics are superseded: the honest blocked route
+survives unchanged in what it guarantees - human confirmation, a declared blocked edge, a
+routed Run, an unproven residual, a refusing completion gate - while the place the fact lives
+moves into Engine-owned state. `ENS-001` becomes true rather than nearly true. The known
+remainder is named, not hidden: `src/completion.rs` still parses a ticket document for the
+checks a ticket declares (`## Merge Gate`, `HT-nnn-nn` lane ids, a `ticket-id` receipt
+field), which is the same leak in a different place; it is filed as its own wish rather than
+folded into this ruling, because removing it redesigns the completion gate's contract.

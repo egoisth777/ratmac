@@ -265,3 +265,11 @@ Behavior checks derived from [spec.md](spec.md). Each is a testable one-liner.
 | DEBV-003 | The shipped command keeps its name and its identity: the bootstrap entry point still resolves a command called `rtm`, the pin check still reports one path and one hash, and that command carries no pause-point wiring. | DEB-001 |
 | DEBV-004 | Declaring a second build target that would write an existing output path fails by name, and the failure names both declarations; removing the duplicate makes it pass again. | DEB-002 |
 
+
+## Integrated namespace-row ruling verification
+
+|ID|Check|Requirement|
+|---|---|---|
+|NRRV-001|A full hold leaves every file under a workflow root byte-identical: the Run Record carries the paused mark and its blocker reference, the Engine transition log carries the entry, and the completion gate refuses the paused Run by reading Engine-owned state alone. A blocker that escapes its declared root refuses, and a hold interrupted before its write leaves the Run unpaused.|NRR-001|
+|NRRV-002|No Engine argument, message, refusal, field, or path names a work-item document or its shape: the source audit finds no work-item filename construction, no work-item field parse, and no work-item-shaped blocker rule in the Engine, and a runbook that never mentions one still holds, routes, and refuses completion.|NRR-001|
+|NRRV-003|The source scan finds exactly one declaration naming the retired pre-split folder, states that exception by its own name, and fails both when a second literal appears and when the declaration is renamed.|NRR-002|

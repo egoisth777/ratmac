@@ -14,7 +14,8 @@ planned-test-refs:
 dependencies:
   - "{{ticket-id}}"
 status: "{{status}}"
-# PGE-006: set only by an authorized `rtm hold`, together with status "held".
+# PGE-006/NRR-001: the human-readable mark you write when an authorized `rtm hold`
+# pauses the Run, together with status "held". The Engine never reads it back.
 # Units and git (schema.md): the short hash of the commit that made the ticket
 # green. Filled in at closure; a ticket is passed by evidence, never by status.
 landed-commit: "{{short-hash}}"

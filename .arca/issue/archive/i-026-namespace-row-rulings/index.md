@@ -3,7 +3,7 @@
 ```yaml
 issue-id: "i-026-namespace-row-rulings"
 provenance: "The road back from the still-open roots-table build turn: the ticket about the runbook roots table (`t-076`) and both of its gap records state that a planning-pass ruling is required before their remaining clauses can be met (.arca/ticket/t-076.md, .arca/residual/res-106.md, .arca/residual/res-113.md). Billy also filed the same two observations as wishes on 2026-08-06."
-status: "deferred"
+status: "integrated"
 ```
 
 ## Summary

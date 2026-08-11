@@ -482,16 +482,19 @@ as written; the provenance paragraph above is where their backup-copy lesson is 
 
 ## Blocked route
 
-A ticket blocked for an out-of-scope reason is held, never quietly passed:
+A ticket blocked for an out-of-scope reason is held, never quietly passed. The Engine records
+the pause; you write the human-readable mark:
 
 ```text
-rtm hold <ticket-id> --blocker <issue folder or residual> --confirm "hold <ticket-id>"
+rtm hold --run <run-id> --blocker <issue folder or residual> --confirm "hold <run-id>"
 ```
 
 The confirmation phrase is the human's act - typed at invocation, never read
 from a file an agent can write. The Engine keeps no caller identity (ORS-001);
-it checks only that the exact phrase was typed. The blocker must resolve to a
-complete five-file issue folder or a named residual record, and the current
+it checks only that the exact phrase was typed. It checks that the blocker reference exists
+and resolves beneath a declared root, and nothing more: that a blocker must be a complete
+five-file issue folder or a named residual record is this shop's rule, enforced by the intake
+shape check, never by the Engine (`ADR-0014`). The current
 State must declare a blocked route:
 
 ```toml
@@ -502,12 +505,17 @@ blocked-route = true
 ```
 
 `rtm step` never takes a blocked route, so ordinary routing stays
-deterministic. An authorized hold marks the ticket `held` with its
-`blocker-ref`, routes the Run, and appends one history entry; the ticket stays
-not-passed, its residuals stay unproven, and the completion gate refuses it by
-name. Anything else refuses before the first write, and an interrupted hold
+deterministic. An authorized hold writes the paused mark and the blocker reference into the
+Run Record, routes the Run, and appends one history entry; the ticket stays not-passed, its
+residuals stay unproven, and the completion gate refuses the paused Run by reading
+Engine-owned state. The Engine writes no file under `.arca/` and never reads the ticket
+(`NRR-001`). Anything else refuses before the first write, and an interrupted hold
 rolls every touched file back: the Run is pre-route or fully routed, never in
 between.
+
+You then mark the ticket yourself, in the same landing: `status: "held"` and `blocker-ref`
+set to the reference you passed. That mark is for the next human to read; the Engine never
+reads it back and no gate decides anything from it.
 
 ## Abandoning a Run
 
