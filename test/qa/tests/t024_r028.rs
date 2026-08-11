@@ -30,7 +30,7 @@ fn phase_prompt_renders_inline_prose_then_generated_guards() {
     let project = fixture_project();
     let scheduler = Scheduler::open_run(&project, "run-001").expect("open R-028 fixture project");
     let status = scheduler.status().expect("read current status");
-    let prompt = status.phase_prompt();
+    let prompt = status.state_prompt();
     let rendered = prompt.as_str();
 
     assert!(

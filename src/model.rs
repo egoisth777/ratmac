@@ -117,10 +117,10 @@ impl RunArtifacts {
     }
 }
 
-/// A Run's phase-local lifecycle record.
+/// A Run's state-local lifecycle record.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Run {
-    phase: State,
+    state: State,
     status: Status,
     blocker: Option<String>,
     id: Option<String>,
@@ -128,9 +128,9 @@ pub struct Run {
 }
 
 impl Run {
-    pub fn new(phase: impl Into<State>, status: Status) -> Self {
+    pub fn new(state: impl Into<State>, status: Status) -> Self {
         Self {
-            phase: phase.into(),
+            state: state.into(),
             status,
             blocker: None,
             id: None,
@@ -143,8 +143,8 @@ impl Run {
         self.id.as_deref()
     }
 
-    pub fn phase(&self) -> &State {
-        &self.phase
+    pub fn state(&self) -> &State {
+        &self.state
     }
 
     pub fn status(&self) -> &Status {

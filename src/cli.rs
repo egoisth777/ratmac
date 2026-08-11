@@ -66,7 +66,7 @@ pub fn help(command: impl AsRef<str>) -> &'static str {
             "Usage: rtm abandon --run <id> --confirm \"abandon <run id>\"\n\nA human retires a broken Run: rtm records a terminal abandoned event, then retires the admission state, the Run evidence, and the lock so a fresh Run can start. The confirmation phrase names the addressed run id (FDC-007), is typed at invocation, and is never read from a file. Retiring only a leftover lock - no live run anywhere - omits --run and confirms with \"abandon <project directory name>\". No bypass flag exists - a stale lock is retired through this path.\n"
         }
         "spawn" => {
-            "Usage: rtm spawn <name> --run <parent id> [--bind name=value ...] [--workspace <path>]\n\nOrdinary checked motion, no confirmation phrase (FDC-007): create a child Run from a class the parent's runbook declares. Legal only while the parent occupies the Phase declaring that spawn. Each --bind supplies a value for a binding name the spawn declares; --workspace binds the child to an existing directory, or otherwise it inherits the parent's workspace. The entry lands in the parent's spawn ledger (FDC-011). The child is an ordinary Run on the flat roster with its own Run Record and evidence.\n"
+            "Usage: rtm spawn <name> --run <parent id> [--bind name=value ...] [--workspace <path>]\n\nOrdinary checked motion, no confirmation phrase (FDC-007): create a child Run from a class the parent's runbook declares. Legal only while the parent occupies the State declaring that spawn. Each --bind supplies a value for a binding name the spawn declares; --workspace binds the child to an existing directory, or otherwise it inherits the parent's workspace. The entry lands in the parent's spawn ledger (FDC-011). The child is an ordinary Run on the flat roster with its own Run Record and evidence.\n"
         }
         "respawn" => {
             "Usage: rtm respawn --run <id> --confirm \"respawn <run id>\"\n\nA human supersedes a Run: a fresh successor id is minted - never overwriting, the superseded record keeps its address - and the superseded Run is retired by the abandon path. The confirmation phrase names the run id, is typed at invocation, and is never read from a file.\n"
@@ -264,7 +264,7 @@ where
             let report = scheduler
                 .status()
                 .map_err(|error| CliError::new(format!("status: {error}")))?;
-            writer.write_all(report.phase_prompt().as_str().as_bytes())?;
+            writer.write_all(report.state_prompt().as_str().as_bytes())?;
             writer.write_all(b"\n")?;
         }
         return Ok(0);
@@ -292,7 +292,7 @@ fn status<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Res
         .write_engine_root(writer)
         .map_err(|error| CliError::new(format!("status: {error}")))?;
     writeln!(writer, "{report}")?;
-    writer.write_all(report.phase_prompt().as_str().as_bytes())?;
+    writer.write_all(report.state_prompt().as_str().as_bytes())?;
     writer.write_all(b"\n")?;
     Ok(())
 }
@@ -377,8 +377,8 @@ fn hold<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Resul
         "rtm: ticket {} held against {}; Run routed {} -> {}",
         plan.ticket(),
         plan.blocker(),
-        plan.source_phase(),
-        plan.to_phase()
+        plan.source_state(),
+        plan.to_state()
     )?;
     writeln!(
         writer,
@@ -603,10 +603,10 @@ fn abandon<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Re
         .map_err(|refusal| CliError::new(format!("abandon refused; {refusal}")))?;
     crate::abandon::apply_abandon(project_root, &plan)
         .map_err(|refusal| CliError::new(format!("abandon refused; {refusal}")))?;
-    match plan.phase.as_deref() {
-        Some(phase) => writeln!(
+    match plan.state.as_deref() {
+        Some(state) => writeln!(
             writer,
-            "rtm: Run abandoned at phase {phase}; admission state, Run evidence, and lock retired. A fresh rtm start may begin."
+            "rtm: Run abandoned at state {state}; admission state, Run evidence, and lock retired. A fresh rtm start may begin."
         )?,
         None => writeln!(
             writer,
@@ -774,7 +774,7 @@ fn environment_report<W: Write>(
     if roster.is_empty() {
         writeln!(
             writer,
-            "State: .ratmac/runs/ (empty — no Run on the roster)"
+            "Run Record: .ratmac/runs/ (empty — no Run on the roster)"
         )?;
         writeln!(
             writer,
@@ -791,21 +791,21 @@ fn environment_report<W: Write>(
                 match std::fs::read_to_string(&state_path) {
                     Ok(source) => {
                         if let Ok(table) = source.parse::<toml::Value>() {
-                            let phase = table
+                            let state = table
                                 .get("state")
                                 .and_then(toml::Value::as_str)
                                 .unwrap_or("unknown");
-                            writeln!(writer, "State: {shown} (phase: {phase})")?;
+                            writeln!(writer, "Run Record: {shown} (state: {state})")?;
                         } else {
-                            writeln!(writer, "State: {shown} (present, unreadable)")?;
+                            writeln!(writer, "Run Record: {shown} (present, unreadable)")?;
                         }
                     }
                     Err(_) => {
-                        writeln!(writer, "State: {shown} (present, unreadable)")?;
+                        writeln!(writer, "Run Record: {shown} (present, unreadable)")?;
                     }
                 }
             } else {
-                writeln!(writer, "State: {shown} (absent — run {id} is retired)")?;
+                writeln!(writer, "Run Record: {shown} (absent — run {id} is retired)")?;
             }
         }
     }

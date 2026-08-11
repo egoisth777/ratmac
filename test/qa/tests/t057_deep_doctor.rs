@@ -544,7 +544,7 @@ fn arbitrary_path_is_diagnosed_read_only() {
     );
     let (code, report) = rtm(&project, &["doctor"]);
     assert_eq!(code, 0, "a clean project exits 0: {report}");
-    for line in ["Engine:", "Runbook:", "State:", "Next:"] {
+    for line in ["Engine:", "Runbook:", "Run Record:", "Next:"] {
         assert!(
             report.contains(line),
             "ORS-002: the environment report must keep {line}: {report}"
@@ -576,7 +576,7 @@ fn the_environment_report_survives_the_deepening() {
     .expect("write state");
     let (_, report) = rtm(&active, &["doctor"]);
     assert!(
-        report.contains("phase: a"),
+        report.contains("state: a"),
         "an active Run is reported: {report}"
     );
 

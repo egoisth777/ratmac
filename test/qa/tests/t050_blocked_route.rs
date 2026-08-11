@@ -110,7 +110,7 @@ impl Fixture {
             fixture.rtm(&["step", "--run", &id]).status.success(),
             "the Run reaches build"
         );
-        assert_eq!(fixture.phase(), "build", "the Run is executing a ticket");
+        assert_eq!(fixture.state(), "build", "the Run is executing a ticket");
         fixture
     }
 
@@ -138,7 +138,7 @@ impl Fixture {
             .join("run.toml")
     }
 
-    fn phase(&self) -> String {
+    fn state(&self) -> String {
         let state = fs::read_to_string(self.record_path()).expect("read state");
         state
             .lines()
@@ -250,7 +250,7 @@ fn held_with_blocker_routes_onward() {
     );
 
     assert_eq!(
-        fixture.phase(),
+        fixture.state(),
         "intake",
         "the Run routes to the declared blocked-route destination"
     );
@@ -300,7 +300,7 @@ fn unauthorized_or_unlinked_refuses() {
         refusal.to_ascii_lowercase().contains("confirm"),
         "the refusal says the human authorization is missing: {refusal}"
     );
-    assert_eq!(fixture.phase(), "build", "the Run did not route");
+    assert_eq!(fixture.state(), "build", "the Run did not route");
     assert!(
         fixture.ticket().contains("status: \"executing\""),
         "the ticket was not held"
@@ -331,7 +331,7 @@ fn unauthorized_or_unlinked_refuses() {
         refusal.to_ascii_lowercase().contains("blocker"),
         "the refusal says the blocker link is missing: {refusal}"
     );
-    assert_eq!(fixture.phase(), "build", "the Run did not route");
+    assert_eq!(fixture.state(), "build", "the Run did not route");
     assert_eq!(
         before,
         fixture.owned_bytes(),
@@ -391,7 +391,7 @@ fn unresolvable_blocker_refuses() {
         !residual.to_ascii_lowercase().contains("refused"),
         "a named residual is a valid blocker record: {residual}"
     );
-    assert_eq!(fixture.phase(), "intake", "the authorized hold routed");
+    assert_eq!(fixture.state(), "intake", "the authorized hold routed");
 }
 
 /// PGE-006: blocker inspection never escapes the invoking project.
@@ -430,7 +430,7 @@ fn blocker_reference_must_stay_beneath_project_root() {
     }
 
     let _ = fs::remove_dir_all(&outside);
-    assert_eq!(fixture.phase(), "build", "the Run did not route");
+    assert_eq!(fixture.state(), "build", "the Run did not route");
     assert_eq!(
         before,
         fixture.owned_bytes(),
@@ -453,7 +453,7 @@ fn held_ticket_cannot_be_passed() {
         "the Run steps on"
     );
     assert_eq!(
-        ordinary.phase(),
+        ordinary.state(),
         "build-review",
         "rtm step follows the ordinary transition, never the blocked route"
     );
@@ -512,7 +512,7 @@ fn interrupted_hold_leaves_no_half_route() {
         "the interrupted hold reports itself: {refusal}"
     );
     assert_eq!(
-        fixture.phase(),
+        fixture.state(),
         "build",
         "an interrupted hold leaves the Run pre-route"
     );
@@ -533,7 +533,7 @@ fn interrupted_hold_leaves_no_half_route() {
         .hold(&[TICKET, "--blocker", BLOCKER, "--confirm", "hold t-900"])
         .status
         .success());
-    assert_eq!(fixture.phase(), "intake", "the retried hold routes fully");
+    assert_eq!(fixture.state(), "intake", "the retried hold routes fully");
     assert!(fixture.ticket().contains("status: \"held\""));
 }
 /// ENS-008: a runbook swapped after hold planning refuses before State writes.
@@ -593,7 +593,7 @@ fn runbook_swap_before_hold_state_write_refuses_without_a_half_route() {
         "the swapped runbook refuses before a State write (status={}): {refusal}",
         output.status
     );
-    assert_eq!(fixture.phase(), "build", "the Run did not route");
+    assert_eq!(fixture.state(), "build", "the Run did not route");
     assert_eq!(fixture.ticket(), ticket_before, "the ticket was not held");
     assert_eq!(
         fixture.owned_bytes(),

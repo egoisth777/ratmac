@@ -161,7 +161,7 @@ fn selection_is_input_only_and_prompt_discloses_values() {
     let rendered = scheduler
         .status()
         .expect("read branching status")
-        .phase_prompt()
+        .state_prompt()
         .to_string();
     assert!(rendered.starts_with("Review."));
     assert!(rendered.contains("Legal transition inputs:\n- approve\n- rework"));

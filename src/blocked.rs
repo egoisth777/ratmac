@@ -165,9 +165,9 @@ pub struct HoldPlan {
     run_id: String,
     /// reloads and compares both fields after taking the root-then-addressed
     /// Run lock pair.
-    from_phase: String,
+    from_state: String,
     from_status: crate::model::Status,
-    to_phase: String,
+    to_state: String,
 }
 
 impl HoldPlan {
@@ -179,12 +179,12 @@ impl HoldPlan {
         &self.blocker
     }
 
-    pub(crate) fn source_phase(&self) -> &str {
-        &self.from_phase
+    pub(crate) fn source_state(&self) -> &str {
+        &self.from_state
     }
 
-    pub(crate) fn to_phase(&self) -> &str {
-        &self.to_phase
+    pub(crate) fn to_state(&self) -> &str {
+        &self.to_state
     }
 }
 
@@ -287,7 +287,7 @@ pub fn plan_hold(root: &Path, request: &HoldRequest) -> Result<HoldPlan, HoldRef
     let state = scheduler
         .load_state()
         .map_err(|error| refusal(format!("hold requires an active Run: {error}")))?;
-    let from_phase = state.state.clone();
+    let from_state = state.state.clone();
     // FDC-002: a passed Run admits no further transition — not even the
     // human-confirmed blocked route. The refusal precedes any route lookup.
     if state.status == crate::model::Status::Passed {
@@ -295,9 +295,9 @@ pub fn plan_hold(root: &Path, request: &HoldRequest) -> Result<HoldPlan, HoldRef
             "run {run_id} is terminal (status passed): a blocked route may not move it"
         )));
     }
-    let Some(route) = scheduler.machine().blocked_route_for(&from_phase) else {
+    let Some(route) = scheduler.machine().blocked_route_for(&from_state) else {
         return Err(refusal(format!(
-            "State {from_phase:?} declares no blocked route; add a transition with blocked-route = true"
+            "State {from_state:?} declares no blocked route; add a transition with blocked-route = true"
         )));
     };
 
@@ -306,9 +306,9 @@ pub fn plan_hold(root: &Path, request: &HoldRequest) -> Result<HoldPlan, HoldRef
         ticket_path,
         blocker: blocker.to_owned(),
         run_id: run_id.to_owned(),
-        from_phase,
+        from_state,
         from_status: state.status,
-        to_phase: route.to().as_str().to_owned(),
+        to_state: route.to().as_str().to_owned(),
     })
 }
 
@@ -447,10 +447,10 @@ pub fn apply_hold(root: &Path, plan: &HoldPlan) -> Result<(), HoldRefusal> {
     // A plan is only an admission proof. Another lawful motion may have
     // changed this Run between planning and acquisition, so compare the exact
     // state that chose the blocked route before writing anything.
-    if state.state != plan.from_phase || state.status != plan.from_status {
+    if state.state != plan.from_state || state.status != plan.from_status {
         return Err(refusal(format!(
-            "hold plan is stale for run {}: expected phase {:?} with status {:?}, found phase {:?} with status {:?}; nothing was modified",
-            plan.run_id, plan.from_phase, plan.from_status, state.state, state.status
+            "hold plan is stale for run {}: expected state {:?} with status {:?}, found state {:?} with status {:?}; nothing was modified",
+            plan.run_id, plan.from_state, plan.from_status, state.state, state.status
         )));
     }
     // Reopen while holding the mutation pair. This binds the route and ticket
@@ -471,15 +471,15 @@ pub fn apply_hold(root: &Path, plan: &HoldPlan) -> Result<(), HoldRefusal> {
     }
     let Some(route) = current_scheduler.machine().blocked_route_for(&state.state) else {
         return Err(refusal(format!(
-            "hold route changed: phase {:?} no longer declares a blocked route; re-plan the hold",
+            "hold route changed: state {:?} no longer declares a blocked route; re-plan the hold",
             state.state
         )));
     };
-    if route.to().as_str() != plan.to_phase {
+    if route.to().as_str() != plan.to_state {
         return Err(refusal(format!(
-            "hold route changed: planned phase {:?} -> {:?}, but the declared blocked route is {:?} -> {:?}; re-plan the hold",
-            plan.from_phase,
-            plan.to_phase,
+            "hold route changed: planned state {:?} -> {:?}, but the declared blocked route is {:?} -> {:?}; re-plan the hold",
+            plan.from_state,
+            plan.to_state,
             state.state,
             route.to().as_str()
         )));
@@ -507,7 +507,7 @@ pub fn apply_hold(root: &Path, plan: &HoldPlan) -> Result<(), HoldRefusal> {
         ))
     })?;
 
-    state.state = plan.to_phase.clone();
+    state.state = plan.to_state.clone();
     run_lock
         .ensure_current()
         .map_err(|error| refusal(error.to_string()))?;
@@ -630,7 +630,7 @@ pub fn apply_hold(root: &Path, plan: &HoldPlan) -> Result<(), HoldRefusal> {
     // so an unrelated root holder cannot delay a completed hold.
     let entry = format!(
         "- Hold: ticket {} held against {}; Run {} routed {} -> {} on an explicit human confirmation. The ticket is not passed and its residuals stay unproven.\n",
-        plan.ticket, plan.blocker, plan.run_id, plan.from_phase, plan.to_phase
+        plan.ticket, plan.blocker, plan.run_id, plan.from_state, plan.to_state
     );
     match crate::Scheduler::append_transition_log(&mut log, entry.as_bytes()) {
         crate::scheduler::TransitionLogAppend::Complete => Ok(()),

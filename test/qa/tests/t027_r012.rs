@@ -37,7 +37,7 @@ fn ratmac_comments_are_absent_from_phase_prompt() -> Result<(), Box<dyn Error>> 
     let root = copy_fixture_to_temp();
     let scheduler = Scheduler::open_run(&root, "run-001")?;
     let status = scheduler.status()?;
-    let prompt = status.phase_prompt();
+    let prompt = status.state_prompt();
     let rendered = prompt.as_str();
 
     assert!(rendered.contains("Build the artifact."));

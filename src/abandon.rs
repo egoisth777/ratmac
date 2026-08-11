@@ -94,7 +94,7 @@ pub struct AbandonPlan {
     /// The terminal event to append, present only when a Run is admitted.
     pub event: Option<String>,
     /// The retired Run's State, for the operator-facing report.
-    pub phase: Option<String>,
+    pub state: Option<String>,
     /// Scheduler-owned paths to retire, in order.
     pub retire: Vec<PathBuf>,
     /// The addressed run, when one is being retired.
@@ -200,7 +200,7 @@ pub fn plan_abandon(root: &Path, request: &AbandonRequest) -> Result<AbandonPlan
         return match run_id.as_deref() {
             Some(_) if run_lock_present => Ok(AbandonPlan {
                 event: None,
-                phase: None,
+                state: None,
                 retire: Vec::new(),
                 run: run_id,
                 annotate: Vec::new(),
@@ -212,7 +212,7 @@ pub fn plan_abandon(root: &Path, request: &AbandonRequest) -> Result<AbandonPlan
             ))),
             None if root_lock_present => Ok(AbandonPlan {
                 event: None,
-                phase: None,
+                state: None,
                 retire: Vec::new(),
                 run: None,
                 annotate: Vec::new(),
@@ -227,23 +227,23 @@ pub fn plan_abandon(root: &Path, request: &AbandonRequest) -> Result<AbandonPlan
     }
 
     let mut retire = Vec::new();
-    let mut phase = None;
+    let mut state = None;
     let mut event = None;
     if admitted {
         let state_path = state_path.expect("admitted implies an addressed run");
         let evidence_path = evidence_path.expect("admitted implies an addressed run");
-        let state = crate::state::StateStore::at(state_path.clone())
+        let record = crate::state::StateStore::at(state_path.clone())
             .load()
             .map_err(|error| refusal(format!("abandon cannot read the Run Record: {error}")))?;
-        phase = Some(state.state.clone());
+        state = Some(record.state.clone());
         // FDC-002: the durable terminal event identifies the addressed Run and
         // its last state before any retirement begins.
         event = Some(format!(
-            "- Abandoned: Run {} retired at phase {} (status {}, goal revision {}) on an explicit human confirmation; admission state, Run evidence, and lock retired. The Run is terminal: no transition may proceed on it.\n",
+            "- Abandoned: Run {} retired at state {} (status {}, goal revision {}) on an explicit human confirmation; admission state, Run evidence, and lock retired. The Run is terminal: no transition may proceed on it.\n",
             run_id.as_deref().expect("admitted implies an addressed run"),
-            state.state,
-            state.status,
-            revision_or_none(&state.goal_revision),
+            record.state,
+            record.status,
+            revision_or_none(&record.goal_revision),
         ));
         // Retire evidence before the admission Run Record. If retirement then
         // fails, the Run remains admitted and the compensating history entry
@@ -295,7 +295,7 @@ pub fn plan_abandon(root: &Path, request: &AbandonRequest) -> Result<AbandonPlan
     }
     Ok(AbandonPlan {
         event,
-        phase,
+        state,
         retire,
         run: run_id,
         annotate,
@@ -335,7 +335,7 @@ pub fn apply_abandon(root: &Path, plan: &AbandonPlan) -> Result<(), AbandonRefus
     let engine_root = crate::root::resolve(root).engine_root().to_path_buf();
     match plan.run.as_deref() {
         Some(run_id) if plan.event.is_none() => {
-            if plan.phase.is_some()
+            if plan.state.is_some()
                 || !plan.retire.is_empty()
                 || !plan.annotate.is_empty()
                 || !plan.run_lock_present
@@ -371,7 +371,7 @@ pub fn apply_abandon(root: &Path, plan: &AbandonPlan) -> Result<(), AbandonRefus
         }
         None => {
             if plan.event.is_some()
-                || plan.phase.is_some()
+                || plan.state.is_some()
                 || !plan.retire.is_empty()
                 || !plan.annotate.is_empty()
                 || !plan.root_lock_present
@@ -461,29 +461,29 @@ fn revalidate_abandon_plan(engine_root: &Path, plan: &AbandonPlan) -> Result<(),
     let run_dir = engine_root.join("runs").join(run);
     let state_path = run_dir.join("run.toml");
     let evidence_path = run_dir.join(crate::pin::EVIDENCE_FILE);
-    let state = crate::state::StateStore::at(state_path.clone())
+    let record = crate::state::StateStore::at(state_path.clone())
         .load()
         .map_err(|error| {
             refusal(format!(
                 "abandon plan is stale for run {run}: cannot reload its Run Record: {error}"
             ))
         })?;
-    let phase = plan.phase.as_deref().ok_or_else(|| {
+    let state = plan.state.as_deref().ok_or_else(|| {
         refusal(format!(
-            "abandon plan is stale for run {run}: its recorded phase is absent"
+            "abandon plan is stale for run {run}: its recorded state is absent"
         ))
     })?;
-    if state.state != phase {
+    if record.state != state {
         return Err(refusal(format!(
-            "abandon plan is stale for run {run}: phase changed from {phase:?} to {:?}",
-            state.state
+            "abandon plan is stale for run {run}: state changed from {state:?} to {:?}",
+            record.state
         )));
     }
     let event = format!(
-        "- Abandoned: Run {run} retired at phase {} (status {}, goal revision {}) on an explicit human confirmation; admission state, Run evidence, and lock retired. The Run is terminal: no transition may proceed on it.\n",
-        state.state,
-        state.status,
-        revision_or_none(&state.goal_revision),
+        "- Abandoned: Run {run} retired at state {} (status {}, goal revision {}) on an explicit human confirmation; admission state, Run evidence, and lock retired. The Run is terminal: no transition may proceed on it.\n",
+        record.state,
+        record.status,
+        revision_or_none(&record.goal_revision),
     );
     if plan.event.as_deref() != Some(event.as_str()) {
         return Err(refusal(format!(

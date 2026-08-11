@@ -143,10 +143,10 @@ impl Fixture {
             .to_owned()
     }
 
-    fn publish_verdict(&self, phase: &str, input: &str, rationale: &str) {
+    fn publish_verdict(&self, state: &str, input: &str, rationale: &str) {
         fs::write(
             self.run_dir().join("verdict.toml"),
-            format!("phase = {phase:?}\ninput = {input:?}\nrationale = {rationale:?}\n"),
+            format!("state = {state:?}\ninput = {input:?}\nrationale = {rationale:?}\n"),
         )
         .expect("publish live verdict fixture");
     }

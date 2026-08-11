@@ -42,6 +42,7 @@ Plain-word definitions for terms used in work with Billy. Consult this file befo
 - **Scaffold**: The fixed structure (prompts, states, gates) wrapped around model calls.
 - **Runbook**: The TOML file defining states, per-state prompts, and transitions for an agent run. Its schema also carries the validity rules — what a runbook may or may not contain (e.g. no lifecycle status as a graph dimension).
 - **State**: Where a Run sits in its machine graph — one node of a runbook's machine. The only dimension of machine position; `status` is separate runtime lifecycle.
+- **Run**: One live instance of a runbook's machine, created by `rtm start`: the whole running thing, with its own id, its own Run Record, and its own work. Not the file, and not the position in the graph.
 - **Run Record**: The one file the Engine writes for one Run, `.ratmac/runs/<run-id>/run.toml`, holding that Run's current `state`, `status`, and run-scoped fields. Only the Scheduler writes it.
 - **Artifact**: A file or output produced by real work (test log, build output, git commit).
 - **Artifact guard / artifact-verified exit**: A State can be left only when an artifact proves the work happened — read from process outputs (exit codes, compiler, git) the agent cannot write.

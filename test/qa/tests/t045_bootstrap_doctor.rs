@@ -374,8 +374,8 @@ fn doctor_is_actionable_and_write_free() {
     let started = boot.whole_snapshot();
     let active = text(&boot.rtm(&["doctor"]));
     assert!(
-        active.contains("phase: build"),
-        "with a Run it reports the phase: {active}"
+        active.contains("state: build"),
+        "with a Run it reports the state: {active}"
     );
     assert!(
         !active.contains("no Run on the roster"),

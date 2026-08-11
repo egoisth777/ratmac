@@ -170,7 +170,7 @@ fn child_reviews_and_parent_routes_without_courier() {
     // input, then finishes its own Run. These bytes are the child's - the
     // test stands in for the child machine's agent, not for a human.
     let verdict = format!(
-        "phase = \"delegate\"\ninput = \"approve\"\nrationale = \"reviewer {child} approves ticket t-201\"\n"
+        "state = \"delegate\"\ninput = \"approve\"\nrationale = \"reviewer {child} approves ticket t-201\"\n"
     );
     fs::write(fixture.run_dir(&parent).join("verdict.toml"), &verdict)
         .expect("the child authors the parent's live verdict");

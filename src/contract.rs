@@ -531,7 +531,7 @@ fn declared_gate_kinds(root: &Path) -> BTreeSet<String> {
     class
         .states()
         .values()
-        .flat_map(|phase| phase.guards())
+        .flat_map(|state| state.guards())
         .map(|guard| guard.name().to_owned())
         .collect()
 }

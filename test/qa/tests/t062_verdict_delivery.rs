@@ -173,16 +173,16 @@ impl Fixture {
         self.run_dir().join("verdict.toml")
     }
 
-    fn state(&self) -> Vec<u8> {
-        fs::read(self.record_path()).expect("read Run State File")
+    fn record_bytes(&self) -> Vec<u8> {
+        fs::read(self.record_path()).expect("read the Run Record")
     }
 
-    fn phase(&self) -> String {
-        let state = String::from_utf8(self.state()).expect("State File is UTF-8");
-        let parsed: toml::Value = state.parse().expect("State File is valid TOML");
+    fn state(&self) -> String {
+        let source = String::from_utf8(self.record_bytes()).expect("the Run Record is UTF-8");
+        let parsed: toml::Value = source.parse().expect("the Run Record is valid TOML");
         parsed["state"]
             .as_str()
-            .expect("State File carries a string phase")
+            .expect("the Run Record carries a string state")
             .to_owned()
     }
 
@@ -271,8 +271,8 @@ fn tree_snapshot(root: &Path) -> BTreeMap<String, Option<Vec<u8>>> {
     snapshot
 }
 
-fn verdict(phase: &str, input: &str, rationale: &str) -> Vec<u8> {
-    format!("phase = {phase:?}\ninput = {input:?}\nrationale = {rationale:?}\n").into_bytes()
+fn verdict(state: &str, input: &str, rationale: &str) -> Vec<u8> {
+    format!("state = {state:?}\ninput = {input:?}\nrationale = {rationale:?}\n").into_bytes()
 }
 
 fn assert_step_succeeds(output: &Output, context: &str) {
@@ -308,7 +308,7 @@ fn assert_refuses_unchanged(fixture: &Fixture, label: &str, expected: &[&str]) {
     );
 }
 
-fn assert_archive_record(bytes: &[u8], phase: &str, input: &str, rationale: &str) {
+fn assert_archive_record(bytes: &[u8], state: &str, input: &str, rationale: &str) {
     let text = std::str::from_utf8(bytes).expect("archived verdict is UTF-8");
     let value: toml::Value = text.parse().expect("archived verdict is valid TOML");
     let table = value
@@ -318,10 +318,10 @@ fn assert_archive_record(bytes: &[u8], phase: &str, input: &str, rationale: &str
     keys.sort_unstable();
     assert_eq!(
         keys,
-        ["input", "phase", "rationale"],
+        ["input", "rationale", "state"],
         "the archived strict record must retain exactly the authoritative fields"
     );
-    assert_eq!(table["phase"].as_str(), Some(phase));
+    assert_eq!(table["state"].as_str(), Some(state));
     assert_eq!(table["input"].as_str(), Some(input));
     assert_eq!(table["rationale"].as_str(), Some(rationale));
 }
@@ -332,7 +332,7 @@ fn assert_archive_record(bytes: &[u8], phase: &str, input: &str, rationale: &str
 #[test]
 fn empty_slot_and_straight_line_contract() {
     let fixture = Fixture::new("straight", STRAIGHT_RUNBOOK);
-    assert_eq!(fixture.phase(), "start");
+    assert_eq!(fixture.state(), "start");
     assert!(
         !fixture.verdict_path().exists(),
         "FDC-003: rtm start must not create an empty verdict placeholder"
@@ -364,13 +364,13 @@ fn empty_slot_and_straight_line_contract() {
     fs::remove_file(fixture.verdict_path()).expect("external reviewer clears stray verdict");
     let first = fixture.step();
     assert_step_succeeds(&first, "straight start -> middle needs no verdict");
-    assert_eq!(fixture.phase(), "middle");
+    assert_eq!(fixture.state(), "middle");
     assert!(!fixture.verdict_path().exists());
     assert!(fixture.archives().is_empty());
 
     let second = fixture.step();
     assert_step_succeeds(&second, "straight middle -> done needs no verdict");
-    assert_eq!(fixture.phase(), "done");
+    assert_eq!(fixture.state(), "done");
     assert!(!fixture.verdict_path().exists());
     assert!(
         fixture.archives().is_empty(),
@@ -386,13 +386,13 @@ fn empty_slot_and_straight_line_contract() {
 fn valid_verdict_is_archived_before_state_advance() {
     let fixture = Fixture::new("repeated", REPEATED_BRANCH_RUNBOOK);
     assert_step_succeeds(&fixture.step(), "enter review on the straight edge");
-    assert_eq!(fixture.phase(), "review");
+    assert_eq!(fixture.state(), "review");
 
     let first = verdict("review", "approve", "first external decision");
     fixture.publish(&first);
     assert_step_succeeds(&fixture.step(), "valid approve verdict selects approve");
     assert_eq!(
-        fixture.phase(),
+        fixture.state(),
         "approved",
         "input, not transition declaration order, selects the successor"
     );
@@ -414,7 +414,7 @@ fn valid_verdict_is_archived_before_state_advance() {
         &fixture.step(),
         "approved returns to review without a verdict",
     );
-    assert_eq!(fixture.phase(), "review");
+    assert_eq!(fixture.state(), "review");
     assert_eq!(
         fixture.archives()["000001.toml"],
         first,
@@ -424,7 +424,7 @@ fn valid_verdict_is_archived_before_state_advance() {
     let second = verdict("review", "rework", "second external decision");
     fixture.publish(&second);
     assert_step_succeeds(&fixture.step(), "valid rework verdict selects rework");
-    assert_eq!(fixture.phase(), "rework");
+    assert_eq!(fixture.state(), "rework");
     let archives = fixture.archives();
     assert_eq!(
         archives.keys().collect::<Vec<_>>(),
@@ -443,7 +443,7 @@ fn valid_verdict_is_archived_before_state_advance() {
         &fixture.step(),
         "rework returns to review without a verdict",
     );
-    assert_eq!(fixture.phase(), "review");
+    assert_eq!(fixture.state(), "review");
     let third = verdict("review", "approve", "third external decision");
     fixture.publish(&third);
     assert_step_succeeds(&fixture.step(), "a repeated visit consumes a fresh verdict");
@@ -465,9 +465,9 @@ fn valid_verdict_is_archived_before_state_advance() {
 #[test]
 fn invalid_or_missing_verdict_refuses_unchanged() {
     let fixture = Fixture::new("strict", GUARDED_BRANCH_RUNBOOK);
-    assert_eq!(fixture.phase(), "review");
+    assert_eq!(fixture.state(), "review");
 
-    let poison = b"phase = \"review\"\ninput = \"approve\"\nrationale = \"why\"\npoison = true\n";
+    let poison = b"state = \"review\"\ninput = \"approve\"\nrationale = \"why\"\npoison = true\n";
     fixture.publish(poison);
     let before_guard = fixture.run_snapshot();
     let guarded = fixture.step();
@@ -506,41 +506,41 @@ fn invalid_or_missing_verdict_refuses_unchanged() {
         ("empty document", Vec::new(), vec![]),
         (
             "malformed TOML",
-            b"phase = \"review\"\ninput = [\n".to_vec(),
+            b"state = \"review\"\ninput = [\n".to_vec(),
             vec![],
         ),
         (
-            "missing phase",
+            "missing state",
             b"input = \"approve\"\nrationale = \"why\"\n".to_vec(),
-            vec!["phase"],
+            vec!["state"],
         ),
         (
             "missing input",
-            b"phase = \"review\"\nrationale = \"why\"\n".to_vec(),
+            b"state = \"review\"\nrationale = \"why\"\n".to_vec(),
             vec!["input"],
         ),
         (
             "missing rationale",
-            b"phase = \"review\"\ninput = \"approve\"\n".to_vec(),
+            b"state = \"review\"\ninput = \"approve\"\n".to_vec(),
             vec!["rationale"],
         ),
         ("unknown extra field", poison.to_vec(), vec![]),
         (
-            "non-string phase",
-            b"phase = 7\ninput = \"approve\"\nrationale = \"why\"\n".to_vec(),
-            vec!["phase"],
+            "non-string state",
+            b"state = 7\ninput = \"approve\"\nrationale = \"why\"\n".to_vec(),
+            vec!["state"],
         ),
         (
             "non-string input",
-            b"phase = \"review\"\ninput = [\"approve\"]\nrationale = \"why\"\n".to_vec(),
+            b"state = \"review\"\ninput = [\"approve\"]\nrationale = \"why\"\n".to_vec(),
             vec!["input"],
         ),
         (
             "non-string rationale",
-            b"phase = \"review\"\ninput = \"approve\"\nrationale = false\n".to_vec(),
+            b"state = \"review\"\ninput = \"approve\"\nrationale = false\n".to_vec(),
             vec!["rationale"],
         ),
-        ("empty phase", verdict("", "approve", "why"), vec!["phase"]),
+        ("empty state", verdict("", "approve", "why"), vec!["state"]),
         ("empty input", verdict("review", "", "why"), vec!["input"]),
         (
             "empty rationale",
@@ -553,9 +553,9 @@ fn invalid_or_missing_verdict_refuses_unchanged() {
             vec!["rationale"],
         ),
         (
-            "stale phase",
+            "stale state",
             verdict("previous", "approve", "stale review"),
-            vec!["phase"],
+            vec!["state"],
         ),
         (
             "input outside the closed list",
@@ -571,7 +571,7 @@ fn invalid_or_missing_verdict_refuses_unchanged() {
 
     fs::remove_file(fixture.verdict_path()).expect("clear final defective verdict");
     assert_refuses_unchanged(&fixture, "missing live record", &[]);
-    assert_eq!(fixture.phase(), "review");
+    assert_eq!(fixture.state(), "review");
     assert!(fixture.archives().is_empty());
 }
 
@@ -602,7 +602,7 @@ fn interruption_windows_preserve_consume_then_advance() {
         &before_archive.step(),
         "retry before consumption may consume the still-live record",
     );
-    assert_eq!(before_archive.phase(), "approved");
+    assert_eq!(before_archive.state(), "approved");
     assert!(!before_archive.verdict_path().exists());
     assert_eq!(
         before_archive.archives(),
@@ -648,7 +648,7 @@ fn interruption_windows_preserve_consume_then_advance() {
         &before_state.step(),
         "a fresh verdict completes a consumed-before-state retry",
     );
-    assert_eq!(before_state.phase(), "approved");
+    assert_eq!(before_state.state(), "approved");
     let archives = before_state.archives();
     assert_eq!(
         archives.keys().collect::<Vec<_>>(),
@@ -666,7 +666,7 @@ fn interruption_windows_preserve_consume_then_advance() {
         "the after-state-replace hook must report the injected interruption"
     );
     assert_eq!(
-        after_state.phase(),
+        after_state.state(),
         "rework",
         "a post-replacement fault observes the successor State File"
     );
@@ -683,7 +683,7 @@ fn interruption_windows_preserve_consume_then_advance() {
         advanced_snapshot,
         "retry after completed state replacement cannot replay or duplicate the archive"
     );
-    assert_eq!(after_state.phase(), "rework");
+    assert_eq!(after_state.state(), "rework");
     assert_eq!(
         after_state.archives().keys().collect::<Vec<_>>(),
         ["000001.toml"]

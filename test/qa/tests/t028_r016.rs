@@ -39,8 +39,8 @@ fn non_wishwillow_machine_class_runs_identically() {
     scheduler.start().expect("start neutral Machine Class");
     let initial_report = scheduler.status().expect("report neutral initial state");
     let initial_status = initial_report.to_string();
-    let initial_prompt = initial_report.phase_prompt().to_string();
-    assert!(initial_status.contains("Phase: inspect"));
+    let initial_prompt = initial_report.state_prompt().to_string();
+    assert!(initial_status.contains("State: inspect"));
     assert!(initial_prompt.contains("Inspect the source material"));
     assert!(!initial_prompt.contains("P1"));
     assert!(!initial_prompt.contains("P5"));
@@ -66,8 +66,8 @@ fn non_wishwillow_machine_class_runs_identically() {
 
     let final_report = scheduler.status().expect("report neutral final state");
     let status = final_report.to_string();
-    let prompt = final_report.phase_prompt().as_str();
-    assert!(status.contains("Phase: publish"));
+    let prompt = final_report.state_prompt().as_str();
+    assert!(status.contains("State: publish"));
     assert!(prompt.contains("Publish the completed result"));
     assert!(!prompt.contains("P1"));
     assert!(!prompt.contains("P5"));

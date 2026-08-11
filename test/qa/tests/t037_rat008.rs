@@ -220,7 +220,7 @@ fn full_rebrand_acceptance() {
     let log_before = fs::read(engine.join("log.md")).expect("read transition log");
     let status = run(&project, &["status", "--run", &run_id]);
     assert!(status.status.success(), "rtm status failed: {status:?}");
-    assert!(String::from_utf8_lossy(&status.stdout).contains("Phase: prepare"));
+    assert!(String::from_utf8_lossy(&status.stdout).contains("State: prepare"));
 
     let legacy_lock = engine.join("schd.lock");
     fs::write(&legacy_lock, b"operator-held legacy lock\n").expect("write legacy-lock fixture");

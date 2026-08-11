@@ -124,10 +124,10 @@ mod tests {
             });
             let run = Run::new(State::new(phase_name), status);
 
-            assert_eq!(run.phase(), &State::new(phase_name));
+            assert_eq!(run.state(), &State::new(phase_name));
             assert_eq!(run.status().to_string(), raw_status);
             assert_eq!(
-                graph.next_state(run.phase().clone()),
+                graph.next_state(run.state().clone()),
                 expected_transition,
                 "status {raw_status:?} must not affect transition lookup"
             );
@@ -342,7 +342,7 @@ mod t006 {
 
         assert_eq!(blocked.status(), &Status::Blocked);
         assert_eq!(blocked.blocker(), Some("input_revision"));
-        assert_eq!(blocked.phase(), &State::new("plan"));
+        assert_eq!(blocked.state(), &State::new("plan"));
         assert_eq!(scheduler.machine().states().count(), 2);
         assert_eq!(scheduler.machine().transitions().count(), 1);
         assert!(
@@ -373,7 +373,7 @@ mod t006 {
             );
             assert_eq!(state.status(), &status);
             assert_eq!(state.blocker(), None);
-            assert_eq!(state.phase(), &State::new("plan"));
+            assert_eq!(state.state(), &State::new("plan"));
             assert_eq!(scheduler.machine().states().count(), 2);
         }
         fs::remove_dir_all(present.parent().expect("present fixture has a parent"))
@@ -568,7 +568,7 @@ mod t007_state_file {
         let output = report.to_string();
 
         assert_eq!(before, after, "status must not mutate run.toml");
-        assert!(output.contains("Phase: P4"));
+        assert!(output.contains("State: P4"));
         assert!(output.contains("Status: blocked"));
         assert!(output.contains("Blocker:"));
         assert!(output.contains("input_revision"));
@@ -708,7 +708,7 @@ mod t010 {
             .start()
             .expect("start must instantiate a Run");
         assert_eq!(
-            run.phase().as_str(),
+            run.state().as_str(),
             "prepare",
             "start must choose the unique State with no incoming transition"
         );

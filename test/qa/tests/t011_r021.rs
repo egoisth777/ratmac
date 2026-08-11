@@ -39,6 +39,6 @@ fn r021_model_represents_multiple_runs() {
     runs.push(run_b);
     assert_eq!(runs.len(), 2);
 
-    let states: Vec<_> = runs.iter().map(|run| run.phase().as_str()).collect();
+    let states: Vec<_> = runs.iter().map(|run| run.state().as_str()).collect();
     assert_eq!(states, ["prepare", "review"]);
 }

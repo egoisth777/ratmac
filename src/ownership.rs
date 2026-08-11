@@ -32,7 +32,7 @@ const WRITE_VERBS: [&str; 10] = [
     "records",
 ];
 
-/// One agent-facing instruction: a phase prompt, a guard contract, or a
+/// One agent-facing instruction: a state prompt, a guard contract, or a
 /// template an agent fills in.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Instruction {
@@ -101,15 +101,15 @@ pub fn audit_ownership(instructions: &[Instruction]) -> Result<(), Vec<Ownership
 }
 
 /// Collect the agent-facing instructions of one already parsed Machine Class:
-/// every phase prompt and every guard contract path.
+/// every state prompt and every guard contract path.
 pub fn runbook_instructions(class: &MachineClass, shown: &str) -> Vec<Instruction> {
     let mut instructions = Vec::new();
-    for (name, phase) in class.states() {
+    for (name, state) in class.states() {
         instructions.push(Instruction {
             source: format!("{shown} [states.{name}] prompt"),
-            text: phase.prompt().to_owned(),
+            text: state.prompt().to_owned(),
         });
-        for (index, guard) in phase.guards().iter().enumerate() {
+        for (index, guard) in state.guards().iter().enumerate() {
             // A gate contract that points at an Engine-owned path makes the
             // agent responsible for it just as surely as a prompt sentence.
             let target = match guard {

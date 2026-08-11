@@ -190,7 +190,7 @@ fn binary_status_prints_report_and_phase_prompt() {
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     for field in [
-        "Phase: prepare",
+        "State: prepare",
         "Status: planned",
         "Blocker:",
         "pending guard: files_exact",

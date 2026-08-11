@@ -9,7 +9,7 @@ const LIVE_FILE: &str = "verdict.toml";
 const ARCHIVE_DIR: &str = "verdicts";
 const ARCHIVE_DIGITS: usize = 6;
 const MAX_ARCHIVE_SEQUENCE: u64 = 999_999;
-const REQUIRED_FIELDS: [&str; 3] = ["phase", "input", "rationale"];
+const REQUIRED_FIELDS: [&str; 3] = ["state", "input", "rationale"];
 
 /// One external reviewer's strict transition-input record.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -71,7 +71,7 @@ pub(crate) fn live_slot_is_occupied(run_dir: &Path) -> Result<bool, StateError> 
 /// Strictly read and validate the current live record without changing it.
 pub(crate) fn load_live(
     run_dir: &Path,
-    current_phase: &str,
+    current_state: &str,
     legal_inputs: &[String],
 ) -> Result<VerdictRecord, VerdictRefusal> {
     let path = live_path(run_dir);
@@ -80,7 +80,7 @@ pub(crate) fn load_live(
             VerdictRefusal::new(
                 "no live verdict record",
                 format!(
-                    "verdict.toml with phase {current_phase:?}, one legal input, and non-empty rationale"
+                    "verdict.toml with state {current_state:?}, one legal input, and non-empty rationale"
                 ),
             )
         } else {
@@ -103,12 +103,12 @@ pub(crate) fn load_live(
             "UTF-8 strict TOML",
         )
     })?;
-    parse_and_validate(&source, current_phase, legal_inputs)
+    parse_and_validate(&source, current_state, legal_inputs)
 }
 
 fn parse_and_validate(
     source: &str,
-    current_phase: &str,
+    current_state: &str,
     legal_inputs: &[String],
 ) -> Result<VerdictRecord, VerdictRefusal> {
     let document = source.parse::<toml::Value>().map_err(|error| {
@@ -117,7 +117,7 @@ fn parse_and_validate(
     let table = document.as_table().ok_or_else(|| {
         VerdictRefusal::new(
             "verdict.toml is not a top-level table",
-            "exactly phase, input, and rationale string fields",
+            "exactly state, input, and rationale string fields",
         )
     })?;
 
@@ -125,7 +125,7 @@ fn parse_and_validate(
         if !table.contains_key(field) {
             return Err(VerdictRefusal::new(
                 format!("verdict.toml is missing field {field}"),
-                "exactly phase, input, and rationale string fields",
+                "exactly state, input, and rationale string fields",
             ));
         }
     }
@@ -133,7 +133,7 @@ fn parse_and_validate(
         if !REQUIRED_FIELDS.contains(&key.as_str()) {
             return Err(VerdictRefusal::new(
                 format!("verdict.toml has unknown field {key}"),
-                "exactly phase, input, and rationale string fields",
+                "exactly state, input, and rationale string fields",
             ));
         }
     }
@@ -151,7 +151,7 @@ fn parse_and_validate(
                 )
             })
     };
-    let phase = string_field("phase")?;
+    let state = string_field("state")?;
     let input = string_field("input")?;
     let rationale = string_field("rationale")?;
     if rationale.trim().is_empty() {
@@ -160,15 +160,15 @@ fn parse_and_validate(
             "a non-whitespace rationale",
         ));
     }
-    if phase != current_phase {
+    if state != current_state {
         return Err(VerdictRefusal::new(
-            format!("verdict.toml phase {phase:?} does not match current State {current_phase:?}"),
-            format!("phase = {current_phase:?}"),
+            format!("verdict.toml state {state:?} does not match current State {current_state:?}"),
+            format!("state = {current_state:?}"),
         ));
     }
     if !legal_inputs.iter().any(|legal| legal == &input) {
         return Err(VerdictRefusal::new(
-            format!("verdict.toml input {input:?} is not legal for State {current_phase:?}"),
+            format!("verdict.toml input {input:?} is not legal for State {current_state:?}"),
             format!("one of [{}]", legal_inputs.join(", ")),
         ));
     }
@@ -269,7 +269,7 @@ mod tests {
     fn strict_record_keeps_exact_values() {
         let legal = vec!["approve".to_owned(), "rework".to_owned()];
         let record = parse_and_validate(
-            "phase = \"review\"\ninput = \"approve\"\nrationale = \"checked\"\n",
+            "state = \"review\"\ninput = \"approve\"\nrationale = \"checked\"\n",
             "review",
             &legal,
         )
@@ -281,13 +281,13 @@ mod tests {
     fn strict_record_rejects_extra_and_blank_fields() {
         let legal = vec!["approve".to_owned()];
         assert!(parse_and_validate(
-            "phase = \"review\"\ninput = \"approve\"\nrationale = \"ok\"\nextra = \"no\"\n",
+            "state = \"review\"\ninput = \"approve\"\nrationale = \"ok\"\nextra = \"no\"\n",
             "review",
             &legal,
         )
         .is_err());
         assert!(parse_and_validate(
-            "phase = \"review\"\ninput = \"approve\"\nrationale = \" \\t\"\n",
+            "state = \"review\"\ninput = \"approve\"\nrationale = \" \\t\"\n",
             "review",
             &legal,
         )

@@ -375,7 +375,7 @@ fn inspect_graph(class: &MachineClass, findings: &mut Vec<Finding>) {
             for name in &initial {
                 findings.push(Finding::error(
                     "RB203",
-                    format!("phase {name:?}"),
+                    format!("state {name:?}"),
                     format!(
                         "several initial States ({}); a Run starts in exactly one",
                         initial
@@ -404,7 +404,7 @@ fn inspect_graph(class: &MachineClass, findings: &mut Vec<Finding>) {
             if !reached.contains(name.as_str()) {
                 findings.push(Finding::error(
                     "RB204",
-                    format!("phase {name:?}"),
+                    format!("state {name:?}"),
                     format!("unreachable from the initial State {entry:?}"),
                 ));
             }
@@ -420,7 +420,7 @@ fn inspect_graph(class: &MachineClass, findings: &mut Vec<Finding>) {
         for name in &terminal {
             findings.push(Finding::warning(
                 "RB205",
-                format!("phase {name:?}"),
+                format!("state {name:?}"),
                 format!(
                     "one of {} terminal States; one ending is the ordinary shape, several usually mean a missing edge",
                     terminal.len()
@@ -446,20 +446,20 @@ fn audit_termination(class: &MachineClass, findings: &mut Vec<Finding>) {
     for cycle in graph.ordinary_cycles() {
         let offenders = cycle
             .iter()
-            .filter(|phase| {
+            .filter(|state| {
                 class
                     .states()
-                    .get(phase.as_str())
+                    .get(state.as_str())
                     .is_none_or(|definition| !definition.guards().iter().any(guard_terminates))
             })
-            .map(|phase| format!("{:?}", phase.as_str()))
+            .map(|state| format!("{:?}", state.as_str()))
             .collect::<Vec<_>>();
         if offenders.is_empty() {
             continue;
         }
         let mut route = cycle
             .iter()
-            .map(|phase| format!("{:?}", phase.as_str()))
+            .map(|state| format!("{:?}", state.as_str()))
             .collect::<Vec<_>>()
             .join(" -> ");
         route.push_str(" -> ");
@@ -498,7 +498,7 @@ fn lint_guards(class: &MachineClass, findings: &mut Vec<Finding>) {
     let root = Path::new(".");
     for (name, definition) in class.states() {
         for (index, guard) in definition.guards().iter().enumerate() {
-            let location = format!("phase {name:?} guard {index}");
+            let location = format!("state {name:?} guard {index}");
             match guard {
                 GuardKind::CommandExit {
                     program, exempt, ..

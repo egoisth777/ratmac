@@ -75,7 +75,7 @@ fn rtm_cli_surface() {
     let status = rtm(&project.root, &["status", "--run", &run_id]);
     assert!(status.status.success(), "rtm status failed: {status:?}");
     let status_stdout = String::from_utf8_lossy(&status.stdout);
-    assert!(status_stdout.contains("Phase: prepare"));
+    assert!(status_stdout.contains("State: prepare"));
     assert!(status_stdout.contains("Prepare the run."));
 
     let refused = rtm(&project.root, &["step", "--run", &run_id]);

@@ -135,9 +135,9 @@ impl Fixture {
         fs::read(self.record_path(run_id)).expect("read addressed Run State File")
     }
 
-    fn phase(&self, run_id: &str) -> String {
+    fn state(&self, run_id: &str) -> String {
         fs::read_to_string(self.record_path(run_id))
-            .expect("read addressed Run State File as UTF-8")
+            .expect("read the addressed Run Record as UTF-8")
             .lines()
             .find_map(|line| line.trim().strip_prefix("state = "))
             .map(|value| value.trim().trim_matches('"').to_owned())
@@ -276,7 +276,7 @@ fn scheduler_writes_only_ratmac_transition_log() {
         combined(&first_step)
     );
     assert_eq!(
-        fixture.phase(&first_run),
+        fixture.state(&first_run),
         "build",
         "the first addressed Run reached its guarded build State"
     );
@@ -329,7 +329,7 @@ fn scheduler_writes_only_ratmac_transition_log() {
         combined(&held)
     );
     assert_eq!(
-        fixture.phase(&first_run),
+        fixture.state(&first_run),
         "intake",
         "the hold follows the declared blocked route"
     );
@@ -396,7 +396,7 @@ fn scheduler_writes_only_ratmac_transition_log() {
         combined(&retry)
     );
     assert_eq!(
-        fixture.phase(&second_run),
+        fixture.state(&second_run),
         "build",
         "the retry advances the second addressed Run exactly once"
     );
@@ -468,7 +468,7 @@ fn scheduler_writes_only_ratmac_transition_log() {
     );
     assert!(
         final_records[3].starts_with(&format!("- Abandoned: Run {second_run}"))
-            && final_records[3].contains("phase build"),
+            && final_records[3].contains("state build"),
         "the fourth record is the second Run's terminal abandonment: {:?}",
         final_records[3]
     );
@@ -593,7 +593,7 @@ fn partial_append_recovery_is_local_to_the_writer() {
         combined(&second_step)
     );
     assert_eq!(
-        fixture.phase(&second_run),
+        fixture.state(&second_run),
         "build",
         "the second Run advances through its ordinary transition"
     );
@@ -669,7 +669,7 @@ fn hold_and_abandon_surface_the_shared_fragment_refusal() {
         "the hold refusal carries the funnel-owned fragment diagnostic: {held_text}"
     );
     assert_eq!(
-        held.phase(&held_run),
+        held.state(&held_run),
         "intake",
         "the hold's already-committed route remains visible after its fragment"
     );

@@ -35,7 +35,7 @@ fn phase_prompt_excludes_other_phases_and_graph() {
     let report = scheduler
         .status()
         .expect("active state should be reportable");
-    let prompt = report.phase_prompt().as_str();
+    let prompt = report.state_prompt().as_str();
 
     assert!(
         prompt.contains("Build the selected artifact only."),

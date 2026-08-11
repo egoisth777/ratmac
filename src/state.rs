@@ -228,11 +228,11 @@ fn replace_existing(temp: &Path, destination: &Path) -> std::io::Result<()> {
 
 /// The rendered State Prompt shown by status.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PhasePrompt {
+pub struct StatePrompt {
     text: String,
 }
 
-impl PhasePrompt {
+impl StatePrompt {
     pub(crate) fn new(text: String) -> Self {
         Self { text }
     }
@@ -242,7 +242,7 @@ impl PhasePrompt {
     }
 }
 
-impl fmt::Display for PhasePrompt {
+impl fmt::Display for StatePrompt {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(self.as_str())
     }
@@ -253,18 +253,18 @@ impl fmt::Display for PhasePrompt {
 pub struct StatusReport {
     pub state: RunState,
     pub pending_guards: Vec<String>,
-    pub(crate) phase_prompt: PhasePrompt,
+    pub(crate) state_prompt: StatePrompt,
 }
 
 impl StatusReport {
-    pub fn phase_prompt(&self) -> &PhasePrompt {
-        &self.phase_prompt
+    pub fn state_prompt(&self) -> &StatePrompt {
+        &self.state_prompt
     }
 }
 
 impl fmt::Display for StatusReport {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(formatter, "Phase: {}", self.state.state)?;
+        writeln!(formatter, "State: {}", self.state.state)?;
         writeln!(formatter, "Status: {}", self.state.status)?;
         writeln!(formatter, "Goal revision: {}", self.state.goal_revision)?;
         writeln!(formatter, "Input revision: {}", self.state.input_revision)?;
