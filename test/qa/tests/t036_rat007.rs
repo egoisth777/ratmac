@@ -57,7 +57,7 @@ fn lock_and_compatibility_policy() {
         .file_name()
         .to_string_lossy()
         .into_owned();
-    let state_path = engine.join("runs").join(&run_id).join("state.toml");
+    let state_path = engine.join("runs").join(&run_id).join("run.toml");
     let class_before = fs::read(engine.join("ratmac.toml")).expect("read class before refusal");
     let state_before = fs::read(&state_path).expect("read state before refusal");
     let log_before = fs::read(engine.join("log.md")).expect("read log before refusal");
@@ -132,7 +132,7 @@ fn lock_and_compatibility_policy() {
     );
     let state = fs::read_to_string(&state_path).expect("read final state");
     assert!(
-        state.contains("phase = \"review\""),
+        state.contains("state = \"review\""),
         "exactly one transition must advance the Run: {state}"
     );
     let log = fs::read_to_string(engine.join("log.md")).expect("read transition log");

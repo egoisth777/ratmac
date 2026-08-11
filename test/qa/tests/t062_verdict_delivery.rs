@@ -165,8 +165,8 @@ impl Fixture {
         self.root.join(".ratmac/runs").join(&self.run_id)
     }
 
-    fn state_path(&self) -> PathBuf {
-        self.run_dir().join("state.toml")
+    fn record_path(&self) -> PathBuf {
+        self.run_dir().join("run.toml")
     }
 
     fn verdict_path(&self) -> PathBuf {
@@ -174,13 +174,13 @@ impl Fixture {
     }
 
     fn state(&self) -> Vec<u8> {
-        fs::read(self.state_path()).expect("read Run State File")
+        fs::read(self.record_path()).expect("read Run State File")
     }
 
     fn phase(&self) -> String {
         let state = String::from_utf8(self.state()).expect("State File is UTF-8");
         let parsed: toml::Value = state.parse().expect("State File is valid TOML");
-        parsed["phase"]
+        parsed["state"]
             .as_str()
             .expect("State File carries a string phase")
             .to_owned()

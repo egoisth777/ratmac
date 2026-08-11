@@ -57,11 +57,7 @@ fn roster(project: &Project) -> Vec<String> {
 }
 
 fn run_state_path(project: &Project, id: &str) -> PathBuf {
-    project
-        .root
-        .join(".ratmac/runs")
-        .join(id)
-        .join("state.toml")
+    project.root.join(".ratmac/runs").join(id).join("run.toml")
 }
 
 #[test]

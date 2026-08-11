@@ -110,7 +110,7 @@ impl Fixture {
     }
 
     fn state_text(&self, id: &str) -> String {
-        fs::read_to_string(self.run_dir(id).join("state.toml")).expect("the State File is readable")
+        fs::read_to_string(self.run_dir(id).join("run.toml")).expect("the State File is readable")
     }
 }
 
@@ -182,7 +182,7 @@ fn child_reviews_and_parent_routes_without_courier() {
     );
     let child_state = fixture.state_text(&child);
     assert!(
-        child_state.contains("phase = \"approved\"") && child_state.contains("\"passed\""),
+        child_state.contains("state = \"approved\"") && child_state.contains("\"passed\""),
         "the child's Engine wrote the durable terminal fact: {child_state}"
     );
 
@@ -192,7 +192,7 @@ fn child_reviews_and_parent_routes_without_courier() {
     assert!(route.status.success(), "the parent routes: {route_text}");
     let parent_state = fixture.state_text(&parent);
     assert!(
-        parent_state.contains("phase = \"done\""),
+        parent_state.contains("state = \"done\""),
         "the approve input routed delegate -> done: {parent_state}"
     );
 

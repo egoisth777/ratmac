@@ -14,7 +14,7 @@ use crate::model::RunState;
 
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 const REQUIRED_FIELDS: [&str; 7] = [
-    "phase",
+    "state",
     "status",
     "goal_revision",
     "input_revision",
@@ -44,7 +44,7 @@ impl fmt::Display for StateError {
 
 impl std::error::Error for StateError {}
 
-/// Whether a State File replacement is durable, or reached its destination
+/// Whether a Run Record replacement is durable, or reached its destination
 /// but could not confirm the parent directory's durability.
 #[must_use]
 #[derive(Debug)]
@@ -53,10 +53,10 @@ pub(crate) enum StateWriteOutcome {
     ReplacedWithParentSyncWarning(std::io::Error),
 }
 
-/// Read access to an addressed run's State File and Scheduler-mediated writes.
+/// Read access to an addressed run's Run Record and Scheduler-mediated writes.
 ///
-/// The State File resides inside the run's directory under the resolved Engine
-/// root's `.ratmac/runs/<id>/` path; no checkout-local flat State File is
+/// The Run Record resides inside the run's directory under the resolved Engine
+/// root's `.ratmac/runs/<id>/` path; no checkout-local flat Run Record is
 /// written.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StateStore {
@@ -70,67 +70,67 @@ impl StateStore {
     }
 
     pub(crate) fn for_engine_root(engine_root: &Path, run_id: &str) -> Self {
-        Self::at(engine_root.join("runs").join(run_id).join("state.toml"))
+        Self::at(engine_root.join("runs").join(run_id).join("run.toml"))
     }
 
     pub(crate) fn at(path: PathBuf) -> Self {
         Self { path }
     }
 
-    /// Parse a State File strictly, requiring exactly the seven R-025 fields.
+    /// Parse a Run Record strictly, requiring exactly the seven R-025 fields.
     pub fn parse(source: impl AsRef<str>) -> Result<RunState, StateError> {
         let source = source.as_ref();
         let document: toml::Value = source
             .parse()
-            .map_err(|error| StateError::new(format!("invalid state.toml: {error}")))?;
+            .map_err(|error| StateError::new(format!("invalid run.toml: {error}")))?;
         let table = document
             .as_table()
-            .ok_or_else(|| StateError::new("invalid state.toml: expected a table"))?;
+            .ok_or_else(|| StateError::new("invalid run.toml: expected a table"))?;
 
         for field in REQUIRED_FIELDS {
             if !table.contains_key(field) {
                 return Err(StateError::new(format!(
-                    "invalid state.toml: missing required field {field}"
+                    "invalid run.toml: missing required field {field}"
                 )));
             }
         }
         for key in table.keys() {
             if !REQUIRED_FIELDS.contains(&key.as_str()) {
                 return Err(StateError::new(format!(
-                    "invalid state.toml: unknown field {key}"
+                    "invalid run.toml: unknown field {key}"
                 )));
             }
         }
 
         toml::from_str(source)
-            .map_err(|error| StateError::new(format!("invalid state.toml: {error}")))
+            .map_err(|error| StateError::new(format!("invalid run.toml: {error}")))
     }
 
     pub fn load(&self) -> Result<RunState, StateError> {
         let source = fs::read_to_string(&self.path)
-            .map_err(|error| StateError::new(format!("read state.toml: {error}")))?;
+            .map_err(|error| StateError::new(format!("read run.toml: {error}")))?;
         Self::parse(source)
     }
 
     pub(crate) fn serialize(state: &RunState) -> Result<Vec<u8>, StateError> {
         toml::to_string(state)
             .map(String::into_bytes)
-            .map_err(|error| StateError::new(format!("serialize state.toml: {error}")))
+            .map_err(|error| StateError::new(format!("serialize run.toml: {error}")))
     }
 
-    /// Replace this State File. A parent-sync warning means the replacement
+    /// Replace this Run Record. A parent-sync warning means the replacement
     /// happened and callers must not treat the prior State as still current.
     pub(crate) fn write(&self, state: &RunState) -> Result<StateWriteOutcome, StateError> {
         let source = Self::serialize(state)?;
         let parent = self
             .path
             .parent()
-            .ok_or_else(|| StateError::new("state.toml has no parent directory"))?;
+            .ok_or_else(|| StateError::new("run.toml has no parent directory"))?;
         fs::create_dir_all(parent)
             .map_err(|error| StateError::new(format!("create state parent: {error}")))?;
 
         let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let temp_path = parent.join(format!(".state.toml.tmp-{}-{sequence}", std::process::id()));
+        let temp_path = parent.join(format!(".run.toml.tmp-{}-{sequence}", std::process::id()));
         let result: Result<StateWriteOutcome, StateError> = (|| {
             let mut temp = OpenOptions::new()
                 .create_new(true)
@@ -147,10 +147,10 @@ impl StateStore {
                 Ok(()) => {}
                 Err(_) if self.path.exists() => {
                     replace_existing(&temp_path, &self.path).map_err(|replace_error| {
-                        StateError::new(format!("replace state.toml: {replace_error}"))
+                        StateError::new(format!("replace run.toml: {replace_error}"))
                     })?;
                 }
-                Err(error) => return Err(StateError::new(format!("replace state.toml: {error}"))),
+                Err(error) => return Err(StateError::new(format!("replace run.toml: {error}"))),
             }
             match sync_parent(parent) {
                 Ok(()) => Ok(StateWriteOutcome::Durable),
@@ -248,7 +248,7 @@ impl StatusReport {
 
 impl fmt::Display for StatusReport {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(formatter, "Phase: {}", self.state.phase)?;
+        writeln!(formatter, "Phase: {}", self.state.state)?;
         writeln!(formatter, "Status: {}", self.state.status)?;
         writeln!(formatter, "Goal revision: {}", self.state.goal_revision)?;
         writeln!(formatter, "Input revision: {}", self.state.input_revision)?;

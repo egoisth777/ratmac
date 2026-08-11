@@ -77,18 +77,18 @@ impl Fixture {
         let mut ids: Vec<String> = fs::read_dir(self.root.join(".ratmac/runs"))
             .expect("list the runs roster")
             .map(|entry| entry.expect("roster entry is readable"))
-            .filter(|entry| entry.path().join("state.toml").is_file())
+            .filter(|entry| entry.path().join("run.toml").is_file())
             .map(|entry| entry.file_name().to_string_lossy().into_owned())
             .collect();
         ids.sort();
         ids.pop().expect("a live run appears on the roster")
     }
 
-    fn state_path(&self) -> PathBuf {
+    fn record_path(&self) -> PathBuf {
         self.root
             .join(".ratmac/runs")
             .join(self.run_id())
-            .join("state.toml")
+            .join("run.toml")
     }
 
     fn step_text(&self) -> String {
@@ -125,7 +125,7 @@ impl Fixture {
     }
 
     fn state(&self) -> Vec<u8> {
-        fs::read(self.state_path()).unwrap_or_default()
+        fs::read(self.record_path()).unwrap_or_default()
     }
 
     fn log(&self) -> Vec<u8> {
@@ -213,10 +213,10 @@ fn tamper_refuses_and_restore_proceeds() {
     // Re-arm: rewind the same Run to the guarded State over its recorded
     // evidence. FDC-004 makes evidence run-scoped, so a fresh Run would
     // record a fresh pin; the recorded pin under test lives with this run.
-    let state_path = fixture.state_path();
+    let state_path = fixture.record_path();
     let rewound = fs::read_to_string(&state_path)
         .expect("read advanced state")
-        .replace("phase = \"done\"", "phase = \"prepare\"")
+        .replace("state = \"done\"", "state = \"prepare\"")
         // FDC-002: arrival at `done` wrote the terminal fact; the hand rewind
         // must restore the lifecycle value it edits past, or the terminal
         // refusal correctly fires before the pin under test.
@@ -423,10 +423,10 @@ fn pin_refusal_carries_identity_and_diagnostic_framing() {
 
     // FDC-004: evidence is run-scoped — rewind this run to the guarded State
     // so the recorded pin stays the authority under test.
-    let state_path = fixture.state_path();
+    let state_path = fixture.record_path();
     let rewound = fs::read_to_string(&state_path)
         .expect("read advanced state")
-        .replace("phase = \"done\"", "phase = \"prepare\"")
+        .replace("state = \"done\"", "state = \"prepare\"")
         // FDC-002: restore the lifecycle value the rewind edits past.
         .replace("status = \"passed\"", "status = \"planned\"");
     fs::write(&state_path, rewound).expect("rewind run to the guarded phase");

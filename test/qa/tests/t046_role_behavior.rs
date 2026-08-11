@@ -65,7 +65,7 @@ fn role_transcripts_are_behavioral() {
         subagent.events.iter().any(|event| event
             .command
             .as_deref()
-            .is_some_and(|command| command.contains("state.toml"))),
+            .is_some_and(|command| command.contains("run.toml"))),
         "the Subagent scenario still reads state, which is allowed"
     );
 

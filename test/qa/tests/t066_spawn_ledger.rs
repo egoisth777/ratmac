@@ -351,10 +351,10 @@ fn abandon_flips_only_the_mark_and_respawn_appends_the_successor() {
     );
     assert!(!abandoned(entry), "the successor entry is live");
 
-    let state = fs::read_to_string(fixture.run_dir(&successor).join("state.toml"))
+    let state = fs::read_to_string(fixture.run_dir(&successor).join("run.toml"))
         .expect("the successor has its own State File");
     assert!(
-        state.contains("phase = \"review\""),
+        state.contains("state = \"review\""),
         "the successor is minted from the recorded class, not the top-level machine: {state}"
     );
 }
@@ -374,10 +374,10 @@ fn join_reads_the_ledger_and_refuses_naming_the_missing_child() {
         "the join releases the transition off the ledger: {}",
         combined(&step)
     );
-    let state = fs::read_to_string(passing.run_dir(&parent).join("state.toml"))
+    let state = fs::read_to_string(passing.run_dir(&parent).join("run.toml"))
         .expect("parent state is readable");
     assert!(
-        state.contains("phase = \"done\""),
+        state.contains("state = \"done\""),
         "the parent advanced through the join: {state}"
     );
 
@@ -391,7 +391,7 @@ fn join_reads_the_ledger_and_refuses_naming_the_missing_child() {
     );
 
     let child = refusing.spawn_rev(&parent, "t-202");
-    let state_before = fs::read(refusing.run_dir(&parent).join("state.toml"))
+    let state_before = fs::read(refusing.run_dir(&parent).join("run.toml"))
         .expect("parent state is readable before the deletion");
     fs::remove_dir_all(refusing.run_dir(&child)).expect("delete the child run out-of-band");
 
@@ -409,7 +409,7 @@ fn join_reads_the_ledger_and_refuses_naming_the_missing_child() {
         text.contains("no run") || text.contains("missing"),
         "the refusal says the run is missing, never silently shrinking the set: {text}"
     );
-    let state_after = fs::read(refusing.run_dir(&parent).join("state.toml"))
+    let state_after = fs::read(refusing.run_dir(&parent).join("run.toml"))
         .expect("parent state is readable after the refusal");
     assert_eq!(
         state_before, state_after,

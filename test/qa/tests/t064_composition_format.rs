@@ -144,9 +144,9 @@ fn composed_declaration_parses_and_is_doctor_clean() {
         .filter(|path| path.is_dir())
         .collect::<Vec<_>>();
     assert_eq!(runs.len(), 1, "start mints exactly one Run");
-    let state = fs::read_to_string(runs[0].join("state.toml")).expect("read State File");
+    let state = fs::read_to_string(runs[0].join("run.toml")).expect("read State File");
     assert!(
-        state.contains("phase = \"plan\""),
+        state.contains("state = \"plan\""),
         "the Run begins at the initial State; declarations never route:\n{state}"
     );
     assert!(

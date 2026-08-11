@@ -77,13 +77,13 @@ impl FromStr for Status {
 /// Paths owned by a started Run under the resolved Engine root's
 /// `.ratmac/runs/<id>/` directory and Run-scoped lock namespace.
 ///
-/// The State File and Run evidence reside in the run directory; the history
+/// The Run Record and Run evidence reside in the run directory; the history
 /// log stays at the Engine root, while this Run's transient motion lock stays
 /// under `.ratmac/locks/runs/`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RunArtifacts {
     run_dir: PathBuf,
-    state_path: PathBuf,
+    record_path: PathBuf,
     log_path: PathBuf,
     lock_path: PathBuf,
 }
@@ -93,7 +93,7 @@ impl RunArtifacts {
         let engine_root = crate::root::resolve(root).engine_root().to_path_buf();
         let run_dir = engine_root.join("runs").join(run_id);
         Self {
-            state_path: run_dir.join("state.toml"),
+            record_path: run_dir.join("run.toml"),
             run_dir,
             log_path: engine_root.join("log.md"),
             lock_path: crate::lock::run_path(&engine_root, run_id),
@@ -104,8 +104,8 @@ impl RunArtifacts {
         &self.run_dir
     }
 
-    pub fn state_path(&self) -> &Path {
-        &self.state_path
+    pub fn record_path(&self) -> &Path {
+        &self.record_path
     }
 
     pub fn log_path(&self) -> &Path {
@@ -160,7 +160,7 @@ impl Run {
     }
 
     pub fn state_path(&self) -> Option<&Path> {
-        self.artifacts.as_ref().map(RunArtifacts::state_path)
+        self.artifacts.as_ref().map(RunArtifacts::record_path)
     }
 
     pub fn log_path(&self) -> Option<&Path> {
@@ -212,7 +212,7 @@ impl Runs {
 /// Scheduler-owned persisted state.  All seven fields are required on disk.
 #[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct RunState {
-    pub phase: String,
+    pub state: String,
     pub status: Status,
     pub goal_revision: String,
     pub input_revision: String,

@@ -263,7 +263,7 @@ fn defect_catalogue() -> Vec<(&'static str, &'static str, &'static str)> {
         (
             "rb401",
             "RB401",
-            "[states.a]\nprompt = \"Write .ratmac/runs/run-1/state.toml when you are done.\"\n",
+            "[states.a]\nprompt = \"Write .ratmac/runs/run-1/run.toml when you are done.\"\n",
         ),
         (
             "rb501",
@@ -485,7 +485,7 @@ fn ownership_violations_surface_through_the_doctor() {
     let bench = Bench::new("ownership");
     let path = bench.runbook(
         "owned",
-        "[states.a]\nprompt = \"Record your progress in .ratmac/runs/run-1/state.toml before you finish.\"\n",
+        "[states.a]\nprompt = \"Record your progress in .ratmac/runs/run-1/run.toml before you finish.\"\n",
     );
     let finding = doctor::diagnose(&path)
         .into_iter()
@@ -493,7 +493,7 @@ fn ownership_violations_surface_through_the_doctor() {
         .expect("DRD-004: the ownership audit must reach the doctor");
     assert_eq!(finding.severity(), Severity::Error);
     assert!(
-        finding.message().contains("state.toml"),
+        finding.message().contains("run.toml"),
         "DRD-004: the finding must carry the audit's own message: {}",
         finding.message()
     );
@@ -569,8 +569,8 @@ fn the_environment_report_survives_the_deepening() {
     let active = bench.project("active", runbook);
     fs::create_dir_all(active.join(".ratmac/runs/run-001")).expect("create run directory");
     fs::write(
-        active.join(".ratmac/runs/run-001/state.toml"),
-        "phase = \"a\"\nstatus = \"executing\"\ngoal_revision = \"\"\ninput_revision = \"\"\noutput_revision = \"\"\nactive_refs = []\nblocker = \"\"\n",
+        active.join(".ratmac/runs/run-001/run.toml"),
+        "state = \"a\"\nstatus = \"executing\"\ngoal_revision = \"\"\ninput_revision = \"\"\noutput_revision = \"\"\nactive_refs = []\nblocker = \"\"\n",
     )
     .expect("write state");
     let (_, report) = rtm(&active, &["doctor"]);
@@ -582,7 +582,7 @@ fn the_environment_report_survives_the_deepening() {
     let corrupt = bench.project("corrupt", runbook);
     fs::create_dir_all(corrupt.join(".ratmac/runs/run-001")).expect("create run directory");
     fs::write(
-        corrupt.join(".ratmac/runs/run-001/state.toml"),
+        corrupt.join(".ratmac/runs/run-001/run.toml"),
         "not = = toml\n",
     )
     .expect("write corrupt state");

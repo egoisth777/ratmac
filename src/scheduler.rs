@@ -146,7 +146,7 @@ impl TransitionLogAppendFailure {
 }
 
 /// QA-only fault seams at the Scheduler's transition-log append boundary.
-/// During `step` that boundary follows the durable State File replacement;
+/// During `step` that boundary follows the durable Run Record replacement;
 /// `after-state-write` reports no bytes and `after-partial-write` writes and
 /// syncs one proper record prefix before reporting its exact local counts.
 #[cfg(feature = "test-fault-injection")]
@@ -166,7 +166,7 @@ fn inject_transition_log_append_failure(
     match std::env::var("RATMAC_TEST_LOG_APPEND_FAIL").ok().as_deref() {
         Some("after-state-write") => Some(failed(
             0,
-            std::io::Error::other("injected transition-log append failure after State File commit"),
+            std::io::Error::other("injected transition-log append failure after Run Record commit"),
         )),
         Some("after-partial-write") => {
             let fragment_len = entry.len() / 2;
@@ -376,7 +376,7 @@ struct EvidenceRollback {
     committed: Vec<u8>,
 }
 
-/// A live verdict moved into immutable evidence before the State File commit.
+/// A live verdict moved into immutable evidence before the Run Record commit.
 /// Its exact archive name and bytes are needed to make a failed append
 /// retryable without consuming the verdict twice.
 #[derive(Debug)]
@@ -567,10 +567,10 @@ impl Scheduler {
         let workflow_roots = snapshot.roots().clone();
         let machine = Self::graph_of(snapshot.class());
         let run_dir = Self::runs_dir_at(&engine_root).join(run_id);
-        // FDC-006: a roster entry without a State File is a retired run —
+        // FDC-006: a roster entry without a Run Record is a retired run —
         // terminal, never resurrected. The refusal names the run as terminal,
         // distinct from an unknown id (refused with the roster listing).
-        if !run_dir.join("state.toml").is_file() {
+        if !run_dir.join("run.toml").is_file() {
             return Err(StateError::new(format!(
                 "run {run_id} is terminal: its admission state is retired and no \
                  transition may proceed on it; address a live run or mint a fresh \
@@ -592,7 +592,7 @@ impl Scheduler {
     }
     /// Refuse live residue in the workspace durably bound to an addressed Run
     /// without requiring that Run to remain admitted. Direct existing-Run
-    /// routes use this before they inspect a retired Run's lock or State File.
+    /// routes use this before they inspect a retired Run's lock or Run Record.
     pub(crate) fn refuse_addressed_run_residue(
         root: &Path,
         run_id: &str,
@@ -611,7 +611,7 @@ impl Scheduler {
         Self::refuse_flat_residue_for_workspace(&invoking_root, &engine_root, &workspace)
     }
 
-    /// FDC-005: a pre-plural flat State File or pre-split workflow artifact is
+    /// FDC-005: a pre-plural flat `run.toml` or pre-split workflow artifact is
     /// residue, never adopted. Meeting one refuses, names the observed fact
     /// and the repair, and modifies nothing — the legacy-lock precedent,
     /// never an auto-migration. The check runs at every Engine entry point and
@@ -965,7 +965,7 @@ impl Scheduler {
     /// contract, but any unreadable or malformed ledger is a named refusal:
     /// guessing that a child is top-level would lose its durable workspace.
     /// An abandoned mark does not erase that fact: a partially failed
-    /// retirement can leave its State File admitted after the mark landed.
+    /// retirement can leave its Run Record admitted after the mark landed.
     fn ledger_record_of_at(
         engine_root: &Path,
         run_id: &str,
@@ -1213,10 +1213,10 @@ impl Scheduler {
     /// Instantiate a Run from the canonical, human-authored Machine Class.
     ///
     /// FDC-004: start mints a run id in the single namespace and creates
-    /// `.ratmac/runs/<id>/` with its durable State File and Run evidence.
+    /// `.ratmac/runs/<id>/` with its durable Run Record and Run evidence.
     /// FDC-003: the `verdict.toml` live slot is absent when empty; the
     /// `spawn-ledger` path remains reserved by name only for machine
-    /// composition. No flat `.ratmac/state.toml` is written.
+    /// composition. No flat `.ratmac/run.toml` is written.
     ///
     /// State and log persist after return. The lock is held only for this
     /// invocation and is released by the RAII guard before the Run is observed.
@@ -1238,7 +1238,7 @@ impl Scheduler {
         let phase = self.initial_phase()?;
         let goal_baseline = self.goal_revision(&root)?;
         // FDC-002: a Run beginning in a terminal State — no ordinary outgoing
-        // edge — is complete from its first State File. The Engine writes the
+        // edge — is complete from its first Run Record. The Engine writes the
         // terminal fact; no agent claim participates.
         let initial_status = if self.machine.has_ordinary_outgoing(phase.as_str()) {
             Status::Planned
@@ -1272,7 +1272,7 @@ impl Scheduler {
         Ok(Run::new(phase, initial_status).with_artifacts(&root, &run_id))
     }
 
-    /// Reserve the next durable id, then create its directory, State File,
+    /// Reserve the next durable id, then create its directory, Run Record,
     /// evidence, and reserved spawn-ledger path. Used by `start` for the
     /// project machine and by `spawn`/`respawn` for children and successors.
     /// A later creation failure removes the half-made directory but
@@ -1307,7 +1307,7 @@ impl Scheduler {
         fs::create_dir(&run_dir)
             .map_err(|error| StateError::new(format!("create run directory {run_id}: {error}")))?;
 
-        // The directory is not addressable until State File creation below.
+        // The directory is not addressable until Run Record creation below.
         // Claim its Run lock now, while root is still held, and retain it past
         // minting for a caller's ledger transaction. A new id should have no
         // ordinary contender; do not wait on the unlikely foreign claim while
@@ -1331,7 +1331,7 @@ impl Scheduler {
         };
 
         let state = RunState {
-            phase: phase.to_string(),
+            state: phase.to_string(),
             status,
             goal_revision: String::new(),
             input_revision: String::new(),
@@ -1419,8 +1419,8 @@ impl Scheduler {
     }
 
     fn snapshot_minted_run(run_dir: &Path) -> Result<MintedRunSnapshot, StateError> {
-        let state_bytes = fs::read(run_dir.join("state.toml"))
-            .map_err(|error| StateError::new(format!("snapshot minted State File: {error}")))?;
+        let state_bytes = fs::read(run_dir.join("run.toml"))
+            .map_err(|error| StateError::new(format!("snapshot minted Run Record: {error}")))?;
         let evidence_bytes = fs::read(run_dir.join(crate::pin::EVIDENCE_FILE))
             .map_err(|error| StateError::new(format!("snapshot minted evidence.toml: {error}")))?;
         let spawn_ledger_bytes = fs::read(run_dir.join("spawn-ledger"))
@@ -1465,7 +1465,7 @@ impl Scheduler {
             })?;
             let name = crate::root::component(entry.file_name());
             let expected = match name.as_str() {
-                "state.toml" => snapshot.state_bytes.as_slice(),
+                "run.toml" => snapshot.state_bytes.as_slice(),
                 crate::pin::EVIDENCE_FILE => snapshot.evidence_bytes.as_slice(),
                 "spawn-ledger" => snapshot.spawn_ledger_bytes.as_slice(),
                 _ => {
@@ -1501,7 +1501,7 @@ impl Scheduler {
             }
             seen.insert(name, ());
         }
-        for name in ["state.toml", crate::pin::EVIDENCE_FILE, "spawn-ledger"] {
+        for name in ["run.toml", crate::pin::EVIDENCE_FILE, "spawn-ledger"] {
             if !seen.contains_key(name) {
                 return Err(StateError::new(format!(
                     "{operation} refused: minted Run entry {} is missing; it was not removed",
@@ -1540,7 +1540,7 @@ impl Scheduler {
     /// phrase. Legal only while the addressed parent occupies the spawning
     /// State and only for a spawn that State declares. The child is minted as
     /// an ordinary flat top-level Run in the single run-id namespace - same
-    /// State File, evidence, terminal facts, and reserved spawn-ledger path;
+    /// Run Record, evidence, terminal facts, and reserved spawn-ledger path;
     /// the ledger's written entry is FDC-011, a later increment.
     /// The addressed spawn boundary (FDC-012 ordering). A malformed or
     /// never-recorded id refuses for the ordinary addressing reason; an id
@@ -1635,7 +1635,7 @@ composition is capped at one level (FDC-012)"
             StateError::new("spawn requires an addressed parent: open one with Scheduler::open_run")
         })?;
         let run_dir = self.run_dir()?;
-        let state_path = run_dir.join("state.toml");
+        let state_path = run_dir.join("run.toml");
 
         // Slow content and Git reads never belong to the shared mutation
         // scope. The exact snapshot supplies the parsed class, validated
@@ -1667,7 +1667,7 @@ composition is capped at one level (FDC-012)"
                 )));
             }
             let parent_state_bytes = fs::read(&state_path)
-                .map_err(|error| StateError::new(format!("read State File: {error}")))?;
+                .map_err(|error| StateError::new(format!("read Run Record: {error}")))?;
             let state = self.load_state_unlocked()?;
             if state.status == Status::Passed {
                 return Err(StateError::new(format!(
@@ -1679,17 +1679,17 @@ composition is capped at one level (FDC-012)"
                     "spawn refused: run {parent_id} is held (status blocked): the blocked route admits no spawn"
                 )));
             }
-            let definition = class.states().get(&state.phase).ok_or_else(|| {
+            let definition = class.states().get(&state.state).ok_or_else(|| {
                 StateError::new(format!(
-                    "State File phase {:?} is undeclared in ratmac.toml",
-                    state.phase
+                    "Run Record phase {:?} is undeclared in ratmac.toml",
+                    state.state
                 ))
             })?;
             let declared = definition.spawns();
             if declared.is_empty() {
                 return Err(StateError::new(format!(
                     "spawn refused: phase {:?} declares no spawns; run {parent_id} is outside a spawning State",
-                    state.phase
+                    state.state
                 )));
             }
             let declaration = declared
@@ -1703,7 +1703,7 @@ composition is capped at one level (FDC-012)"
                         .join(", ");
                     StateError::new(format!(
                         "spawn refused: {spawn_name:?} is not declared in phase {:?}; declared spawns: {names}",
-                        state.phase
+                        state.state
                     ))
                 })?;
             for name in bindings.keys() {
@@ -1749,7 +1749,7 @@ composition is capped at one level (FDC-012)"
         Self::validate_run_address_at(&engine_root, &parent_id)?;
         Self::verify_runbook_snapshot(&snapshot, &invoking_root, Some(&run_dir))?;
         let current_state_bytes = fs::read(&state_path)
-            .map_err(|error| StateError::new(format!("read State File before spawn: {error}")))?;
+            .map_err(|error| StateError::new(format!("read Run Record before spawn: {error}")))?;
         if current_state_bytes != parent_state_bytes {
             return Err(StateError::new(format!(
                 "spawn refused: run {parent_id} changed while the spawn plan was prepared; reload it before retrying"
@@ -1885,7 +1885,7 @@ the ledger {} and minted child {} were left in place; inspect both paths before 
             )));
         }
         let superseded_run_dir = Self::runs_dir_at(&engine_root).join(&superseded);
-        if !superseded_run_dir.join("state.toml").is_file() {
+        if !superseded_run_dir.join("run.toml").is_file() {
             return Err(StateError::new(format!(
                 "run {superseded} is already terminal: its admission state is retired; nothing to supersede"
             )));
@@ -2094,7 +2094,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
             .clone()
             .ok_or_else(|| StateError::new("step requires an addressed Run"))?;
         let run_dir = self.run_dir()?;
-        let state_path = run_dir.join("state.toml");
+        let state_path = run_dir.join("run.toml");
 
         // Hash and parse before either lock. A final pin comparison happens
         // under the Run lock, but neither comparison can invoke Git or root
@@ -2119,9 +2119,9 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
         ) = {
             Self::verify_runbook_snapshot(&snapshot, &invoking_root, Some(&run_dir))?;
             let guarded_state_bytes = fs::read(&state_path)
-                .map_err(|error| StateError::new(format!("read State File: {error}")))?;
+                .map_err(|error| StateError::new(format!("read Run Record: {error}")))?;
             let state = self.load_state_unlocked()?;
-            let state_phase = state.phase.clone();
+            let state_phase = state.state.clone();
             let (definition, scope_machine) =
                 Self::resolve_phase_scope(class, &state_phase, self.child_class.as_deref())?;
             if state.status == Status::Passed {
@@ -2154,9 +2154,9 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
                 return Ok(StepOutcome::Refused { failures });
             }
 
-            let from = State::new(state.phase.clone());
+            let from = State::new(state.state.clone());
             let transition_input = if let Some(inputs) = definition.inputs() {
-                match crate::verdict::load_live(&run_dir, &state.phase, inputs) {
+                match crate::verdict::load_live(&run_dir, &state.state, inputs) {
                     Ok(record) => Some(record.input().to_owned()),
                     Err(refusal) => {
                         return Ok(StepOutcome::Refused {
@@ -2188,7 +2188,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
                 return Ok(StepOutcome::Refused {
                     failures: vec![guard_failure(
                         "transition",
-                        state.phase,
+                        state.state,
                         "no matching outgoing transition",
                         "one transition selected by the current State and input",
                     )],
@@ -2208,7 +2208,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
             // archived. Opening project history remains under this Run lock:
             // it is not a root-domain roster or ledger mutation.
             let mut next = state;
-            next.phase = to.to_string();
+            next.state = to.to_string();
             if !scope_machine.has_ordinary_outgoing(to.as_str()) {
                 next.status = Status::Passed;
             }
@@ -2230,14 +2230,14 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
         };
 
         // The same Run guard remains held from guard evaluation through the
-        // durable motion. Compare the exact State File bytes guards observed
+        // durable motion. Compare the exact Run Record bytes guards observed
         // as a defense against an out-of-band writer.
         run_lock.ensure_current()?;
         let current_state_bytes = fs::read(&state_path)
-            .map_err(|error| StateError::new(format!("read State File before commit: {error}")))?;
+            .map_err(|error| StateError::new(format!("read Run Record before commit: {error}")))?;
         if current_state_bytes != guarded_state_bytes {
             return Err(StateError::new(format!(
-                "state mutation refused for run {run_id}: State File changed while guards ran; reload it before retrying"
+                "state mutation refused for run {run_id}: Run Record changed while guards ran; reload it before retrying"
             )));
         }
         Self::verify_runbook_snapshot(&snapshot, &invoking_root, Some(&run_dir))?;
@@ -2309,7 +2309,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
             StateWriteOutcome::Durable => {}
             StateWriteOutcome::ReplacedWithParentSyncWarning(error) => {
                 eprintln!(
-                    "warning: State File {} was replaced but its parent directory could not be synced: {error}; continuing because the State File is committed and transition history will be appended",
+                    "warning: Run Record {} was replaced but its parent directory could not be synced: {error}; continuing because the Run Record is committed and transition history will be appended",
                     state_path.displayed()
                 );
             }
@@ -2387,14 +2387,14 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
             Ok(bytes) => bytes,
             Err(error) => {
                 return failure(format!(
-                    "rollback refused because State File {} cannot be compared with the committed successor: {error}; the Engine restored nothing",
+                    "rollback refused because Run Record {} cannot be compared with the committed successor: {error}; the Engine restored nothing",
                     state_path.displayed()
                 ))
             }
         };
         if current_state != committed_state {
             return failure(format!(
-                "rollback refused because State File {} disagreed with the bytes this step committed; the Engine restored nothing",
+                "rollback refused because Run Record {} disagreed with the bytes this step committed; the Engine restored nothing",
                 state_path.displayed()
             ));
         }
@@ -2540,17 +2540,17 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
         }
         if let Err(error) = run_lock.ensure_current() {
             return failure(format!(
-                "rollback stopped before restoring State File because the addressed Run lock is no longer current: {error}; State remains committed"
+                "rollback stopped before restoring Run Record because the addressed Run lock is no longer current: {error}; State remains committed"
             ));
         }
         if let Err(error) = restore_exact_file_if_current(state_path, committed_state, prior_state)
         {
             return failure(format!(
-                "rollback refused because State File {} no longer matches the bytes this step committed: {error}; the Engine stopped for repair",
+                "rollback refused because Run Record {} no longer matches the bytes this step committed: {error}; the Engine stopped for repair",
                 state_path.displayed()
             ));
         }
-        restored.push("the prior State File");
+        restored.push("the prior Run Record");
         if let Some(incomplete_record) = incomplete_record {
             failure(format!(
                 "rollback restored {}; {incomplete_record}",
@@ -2771,7 +2771,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
         for entry in &live {
             let state_path = Self::runs_dir_at(engine_root)
                 .join(&entry.id)
-                .join("state.toml");
+                .join("run.toml");
             if !state_path.is_file() {
                 missing.push(entry.id.as_str());
                 continue;
@@ -2780,7 +2780,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
                 .load()
                 .map_err(|error| {
                     refuse(format!(
-                        "ledger child {} has an unreadable State File: {error}",
+                        "ledger child {} has an unreadable Run Record: {error}",
                         entry.id
                     ))
                 })?;
@@ -2789,7 +2789,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
             } else {
                 unfinished.push(format!(
                     "{} is {} at {}",
-                    entry.id, state.status, state.phase
+                    entry.id, state.status, state.state
                 ));
             }
         }
@@ -3204,7 +3204,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
         Ok(())
     }
 
-    /// Scheduler-owned initialization of a complete State File.
+    /// Scheduler-owned initialization of a complete Run Record.
     pub fn initialize_state(&mut self, state: RunState) -> Result<(), StateError> {
         let invoking_root = self.invoking_root()?.to_path_buf();
         let workspace = self
@@ -3248,7 +3248,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
         Self::require_durable_state_write(self.store()?.write(&state)?)
     }
 
-    /// Read the addressed State File without serializing on either lock.
+    /// Read the addressed Run Record without serializing on either lock.
     pub fn load_state(&self) -> Result<RunState, StateError> {
         let workspace = self
             .root
@@ -3298,7 +3298,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
         let state = self.load_state_unlocked()?;
         // FDC-011/FDC-012: a child Run is reported from its own class's view.
         let (definition, _scope_machine) =
-            Self::resolve_phase_scope(class, &state.phase, self.child_class.as_deref())?;
+            Self::resolve_phase_scope(class, &state.state, self.child_class.as_deref())?;
         let pending_guards = Self::pending_guard_labels(definition);
         let phase_prompt = Self::render_phase_prompt(definition)?;
         Ok(StatusReport {
@@ -3308,7 +3308,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
         })
     }
 
-    /// FDC-011/FDC-012: resolve the owning scope of a State File phase. A
+    /// FDC-011/FDC-012: resolve the owning scope of a Run Record phase. A
     /// child is addressed by its durable ledger class, not by the first class
     /// whose phase happens to share the same name with a sibling.
     fn resolve_phase_scope<'a>(
@@ -3324,7 +3324,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
             })?;
             let definition = child_class.states().get(state_phase).ok_or_else(|| {
                 StateError::new(format!(
-                    "State File phase {state_phase:?} is undeclared in recorded child class \
+                    "Run Record phase {state_phase:?} is undeclared in recorded child class \
                      {child_class_name:?}"
                 ))
             })?;
@@ -3362,7 +3362,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
             return Ok((definition, machine));
         }
         Err(StateError::new(format!(
-            "State File phase {state_phase:?} is undeclared in ratmac.toml"
+            "Run Record phase {state_phase:?} is undeclared in ratmac.toml"
         )))
     }
 

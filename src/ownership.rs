@@ -18,7 +18,7 @@ use crate::machine::{GuardKind, MachineClass};
 
 /// Files only the Engine writes (ADR-0003, R-009).
 pub const SCHEDULER_OWNED: [&str; 6] = [
-    ".ratmac/runs/<id>/state.toml",
+    ".ratmac/runs/<id>/run.toml",
     ".ratmac/runs/<id>/evidence.toml",
     ".ratmac/mint.toml",
     ".ratmac/log.md",
@@ -151,7 +151,7 @@ pub fn is_scheduler_owned_path(path: &str) -> bool {
     let mut segments = run_relative.split('/');
     matches!(
         (segments.next(), segments.next(), segments.next()),
-        (Some(id), Some("state.toml" | "evidence.toml"), None) if !id.is_empty()
+        (Some(id), Some("run.toml" | "evidence.toml"), None) if !id.is_empty()
     )
 }
 
@@ -189,7 +189,7 @@ fn collect_markdown(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
 
 /// Split text into sentences, so a mention and a verb only pair up when they
 /// belong to the same statement. A period is a boundary only when it ends a
-/// word, never inside a path like `.ratmac/runs/run-001/state.toml`.
+/// word, never inside a path like `.ratmac/runs/run-001/run.toml`.
 fn sentences(text: &str) -> Vec<&str> {
     let bytes = text.as_bytes();
     let mut parts = Vec::new();

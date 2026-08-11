@@ -37,7 +37,7 @@ fn read_status_and_blocker(project: &Project) -> StatusAndBlocker {
         .map(|entry| entry.expect("roster entry is readable").path())
         .find(|path| path.is_dir())
         .expect("the started run appears on the roster");
-    let state: toml::Value = fs::read_to_string(run_dir.join("state.toml"))
+    let state: toml::Value = fs::read_to_string(run_dir.join("run.toml"))
         .expect("read scheduler state")
         .parse()
         .expect("state file is valid TOML");

@@ -287,7 +287,7 @@ pub fn plan_hold(root: &Path, request: &HoldRequest) -> Result<HoldPlan, HoldRef
     let state = scheduler
         .load_state()
         .map_err(|error| refusal(format!("hold requires an active Run: {error}")))?;
-    let from_phase = state.phase.clone();
+    let from_phase = state.state.clone();
     // FDC-002: a passed Run admits no further transition — not even the
     // human-confirmed blocked route. The refusal precedes any route lookup.
     if state.status == crate::model::Status::Passed {
@@ -408,12 +408,9 @@ pub fn apply_hold(root: &Path, plan: &HoldPlan) -> Result<(), HoldRefusal> {
 
     let roots = crate::root::resolve(root);
     let engine_root = roots.engine_root().to_path_buf();
-    let state_path = engine_root
-        .join("runs")
-        .join(&plan.run_id)
-        .join("state.toml");
+    let state_path = engine_root.join("runs").join(&plan.run_id).join("run.toml");
 
-    // The ticket is shared across Runs, while the State File is not. Acquire
+    // The ticket is shared across Runs, while the Run Record is not. Acquire
     // the pair in the global root-before-Run order before reading the shared
     // ticket, so the entire read-modify-write has mutual exclusion.
     let (root_lock, run_lock) = crate::lock::acquire_root_then_run(&engine_root, &plan.run_id)
@@ -450,10 +447,10 @@ pub fn apply_hold(root: &Path, plan: &HoldPlan) -> Result<(), HoldRefusal> {
     // A plan is only an admission proof. Another lawful motion may have
     // changed this Run between planning and acquisition, so compare the exact
     // state that chose the blocked route before writing anything.
-    if state.phase != plan.from_phase || state.status != plan.from_status {
+    if state.state != plan.from_phase || state.status != plan.from_status {
         return Err(refusal(format!(
             "hold plan is stale for run {}: expected phase {:?} with status {:?}, found phase {:?} with status {:?}; nothing was modified",
-            plan.run_id, plan.from_phase, plan.from_status, state.phase, state.status
+            plan.run_id, plan.from_phase, plan.from_status, state.state, state.status
         )));
     }
     // Reopen while holding the mutation pair. This binds the route and ticket
@@ -472,10 +469,10 @@ pub fn apply_hold(root: &Path, plan: &HoldPlan) -> Result<(), HoldRefusal> {
             locked_ticket_path.displayed()
         )));
     }
-    let Some(route) = current_scheduler.machine().blocked_route_for(&state.phase) else {
+    let Some(route) = current_scheduler.machine().blocked_route_for(&state.state) else {
         return Err(refusal(format!(
             "hold route changed: phase {:?} no longer declares a blocked route; re-plan the hold",
-            state.phase
+            state.state
         )));
     };
     if route.to().as_str() != plan.to_phase {
@@ -483,7 +480,7 @@ pub fn apply_hold(root: &Path, plan: &HoldPlan) -> Result<(), HoldRefusal> {
             "hold route changed: planned phase {:?} -> {:?}, but the declared blocked route is {:?} -> {:?}; re-plan the hold",
             plan.from_phase,
             plan.to_phase,
-            state.phase,
+            state.state,
             route.to().as_str()
         )));
     }
@@ -510,7 +507,7 @@ pub fn apply_hold(root: &Path, plan: &HoldPlan) -> Result<(), HoldRefusal> {
         ))
     })?;
 
-    state.phase = plan.to_phase.clone();
+    state.state = plan.to_phase.clone();
     run_lock
         .ensure_current()
         .map_err(|error| refusal(error.to_string()))?;
@@ -525,7 +522,7 @@ pub fn apply_hold(root: &Path, plan: &HoldPlan) -> Result<(), HoldRefusal> {
         crate::state::StateWriteOutcome::Durable => {}
         crate::state::StateWriteOutcome::ReplacedWithParentSyncWarning(error) => {
             eprintln!(
-                "warning: hold State File {} was replaced but its parent directory could not be synced: {error}; continuing because the State File is committed and the hold will append history",
+                "warning: hold Run Record {} was replaced but its parent directory could not be synced: {error}; continuing because the Run Record is committed and the hold will append history",
                 state_path.displayed()
             );
         }
@@ -683,7 +680,7 @@ fn hold_ticket(source: &str, blocker: &str) -> String {
 
 /// Restore exact addressed-Run bytes only while the caller still owns its
 /// motion lock. The replacement is atomic, so a failed restore never truncates
-/// a State File it cannot finish restoring.
+/// a Run Record it cannot finish restoring.
 fn restore_state_bytes(
     run_lock: &crate::lock::RunLock,
     state_path: &Path,
@@ -694,13 +691,13 @@ fn restore_state_bytes(
         Ok(ReplaceFileOutcome::Durable) => Ok(()),
         Ok(ReplaceFileOutcome::ReplacedWithParentSyncWarning(error)) => {
             eprintln!(
-                "warning: restored pre-hold State File {} but could not sync its parent directory: {error}",
+                "warning: restored pre-hold Run Record {} but could not sync its parent directory: {error}",
                 state_path.displayed()
             );
             Ok(())
         }
         Err(error) => Err(crate::state::StateError::new(format!(
-            "restore pre-hold State File {}: {error}",
+            "restore pre-hold Run Record {}: {error}",
             state_path.displayed()
         ))),
     }

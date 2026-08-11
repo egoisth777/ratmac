@@ -125,8 +125,8 @@ impl Fixture {
         ids
     }
 
-    fn state_path(&self, id: &str) -> PathBuf {
-        self.runs_dir().join(id).join("state.toml")
+    fn record_path(&self, id: &str) -> PathBuf {
+        self.runs_dir().join(id).join("run.toml")
     }
 }
 
@@ -240,9 +240,9 @@ fn spawn_is_ordinary_checked_motion_without_phrase() {
         .find(|id| **id != parent)
         .expect("the roster gained a child id")
         .clone();
-    let state = fs::read_to_string(fixture.state_path(&child)).expect("child State File exists");
+    let state = fs::read_to_string(fixture.record_path(&child)).expect("child State File exists");
     assert!(
-        state.contains("phase = \"review\""),
+        state.contains("state = \"review\""),
         "the child begins at its class's initial State: {state}"
     );
     assert!(
@@ -313,7 +313,7 @@ fn respawn_requires_phrase_naming_the_run_id() {
         .find(|id| **id != parent && **id != child)
         .expect("a fresh successor id is minted");
     assert!(
-        fixture.state_path(successor).is_file(),
+        fixture.record_path(successor).is_file(),
         "the successor is live"
     );
     assert!(
@@ -321,7 +321,7 @@ fn respawn_requires_phrase_naming_the_run_id() {
         "the superseded record keeps its address"
     );
     assert!(
-        !fixture.state_path(&child).exists(),
+        !fixture.record_path(&child).exists(),
         "the superseded child is retired by the abandon path, never left live beside its successor"
     );
 }
@@ -365,7 +365,7 @@ fn abandon_phrase_names_the_run_id() {
         "the run-id phrase retires the Run: {text}"
     );
     assert!(
-        !fixture.state_path(&run).exists(),
+        !fixture.record_path(&run).exists(),
         "the admission state is retired"
     );
 }

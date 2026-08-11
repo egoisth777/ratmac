@@ -66,7 +66,7 @@ pub fn help(command: impl AsRef<str>) -> &'static str {
             "Usage: rtm abandon --run <id> --confirm \"abandon <run id>\"\n\nA human retires a broken Run: rtm records a terminal abandoned event, then retires the admission state, the Run evidence, and the lock so a fresh Run can start. The confirmation phrase names the addressed run id (FDC-007), is typed at invocation, and is never read from a file. Retiring only a leftover lock - no live run anywhere - omits --run and confirms with \"abandon <project directory name>\". No bypass flag exists - a stale lock is retired through this path.\n"
         }
         "spawn" => {
-            "Usage: rtm spawn <name> --run <parent id> [--bind name=value ...] [--workspace <path>]\n\nOrdinary checked motion, no confirmation phrase (FDC-007): create a child Run from a class the parent's runbook declares. Legal only while the parent occupies the Phase declaring that spawn. Each --bind supplies a value for a binding name the spawn declares; --workspace binds the child to an existing directory, or otherwise it inherits the parent's workspace. The entry lands in the parent's spawn ledger (FDC-011). The child is an ordinary Run on the flat roster with its own State File and evidence.\n"
+            "Usage: rtm spawn <name> --run <parent id> [--bind name=value ...] [--workspace <path>]\n\nOrdinary checked motion, no confirmation phrase (FDC-007): create a child Run from a class the parent's runbook declares. Legal only while the parent occupies the Phase declaring that spawn. Each --bind supplies a value for a binding name the spawn declares; --workspace binds the child to an existing directory, or otherwise it inherits the parent's workspace. The entry lands in the parent's spawn ledger (FDC-011). The child is an ordinary Run on the flat roster with its own Run Record and evidence.\n"
         }
         "respawn" => {
             "Usage: rtm respawn --run <id> --confirm \"respawn <run id>\"\n\nA human supersedes a Run: a fresh successor id is minted - never overwriting, the superseded record keeps its address - and the superseded Run is retired by the abandon path. The confirmation phrase names the run id, is typed at invocation, and is never read from a file.\n"
@@ -767,7 +767,7 @@ fn environment_report<W: Write>(
     }
 
     // FDC-004: listing the resolved .ratmac/runs/ is the roster; each Run's
-    // State File lives in its own directory.
+    // Run Record lives in its own directory.
     let engine_root = roots.engine_root();
     let roster = crate::Scheduler::run_roster_at(engine_root);
     let runs_dir = engine_root.join("runs");
@@ -779,20 +779,20 @@ fn environment_report<W: Write>(
         writeln!(
             writer,
             "Next: .ratmac/ratmac.toml is the human-authored Machine Class; \
-             .ratmac/runs/<id>/state.toml is Scheduler-owned runtime state created only by \
+             .ratmac/runs/<id>/run.toml is Scheduler-owned runtime state created only by \
              `rtm start`, which mints the run id. To begin a Run, invoke `rtm start`; \
              address it afterwards with --run <id>."
         )?;
     } else {
         for id in roster {
-            let state_path = runs_dir.join(&id).join("state.toml");
-            let shown = format!(".ratmac/runs/{id}/state.toml");
+            let state_path = runs_dir.join(&id).join("run.toml");
+            let shown = format!(".ratmac/runs/{id}/run.toml");
             if state_path.is_file() {
                 match std::fs::read_to_string(&state_path) {
                     Ok(source) => {
                         if let Ok(table) = source.parse::<toml::Value>() {
                             let phase = table
-                                .get("phase")
+                                .get("state")
                                 .and_then(toml::Value::as_str)
                                 .unwrap_or("unknown");
                             writeln!(writer, "State: {shown} (phase: {phase})")?;

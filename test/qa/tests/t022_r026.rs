@@ -109,11 +109,8 @@ fn isolated_project(fixture: &str) -> (TempProject, PathBuf, PathBuf) {
     // FDC-004: the State File resides in the addressed run's directory.
     let run_dir = engine.join("runs/run-001");
     fs::create_dir_all(&run_dir).expect("create run directory");
-    fs::copy(
-        source.join(".ratmac/state.toml"),
-        run_dir.join("state.toml"),
-    )
-    .expect("copy transition-log fixture file");
+    fs::copy(source.join(".ratmac/run.toml"), run_dir.join("run.toml"))
+        .expect("copy transition-log fixture file");
     fs::create_dir_all(root.join("required")).expect("create passing guard directory");
     fs::copy(
         source.join("required").join("output.txt"),
@@ -122,7 +119,7 @@ fn isolated_project(fixture: &str) -> (TempProject, PathBuf, PathBuf) {
     .expect("copy passing guard artifact");
     (
         TempProject(root),
-        run_dir.join("state.toml"),
+        run_dir.join("run.toml"),
         engine.join("log.md"),
     )
 }
@@ -173,7 +170,7 @@ fn state_phase(state_path: &Path) -> String {
     let bytes = fs::read(state_path).expect("read State File");
     let text = String::from_utf8(bytes).expect("State File is UTF-8");
     let value: toml::Value = text.parse().expect("State File is valid TOML");
-    value["phase"]
+    value["state"]
         .as_str()
         .expect("State File has phase")
         .to_owned()
@@ -294,7 +291,7 @@ fn start_log_open_failure_leaves_no_state_and_lock() {
     let no_run_state = match fs::read_dir(engine.join("runs")) {
         Ok(entries) => entries
             .map(|entry| entry.expect("roster entry is readable").path())
-            .all(|path| !path.join("state.toml").exists()),
+            .all(|path| !path.join("run.toml").exists()),
         Err(_) => true,
     };
     assert!(no_run_state, "failed start must leave no run-owned state");

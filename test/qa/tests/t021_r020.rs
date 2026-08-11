@@ -24,17 +24,14 @@ fn isolated_project() -> PathBuf {
     // FDC-004: the State File resides in the addressed run's directory.
     let run_dir = engine.join("runs/run-001");
     fs::create_dir_all(&run_dir).expect("create run directory");
-    fs::copy(
-        fixture_root().join("state.toml"),
-        run_dir.join("state.toml"),
-    )
-    .expect("copy refusal fixture");
+    fs::copy(fixture_root().join("run.toml"), run_dir.join("run.toml"))
+        .expect("copy refusal fixture");
     root
 }
 
 fn state_and_log(root: &Path) -> (Vec<u8>, Vec<u8>) {
     (
-        fs::read(root.join(".ratmac/runs/run-001/state.toml")).expect("read State File"),
+        fs::read(root.join(".ratmac/runs/run-001/run.toml")).expect("read State File"),
         fs::read(root.join(".ratmac/log.md")).expect("read Transition Log"),
     )
 }

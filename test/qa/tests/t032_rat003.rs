@@ -70,7 +70,7 @@ fn rtm_cli_surface() {
         .root
         .join(".ratmac/runs")
         .join(&run_id)
-        .join("state.toml")
+        .join("run.toml")
         .exists());
     let status = rtm(&project.root, &["status", "--run", &run_id]);
     assert!(status.status.success(), "rtm status failed: {status:?}");

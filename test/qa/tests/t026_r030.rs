@@ -11,7 +11,7 @@ const STATUS_RATMAC: &str = include_str!(concat!(
 ));
 const STATUS_STATE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../fixtures/r030-status-print/.ratmac/state.toml"
+    "/../fixtures/r030-status-print/.ratmac/run.toml"
 ));
 const STATUS_LOG: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -23,7 +23,7 @@ const STEP_RATMAC: &str = include_str!(concat!(
 ));
 const STEP_STATE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../fixtures/r030-step-print/.ratmac/state.toml"
+    "/../fixtures/r030-step-print/.ratmac/run.toml"
 ));
 const STEP_LOG: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -44,8 +44,8 @@ fn temporary_project(ratmac: &str, state: &str, log: &str) -> PathBuf {
     // FDC-004: the State File resides in the addressed run's directory.
     fs::create_dir_all(project.join(".ratmac/runs/run-001"))
         .expect("run directory must be creatable");
-    fs::write(project.join(".ratmac/runs/run-001/state.toml"), state)
-        .expect("fixture state.toml must be writable");
+    fs::write(project.join(".ratmac/runs/run-001/run.toml"), state)
+        .expect("fixture run.toml must be writable");
     fs::write(project.join(".ratmac/log.md"), log).expect("fixture log.md must be writable");
     fs::write(project.join("artifacts/proof.txt"), "proof\n")
         .expect("passing guard artifact must be writable");
@@ -58,7 +58,7 @@ fn status_prints_current_phase_prompt() {
     let engine = project.join(".ratmac");
     let before = [
         fs::read(engine.join("ratmac.toml")).unwrap(),
-        fs::read(engine.join("runs/run-001/state.toml")).unwrap(),
+        fs::read(engine.join("runs/run-001/run.toml")).unwrap(),
         fs::read(engine.join("log.md")).unwrap(),
     ];
     let mut stdout = Vec::new();
@@ -93,7 +93,7 @@ fn status_prints_current_phase_prompt() {
     );
     assert_eq!(fs::read(engine.join("ratmac.toml")).unwrap(), before[0]);
     assert_eq!(
-        fs::read(engine.join("runs/run-001/state.toml")).unwrap(),
+        fs::read(engine.join("runs/run-001/run.toml")).unwrap(),
         before[1]
     );
     assert_eq!(fs::read(engine.join("log.md")).unwrap(), before[2]);

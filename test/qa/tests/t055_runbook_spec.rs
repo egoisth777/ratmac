@@ -300,7 +300,7 @@ fn ownership_paths_match_canonical_run_residency() {
         ".ratmac/ratmac.toml",
         ".ratmac/log.md",
         ".ratmac/locks/root.lock",
-        ".ratmac/runs/<id>/state.toml",
+        ".ratmac/runs/<id>/run.toml",
         ".ratmac/runs/<id>/evidence.toml",
         ".ratmac/evidence/<run-id>/",
     ] {
@@ -312,7 +312,7 @@ fn ownership_paths_match_canonical_run_residency() {
     for stale in [
         "`.arca/state.toml`",
         "`.arca/evidence.toml`",
-        "`.arca/runs/<id>/state.toml`",
+        "`.arca/runs/<id>/run.toml`",
         "`.arca/ratmac.toml`",
     ] {
         assert!(

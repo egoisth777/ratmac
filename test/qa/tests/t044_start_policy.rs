@@ -119,7 +119,7 @@ fn engine_gains_no_caller_state() {
         "no State File field may be added for the caller policy"
     );
     for field in [
-        "phase",
+        "state",
         "status",
         "goal_revision",
         "input_revision",
@@ -196,7 +196,7 @@ fn run_state_path(project: &Path) -> PathBuf {
         .map(|entry| entry.expect("roster entry is readable").path())
         .find(|path| path.is_dir())
         .expect("the started run appears on the roster");
-    run_dir.join("state.toml")
+    run_dir.join("run.toml")
 }
 
 /// FDC-004: the started run's id.

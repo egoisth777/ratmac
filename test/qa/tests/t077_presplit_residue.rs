@@ -194,10 +194,10 @@ impl Fixture {
             "fixture setup must reach the spawn and hold phase: {}",
             combined(&step)
         );
-        let state = fs::read_to_string(self.path(&format!(".ratmac/runs/{run}/state.toml")))
+        let state = fs::read_to_string(self.path(&format!(".ratmac/runs/{run}/run.toml")))
             .expect("read fixture Run State File");
         assert!(
-            state.contains("phase = \"delegate\""),
+            state.contains("state = \"delegate\""),
             "fixture setup must leave the Run at the spawn and hold phase: {state}"
         );
         run

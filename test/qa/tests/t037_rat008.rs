@@ -214,7 +214,7 @@ fn full_rebrand_acceptance() {
         .file_name()
         .to_string_lossy()
         .into_owned();
-    let state_path = engine.join("runs").join(&run_id).join("state.toml");
+    let state_path = engine.join("runs").join(&run_id).join("run.toml");
     let class_before = fs::read(engine.join("ratmac.toml")).expect("read Machine Class");
     let state_before = fs::read(&state_path).expect("read state");
     let log_before = fs::read(engine.join("log.md")).expect("read transition log");
@@ -263,7 +263,7 @@ fn full_rebrand_acceptance() {
     let stepped = run(&project, &["step", "--run", &run_id]);
     assert!(stepped.status.success(), "passing step failed: {stepped:?}");
     let final_state = fs::read_to_string(&state_path).expect("read final state");
-    assert!(final_state.contains("phase = \"review\""));
+    assert!(final_state.contains("state = \"review\""));
     let final_log = fs::read_to_string(engine.join("log.md")).expect("read final log");
     assert_eq!(
         final_log.matches("- Transition: prepare -> review").count(),

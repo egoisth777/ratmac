@@ -689,8 +689,8 @@ fn a_reported_stored_binding_reaches_the_reader_in_one_spelling() {
     .expect("write a child binding the Engine will refuse");
     let runs = checkout.join(".ratmac/runs");
     fs::create_dir_all(runs.join("run-002")).expect("create the child Run directory");
-    let parent_state = fs::read(runs.join(&parent).join("state.toml")).expect("read parent state");
-    fs::write(runs.join("run-002/state.toml"), parent_state).expect("seat the child on the roster");
+    let parent_state = fs::read(runs.join(&parent).join("run.toml")).expect("read parent state");
+    fs::write(runs.join("run-002/run.toml"), parent_state).expect("seat the child on the roster");
 
     let status = rtm_at(&checkout, &["status", "--run", "run-002"]);
     let text = format!(

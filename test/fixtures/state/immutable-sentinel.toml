@@ -1,5 +1,5 @@
 # PT-008-01: bytes must remain exactly this sentinel across all read-only paths.
-phase = "p4"
+state = "p4"
 status = "executing"
 goal_revision = "sentinel-goal"
 input_revision = "sentinel-input"

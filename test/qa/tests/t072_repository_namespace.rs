@@ -320,7 +320,7 @@ fn run_created_in_primary_is_addressable_from_linked_worktree() {
 
     let child_dir = fixture.primary.join(".ratmac/runs").join(&child);
     assert!(
-        child_dir.join("state.toml").is_file(),
+        child_dir.join("run.toml").is_file(),
         "ENSV-004: spawn creates the child only under the primary .ratmac/runs/ tree"
     );
     assert_eq!(
@@ -353,10 +353,10 @@ fn run_created_in_primary_is_addressable_from_linked_worktree() {
         child_step_text.contains("Approved."),
         "linked step renders the child terminal State Prompt: {child_step_text}"
     );
-    let child_state = fs::read_to_string(child_dir.join("state.toml"))
+    let child_state = fs::read_to_string(child_dir.join("run.toml"))
         .expect("the primary child State File remains readable after linked step");
     assert!(
-        child_state.contains("phase = \"approved\"") && child_state.contains("\"passed\""),
+        child_state.contains("state = \"approved\"") && child_state.contains("\"passed\""),
         "ENSV-004: the linked step changes the one primary child State File: {child_state}"
     );
     assert_eq!(
@@ -391,11 +391,11 @@ fn run_created_in_primary_is_addressable_from_linked_worktree() {
             .primary
             .join(".ratmac/runs")
             .join(&parent)
-            .join("state.toml"),
+            .join("run.toml"),
     )
     .expect("the primary parent State File remains readable after join");
     assert!(
-        parent_state.contains("phase = \"done\""),
+        parent_state.contains("state = \"done\""),
         "ENSV-004: the primary join advances the original parent: {parent_state}"
     );
     assert_eq!(

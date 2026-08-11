@@ -294,7 +294,7 @@ fn ownership_audit_is_sensitive() {
         fixture.root.join(".ratmac/ratmac.toml"),
         "[states.build]\n\
          prompt = \"Do the work.\"\n\
-         guards = [{ kind = \"file_contains\", path = \".ratmac/runs/run-1/state.toml\", contains = \"passed\" }]\n\
+         guards = [{ kind = \"file_contains\", path = \".ratmac/runs/run-1/run.toml\", contains = \"passed\" }]\n\
          \n\
          [states.review]\n\
          prompt = \"Review.\"\n\
@@ -311,7 +311,7 @@ fn ownership_audit_is_sensitive() {
     assert!(
         violations
             .iter()
-            .any(|violation| violation.path == ".ratmac/runs/<id>/state.toml"),
+            .any(|violation| violation.path == ".ratmac/runs/<id>/run.toml"),
         "the audit names the canonical Engine-owned path: {violations:?}"
     );
 

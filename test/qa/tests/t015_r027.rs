@@ -24,8 +24,8 @@ fn copy_fixture_to_temp() -> PathBuf {
     let run_dir = engine.join("runs/run-001");
     fs::create_dir_all(&run_dir).expect("create run directory");
     fs::copy(
-        fixture_root().join(".ratmac/state.toml"),
-        run_dir.join("state.toml"),
+        fixture_root().join(".ratmac/run.toml"),
+        run_dir.join("run.toml"),
     )
     .expect("copy corrupt-state fixture");
     root
@@ -42,7 +42,7 @@ fn assert_actionable_parse_error(error: impl std::fmt::Display) {
         "corrupt state must produce a report"
     );
     assert!(
-        report.contains("state.toml"),
+        report.contains("run.toml"),
         "report should identify the corrupt state file: {report}"
     );
     assert!(
@@ -57,7 +57,7 @@ fn assert_actionable_parse_error(error: impl std::fmt::Display) {
 #[test]
 fn corrupt_state_halts_without_guessing() {
     let root = copy_fixture_to_temp();
-    let state_path = root.join(".ratmac/runs/run-001/state.toml");
+    let state_path = root.join(".ratmac/runs/run-001/run.toml");
     let class_path = root.join(".ratmac/ratmac.toml");
     let log_path = root.join(".ratmac/log.md");
     let before_state = bytes(&state_path);
@@ -69,13 +69,13 @@ fn corrupt_state_halts_without_guessing() {
     let status = Scheduler::open_run(&root, "run-001").expect("valid class should open");
     let status_error = status
         .status()
-        .expect_err("status must reject malformed state.toml");
+        .expect_err("status must reject malformed run.toml");
     assert_actionable_parse_error(status_error);
 
     let reader = Scheduler::open_run(&root, "run-001").expect("valid class should open");
     let load_error = reader
         .load_state()
-        .expect_err("load_state must reject malformed state.toml");
+        .expect_err("load_state must reject malformed run.toml");
     assert_actionable_parse_error(load_error);
 
     assert_eq!(

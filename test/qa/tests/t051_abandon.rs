@@ -44,7 +44,7 @@ fn restore_writable(root: &std::path::Path) {
     // FDC-004: each run carries its own State File and evidence.
     if let Ok(entries) = fs::read_dir(root.join(".ratmac/runs")) {
         for entry in entries.flatten() {
-            paths.push(entry.path().join("state.toml"));
+            paths.push(entry.path().join("run.toml"));
             paths.push(entry.path().join("evidence.toml"));
         }
     }
@@ -112,7 +112,7 @@ impl Fixture {
 
     /// The addressed run's State File, relative to the project root.
     fn state_rel(&self) -> String {
-        format!(".ratmac/runs/{}/state.toml", self.run_id)
+        format!(".ratmac/runs/{}/run.toml", self.run_id)
     }
 
     /// The addressed run's evidence record, relative to the project root.
@@ -229,14 +229,14 @@ fn authorized_abandon_retires_run() {
     let fresh = fs::read_dir(fixture.path(".ratmac/runs"))
         .expect("list the runs roster")
         .map(|entry| entry.expect("roster entry is readable"))
-        .find(|entry| entry.path().join("state.toml").is_file())
+        .find(|entry| entry.path().join("run.toml").is_file())
         .expect("the fresh run appears on the roster")
         .file_name()
         .to_string_lossy()
         .into_owned();
     assert!(
         fixture
-            .read(&format!(".ratmac/runs/{fresh}/state.toml"))
+            .read(&format!(".ratmac/runs/{fresh}/run.toml"))
             .contains("intake"),
         "the fresh Run begins at the initial State"
     );
@@ -301,12 +301,12 @@ fn leftover_lock_files_do_not_wedge_fresh_invocation() {
     let state_path = fixture.path(&fixture.state_rel());
     let build_state = fs::read_to_string(&state_path).expect("read build state");
     assert!(
-        build_state.contains("phase = \"build\""),
+        build_state.contains("state = \"build\""),
         "fixture reached build before the root-domain check"
     );
     fs::write(
         &state_path,
-        build_state.replacen("phase = \"build\"", "phase = \"intake\"", 1),
+        build_state.replacen("state = \"build\"", "state = \"intake\"", 1),
     )
     .expect("restore a movable intake state");
     let motion = fixture.rtm(&["step", "--run", &id]);
@@ -339,7 +339,7 @@ fn leftover_lock_files_do_not_wedge_fresh_invocation() {
     let build_state = fs::read_to_string(&state_path).expect("read build state again");
     fs::write(
         &state_path,
-        build_state.replacen("phase = \"build\"", "phase = \"intake\"", 1),
+        build_state.replacen("state = \"build\"", "state = \"intake\"", 1),
     )
     .expect("restore a second movable intake state");
     let motion = fixture.rtm(&["step", "--run", &id]);
@@ -533,7 +533,7 @@ fn fresh_run_after_abandonment_records_its_own_pin() {
     let fresh = fs::read_dir(fixture.path(".ratmac/runs"))
         .expect("list the runs roster")
         .map(|entry| entry.expect("roster entry is readable"))
-        .find(|entry| entry.path().join("state.toml").is_file())
+        .find(|entry| entry.path().join("run.toml").is_file())
         .expect("the fresh run appears on the roster")
         .file_name()
         .to_string_lossy()

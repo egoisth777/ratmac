@@ -25,8 +25,8 @@ fn copy_fixture_to_temp() -> PathBuf {
     let run_dir = engine.join("runs/run-001");
     fs::create_dir_all(&run_dir).expect("create run directory");
     fs::copy(
-        fixture_root().join(".ratmac/state.toml"),
-        run_dir.join("state.toml"),
+        fixture_root().join(".ratmac/run.toml"),
+        run_dir.join("run.toml"),
     )
     .expect("copy comment fixture");
     root

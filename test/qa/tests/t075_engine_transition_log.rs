@@ -124,22 +124,22 @@ impl Fixture {
         fs::read(self.root().join(".ratmac/log.md")).expect("read Engine transition log")
     }
 
-    fn state_path(&self, run_id: &str) -> PathBuf {
+    fn record_path(&self, run_id: &str) -> PathBuf {
         self.root()
             .join(".ratmac/runs")
             .join(run_id)
-            .join("state.toml")
+            .join("run.toml")
     }
 
     fn state_bytes(&self, run_id: &str) -> Vec<u8> {
-        fs::read(self.state_path(run_id)).expect("read addressed Run State File")
+        fs::read(self.record_path(run_id)).expect("read addressed Run State File")
     }
 
     fn phase(&self, run_id: &str) -> String {
-        fs::read_to_string(self.state_path(run_id))
+        fs::read_to_string(self.record_path(run_id))
             .expect("read addressed Run State File as UTF-8")
             .lines()
-            .find_map(|line| line.trim().strip_prefix("phase = "))
+            .find_map(|line| line.trim().strip_prefix("state = "))
             .map(|value| value.trim().trim_matches('"').to_owned())
             .expect("addressed Run State File records a phase")
     }
@@ -428,7 +428,7 @@ fn scheduler_writes_only_ratmac_transition_log() {
         combined(&abandoned)
     );
     assert!(
-        !fixture.state_path(&second_run).exists(),
+        !fixture.record_path(&second_run).exists(),
         "abandonment retires only the second Run's admission State File"
     );
     assert_eq!(

@@ -98,7 +98,10 @@ impl Fixture {
     }
 
     fn record_path(&self, run_id: &str) -> PathBuf {
-        self.engine_root().join("runs").join(run_id).join("run.toml")
+        self.engine_root()
+            .join("runs")
+            .join(run_id)
+            .join("run.toml")
     }
 }
 
@@ -202,14 +205,22 @@ fn a_started_run_writes_run_toml_with_a_state_field() {
     );
     assert_no_precutover_name(&fixture, "a step");
     let mut after_step = Vec::new();
-    walk(&fixture.engine_root().join("runs").join(&run_id), &mut after_step);
+    walk(
+        &fixture.engine_root().join("runs").join(&run_id),
+        &mut after_step,
+    );
+    let records = after_step
+        .iter()
+        .filter(|path| {
+            fs::read_to_string(path).is_ok_and(|body| {
+                body.lines().any(|line| line.starts_with("state = "))
+                    && body.lines().any(|line| line.starts_with("blocker = "))
+            })
+        })
+        .count();
     assert_eq!(
-        after_step
-            .iter()
-            .filter(|path| path.extension().is_some_and(|ext| ext == "toml"))
-            .count(),
-        1,
-        "one Run writes one record, not two: {after_step:?}"
+        records, 1,
+        "one Run writes one Run Record, not two: {after_step:?}"
     );
 
     // The strict parse is unchanged: a short record refuses by naming the

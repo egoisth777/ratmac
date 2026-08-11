@@ -118,7 +118,7 @@ impl Fixture {
     }
 
     fn state(&self) -> Vec<u8> {
-        fs::read(self.run_dir().join("state.toml")).unwrap_or_default()
+        fs::read(self.run_dir().join("run.toml")).unwrap_or_default()
     }
 
     fn log(&self) -> Vec<u8> {
@@ -235,7 +235,7 @@ fn drift_refuses_and_revert_clears() {
     assert_eq!(
         state_before,
         fixture.state(),
-        "a drift refusal leaves state.toml byte-identical"
+        "a drift refusal leaves run.toml byte-identical"
     );
     assert_eq!(
         log_before,
@@ -335,7 +335,7 @@ fn interrupted_freeze_leaves_readable_state() {
     let state = String::from_utf8(fixture.state()).expect("state stays valid UTF-8");
     let parsed: toml::Value = state.parse().expect("state stays parseable TOML");
     let phase = parsed
-        .get("phase")
+        .get("state")
         .and_then(toml::Value::as_str)
         .expect("state keeps its phase field");
     let revision = parsed

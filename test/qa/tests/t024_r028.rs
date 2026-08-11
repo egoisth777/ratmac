@@ -9,7 +9,7 @@ const RATMAC: &str = include_str!(concat!(
 ));
 const STATE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../fixtures/r028-phase-prompt/.ratmac/state.toml"
+    "/../fixtures/r028-phase-prompt/.ratmac/run.toml"
 ));
 
 fn fixture_project() -> PathBuf {
@@ -21,7 +21,7 @@ fn fixture_project() -> PathBuf {
     fs::write(root.join(".ratmac/ratmac.toml"), RATMAC).expect("write R-028 class");
     // FDC-004: the State File resides in the addressed run's directory.
     fs::create_dir_all(root.join(".ratmac/runs/run-001")).expect("create run directory");
-    fs::write(root.join(".ratmac/runs/run-001/state.toml"), STATE).expect("write R-028 state");
+    fs::write(root.join(".ratmac/runs/run-001/run.toml"), STATE).expect("write R-028 state");
     root
 }
 

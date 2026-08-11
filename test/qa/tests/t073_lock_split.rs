@@ -462,7 +462,7 @@ fn minted_one_run(before: &BTreeSet<String>, after: &BTreeSet<String>) -> bool {
 }
 
 fn state_bytes(root: &Path, run_id: &str) -> Option<Vec<u8>> {
-    fs::read(root.join(".ratmac/runs").join(run_id).join("state.toml")).ok()
+    fs::read(root.join(".ratmac/runs").join(run_id).join("run.toml")).ok()
 }
 
 fn state_is_single_advance(root: &Path, run_id: &str) -> bool {
@@ -475,7 +475,7 @@ fn state_is_single_advance(root: &Path, run_id: &str) -> bool {
     let Ok(state) = text.parse::<toml::Value>() else {
         return false;
     };
-    state.get("phase").and_then(toml::Value::as_str) == Some("done")
+    state.get("state").and_then(toml::Value::as_str) == Some("done")
         && state.get("status").and_then(toml::Value::as_str) == Some("passed")
 }
 

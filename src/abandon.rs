@@ -14,7 +14,7 @@
 //!
 //! 1. records a terminal abandoned event in the append-only history, naming
 //!    the retired Run's State, status, and revisions;
-//! 2. retires the admission state (`.ratmac/runs/<id>/state.toml`) so a fresh
+//! 2. retires the admission state (`.ratmac/runs/<id>/run.toml`) so a fresh
 //!    Run can start;
 //! 3. retires the Run-scoped evidence (`.ratmac/runs/<id>/evidence.toml`) so
 //!    the next Run records its own baseline and pins rather than inheriting
@@ -152,7 +152,7 @@ pub fn plan_abandon(root: &Path, request: &AbandonRequest) -> Result<AbandonPlan
         .filter(|id| {
             crate::Scheduler::runs_dir(root)
                 .join(id.as_str())
-                .join("state.toml")
+                .join("run.toml")
                 .is_file()
         })
         .collect();
@@ -187,7 +187,7 @@ pub fn plan_abandon(root: &Path, request: &AbandonRequest) -> Result<AbandonPlan
     let run_dir = run_id
         .as_deref()
         .map(|id| crate::Scheduler::runs_dir(root).join(id));
-    let state_path = run_dir.as_ref().map(|dir| dir.join("state.toml"));
+    let state_path = run_dir.as_ref().map(|dir| dir.join("run.toml"));
     let evidence_path = run_dir
         .as_ref()
         .map(|dir| dir.join(crate::pin::EVIDENCE_FILE));
@@ -234,18 +234,18 @@ pub fn plan_abandon(root: &Path, request: &AbandonRequest) -> Result<AbandonPlan
         let evidence_path = evidence_path.expect("admitted implies an addressed run");
         let state = crate::state::StateStore::at(state_path.clone())
             .load()
-            .map_err(|error| refusal(format!("abandon cannot read the State File: {error}")))?;
-        phase = Some(state.phase.clone());
+            .map_err(|error| refusal(format!("abandon cannot read the Run Record: {error}")))?;
+        phase = Some(state.state.clone());
         // FDC-002: the durable terminal event identifies the addressed Run and
         // its last state before any retirement begins.
         event = Some(format!(
             "- Abandoned: Run {} retired at phase {} (status {}, goal revision {}) on an explicit human confirmation; admission state, Run evidence, and lock retired. The Run is terminal: no transition may proceed on it.\n",
             run_id.as_deref().expect("admitted implies an addressed run"),
-            state.phase,
+            state.state,
             state.status,
             revision_or_none(&state.goal_revision),
         ));
-        // Retire evidence before the admission State File. If retirement then
+        // Retire evidence before the admission Run Record. If retirement then
         // fails, the Run remains admitted and the compensating history entry
         // can truthfully say it was not retired.
         if evidence_path.exists() {
@@ -459,13 +459,13 @@ fn revalidate_abandon_plan(engine_root: &Path, plan: &AbandonPlan) -> Result<(),
         .as_deref()
         .ok_or_else(|| refusal("abandon plan has no admitted Run to revalidate"))?;
     let run_dir = engine_root.join("runs").join(run);
-    let state_path = run_dir.join("state.toml");
+    let state_path = run_dir.join("run.toml");
     let evidence_path = run_dir.join(crate::pin::EVIDENCE_FILE);
     let state = crate::state::StateStore::at(state_path.clone())
         .load()
         .map_err(|error| {
             refusal(format!(
-                "abandon plan is stale for run {run}: cannot reload its State File: {error}"
+                "abandon plan is stale for run {run}: cannot reload its Run Record: {error}"
             ))
         })?;
     let phase = plan.phase.as_deref().ok_or_else(|| {
@@ -473,21 +473,21 @@ fn revalidate_abandon_plan(engine_root: &Path, plan: &AbandonPlan) -> Result<(),
             "abandon plan is stale for run {run}: its recorded phase is absent"
         ))
     })?;
-    if state.phase != phase {
+    if state.state != phase {
         return Err(refusal(format!(
             "abandon plan is stale for run {run}: phase changed from {phase:?} to {:?}",
-            state.phase
+            state.state
         )));
     }
     let event = format!(
         "- Abandoned: Run {run} retired at phase {} (status {}, goal revision {}) on an explicit human confirmation; admission state, Run evidence, and lock retired. The Run is terminal: no transition may proceed on it.\n",
-        state.phase,
+        state.state,
         state.status,
         revision_or_none(&state.goal_revision),
     );
     if plan.event.as_deref() != Some(event.as_str()) {
         return Err(refusal(format!(
-            "abandon plan is stale for run {run}: its State File status or revision changed"
+            "abandon plan is stale for run {run}: its Run Record status or revision changed"
         )));
     }
 
@@ -542,7 +542,7 @@ fn revalidate_abandon_plan(engine_root: &Path, plan: &AbandonPlan) -> Result<(),
 
 /// Keep shared history append-only when a terminal event was durable but a
 /// later retirement step failed. The Run remains admitted because retirement
-/// files are ordered with the State File last.
+/// files are ordered with the Run Record last.
 fn retirement_failure_after_event(
     engine_root: &Path,
     root_lock: &crate::lock::RootLock,

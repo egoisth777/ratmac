@@ -51,7 +51,7 @@ fn non_wishwillow_machine_class_runs_identically() {
         .expect("first neutral transition returns an outcome");
     assert!(matches!(first, StepOutcome::Advanced { .. }));
     assert_eq!(
-        scheduler.load_state().expect("load first state").phase,
+        scheduler.load_state().expect("load first state").state,
         "compose"
     );
 
@@ -60,7 +60,7 @@ fn non_wishwillow_machine_class_runs_identically() {
         .expect("second neutral transition returns an outcome");
     assert!(matches!(second, StepOutcome::Advanced { .. }));
     assert_eq!(
-        scheduler.load_state().expect("load second state").phase,
+        scheduler.load_state().expect("load second state").state,
         "publish"
     );
 
@@ -79,7 +79,7 @@ fn non_wishwillow_machine_class_runs_identically() {
         .map(|entry| entry.expect("roster entry is readable").path())
         .find(|path| path.is_dir())
         .expect("the started run appears on the roster");
-    let state = fs::read(run_dir.join("state.toml")).expect("read generic State File");
+    let state = fs::read(run_dir.join("run.toml")).expect("read generic State File");
     let log =
         fs::read_to_string(project.join(".ratmac/log.md")).expect("read generic Transition Log");
     assert!(!state.is_empty());

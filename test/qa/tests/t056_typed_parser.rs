@@ -670,7 +670,7 @@ fn refusal_under_a_live_run_mutates_nothing() {
 
     // FDC-004: state and evidence reside in the Engine run directory.
     let owned = [
-        format!(".ratmac/runs/{run_id}/state.toml"),
+        format!(".ratmac/runs/{run_id}/run.toml"),
         ".ratmac/log.md".to_owned(),
         format!(".ratmac/runs/{run_id}/evidence.toml"),
     ];

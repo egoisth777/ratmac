@@ -36,13 +36,13 @@ fn isolated_project() -> (TempProject, PathBuf, PathBuf) {
     let run_dir = engine.join("runs/run-001");
     fs::create_dir_all(&run_dir).expect("create run directory");
     fs::copy(
-        fixture_root().join(".ratmac/state.toml"),
-        run_dir.join("state.toml"),
+        fixture_root().join(".ratmac/run.toml"),
+        run_dir.join("run.toml"),
     )
     .expect("copy failed-guard fixture file");
     (
         TempProject(root),
-        run_dir.join("state.toml"),
+        run_dir.join("run.toml"),
         engine.join("log.md"),
     )
 }
@@ -52,7 +52,7 @@ fn phase_and_status(state_bytes: &[u8]) -> (String, String) {
     let state: toml::Value = state_text.parse().expect("state fixture is valid TOML");
     let table = state.as_table().expect("state is a TOML table");
     let phase = table
-        .get("phase")
+        .get("state")
         .and_then(toml::Value::as_str)
         .expect("state has phase")
         .to_owned();

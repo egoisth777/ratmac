@@ -118,7 +118,7 @@ fn state_phase(state: &str) -> String {
     let value: toml::Value = state
         .parse()
         .expect("FDC-004: the run's State File must be valid TOML");
-    value["phase"]
+    value["state"]
         .as_str()
         .expect("FDC-004: the run's State File must carry a phase")
         .to_owned()
@@ -270,7 +270,7 @@ fn runs_reside_under_the_plural_path() {
     );
 
     let run_dir = fixture.path(&format!(".ratmac/runs/{id}"));
-    let state = fs::read_to_string(run_dir.join("state.toml")).unwrap_or_else(|error| {
+    let state = fs::read_to_string(run_dir.join("run.toml")).unwrap_or_else(|error| {
         panic!("FDC-004: the run directory must carry the run's State File: {error}")
     });
     let _ = state_phase(&state);
@@ -311,7 +311,7 @@ fn run_addressing_is_always_required() {
         .first()
         .expect("FDC-004: the started run must appear on the roster")
         .clone();
-    let state_rel = format!(".ratmac/runs/{id}/state.toml");
+    let state_rel = format!(".ratmac/runs/{id}/run.toml");
     let before = fs::read(fixture.path(&state_rel))
         .expect("FDC-004: the named run's State File must be readable");
 

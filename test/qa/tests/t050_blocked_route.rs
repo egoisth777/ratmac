@@ -131,18 +131,18 @@ impl Fixture {
         )
     }
 
-    fn state_path(&self) -> PathBuf {
+    fn record_path(&self) -> PathBuf {
         self.root
             .join(".ratmac/runs")
             .join(&self.run_id)
-            .join("state.toml")
+            .join("run.toml")
     }
 
     fn phase(&self) -> String {
-        let state = fs::read_to_string(self.state_path()).expect("read state");
+        let state = fs::read_to_string(self.record_path()).expect("read state");
         state
             .lines()
-            .find_map(|line| line.trim().strip_prefix("phase = "))
+            .find_map(|line| line.trim().strip_prefix("state = "))
             .map(|value| value.trim().trim_matches('"').to_owned())
             .expect("state records a phase")
     }
@@ -161,7 +161,7 @@ impl Fixture {
         // FDC-004: state and evidence reside in the Engine's run directory.
         let run = format!(".ratmac/runs/{}", self.run_id);
         [
-            format!("{run}/state.toml"),
+            format!("{run}/run.toml"),
             ".ratmac/log.md".to_owned(),
             format!("{run}/evidence.toml"),
         ]
@@ -202,7 +202,7 @@ fn restore_writable(root: &Path) -> std::io::Result<()> {
     // FDC-004: each run carries its own State File.
     if let Ok(entries) = fs::read_dir(root.join(".ratmac/runs")) {
         for entry in entries.flatten() {
-            paths.push(entry.path().join("state.toml"));
+            paths.push(entry.path().join("run.toml"));
         }
     }
     for path in paths {
@@ -465,7 +465,7 @@ fn held_ticket_cannot_be_passed() {
         .success());
 
     // The Machine state is a State; `held` never appears there.
-    let state = fs::read_to_string(fixture.state_path()).expect("read state");
+    let state = fs::read_to_string(fixture.record_path()).expect("read state");
     assert!(
         !state.contains("held"),
         "held is a ticket state, never a Machine state: {state}"

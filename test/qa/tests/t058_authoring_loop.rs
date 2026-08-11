@@ -738,7 +738,7 @@ fn seeds(scaffold: &str) -> Vec<(&'static str, String)> {
             "RB401",
             scaffold.replace(
                 "prompt = \"Review the work against the ticket and report the verdict.\"",
-                "prompt = \"Record the verdict in .ratmac/runs/run-1/state.toml when you are done.\"",
+                "prompt = \"Record the verdict in .ratmac/runs/run-1/run.toml when you are done.\"",
             ),
         ),
         ("RB501", format!("classes = 1\n\n{scaffold}")),

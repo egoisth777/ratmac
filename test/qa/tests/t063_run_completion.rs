@@ -126,12 +126,12 @@ impl Fixture {
         self.root.join(".ratmac/runs").join(&self.run_id)
     }
 
-    fn state_path(&self) -> PathBuf {
-        self.run_dir().join("state.toml")
+    fn record_path(&self) -> PathBuf {
+        self.run_dir().join("run.toml")
     }
 
     fn state_bytes(&self) -> Vec<u8> {
-        fs::read(self.state_path()).expect("read Run State File")
+        fs::read(self.record_path()).expect("read Run State File")
     }
 
     fn state_field(&self, field: &str) -> String {
@@ -227,7 +227,7 @@ fn terminal_initial_phase_is_passed_on_start() {
         "a terminal-initial start succeeds: {}",
         combined(&start)
     );
-    assert_eq!(fixture.state_field("phase"), "done");
+    assert_eq!(fixture.state_field("state"), "done");
     assert_eq!(
         fixture.state_field("status"),
         "passed",
@@ -254,7 +254,7 @@ fn step_into_terminal_phase_writes_passed() {
         "the straight advance succeeds: {}",
         combined(&advance)
     );
-    assert_eq!(straight.state_field("phase"), "done");
+    assert_eq!(straight.state_field("state"), "done");
     assert_eq!(
         straight.state_field("status"),
         "passed",
@@ -276,7 +276,7 @@ fn step_into_terminal_phase_writes_passed() {
         "the approved branch advance succeeds: {}",
         combined(&advance)
     );
-    assert_eq!(branch.state_field("phase"), "approved");
+    assert_eq!(branch.state_field("state"), "approved");
     assert_eq!(
         branch.state_field("status"),
         "passed",
@@ -342,7 +342,7 @@ fn abandonment_records_event_before_state_retirement() {
     );
 
     assert!(
-        !fixture.state_path().exists(),
+        !fixture.record_path().exists(),
         "the admission state is retired after the event"
     );
     assert!(

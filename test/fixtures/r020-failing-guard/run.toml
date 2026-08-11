@@ -1,4 +1,4 @@
-phase = "build"
+state = "build"
 status = "executing"
 goal_revision = "goal-r020"
 input_revision = "input-r020"

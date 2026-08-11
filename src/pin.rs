@@ -163,7 +163,7 @@ impl Evidence {
         text
     }
 
-    /// Persist Run evidence beside the State File, inside the run directory.
+    /// Persist Run evidence beside the Run Record, inside the run directory.
     pub fn write(&self, run_dir: &Path) -> std::io::Result<()> {
         let path = evidence_path(run_dir);
         if let Some(parent) = path.parent() {

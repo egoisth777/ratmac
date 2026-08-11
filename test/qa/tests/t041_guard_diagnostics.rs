@@ -179,11 +179,7 @@ fn repeated_refusal_is_identical() {
         "start must succeed"
     );
     let id = run_id(&fixture);
-    let state_path = fixture
-        .root
-        .join(".ratmac/runs")
-        .join(&id)
-        .join("state.toml");
+    let state_path = fixture.root.join(".ratmac/runs").join(&id).join("run.toml");
     let mut outputs = Vec::new();
     let mut states = Vec::new();
     for _ in 0..5 {

@@ -18,7 +18,7 @@ fn copy_fixture(project: &Path) {
     // FDC-004: the State File resides in the addressed run's directory.
     let run_dir = project.join(".ratmac/runs/run-001");
     fs::create_dir_all(&run_dir).expect("create run directory");
-    fs::copy(fixture.join("state.toml"), run_dir.join("state.toml"))
+    fs::copy(fixture.join("run.toml"), run_dir.join("run.toml"))
         .expect("phase-scope fixture should be copied");
 }
 

@@ -20,11 +20,8 @@ fn fixture_root() -> PathBuf {
     // FDC-004: the State File resides in the addressed run's directory.
     let run_dir = root.join(".ratmac/runs/run-001");
     fs::create_dir_all(&run_dir).expect("create run directory");
-    fs::copy(
-        fixture.join(".ratmac/state.toml"),
-        run_dir.join("state.toml"),
-    )
-    .expect("copy concurrent-run fixture");
+    fs::copy(fixture.join(".ratmac/run.toml"), run_dir.join("run.toml"))
+        .expect("copy concurrent-run fixture");
     root
 }
 
@@ -78,12 +75,12 @@ fn concurrent_steps_are_arbitrated_by_lockfile() {
         "ENS-005 same-Run motion leaves no root lock behind"
     );
 
-    let state: toml::Value = fs::read_to_string(root.join(".ratmac/runs/run-001/state.toml"))
+    let state: toml::Value = fs::read_to_string(root.join(".ratmac/runs/run-001/run.toml"))
         .expect("state remains readable")
         .parse()
         .expect("state remains parseable");
     assert_eq!(
-        state.get("phase").and_then(toml::Value::as_str),
+        state.get("state").and_then(toml::Value::as_str),
         Some("review")
     );
     let log = fs::read_to_string(root.join(".ratmac/log.md")).expect("log remains readable");

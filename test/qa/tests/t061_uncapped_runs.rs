@@ -117,7 +117,7 @@ fn state_phase(state: &str) -> String {
     let value: toml::Value = state
         .parse()
         .expect("FDC-006: the run's State File must be valid TOML");
-    value["phase"]
+    value["state"]
         .as_str()
         .expect("FDC-006: the run's State File must carry a phase")
         .to_owned()
@@ -130,7 +130,7 @@ fn state_phase(state: &str) -> String {
 #[test]
 fn no_active_run_cap_is_enforced() {
     let fixture = Fixture::new("uncapped");
-    let state_rel = |id: &str| format!(".ratmac/runs/{id}/state.toml");
+    let state_rel = |id: &str| format!(".ratmac/runs/{id}/run.toml");
 
     let mut ids: Vec<String> = Vec::new();
     for nth in 1..=3 {
@@ -239,7 +239,7 @@ fn abandoned_ids_are_never_reissued() {
         "FDC-006: the retired run's directory must keep its address on disk"
     );
     assert!(
-        !first_dir.join("state.toml").is_file(),
+        !first_dir.join("run.toml").is_file(),
         "the retired run is terminal: its admission state is retired"
     );
     let first_ledger = first_dir.join("spawn-ledger");

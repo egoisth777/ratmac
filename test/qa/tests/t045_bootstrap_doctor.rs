@@ -346,7 +346,7 @@ fn doctor_is_actionable_and_write_free() {
     assert!(idle.status.success(), "doctor runs read-only: {report}");
     // FDC-004: the Scheduler-owned State File is named by its run-directory path.
     assert!(
-        report.contains(".ratmac/ratmac.toml") && report.contains(".ratmac/runs/<id>/state.toml"),
+        report.contains(".ratmac/ratmac.toml") && report.contains(".ratmac/runs/<id>/run.toml"),
         "the report distinguishes the two files by name: {report}"
     );
     assert!(
@@ -489,8 +489,8 @@ fn doctor_survives_corrupt_state_and_held_lock() {
     // FDC-004: the State File resides in the run's directory.
     fs::create_dir_all(boot.root.join(".ratmac/runs/run-001")).expect("create run directory");
     fs::write(
-        boot.root.join(".ratmac/runs/run-001/state.toml"),
-        "phase = \"build\nnot toml",
+        boot.root.join(".ratmac/runs/run-001/run.toml"),
+        "state = \"build\nnot toml",
     )
     .expect("write a corrupt state file");
     let lock = boot.root.join(".ratmac/locks/root.lock");
@@ -504,7 +504,7 @@ fn doctor_survives_corrupt_state_and_held_lock() {
     let report = text(&output);
 
     assert!(
-        report.contains(".ratmac/runs/run-001/state.toml") && report.contains("unreadable"),
+        report.contains(".ratmac/runs/run-001/run.toml") && report.contains("unreadable"),
         "the defect is reported: {report}"
     );
     assert!(

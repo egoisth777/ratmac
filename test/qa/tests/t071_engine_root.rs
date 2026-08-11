@@ -185,11 +185,7 @@ fn assert_runtime_layout(root: &Path, run_id: &str) {
         "ENS-001: the Run tree must be beneath .ratmac/"
     );
     assert!(
-        engine
-            .join("runs")
-            .join(run_id)
-            .join("state.toml")
-            .is_file(),
+        engine.join("runs").join(run_id).join("run.toml").is_file(),
         "ENS-001: the addressed Run State File must be beneath .ratmac/runs/{run_id}/"
     );
     assert!(
@@ -402,13 +398,13 @@ fn engine_root_holds_runtime_and_never_writes_arca() {
             .root
             .join(".ratmac/runs")
             .join(run_id)
-            .join("state.toml"),
+            .join("run.toml"),
     )
     .expect("read relocated State File")
     .parse()
     .expect("relocated State File is valid TOML");
     assert_eq!(
-        state["phase"].as_str(),
+        state["state"].as_str(),
         Some("build"),
         "ENS-001: the relocated State File records the advanced State"
     );
@@ -842,7 +838,7 @@ fn git_tracks_class_and_receipts_but_ignores_runtime() {
     let lock_probe = fixture.primary.join(".ratmac/locks/settled.lock");
     fs::write(&lock_probe, "runtime lock fixture\n").expect("write ignored runtime lock");
 
-    let run_state = format!(".ratmac/runs/{}/state.toml", roster[0]);
+    let run_state = format!(".ratmac/runs/{}/run.toml", roster[0]);
     let runtime_paths = [
         run_state.as_str(),
         ".ratmac/mint.toml",

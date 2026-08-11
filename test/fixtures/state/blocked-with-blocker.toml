@@ -1,4 +1,4 @@
-phase = "P4"
+state = "P4"
 status = "blocked"
 goal_revision = "goal-20260722"
 input_revision = ""

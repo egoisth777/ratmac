@@ -95,11 +95,11 @@ mod tests {
 
     #[test]
     fn test_status_is_phase_local_lifecycle_enum() {
-        let fixture = include_str!("../../fixtures/status-lifecycle/state.toml");
+        let fixture = include_str!("../../fixtures/status-lifecycle/run.toml");
         let phase_name = fixture
             .lines()
             .find_map(|line| {
-                line.strip_prefix("phase = ")
+                line.strip_prefix("state = ")
                     .map(|value| value.trim_matches('"'))
             })
             .expect("status fixture must declare a phase");
@@ -412,7 +412,7 @@ mod t007_state_file {
 
         fn state_bytes(&self) -> Vec<u8> {
             // FDC-004: the State File resides in the addressed run's directory.
-            fs::read(self.0.join(".ratmac/runs/run-001/state.toml"))
+            fs::read(self.0.join(".ratmac/runs/run-001/run.toml"))
                 .expect("read Scheduler-owned state")
         }
     }
@@ -441,7 +441,7 @@ mod t007_state_file {
     /// Run. This is fixture setup for read/report coverage, not a caller
     /// attempting to overwrite a minted Run through a state mutator.
     fn scheduler_with_fixture_state(project: &IsolatedProject, state: &str) -> Scheduler {
-        let state_path = project.0.join(".ratmac/runs/run-001/state.toml");
+        let state_path = project.0.join(".ratmac/runs/run-001/run.toml");
         fs::create_dir_all(state_path.parent().expect("State File has parent"))
             .expect("create addressed Run fixture directory");
         fs::write(state_path, state).expect("install complete State File fixture");
@@ -490,7 +490,7 @@ mod t007_state_file {
         let actual = scheduler
             .load_state()
             .expect("load Scheduler-owned State File");
-        assert_eq!(actual.phase, expected.phase);
+        assert_eq!(actual.state, expected.state);
         assert_eq!(actual.goal_revision, expected.goal_revision);
         assert_eq!(actual.input_revision, expected.input_revision);
         assert_eq!(actual.output_revision, expected.output_revision);
@@ -524,9 +524,9 @@ mod t007_state_file {
             .load_state()
             .expect("reload Scheduler-owned State File");
 
-        assert_eq!(before, after, "status must not rewrite state.toml");
+        assert_eq!(before, after, "status must not rewrite run.toml");
         assert_eq!(loaded, expected, "serialized state must round-trip");
-        assert_eq!(report.state.phase, expected.phase);
+        assert_eq!(report.state.state, expected.state);
         assert_eq!(report.state.status, expected.status);
         assert_eq!(report.state.goal_revision, expected.goal_revision);
         assert_eq!(report.state.input_revision, expected.input_revision);
@@ -535,7 +535,7 @@ mod t007_state_file {
         assert_eq!(report.state.blocker, expected.blocker);
         let text = String::from_utf8(before).expect("State File is UTF-8 TOML");
         for field in [
-            "phase",
+            "state",
             "status",
             "goal_revision",
             "input_revision",
@@ -567,7 +567,7 @@ mod t007_state_file {
         let after = project.state_bytes();
         let output = report.to_string();
 
-        assert_eq!(before, after, "status must not mutate state.toml");
+        assert_eq!(before, after, "status must not mutate run.toml");
         assert!(output.contains("Phase: P4"));
         assert!(output.contains("Status: blocked"));
         assert!(output.contains("Blocker:"));
@@ -619,7 +619,7 @@ mod t008_state_writer_tests {
         // FDC-004: the State File resides in the addressed run's directory.
         let run_dir = engine.join("runs/run-001");
         fs::create_dir_all(&run_dir).expect("create run directory");
-        let state = run_dir.join("state.toml");
+        let state = run_dir.join("run.toml");
         fs::write(&state, sentinel).expect("install sentinel state in isolated project");
         state
     }
@@ -647,7 +647,7 @@ mod t008_state_writer_tests {
         assert_eq!(bytes_hash(&after_status), before_hash);
         assert_eq!(
             after_status, before_read,
-            "read-only Scheduler::status must not rewrite state.toml"
+            "read-only Scheduler::status must not rewrite run.toml"
         );
         fs::remove_dir_all(&read_project).expect("remove isolated read project");
 
@@ -666,7 +666,7 @@ mod t008_state_writer_tests {
         assert_ne!(bytes_hash(&after_write), before_write_hash);
         assert_ne!(
             after_write, before_write,
-            "only the Scheduler state-changing operation may change state.toml"
+            "only the Scheduler state-changing operation may change run.toml"
         );
         fs::remove_dir_all(&write_project).expect("remove isolated write project");
 
@@ -722,12 +722,8 @@ mod t010 {
         // FDC-004: the State File resides in the minted run's directory; the
         // history log stays Engine-root-level.
         assert!(
-            engine
-                .join("runs")
-                .join(run_id)
-                .join("state.toml")
-                .is_file(),
-            "start must create .ratmac/runs/{run_id}/state.toml"
+            engine.join("runs").join(run_id).join("run.toml").is_file(),
+            "start must create .ratmac/runs/{run_id}/run.toml"
         );
         assert!(
             !engine.join("state.toml").exists(),
@@ -976,8 +972,8 @@ to = "missing"
         fs::remove_file(root.join(".ratmac/ratmac.toml")).unwrap();
         fs::create_dir_all(root.join(".ratmac/runs/run-001")).unwrap();
         fs::write(
-            root.join(".ratmac/runs/run-001/state.toml"),
-            "phase = \"prepare\"\nstatus = \"executing\"\ngoal_revision = \"\"\ninput_revision = \"\"\noutput_revision = \"\"\nactive_refs = []\nblocker = \"\"\n",
+            root.join(".ratmac/runs/run-001/run.toml"),
+            "state = \"prepare\"\nstatus = \"executing\"\ngoal_revision = \"\"\ninput_revision = \"\"\noutput_revision = \"\"\nactive_refs = []\nblocker = \"\"\n",
         )
         .unwrap();
         // TRP-005: the refusal now happens where the runbook is read - at open -

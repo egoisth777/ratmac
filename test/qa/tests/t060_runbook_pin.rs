@@ -442,10 +442,10 @@ fn hold_applies_residue_and_runbook_pin_preflight() {
         "FDC-005: after both repairs, the same hold request must proceed: {}",
         combined(&held)
     );
-    let state = fs::read_to_string(fixture.path(&format!(".ratmac/runs/{id}/state.toml")))
+    let state = fs::read_to_string(fixture.path(&format!(".ratmac/runs/{id}/run.toml")))
         .expect("read state");
     assert!(
-        state.contains("phase = \"intake\""),
+        state.contains("state = \"intake\""),
         "the repaired hold must take the declared blocked route: {state}"
     );
     let ticket =

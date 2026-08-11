@@ -56,18 +56,18 @@ fn scheduler_files_are_under_ratmac() {
     let run_id = run.id().expect("start must mint a run id");
     let run_dir = engine.join("runs").join(run_id);
     let run_lock = engine.join("locks/runs").join(format!("{run_id}.lock"));
-    assert_eq!(artifacts.state_path(), run_dir.join("state.toml").as_path());
+    assert_eq!(artifacts.record_path(), run_dir.join("run.toml").as_path());
     assert_eq!(artifacts.log_path(), engine.join("log.md").as_path());
     assert_eq!(artifacts.lock_path(), run_lock.as_path());
-    assert_eq!(artifacts.state_path().parent(), Some(run_dir.as_path()));
+    assert_eq!(artifacts.record_path().parent(), Some(run_dir.as_path()));
     assert_eq!(artifacts.log_path().parent(), Some(engine.as_path()));
     assert_eq!(
         artifacts.lock_path().parent(),
         Some(engine.join("locks/runs").as_path())
     );
     assert!(
-        artifacts.state_path().is_file(),
-        "state.toml must reside in the run's directory under .ratmac/runs/"
+        artifacts.record_path().is_file(),
+        "run.toml must reside in the run's directory under .ratmac/runs/"
     );
     assert!(
         !engine.join("state.toml").exists(),
@@ -93,7 +93,7 @@ fn scheduler_files_are_under_ratmac() {
     );
     assert!(
         !artifacts
-            .state_path()
+            .record_path()
             .starts_with(project.join(".arca/goal"))
             && !artifacts.log_path().starts_with(project.join(".arca/goal"))
             && !artifacts

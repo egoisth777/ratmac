@@ -5,7 +5,7 @@ description = "A Subagent works a ticket: it reads state and never invokes rtm, 
 
 [[event]]
 kind = "command"
-command = "cat .arca/state.toml"
+command = "cat .ratmac/runs/run-001/run.toml"
 outcome = "invoked"
 reason = "a Subagent reads state files directly"
 

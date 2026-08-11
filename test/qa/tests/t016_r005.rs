@@ -58,7 +58,7 @@ fn step_request_refuses_when_guard_fails() {
         "a failed artifact guard must refuse step"
     );
     assert_eq!(
-        after.phase, before.phase,
+        after.state, before.state,
         "refused request cannot advance State"
     );
     let _ = fs::remove_dir_all(project);
@@ -80,9 +80,9 @@ fn step_request_advances_when_guards_pass() {
     let after = scheduler.load_state().expect("reload current Run state");
 
     assert!(matches!(outcome, StepOutcome::Advanced { .. }));
-    assert_eq!(before.phase, "build");
+    assert_eq!(before.state, "build");
     assert_eq!(
-        after.phase, "review",
+        after.state, "review",
         "passing guards advance to next State"
     );
     let _ = fs::remove_dir_all(project);

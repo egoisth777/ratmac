@@ -7,7 +7,7 @@ fn fixture_phase(path: &str) -> String {
     let source = std::fs::read_to_string(path).expect("run fixture exists");
     let value: toml::Value = source.parse().expect("run fixture is valid TOML");
     value
-        .get("phase")
+        .get("state")
         .and_then(toml::Value::as_str)
         .expect("run fixture has a phase")
         .to_owned()

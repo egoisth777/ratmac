@@ -1,4 +1,4 @@
-phase = "prepare"
+state = "prepare"
 status = "blocked"
 goal_revision = "fixture"
 input_revision = ""

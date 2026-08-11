@@ -229,7 +229,7 @@ fn completion_requires_receipts() {
     let live = std::fs::read_dir(engine.root.join(".ratmac/runs"))
         .expect("list the runs roster")
         .map(|entry| entry.expect("roster entry is readable"))
-        .find(|entry| entry.path().join("state.toml").is_file())
+        .find(|entry| entry.path().join("run.toml").is_file())
         .expect("the started run appears on the roster")
         .file_name()
         .to_string_lossy()

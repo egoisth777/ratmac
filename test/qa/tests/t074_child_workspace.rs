@@ -346,10 +346,10 @@ fn assert_child_advanced(fixture: &GitFixture, child: &str, label: &str) {
         "ENSV-007 {label}: the child advances from a caller outside its workspace: {}",
         combined(&step)
     );
-    let state = fs::read_to_string(fixture.run_dir(child).join("state.toml"))
+    let state = fs::read_to_string(fixture.run_dir(child).join("run.toml"))
         .expect("advanced child State File is readable");
     assert!(
-        state.contains("phase = \"done\""),
+        state.contains("state = \"done\""),
         "ENSV-007 {label}: the child reaches its terminal State: {state}"
     );
 }
@@ -494,7 +494,7 @@ fn spawn_records_canonical_or_inherited_workspace_and_uses_it() {
     );
     let roster_before_refused_step = roster_at(&fixture.primary);
     let ledger_before_refused_step = fixture.ledger_bytes(&parent);
-    let empty_state_before = fs::read(fixture.run_dir(&empty_child).join("state.toml"))
+    let empty_state_before = fs::read(fixture.run_dir(&empty_child).join("run.toml"))
         .expect("negative child State File is readable before its refused step");
     let refused_step = rtm_at(&fixture.primary, &["step", "--run", &empty_child]);
     let refused_text = combined(&refused_step);
@@ -503,7 +503,7 @@ fn spawn_records_canonical_or_inherited_workspace_and_uses_it() {
         "ENSV-007: a child guard resolves in its recorded workspace and refuses by naming the missing file: {refused_text}"
     );
     assert_eq!(
-        fs::read(fixture.run_dir(&empty_child).join("state.toml"))
+        fs::read(fixture.run_dir(&empty_child).join("run.toml"))
             .expect("negative child State File remains readable"),
         empty_state_before,
         "ENSV-007: a refused workspace guard leaves the child State File byte-identical"

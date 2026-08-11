@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const STATE: &str = r#"phase = "guarded"
+const STATE: &str = r#"state = "guarded"
 status = "executing"
 goal_revision = "goal"
 input_revision = "input"
@@ -45,7 +45,7 @@ fn isolated_project() -> PathBuf {
     // FDC-004: the State File resides in the addressed run's directory.
     let run_dir = engine.join("runs/run-001");
     fs::create_dir_all(&run_dir).expect("create run directory");
-    fs::write(run_dir.join("state.toml"), STATE).expect("write isolated State File");
+    fs::write(run_dir.join("run.toml"), STATE).expect("write isolated State File");
     fs::write(engine.join("log.md"), "").expect("write isolated Transition Log");
     root
 }
@@ -55,7 +55,7 @@ fn request() -> StepRequest {
 }
 
 fn state_bytes(root: &Path) -> Vec<u8> {
-    fs::read(root.join(".ratmac/runs/run-001/state.toml")).expect("read isolated State File")
+    fs::read(root.join(".ratmac/runs/run-001/run.toml")).expect("read isolated State File")
 }
 
 fn assert_stayed(root: &Path, before: &[u8], reason: &str) {
@@ -63,8 +63,8 @@ fn assert_stayed(root: &Path, before: &[u8], reason: &str) {
     assert_eq!(after, before, "failing artifact guard must stay: {reason}");
     assert!(
         after
-            .windows(b"phase = \"guarded\"".len())
-            .any(|window| { window == b"phase = \"guarded\"" }),
+            .windows(b"state = \"guarded\"".len())
+            .any(|window| { window == b"state = \"guarded\"" }),
         "failing artifact guard must not advance State: {reason}"
     );
 }
@@ -139,8 +139,8 @@ fn guards_use_artifacts_not_agent_claims() {
     let after_pass = state_bytes(&root);
     assert!(
         after_pass
-            .windows(b"phase = \"complete\"".len())
-            .any(|window| window == b"phase = \"complete\""),
+            .windows(b"state = \"complete\"".len())
+            .any(|window| window == b"state = \"complete\""),
         "all artifact guards passing must advance to the defined next State"
     );
 
