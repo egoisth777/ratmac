@@ -1153,11 +1153,34 @@ impl MachineClass {
         Ok((states, transitions))
     }
 
+    /// SVC-005: a table still spelled the pre-cutover way is residue, not an
+    /// unknown key. The dedicated refusal takes precedence over `RB103` and
+    /// names the file and the repair; nothing is migrated in place.
+    fn refuse_precutover_states(
+        table: &toml::map::Map<String, toml::Value>,
+        location: &str,
+    ) -> Result<(), MachineClassParseError> {
+        if table.contains_key("phases") {
+            return Err(MachineClassParseError::at(
+                "RB111",
+                location.to_owned(),
+                format!(
+                    "invalid ratmac.toml: the runbook declares a pre-cutover \"phases\" table at \
+                     {location}; rename it to \"states\" (and any [[phases.<name>.spawns]] to \
+                     [[states.<name>.spawns]], [classes.<name>.phases] to \
+                     [classes.<name>.states]); nothing is migrated automatically"
+                ),
+            ));
+        }
+        Ok(())
+    }
+
     fn reject_unknown_keys(
         table: &toml::map::Map<String, toml::Value>,
         allowed: &[&str],
         location: &str,
     ) -> Result<(), MachineClassParseError> {
+        Self::refuse_precutover_states(table, location)?;
         if let Some(key) = table
             .keys()
             .find(|key| !allowed.iter().any(|allowed| allowed == key))

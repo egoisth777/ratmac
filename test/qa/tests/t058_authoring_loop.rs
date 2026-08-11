@@ -175,7 +175,12 @@ fn parse_spot(location: &str) -> Spot {
             return Spot::State(rest[..end].to_owned());
         }
     }
-    if let Some(rest) = location.strip_prefix("phase ") {
+    // The loader names a State-scoped location. Both spellings are read
+    // while the report wording finishes its cutover under `t-083`.
+    if let Some(rest) = location
+        .strip_prefix("state ")
+        .or_else(|| location.strip_prefix("phase "))
+    {
         let mut parts = rest.splitn(2, "\" guard ");
         let name = parts
             .next()
@@ -411,6 +416,15 @@ fn apply(
     let mut draft = Draft::new(text);
     match action {
         "restore-file" => return scaffold.to_owned(),
+        // SVC-005: the pre-cutover table is renamed in place; nothing else
+        // about the runbook moves.
+        "rename-states" => {
+            return text
+                .replace("[[phases.", "[[states.")
+                .replace("[phases.", "[states.")
+                .replace("[phases]", "[states]")
+                .replace(".phases]", ".states]")
+        }
         "restore-location" => match spot {
             Spot::State(name) => draft.restore_phase(name, scaffold),
             Spot::Guard(phase, _) => {
@@ -451,7 +465,7 @@ fn apply(
                 draft.remove(block);
             }
         }
-        "drop-phase" => {
+        "drop-state" => {
             if let Spot::State(name) = spot {
                 draft.drop_phase(name);
             }
@@ -559,7 +573,9 @@ fn drive_to_clean(bench: &Bench, name: &str, seeded: &str, scaffold: &str) -> Ve
         fs::write(&path, repaired_text).expect("write the repair");
         repaired.push(code);
     }
-    panic!("AAL-004: the loop did not reach clean; repaired so far: {repaired:?}");
+    panic!(
+        "AAL-004: the loop did not reach clean for the {code} seed; repaired so far: {repaired:?}"
+    );
 }
 
 /// The scaffold text, produced by the Engine, not by this test.
@@ -614,6 +630,7 @@ fn seeds(scaffold: &str) -> Vec<(&'static str, String)> {
                 "prompt = 42",
             ),
         ),
+        ("RB111", scaffold.replace("[states.", "[phases.")),
         ("RB601", format!("[roots]\nwork = \"../outside\"\n\n{scaffold}")),
         (
             "RB602",

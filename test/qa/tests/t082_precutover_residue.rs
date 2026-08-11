@@ -311,7 +311,13 @@ fn every_entry_point_refuses_precutover_records() {
                 "--run",
                 "run-001",
             ],
-            vec!["abandon", "--run", "run-001", "--confirm", "abandon run-001"],
+            vec![
+                "abandon",
+                "--run",
+                "run-001",
+                "--confirm",
+                "abandon run-001",
+            ],
             vec!["start"],
             vec!["status"],
         ] {
@@ -323,8 +329,7 @@ fn every_entry_point_refuses_precutover_records() {
                 args.join(" ")
             );
             assert!(
-                spoken.contains(&shown.to_string_lossy().to_string())
-                    || spoken.contains("run-001"),
+                spoken.contains(&shown.to_string_lossy().to_string()) || spoken.contains("run-001"),
                 "SVCV-005 ({label}): `rtm {}` must name the artifact: {spoken}",
                 args.join(" ")
             );

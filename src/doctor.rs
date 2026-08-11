@@ -185,7 +185,11 @@ pub(crate) fn diagnose_with_roots(path: &Path, roots: &crate::root::Roots) -> Di
     let shown = crate::root::displayed(path);
     if let Err(error) = crate::Scheduler::refuse_flat_residue_with_roots(roots) {
         return Diagnosis {
-            findings: vec![Finding::error("RB101", shown.clone(), error.to_string())],
+            findings: vec![Finding::error(
+                error.code().unwrap_or("RB101"),
+                shown.clone(),
+                error.to_string(),
+            )],
             engine_root: roots.engine_root().to_path_buf(),
         };
     }

@@ -26,13 +26,29 @@ const REQUIRED_FIELDS: [&str; 7] = [
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StateError {
     message: String,
+    /// DRD-007: when a refusal is the documented format defect, it names its
+    /// own code and the doctor relays it instead of re-classifying it.
+    code: Option<&'static str>,
 }
 
 impl StateError {
     pub(crate) fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
+            code: None,
         }
+    }
+
+    /// A refusal that already knows the documented code it reports under.
+    pub(crate) fn coded(code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            code: Some(code),
+        }
+    }
+
+    pub(crate) fn code(&self) -> Option<&'static str> {
+        self.code
     }
 }
 

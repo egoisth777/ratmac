@@ -165,6 +165,7 @@ fn defect_catalogue() -> Vec<(&'static str, &'static str, &'static str)> {
             "[states.a]\nprompt = \"p\"\n[[transitions]]\nfrom = \"a\"\nto = \"a\"\nfreeze = \"tree\"\n",
         ),
         ("rb110", "RB110", "[states.a]\nprompt = 42\n"),
+        ("rb111", "RB111", "[phases.a]\nprompt = \"p\"\n"),
         ("rb201", "RB201", "[states]\n"),
         (
             "rb202",

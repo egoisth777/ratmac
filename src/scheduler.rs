@@ -668,6 +668,99 @@ impl Scheduler {
                 }
             }
         }
+        Self::refuse_precutover_runbook(root)?;
+        Self::refuse_precutover_records(engine_root)?;
+        Ok(())
+    }
+
+    /// SVC-005: a runbook that still declares the pre-cutover table refuses
+    /// here, before any Run work, with the loader's own code. The byte scan
+    /// gates the parse, so a healthy runbook costs one read of bytes the
+    /// invocation reads anyway.
+    fn refuse_precutover_runbook(root: &Path) -> Result<(), StateError> {
+        let path = root.join(".ratmac").join("ratmac.toml");
+        let Ok(source) = fs::read_to_string(&path) else {
+            return Ok(());
+        };
+        if !source.contains("phases") {
+            return Ok(());
+        }
+        let Ok(document) = source.parse::<toml::Value>() else {
+            // A runbook that is not TOML is `RB102`, diagnosed where the
+            // loader speaks; residue is not decided from broken bytes.
+            return Ok(());
+        };
+        let Some(table) = document.as_table() else {
+            return Ok(());
+        };
+        let declares_precutover = table.contains_key("phases")
+            || table
+                .get("classes")
+                .and_then(toml::Value::as_table)
+                .is_some_and(|classes| {
+                    classes.values().any(|body| {
+                        body.as_table()
+                            .is_some_and(|body| body.contains_key("phases"))
+                    })
+                });
+        if !declares_precutover {
+            return Ok(());
+        }
+        Err(StateError::coded(
+            "RB111",
+            format!(
+                "refusing to run: RB111: the runbook {} declares a pre-cutover \"phases\" table; \
+             rename it to \"states\" (and any [[phases.<name>.spawns]] to \
+             [[states.<name>.spawns]], [classes.<name>.phases] to [classes.<name>.states]), then \
+             retry; nothing was modified",
+                crate::root::displayed(&path)
+            ),
+        ))
+    }
+
+    /// SVC-005: a Run Record still sitting at the pre-cutover filename, or
+    /// still carrying the pre-cutover position field, is residue. Meeting one
+    /// refuses, names the artifact and the repair, and moves nothing - the
+    /// third residue class beside the pre-split layout and the flat artifact,
+    /// never an auto-migration.
+    fn refuse_precutover_records(engine_root: &Path) -> Result<(), StateError> {
+        let runs_dir = engine_root.join("runs");
+        let Ok(entries) = fs::read_dir(&runs_dir) else {
+            return Ok(());
+        };
+        let mut offenders: Vec<PathBuf> = Vec::new();
+        for entry in entries.flatten() {
+            let run_dir = entry.path();
+            if !run_dir.is_dir() {
+                continue;
+            }
+            offenders.push(run_dir);
+        }
+        offenders.sort();
+        for run_dir in offenders {
+            let precutover_name = run_dir.join("state.toml");
+            if fs::symlink_metadata(&precutover_name).is_ok() {
+                return Err(StateError::new(format!(
+                    "refusing to run: pre-cutover Run Record {} exists; rename it to run.toml, \
+                     then retry; nothing was modified",
+                    crate::root::displayed(&precutover_name)
+                )));
+            }
+            let record = run_dir.join("run.toml");
+            let Ok(source) = fs::read_to_string(&record) else {
+                continue;
+            };
+            if source
+                .lines()
+                .any(|line| line.trim_start().starts_with("phase ="))
+            {
+                return Err(StateError::new(format!(
+                    "refusing to run: pre-cutover Run Record {} carries the field \"phase\"; \
+                     rename that field to \"state\", then retry; nothing was modified",
+                    crate::root::displayed(&record)
+                )));
+            }
+        }
         Ok(())
     }
 
