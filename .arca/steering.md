@@ -174,65 +174,51 @@ wrote down is drift.
 Derived record. Regenerated wholesale at P1 close from the signed issue set;
 never hand-edited, never a progress report. Stage lives in the tree.
 
-Freeze stamp: `git:4f78de5` +
-`goal-sha256:a98320c3730c32a38f88afb889948ec150fb7778a244355dc081d9d7c9a30f4f`
+Freeze stamp: `git:c98e896` +
+`goal-sha256:c424fc95698599c78e106969c2be4e9a3ca9d4889ff59e9a8a2219d476b545f1`
 - the P1 integration HEAD and the canonical goal revision computed by
 `src/goal.rs::revision` over the checked-out goal. P1 opened and closed
-2026-08-10 on the promoted State-not-Phase wish; the gap check and the tickets
+2026-08-10 on the duplicate-engine-binary issue; the gap check and the ticket
 were cut against this stamp.
 
 A sprint starts when enough issues have collected to be worth integrating
 into the goal, and runs the cycle - plan, then build - until the gap check
 comes back clean.
 
-This sprint: rename the machine position from `Phase` to `State` across every
-live surface, after separating the three words that "state" was carrying at
-once - the graph position, the file the Engine writes for a Run, and the whole
-live instance - and move nothing but names.
+This sprint: make one command's suite result admissible evidence. Two build
+targets in this repository write the same engine command, so a whole-repository
+test run launches whichever build finished last; give the test copy its own
+target name and refuse a future collision by name.
 
-Signed issue set: i-025-state-vocabulary. `SVC-001` through `SVC-008` are
-accepted product requirements; `SVC-009` and `SVC-010` are accepted
-working-authority requirements resolving to headings in `.arca/schema.md`. The
-carrying Ideal-shape property is **Authored, not imitated** - the written
-schema is the only way the format is meant to be learned, so its words must
-describe the machine that exists; **Refusals are branchable** is served too,
-because pre-cutover residue gets its own stable code while every existing code
-keeps its identity.
+Signed issue set: i-027-duplicate-engine-binary. `DEB-001` and `DEB-002` are
+accepted product requirements. The carrying Ideal-shape property is **Every
+boundary machine-checked** - the shop's own merge boundary advances on a suite
+result, and a result that depends on build order is narration wearing a green
+badge. **Refusals are branchable** is served too: the returning collision is
+refused by a check that names both declarations, not left to a toolchain
+warning the toolchain may reword.
 
 Route - an ordered dependency list, one why per edge. It says what depends
 on what, never when.
 
-1. Settle the three words - State, Run Record, Run, with `status` untouched -
-   in the authorities before any file moves; first because a rename onto an
-   occupied word would re-create the collision the wish was filed about.
-2. Format and Run Record surfaces - the runbook's `states` tables and the
-   Run Record at `.ratmac/runs/<run-id>/run.toml` with its `state` field;
-   after the words are settled because both are the words written down on disk.
-3. Residue refusal and diagnostics - a pre-cutover `phases` runbook or Run
-   Record refuses before any read, join, parse, or write with its own new
-   code, while every pre-existing code keeps its exact identity; after the new
-   surfaces exist because a refusal must name the repair the new format wants.
-4. Caller-visible text and the live-surface audit - State Prompt, `rtm status`,
-   the human doctor report, `--json` findings, and refusal text, proven by an
-   audit whose history allowlist is enumerated; after the surfaces so the audit
-   measures the finished cutover rather than a half-renamed tree.
-5. Behavior-unchanged proof, then re-gap and close - the existing suites pass
-   with their meanings intact, then every `SVC` row is classified from fresh
-   evidence.
+1. Name the test copy and point every test at it, then state the no-collision
+   rule as the shop's own check - one ticket, because the check is what proves
+   the rename worked and neither half is evidence without the other.
+2. Release the held behaviour-unchanged ticket `t-085` from the previous
+   sprint; after the rename because its whole claim is what one command's
+   output says.
 
-Endpoint: no live product surface names the machine position `Phase`. The
-runbook declares `states`, a Run is recorded in `.ratmac/runs/<run-id>/run.toml`
-with a `state` field, pre-cutover artifacts refuse and instruct without
-migrating, diagnostic codes keep their identity, archived history keeps its
-bytes under an enumerated allowlist, and no routing, guard, lock, mint, spawn,
-join, hold, abandon, completion, receipt, or exit-code behavior has moved.
+Endpoint: `cargo test --workspace` builds no two targets to one path, prints no
+collision warning, launches the pause-point build from every test, keeps the
+shipped `rtm` free of pause points, and a check refuses the next duplicate
+naming both declarations.
 
-Waiting in intake: `i-027-duplicate-engine-binary`, filed 2026-08-10 while
-taking this sprint's gap-check baseline. Two packages build the engine command
-to the same output path, so which build a full-repository test run launches
-depends on build order. It does not reopen this sprint's P1 - it waits for the
-next planning pass - but it is why the last ticket, `t-085`, carries a blocker
-note: the sprint's own behavior-unchanged proof has to be one command's output.
+Carried over from the state-vocabulary sprint (closed P1 stamp `git:4f78de5`):
+its nine tickets `t-077` through `t-084` are landed and its cutover endpoint is
+reached - no live product surface names the machine position `Phase`. Its last
+ticket `t-085`, the behaviour-unchanged proof, is held against this sprint's
+issue and its gap record `res-122` stays unproven until that proof runs from one
+command.
 
 Held: the roots-table ticket `t-076` is paused with `blocker-ref`
 `i-026-namespace-row-rulings` - two engine-namespace rows contradict the rules
@@ -241,13 +227,12 @@ who may name a retired folder in Engine source. Its gap records `res-106` and
 `res-113` stay unproven until that issue is selected.
 
 Deferred: the Plan-Build Runbook (`i-015-cycle-as-runbook`) now waits only on
-this cutover and on `i-026`; it still carries the machine enforcement of the
-discard guard - the dirty-tree refusal before any deliberate-damage step
-and the intake gate's acceptance of working-authority requirement headings
-(`PCR-001`, extended 2026-08-03); the `failed`-outcome contract awaits a
-concrete Engine-observable event. Also still deferred: a git-state guard
-kind and extraction of hard-coded `.arca/issue|ticket|residual|goal` paths
-from the Engine (R-016 debt).
+`i-026`; it still carries the machine enforcement of the discard guard - the
+dirty-tree refusal before any deliberate-damage step and the intake gate's
+acceptance of working-authority requirement headings (`PCR-001`, extended
+2026-08-03); the `failed`-outcome contract awaits a concrete Engine-observable
+event. Also still deferred: a git-state guard kind and extraction of hard-coded
+`.arca/issue|ticket|residual|goal` paths from the Engine (R-016 debt).
 
 ## Advisor conclusion — 2026-08-03
 
