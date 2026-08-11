@@ -1,3 +1,3 @@
 # Transition Log
 
-- Run entered phase `prepare`.
+- Run entered state `prepare`.

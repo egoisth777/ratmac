@@ -1,4 +1,4 @@
-# Project Runbook. Phase prompts are agent-facing instructions; they never ask
+# Project Runbook. State prompts are agent-facing instructions; they never ask
 # an agent to write a Scheduler-owned file (PGE-004).
 
 

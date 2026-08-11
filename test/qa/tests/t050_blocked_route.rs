@@ -144,7 +144,7 @@ impl Fixture {
             .lines()
             .find_map(|line| line.trim().strip_prefix("state = "))
             .map(|value| value.trim().trim_matches('"').to_owned())
-            .expect("state records a phase")
+            .expect("state records a state")
     }
 
     fn ticket(&self) -> String {

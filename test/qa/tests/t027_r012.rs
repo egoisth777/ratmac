@@ -33,7 +33,7 @@ fn copy_fixture_to_temp() -> PathBuf {
 }
 
 #[test]
-fn ratmac_comments_are_absent_from_phase_prompt() -> Result<(), Box<dyn Error>> {
+fn ratmac_comments_are_absent_from_state_prompt() -> Result<(), Box<dyn Error>> {
     let root = copy_fixture_to_temp();
     let scheduler = Scheduler::open_run(&root, "run-001")?;
     let status = scheduler.status()?;
@@ -46,8 +46,8 @@ fn ratmac_comments_are_absent_from_phase_prompt() -> Result<(), Box<dyn Error>> 
     assert!(rendered.contains("marker.txt"));
 
     for comment in [
-        "COMMENT_BEFORE_PHASE",
-        "COMMENT_INLINE_PHASE",
+        "COMMENT_BEFORE_STATE",
+        "COMMENT_INLINE_STATE",
         "COMMENT_INLINE_PROMPT",
         "COMMENT_INLINE_NEXT",
         "COMMENT_BEFORE_GUARD",
@@ -55,7 +55,7 @@ fn ratmac_comments_are_absent_from_phase_prompt() -> Result<(), Box<dyn Error>> 
         "COMMENT_KIND",
         "COMMENT_PATH",
         "COMMENT_ENTRIES",
-        "COMMENT_OTHER_PHASE",
+        "COMMENT_OTHER_STATE",
     ] {
         assert!(
             !rendered.contains(comment),

@@ -276,7 +276,7 @@ fn ownership_audit_is_sensitive() {
     for owned in SCHEDULER_OWNED {
         let violating = Instruction {
             source: format!("fixture prompt for {owned}"),
-            text: format!("Complete the phase and append your result to {owned}."),
+            text: format!("Complete the state and append your result to {owned}."),
         };
         let mut seeded = instructions.clone();
         seeded.push(violating);

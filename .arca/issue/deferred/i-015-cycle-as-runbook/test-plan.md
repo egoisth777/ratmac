@@ -4,7 +4,7 @@
 
 | Check | Requirement Refs | Expected evidence |
 | :--- | :--- | :--- |
-| PCRV-001 | PCR-001 | `.arca/ratmac.toml` parses through `MachineClass::from_toml` and declares the P1-P5 Phases and edges; a Run started on it reaches the P4/P5 loop and the rest state by stepping alone, with no rule supplied outside the file. |
+| PCRV-001 | PCR-001 | `.arca/ratmac.toml` parses through `MachineClass::from_toml` and declares the P1-P5 States and edges; a Run started on it reaches the P4/P5 loop and the rest state by stepping alone, with no rule supplied outside the file. |
 | PCRV-002 | PCR-002 | On this repository, `rtm status` names the stage the tree implies, proven by fixtures for each stage (pending issue, frozen goal with stale residuals, unproven residual without a ticket, executing ticket, all clean). |
 | PCRV-003 | PCR-003 | A machine check distinguishes a landed ticket from an executing one on the real `.arca/ticket/` contents, with no prose input; seeding one unproven residual flips exactly one ticket to open. |
 | PCRV-004 | PCR-004 | `ownership::audit_ownership` over the Plan-Build Runbook's prompts and guard contracts returns no violation, and the landing line is appended by an `rtm` command whose test proves the file is Scheduler-written. |

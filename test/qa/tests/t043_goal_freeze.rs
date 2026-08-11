@@ -168,7 +168,7 @@ fn freeze_is_post_integration() {
         "gap analysis must not cite an unfrozen revision"
     );
 
-    // The intake phase does what intake does: it rewrites `.arca/goal/`.
+    // The intake state does what intake does: it rewrites `.arca/goal/`.
     fixture.write_goal("spec.md", "# Spec\n\nrequirement one\nrequirement two\n");
     fixture.write_goal("design.md", "# Design\n\nintegrated\n");
 
@@ -334,21 +334,21 @@ fn interrupted_freeze_leaves_readable_state() {
     );
     let state = String::from_utf8(fixture.state()).expect("state stays valid UTF-8");
     let parsed: toml::Value = state.parse().expect("state stays parseable TOML");
-    let phase = parsed
+    let state = parsed
         .get("state")
         .and_then(toml::Value::as_str)
-        .expect("state keeps its phase field");
+        .expect("state keeps its state field");
     let revision = parsed
         .get("goal_revision")
         .and_then(toml::Value::as_str)
         .expect("state keeps its goal_revision field");
     assert!(
-        (phase == "intake" && revision.is_empty()) || (phase == "gaps" && !revision.is_empty()),
-        "an interrupted freeze is all or nothing: phase {phase}, revision {revision:?}, \
+        (state == "intake" && revision.is_empty()) || (state == "gaps" && !revision.is_empty()),
+        "an interrupted freeze is all or nothing: state {state}, revision {revision:?}, \
          output: {interrupted}"
     );
     assert_eq!(
-        phase, "intake",
+        state, "intake",
         "a freeze that could not record its evidence must not advance the Run"
     );
     assert!(

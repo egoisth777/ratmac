@@ -152,14 +152,14 @@ fn specification_is_routed_and_states_the_shape() {
         );
     }
 
-    let phase_keys = table_rows(&text, "## States")
+    let state_keys = table_rows(&text, "## States")
         .iter()
         .flat_map(|row| backticked(&row[0]))
         .collect::<BTreeSet<_>>();
     for key in ["prompt", "guards"] {
         assert!(
-            phase_keys.contains(key),
-            "RBS-001: the phase table must state the {key:?} field, found {phase_keys:?}"
+            state_keys.contains(key),
+            "RBS-001: the state table must state the {key:?} field, found {state_keys:?}"
         );
     }
 

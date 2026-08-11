@@ -341,7 +341,7 @@ fn each_defect_class_reports_its_code() {
         "DRD-001: an absent runbook is exactly one finding"
     );
 
-    // A location is a place an author can go to: the phase, the guard, or the
+    // A location is a place an author can go to: the state, the guard, or the
     // transition that carries the defect.
     let path = bench.runbook(
         "located",
@@ -353,7 +353,7 @@ fn each_defect_class_reports_its_code() {
         .expect("the unknown kind is reported");
     assert!(
         finding.location().contains("build"),
-        "DRD-001: the location must name the phase: {}",
+        "DRD-001: the location must name the state: {}",
         finding.location()
     );
 }
@@ -636,7 +636,7 @@ fn a_blocked_route_confers_no_reachability() {
     );
     assert!(
         codes.contains("RB203"),
-        "DRD-002: a phase reachable only through a blocked route is a second initial phase, not a reachable one: {codes:?}"
+        "DRD-002: a state reachable only through a blocked route is a second initial state, not a reachable one: {codes:?}"
     );
 }
 

@@ -53,7 +53,7 @@ fn temporary_project(ratmac: &str, state: &str, log: &str) -> PathBuf {
 }
 
 #[test]
-fn status_prints_current_phase_prompt() {
+fn status_prints_current_state_prompt() {
     let project = temporary_project(STATUS_RATMAC, STATUS_STATE, STATUS_LOG);
     let engine = project.join(".ratmac");
     let before = [

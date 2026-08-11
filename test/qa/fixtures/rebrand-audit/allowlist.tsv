@@ -21,3 +21,32 @@ test/qa/tests/t037_rat008.rs	both	Final acceptance negative probes intentionally
 test/qa/fixtures/rebrand-audit/allowlist.tsv	both	The audit manifest necessarily spells out each legacy token.
 .arca/goal/spec.md	both	Frozen external-identity requirement names the superseded repository and path.
 .arca/issue/archive/i-002-ratmac-external-identity/**	both	Accepted external-identity issue preserves the incoming legacy identity as provenance.
+.arca/log.md	phase	Append-only transition history; its bytes are never rewritten.
+.arca/ticket/archive/**	phase	Archived tickets record the work as it was written.
+.arca/issue/archive/**	phase	Archived issue bundles are frozen provenance, including the cutover issue that retires the word.
+.arca/residual/archive/**	phase	Archived gap records are frozen provenance.
+.arca/residual/manifest/**	phase	Snapshot manifests list the tracked paths as they were named that day.
+.arca/residual/res-118.md	phase	The record quotes the pre-cutover evidence it was written against.
+.arca/residual/res-119.md	phase	The record quotes the pre-cutover evidence it was written against.
+.arca/residual/res-120.md	phase	The record quotes the pre-cutover evidence it was written against.
+.arca/research/**	phase	Frozen research notes predate the cutover.
+.arca/goal/design.md	phase	Frozen goal bundle: the cutover decision names the spelling it supersedes.
+.arca/goal/spec.md	phase	Frozen goal bundle: the cutover requirements name the spelling they supersede.
+.arca/goal/test-list.md	phase	Frozen goal bundle: the cutover checks name the spelling they hunt.
+.arca/goal/ubi-lang.md	phase	Frozen goal bundle: the glossary records the retired term.
+.arca/goal/index.md	phase	Frozen goal bundle: the integration note states which name replaced which.
+.arca/schema.md	phase	The working rules record which glossary entry was replaced.
+.arca/steering.md	phase	Direction records the promoted wish by the name it retires.
+.arca/wishlist.md	phase	The wish entry is the request to retire the word.
+.arca/runbook-spec.md	phase	The RB111 diagnostic must quote the pre-cutover table it refuses.
+.arca/runbook-authoring.md	phase	The RB111 repair row must quote the pre-cutover table it renames.
+src/machine.rs	phase	The parser's dedicated refusal names the pre-cutover key it rejects.
+src/scheduler.rs	phase	The Engine's preflight refusals name the pre-cutover runbook table and record field.
+test/qa/src/rebrand.rs	phase	The audit necessarily spells the token it hunts.
+test/qa/tests/t077_presplit_residue.rs	phase	Pre-split residue probes plant the retired spelling on purpose.
+test/qa/tests/t082_precutover_residue.rs	phase	Pre-cutover residue probes plant the retired spelling on purpose.
+test/qa/tests/t083_state_surfaces.rs	phase	The surface scan asserts the retired spelling never appears.
+test/qa/tests/t084_state_audit.rs	phase	The audit lane plants and hunts the retired spelling on purpose.
+test/qa/fixtures/rebrand-audit/allowlist.tsv	phase	The audit manifest necessarily spells the token it hunts.
+test/qa/tests/t057_deep_doctor.rs	phase	The RB111 seed must plant the pre-cutover table the doctor refuses.
+test/qa/tests/t058_authoring_loop.rs	phase	The RB111 seed must plant the pre-cutover table the repair renames.

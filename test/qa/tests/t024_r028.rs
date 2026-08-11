@@ -5,11 +5,11 @@ use ratmac::{machine::MachineClass, Scheduler};
 
 const RATMAC: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../fixtures/r028-phase-prompt/ratmac.toml"
+    "/../fixtures/r028-state-prompt/ratmac.toml"
 ));
 const STATE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../fixtures/r028-phase-prompt/.ratmac/run.toml"
+    "/../fixtures/r028-state-prompt/.ratmac/run.toml"
 ));
 
 fn fixture_project() -> PathBuf {
@@ -26,7 +26,7 @@ fn fixture_project() -> PathBuf {
 }
 
 #[test]
-fn phase_prompt_renders_inline_prose_then_generated_guards() {
+fn state_prompt_renders_inline_prose_then_generated_guards() {
     let project = fixture_project();
     let scheduler = Scheduler::open_run(&project, "run-001").expect("open R-028 fixture project");
     let status = scheduler.status().expect("read current status");
@@ -35,7 +35,7 @@ fn phase_prompt_renders_inline_prose_then_generated_guards() {
 
     assert!(
         rendered.starts_with("Prepare the release artifact."),
-        "prompt must begin with the selected phase's inline prose: {rendered}"
+        "prompt must begin with the selected state's inline prose: {rendered}"
     );
     let prose_end = rendered
         .find("Prepare the release artifact.")
@@ -64,7 +64,7 @@ fn phase_prompt_renders_inline_prose_then_generated_guards() {
 }
 
 #[test]
-fn phase_prompt_requires_a_string_prompt_field() {
+fn state_prompt_requires_a_string_prompt_field() {
     for source in ["[states.prepare]\n", "[states.prepare]\nprompt = 42\n"] {
         let error = MachineClass::from_toml(source)
             .expect_err("a State without a string prompt must be rejected");

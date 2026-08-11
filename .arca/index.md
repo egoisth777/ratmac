@@ -34,12 +34,9 @@ behavior remains green, and `.arca-private/t-058/` through
 Binary, Modules, and Tests row below describes this landed tree. Refresh at
 each cycle close (gap check green).
 
-One caveat on vocabulary: the state-vocabulary cutover (`SVC-001`-`SVC-010`,
-goal `ADR-0012`) is integrated into the authorities but not yet landed in code,
-so the Architecture, Modules, and Tests rows below still show the identifiers
-the tree actually carries today - the type `Phase`, per-State `phases` tables,
-and `state.toml`. Rules and paths outside this stamped cache already read
-State, Run Record, and `run.toml`; these rows follow when the cutover lands.
+The state-vocabulary cutover (`SVC-001`-`SVC-010`, goal `ADR-0012`) has landed:
+every row below reads State for the machine position, `states` for the runbook
+table, and `run.toml` for the Run Record.
 
 ### Architecture
 
@@ -48,7 +45,7 @@ flowchart LR
     CLI["rtm CLI<br/>cli.rs: mint or address a Run"] --> SCH["scheduler.rs<br/>open/open_run/start/step/status"]
     RB[".ratmac/ratmac.toml<br/>runbook - plain TOML data"] --> MC["machine.rs<br/>the one reader<br/>typed guards + input contracts"]
     MC --> SCH
-    SCH <--> ST["state.rs + model.rs<br/>.ratmac/runs/&lt;run-id&gt;/state.toml<br/>strict seven-field State File"]
+    SCH <--> ST["state.rs + model.rs<br/>.ratmac/runs/&lt;run-id&gt;/run.toml<br/>strict seven-field Run Record"]
     SCH --> PIN["pin.rs<br/>Run evidence + hash-only runbook pin"]
     SCH --> VER["verdict.rs<br/>live input -> immutable Run-local archive"]
     SCH --> LED["ledger.rs<br/>spawn ledger - append/annotate only"]
@@ -76,7 +73,7 @@ flowchart LR
 Run id and mints the next roster member; `status` and `step` require a
 canonical exact `--run <id>`, `hold` binds through the same `open_run`
 preflight, and retiring a live Run requires its roster id. `spawn` creates a
-declared child from a parent's spawning Phase as ordinary checked motion;
+declared child from a parent's spawning State as ordinary checked motion;
 `respawn` and live-run `abandon` demand `--confirm` phrases naming the run id
 (FDC-007). Only leftover-lock retirement may be unaddressed;
 missing or unknown addresses report the `.ratmac/runs/` roster. `doctor` is
@@ -93,13 +90,13 @@ runbook that starts clean.
 | Module | Role |
 | :--- | :--- |
 | `cli.rs` | Hand-rolled parsing of nine verbs and exit codes. `start` is unaddressed; `status`/`step` validate a canonical roster address, `hold` resolves through `open_run`, live-Run `abandon` requires a roster id, and `spawn`/`respawn` address the parent and superseded run. Argument-free human `doctor` renders the complete SHA-256 of the exact current executable; executable selection and hashing remain unchanged. It contains no graph or guard policy. |
-| `graph.rs` | `Phase`, `Transition`, `MachineGraph` - graph position without lifecycle. `transition_for_input` selects the unique ordinary edge whose optional `input` exactly matches; `None` selects an unlabelled straight edge. `has_ordinary_outgoing` is the one structural terminal predicate (blocked routes excluded). Declaration order and guards never select, and blocked routes remain hold-only. |
-| `machine.rs` | `MachineClass::from_toml` - the whole runbook schema boundary and its only reader, hand-rolled over `toml::Value`. It retains typed `GuardKind`, closed Phase `inputs`, and Transition `input`; RB208-RB213 reject malformed branch contracts, and inline `classes`, per-Phase `spawns`, and the `join` guard kind parse one level deep with RB501-RB506 rejecting malformed composition (FDC-009). |
-| `scheduler.rs` | Project/Run binding and ordinary execution. `open` has no Run; `open_run` binds one canonical live roster member. `open`/`open_run` and `start` refuse flat residue, while pinned reads reject runbook drift. `start` mints an uncapped never-reused id and writes `passed` when the initial Phase is terminal; `step` refuses a passed Run by name, evaluates guards before verdict routing/consumption, and writes `passed` beside a terminal successor in one replacement; `status` reloads and reports read-only. `resolve_phase_scope` reads a child Run through its own class's view for step and status alike (FDC-010/FDC-011); `spawn` mints a declared child as an ordinary flat Run and appends its ledger entry, refusing any parent that is itself a recorded child (FDC-012); `respawn` supersedes by confirmed phrase; the `join` guard reads the ledger's live children's terminal facts. |
+| `graph.rs` | `State`, `Transition`, `MachineGraph` - graph position without lifecycle. `transition_for_input` selects the unique ordinary edge whose optional `input` exactly matches; `None` selects an unlabelled straight edge. `has_ordinary_outgoing` is the one structural terminal predicate (blocked routes excluded). Declaration order and guards never select, and blocked routes remain hold-only. |
+| `machine.rs` | `MachineClass::from_toml` - the whole runbook schema boundary and its only reader, hand-rolled over `toml::Value`. It retains typed `GuardKind`, closed State `inputs`, and Transition `input`; RB208-RB213 reject malformed branch contracts, and inline `classes`, per-State `spawns`, and the `join` guard kind parse one level deep with RB501-RB506 rejecting malformed composition (FDC-009). |
+| `scheduler.rs` | Project/Run binding and ordinary execution. `open` has no Run; `open_run` binds one canonical live roster member. `open`/`open_run` and `start` refuse flat residue, while pinned reads reject runbook drift. `start` mints an uncapped never-reused id and writes `passed` when the initial State is terminal; `step` refuses a passed Run by name, evaluates guards before verdict routing/consumption, and writes `passed` beside a terminal successor in one replacement; `status` reloads and reports read-only. `resolve_state_scope` reads a child Run through its own class's view for step and status alike (FDC-010/FDC-011); `spawn` mints a declared child as an ordinary flat Run and appends its ledger entry, refusing any parent that is itself a recorded child (FDC-012); `respawn` supersedes by confirmed phrase; the `join` guard reads the ledger's live children's terminal facts. |
 | `ledger.rs` | The Scheduler-owned per-run spawn ledger (FDC-011): append at spawn, successor entries at respawn, abandoned-mark flips at retirement - never rewritten; strict read refuses malformed entries by name. |
-| `verdict.rs` | Strict Run-local transition-input delivery. A branch validates exact `phase`/`input`/`rationale`; a straight Phase requires an absent live slot. Valid bytes rename to monotonic `verdicts/NNNNNN.toml` evidence before State File advance; refusals consume nothing. |
-| `model.rs` | `Run`, `RunArtifacts`, plural `Runs`, and serde `RunState`/`Status`; persisted state belongs to `.ratmac/runs/<run-id>/state.toml`. |
-| `state.rs` | Strictly parses and atomically replaces the addressed `.ratmac/runs/<run-id>/state.toml`. The write path is crate-private, centralizing Engine writes without filesystem-enforcing ownership, and it renders the report behind `rtm status`. |
+| `verdict.rs` | Strict Run-local transition-input delivery. A branch validates exact `state`/`input`/`rationale`; a straight State requires an absent live slot. Valid bytes rename to monotonic `verdicts/NNNNNN.toml` evidence before Run Record advance; refusals consume nothing. |
+| `model.rs` | `Run`, `RunArtifacts`, plural `Runs`, and serde `RunState`/`Status`; persisted state belongs to `.ratmac/runs/<run-id>/run.toml`. |
+| `state.rs` | Strictly parses and atomically replaces the addressed `.ratmac/runs/<run-id>/run.toml`. The write path is crate-private, centralizing Engine writes without filesystem-enforcing ownership, and it renders the report behind `rtm status`. |
 | `pin.rs` | Run evidence: stable Engine identity, gate-artifact pins, goal baseline/freeze, and the hash-only SHA-256 pin of canonical `.ratmac/ratmac.toml`. Non-exempt command guards run pinned code. |
 | `receipt.rs` | Sensitivity receipts; digests re-derived, self-verifying. |
 | `completion.rs` | Completion gate: green + fresh via tree digest. |
@@ -141,7 +138,7 @@ lanes `.arca-private/t-058/` through `t-070/` contain
 
 ### Known limitations / deferred debt (steering.md)
 
-- Findings carry a location (`phase "build" guard 0`), never a line or span:
+- Findings carry a location (`state "build" guard 0`), never a line or span:
   an agent repairs by name, not by cursor position.
 - R-016 remains deferred: `contract.rs`/`blocked.rs`/`goal.rs` bake
   project-specific `.arca/issue|ticket|residual|goal` paths into Rust.

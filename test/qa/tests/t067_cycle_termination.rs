@@ -1,7 +1,7 @@
 //! t-067 / FDC-008: cycle termination as a static check.
 //!
 //! PT-067-01 `guarded_cycle_passes_termination`
-//! PT-067-02 `unguarded_cycle_fails_naming_phases_and_class`
+//! PT-067-02 `unguarded_cycle_fails_naming_states_and_class`
 //!
 //! Termination is guard-kind membership, never execution: every State on a
 //! cycle must carry at least one out-edge guarded by a receipt-class
@@ -146,7 +146,7 @@ fn guarded_cycle_passes_termination() {
 /// State, and the missing guard-kind classes. A cycle-free runbook is never
 /// named.
 #[test]
-fn unguarded_cycle_fails_naming_phases_and_class() {
+fn unguarded_cycle_fails_naming_states_and_class() {
     let bench = Bench::new("unguarded");
 
     let broken = bench.runbook(

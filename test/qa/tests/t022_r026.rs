@@ -166,13 +166,13 @@ fn refused_step(project_root: &Path) {
     assert!(matches!(outcome, StepOutcome::Refused { .. }));
 }
 
-fn state_phase(state_path: &Path) -> String {
+fn state_state(state_path: &Path) -> String {
     let bytes = fs::read(state_path).expect("read State File");
     let text = String::from_utf8(bytes).expect("State File is UTF-8");
     let value: toml::Value = text.parse().expect("State File is valid TOML");
     value["state"]
         .as_str()
-        .expect("State File has phase")
+        .expect("State File has state")
         .to_owned()
 }
 
@@ -214,7 +214,7 @@ fn successful_step_appends_one_transition_record() {
         record.contains("done"),
         "record identifies the target State"
     );
-    assert_eq!(state_phase(&state_path), "done");
+    assert_eq!(state_state(&state_path), "done");
 }
 
 #[test]
@@ -236,7 +236,7 @@ fn transition_log_is_append_only() {
     );
     assert!(record.contains("prepare"));
     assert!(record.contains("done"));
-    assert_eq!(state_phase(&state_path), "done");
+    assert_eq!(state_state(&state_path), "done");
 }
 
 #[test]

@@ -8,7 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-/// A composed machine whose child class reuses the phase name `delegate`.
+/// A composed machine whose child class reuses the state name `delegate`.
 /// The top-level `delegate` is the initial spawning State; a child Run born
 /// at its class-initial `delegate` therefore resolves to a State name that
 /// the top level declares spawns for - the exact hole the cap must plug.

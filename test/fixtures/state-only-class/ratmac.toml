@@ -1,4 +1,4 @@
-# Phase-only fixture: lifecycle values intentionally do not appear in the graph.
+# State-only fixture: lifecycle values intentionally do not appear in the graph.
 [states.prepare]
 prompt = "Prepare the inputs."
 

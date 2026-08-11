@@ -47,21 +47,21 @@ fn isolated_project() -> (TempProject, PathBuf, PathBuf) {
     )
 }
 
-fn phase_and_status(state_bytes: &[u8]) -> (String, String) {
+fn state_and_status(state_bytes: &[u8]) -> (String, String) {
     let state_text = String::from_utf8(state_bytes.to_vec()).expect("state is UTF-8");
     let state: toml::Value = state_text.parse().expect("state fixture is valid TOML");
     let table = state.as_table().expect("state is a TOML table");
-    let phase = table
+    let state = table
         .get("state")
         .and_then(toml::Value::as_str)
-        .expect("state has phase")
+        .expect("state has state")
         .to_owned();
     let status = table
         .get("status")
         .and_then(toml::Value::as_str)
         .expect("state has status")
         .to_owned();
-    (phase, status)
+    (state, status)
 }
 
 fn assert_no_retry_counter(engine: &Path) {
@@ -96,13 +96,13 @@ fn failed_guard_refuses_and_stays() {
     let (project, state_path, log_path) = isolated_project();
     let state_before = fs::read(&state_path).expect("read state before refusal");
     let log_before = fs::read(&log_path).expect("read log before refusal");
-    let position_before = phase_and_status(&state_before);
+    let position_before = state_and_status(&state_before);
 
     run_failed_step(&project.0);
 
     let state_after = fs::read(&state_path).expect("read state after refusal");
     let log_after = fs::read(&log_path).expect("read log after refusal");
-    assert_eq!(position_before, phase_and_status(&state_after));
+    assert_eq!(position_before, state_and_status(&state_after));
     assert_eq!(
         state_before, state_after,
         "refusal must not rewrite State File"

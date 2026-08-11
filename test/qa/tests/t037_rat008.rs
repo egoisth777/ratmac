@@ -1,5 +1,6 @@
 //! PT-037-01: complete RAT-008 acceptance proof for the ratmac/rtm cutover.
 
+use ratmac_qa::rebrand;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -42,105 +43,22 @@ fn temporary_project(root: &Path) -> PathBuf {
     project
 }
 
-fn collect_files(path: &Path, files: &mut Vec<PathBuf>) {
-    let name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or_default();
-    if matches!(name, ".git" | ".arca-private" | "target") {
-        return;
-    }
-    let metadata = fs::symlink_metadata(path).expect("audit path must be readable");
-    if metadata.is_dir() {
-        for entry in fs::read_dir(path).expect("audit directory must be readable") {
-            collect_files(&entry.expect("audit entry must be readable").path(), files);
-        }
-    } else if metadata.is_file() {
-        files.push(path.to_owned());
-    }
-}
-
-fn path_matches(pattern: &str, relative: &str) -> bool {
-    pattern
-        .strip_suffix("/**")
-        .map_or(pattern == relative, |prefix| {
-            relative == prefix || relative.starts_with(&format!("{prefix}/"))
-        })
-}
-
 fn active_reference_audit(root: &Path) {
-    let allowlist = fs::read_to_string(root.join("test/qa/fixtures/rebrand-audit/allowlist.tsv"))
-        .expect("rebrand audit allowlist must be readable");
-    let rules: Vec<_> = allowlist
-        .lines()
-        .filter(|line| !line.trim().is_empty() && !line.trim_start().starts_with('#'))
-        .map(|line| {
-            let fields: Vec<_> = line.splitn(3, '\t').collect();
-            assert_eq!(
-                fields.len(),
-                3,
-                "each allowlist row needs path, token, reason"
-            );
-            assert!(
-                !fields[2].trim().is_empty(),
-                "allowlist reasons must be explicit"
-            );
-            (fields[0], fields[1], fields[2])
-        })
-        .collect();
+    // SVC-008: one shared walk and one shared list, so a row added for the
+    // audit lane is honoured here in the same run.
+    let rules = rebrand::load_allowlist(&rebrand::allowlist_path(root))
+        .expect("the rebrand allowlist must load");
     assert!(!rules.is_empty(), "allowlist must contain active rules");
-    let mut used = vec![false; rules.len()];
-    let mut files = Vec::new();
-    collect_files(root, &mut files);
-    let mut violations = Vec::new();
-    for path in files {
-        let relative = path
-            .strip_prefix(root)
-            .expect("audit file must be under workspace root")
-            .to_string_lossy()
-            .replace('\\', "/");
-        let Ok(text) = fs::read_to_string(&path) else {
-            continue;
-        };
-        for (line_no, line) in text.lines().enumerate() {
-            let product = line.contains(LEGACY_PRODUCT);
-            let command = line.contains(LEGACY_COMMAND);
-            if !product && !command {
-                continue;
-            }
-            let mut allowed = false;
-            for (index, (pattern, token, _)) in rules.iter().enumerate() {
-                if !path_matches(pattern, &relative) {
-                    continue;
-                }
-                let token_matches = *token == "both"
-                    || (*token == LEGACY_PRODUCT && product)
-                    || (*token == LEGACY_COMMAND && command);
-                if token_matches {
-                    used[index] = true;
-                    allowed = true;
-                }
-            }
-            if !allowed {
-                violations.push(format!("{relative}:{}: {line}", line_no + 1));
-            }
-        }
-    }
+    let report = rebrand::audit(root, &rules);
     assert!(
-        violations.is_empty(),
+        report.violations.is_empty(),
         "unallowlisted active legacy references:\n{}",
-        violations.join("\n")
+        report.violations.join("\n")
     );
-    let unused: Vec<_> = rules
-        .iter()
-        .enumerate()
-        .filter(|(index, _)| !used[*index])
-        .map(|(_, (_, _, reason))| (*reason).to_owned())
-        .collect();
     assert!(
-        unused.is_empty(),
+        report.stale.is_empty(),
         "stale allowlist entries: {}",
-        unused.join("; ")
+        report.stale.join("; ")
     );
     assert!(
         root.join(".arca/log.md").is_file(),
@@ -192,7 +110,9 @@ fn metadata_and_paths(root: &Path) {
 #[test]
 fn full_rebrand_acceptance() {
     let root = repo_root();
-    active_reference_audit(&root);
+    // SVC-008: the audit judges the repository tree through the shared
+    // resolver, so this suite and the audit suite always judge one tree.
+    active_reference_audit(&rebrand::repo_root());
     metadata_and_paths(&root);
 
     let project = temporary_project(&root);

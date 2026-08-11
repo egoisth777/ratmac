@@ -1,7 +1,7 @@
 //! t-063 / FDC-002: the Engine, not the agent, writes the end of a Run.
 //!
-//! PT-063-01 `terminal_initial_phase_is_passed_on_start`
-//! PT-063-02 `step_into_terminal_phase_writes_passed`
+//! PT-063-01 `terminal_initial_state_is_passed_on_start`
+//! PT-063-02 `step_into_terminal_state_writes_passed`
 //! PT-063-03 `abandonment_records_event_before_state_retirement`
 //! PT-063-04 `guard_refusal_is_non_terminal_and_failed_is_never_written`
 
@@ -219,7 +219,7 @@ fn assert_terminal_refusal(fixture: &Fixture, label: &str) {
 /// PT-063-01 / FDCV-011: `rtm start` beginning in a State with no ordinary
 /// outgoing edge writes `passed` in the very first State File.
 #[test]
-fn terminal_initial_phase_is_passed_on_start() {
+fn terminal_initial_state_is_passed_on_start() {
     let mut fixture = Fixture::create("terminal-start", TERMINAL_ONLY_RUNBOOK);
     let start = fixture.start();
     assert!(
@@ -240,7 +240,7 @@ fn terminal_initial_phase_is_passed_on_start() {
 /// writes State and `passed` in one replacement — on a straight line and on a
 /// verdict-routed branch, where the archive still precedes the passed state.
 #[test]
-fn step_into_terminal_phase_writes_passed() {
+fn step_into_terminal_state_writes_passed() {
     let mut straight = Fixture::create("straight-arrival", STRAIGHT_RUNBOOK);
     assert!(straight.start().status.success(), "fixture start succeeds");
     assert_eq!(

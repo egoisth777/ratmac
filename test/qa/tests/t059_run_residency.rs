@@ -50,7 +50,7 @@ impl Drop for Fixture {
 }
 
 impl Fixture {
-    /// A temp project with a valid two-phase runbook, not yet started.
+    /// A temp project with a valid two-state runbook, not yet started.
     fn new(label: &str) -> Self {
         let root = std::env::temp_dir().join(format!(
             "ratmac-t058-{label}-{}-{}",
@@ -114,13 +114,13 @@ fn combined(output: &Output) -> String {
     )
 }
 
-fn state_phase(state: &str) -> String {
+fn state_state(state: &str) -> String {
     let value: toml::Value = state
         .parse()
         .expect("FDC-004: the run's State File must be valid TOML");
     value["state"]
         .as_str()
-        .expect("FDC-004: the run's State File must carry a phase")
+        .expect("FDC-004: the run's State File must carry a state")
         .to_owned()
 }
 
@@ -273,7 +273,7 @@ fn runs_reside_under_the_plural_path() {
     let state = fs::read_to_string(run_dir.join("run.toml")).unwrap_or_else(|error| {
         panic!("FDC-004: the run directory must carry the run's State File: {error}")
     });
-    let _ = state_phase(&state);
+    let _ = state_state(&state);
 
     // Reserved by name only: existence is asserted, contents never read —
     // the ledger contract belongs to machine composition (i-018).
@@ -354,7 +354,7 @@ fn run_addressing_is_always_required() {
     let after = fs::read_to_string(fixture.path(&state_rel))
         .expect("the named run's State File stays readable");
     assert_eq!(
-        state_phase(&after),
+        state_state(&after),
         "build",
         "FDC-004: stepping the named run must advance exactly that run"
     );

@@ -177,7 +177,7 @@ fn binary_second_start_mints_sibling_without_mutating_run() {
 }
 
 #[test]
-fn binary_status_prints_report_and_phase_prompt() {
+fn binary_status_prints_report_and_state_prompt() {
     let project = setup_project();
     assert!(run_rtm(&project, &["start"]).status.success());
     // FDC-004: run addressing is always required.

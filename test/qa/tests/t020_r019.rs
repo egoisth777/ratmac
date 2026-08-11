@@ -34,7 +34,7 @@ fn refusal_report_names_guard_and_facts() {
     let mut scheduler = Scheduler::open(&project).expect("scheduler must open fixture project");
     scheduler.start().expect("fixture Run must start");
     let outcome = scheduler
-        .step(StepRequest::new("I completed the phase"))
+        .step(StepRequest::new("I completed the state"))
         .expect("guard failure is a reported StepOutcome");
     let failure = match outcome {
         StepOutcome::Refused { failures } => {

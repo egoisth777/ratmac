@@ -1,4 +1,4 @@
-# A valid class whose first phase has an unsatisfied artifact guard.
+# A valid class whose first state has an unsatisfied artifact guard.
 [states.prepare]
 prompt = "Prepare the required output."
 

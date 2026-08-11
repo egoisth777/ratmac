@@ -31,7 +31,7 @@ impl Drop for Fixture {
 }
 
 impl Fixture {
-    /// A temp project with a valid two-phase runbook, not yet started.
+    /// A temp project with a valid two-state runbook, not yet started.
     fn new(label: &str) -> Self {
         let root = std::env::temp_dir().join(format!(
             "ratmac-t060-{label}-{}-{}",
@@ -113,13 +113,13 @@ fn combined(output: &Output) -> String {
     )
 }
 
-fn state_phase(state: &str) -> String {
+fn state_state(state: &str) -> String {
     let value: toml::Value = state
         .parse()
         .expect("FDC-006: the run's State File must be valid TOML");
     value["state"]
         .as_str()
-        .expect("FDC-006: the run's State File must carry a phase")
+        .expect("FDC-006: the run's State File must carry a state")
         .to_owned()
 }
 
@@ -187,9 +187,9 @@ fn no_active_run_cap_is_enforced() {
     let after = fs::read_to_string(fixture.path(&state_rel(&stepped)))
         .expect("the stepped run's State File stays readable");
     assert_eq!(
-        state_phase(&after),
+        state_state(&after),
         "build",
-        "FDC-006: stepping {stepped} must advance exactly that run to the next phase"
+        "FDC-006: stepping {stepped} must advance exactly that run to the next state"
     );
     for (id, bytes) in ids.iter().zip(&before) {
         if id != &stepped {

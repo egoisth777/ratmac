@@ -141,7 +141,7 @@ impl Fixture {
             .lines()
             .find_map(|line| line.trim().strip_prefix("state = "))
             .map(|value| value.trim().trim_matches('"').to_owned())
-            .expect("addressed Run State File records a phase")
+            .expect("addressed Run State File records a state")
     }
 
     fn human_history_snapshot(&self) -> HumanHistorySnapshot {

@@ -207,7 +207,7 @@ fn authorized_abandon_retires_run() {
     );
     assert!(
         event.contains("build"),
-        "the terminal event names the retired Run's phase: {event:?}"
+        "the terminal event names the retired Run's state: {event:?}"
     );
 
     assert!(

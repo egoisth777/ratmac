@@ -30,7 +30,7 @@ impl Drop for Fixture {
 }
 
 impl Fixture {
-    /// A temp project with a valid two-phase runbook, not yet started.
+    /// A temp project with a valid two-state runbook, not yet started.
     fn new(label: &str) -> Self {
         let root = std::env::temp_dir().join(format!(
             "ratmac-t059-{label}-{}-{}",
@@ -256,7 +256,7 @@ fn flat_layout_residue_refuses_and_instructs() {
     // and sibling-file variants belong to the hidden lane (HT-059-02).
     fs::write(
         fixture.path(".arca/state.toml"),
-        "phase = \"intake\"\nstatus = \"planned\"\n",
+        "state = \"intake\"\nstatus = \"planned\"\n",
     )
     .expect("plant the flat-layout residue");
 
@@ -408,7 +408,7 @@ fn hold_applies_residue_and_runbook_pin_preflight() {
     fs::write(fixture.path(".ratmac/ratmac.toml"), &runbook).expect("restore pinned machine class");
     fs::write(
         fixture.path(".arca/state.toml"),
-        "phase = \"build\"\nstatus = \"executing\"\n",
+        "state = \"build\"\nstatus = \"executing\"\n",
     )
     .expect("plant flat-layout residue");
     let before_residue_hold = tree_snapshot(&fixture.root);

@@ -54,7 +54,7 @@ Plain-word definitions for terms used in work with Billy. Consult this file befo
 - **Honest stall**: A run that stops and hands back to the human instead of faking progress. A feature, not a bug.
 - **Statewright**: Rust competitor product (per-state tool allowlists, MCP-first, patented method). Not Stateright.
 - **MCP (Model Context Protocol)**: Protocol for exposing tools/resources to agents over a connection; heavier than CLI calls.
-- **SDD / Spec Kit**: Spec-driven development; markdown phase workflows with no enforcement.
+- **SDD / Spec Kit**: Spec-driven development; markdown stage workflows with no enforcement.
 - **Codemod**: Mechanical, rule-based code rewriting tool — for syntax-level migrations, unlike semantic ones.
 - **Beachhead**: The first narrow market to win before expanding.
 - **rtm doctor**: The ratmac checker command: parses a runbook and reports schema, graph, and guard problems before any run.

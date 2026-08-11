@@ -140,7 +140,7 @@ fn backticked(cell: &str) -> BTreeSet<String> {
     found
 }
 
-/// A one-phase runbook whose single guard is the given inline table.
+/// A one-state runbook whose single guard is the given inline table.
 fn runbook_with_guard(guard: &str) -> String {
     format!("[states.build]\nprompt = \"Build it.\"\nguards = [{guard}]\n")
 }
@@ -154,7 +154,7 @@ fn refusal(source: &str) -> String {
 }
 
 /// PT-055-01 / TRP-002: an unknown kind is a typed parse error naming the
-/// kind, the phase, and the guard's position - never a silently skipped guard.
+/// kind, the state, and the guard's position - never a silently skipped guard.
 #[test]
 fn unknown_guard_kind_is_a_parse_error() {
     let source = "\
@@ -403,7 +403,7 @@ to = \"review\"
 ";
     let class = MachineClass::from_toml(source).expect("every declared guard is well formed");
 
-    let build = class.states().get("build").expect("build phase");
+    let build = class.states().get("build").expect("build state");
     let kinds = build
         .guards()
         .iter()
@@ -426,7 +426,7 @@ to = \"review\"
         "TRP-004: guards are retained in declaration order"
     );
 
-    let review = class.states().get("review").expect("review phase");
+    let review = class.states().get("review").expect("review state");
     assert_eq!(
         review
             .guards()
@@ -434,7 +434,7 @@ to = \"review\"
             .map(GuardKind::name)
             .collect::<Vec<_>>(),
         vec!["record_contract", "intake_contract"],
-        "TRP-004: order is per phase, not global"
+        "TRP-004: order is per state, not global"
     );
 
     // The fields survive too, not only the kinds.
@@ -531,7 +531,7 @@ fn decided_refusals_are_unchanged() {
         );
     }
 
-    // R-028: a phase without a string prompt still refuses.
+    // R-028: a state without a string prompt still refuses.
     for source in ["[states.build]\n", "[states.build]\nprompt = 42\n"] {
         assert!(
             refusal(source).contains("prompt"),
@@ -559,7 +559,7 @@ fn the_projects_own_runbook_parses_typed() {
     let guards = class
         .states()
         .values()
-        .flat_map(|phase| phase.guards())
+        .flat_map(|state| state.guards())
         .count();
     assert!(
         guards > 0,
@@ -762,7 +762,7 @@ blocked-route = true
         .count();
     assert_eq!(blocked, 1, "PGE-006: the blocked route survives the parse");
 
-    let intake = class.states().get("intake").expect("intake phase");
+    let intake = class.states().get("intake").expect("intake state");
     let guard = intake.guards().first().expect("the pinned guard survives");
     assert_eq!(guard.name(), "command_exit");
     assert!(

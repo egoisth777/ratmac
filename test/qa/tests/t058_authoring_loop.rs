@@ -179,7 +179,7 @@ fn parse_spot(location: &str) -> Spot {
     // while the report wording finishes its cutover under `t-083`.
     if let Some(rest) = location
         .strip_prefix("state ")
-        .or_else(|| location.strip_prefix("phase "))
+        .or_else(|| location.strip_prefix("state "))
     {
         let mut parts = rest.splitn(2, "\" guard ");
         let name = parts
@@ -268,9 +268,9 @@ impl Draft {
         self.lines.push(format!("to = \"{to}\""));
     }
 
-    /// Replace one phase block with the scaffold's version of it, or with a
-    /// bare working phase when the scaffold has no such phase.
-    fn restore_phase(&mut self, name: &str, scaffold: &str) {
+    /// Replace one state block with the scaffold's version of it, or with a
+    /// bare working state when the scaffold has no such state.
+    fn restore_state(&mut self, name: &str, scaffold: &str) {
         let header = format!("[states.{name}]");
         let replacement = Draft::new(scaffold)
             .block(&header)
@@ -289,8 +289,8 @@ impl Draft {
         }
     }
 
-    /// Drop the phase and every edge that touches it.
-    fn drop_phase(&mut self, name: &str) {
+    /// Drop the state and every edge that touches it.
+    fn drop_state(&mut self, name: &str) {
         if let Some(block) = self.block(&format!("[states.{name}]")) {
             self.remove(block);
         }
@@ -306,15 +306,15 @@ impl Draft {
         }
     }
 
-    fn guards_line(&self, phase: &str) -> Option<usize> {
-        let block = self.block(&format!("[states.{phase}]"))?;
+    fn guards_line(&self, state: &str) -> Option<usize> {
+        let block = self.block(&format!("[states.{state}]"))?;
         self.lines[block.0..block.1]
             .iter()
             .position(|line| line.trim_start().starts_with("guards"))
             .map(|at| block.0 + at)
     }
 
-    /// The inline guard tables of one phase, as `{ ... }` spans.
+    /// The inline guard tables of one state, as `{ ... }` spans.
     fn guard_spans(line: &str) -> Vec<(usize, usize)> {
         let mut spans = Vec::new();
         let bytes = line.as_bytes();
@@ -333,8 +333,8 @@ impl Draft {
         spans
     }
 
-    fn drop_guard(&mut self, phase: &str, index: usize) {
-        let Some(at) = self.guards_line(phase) else {
+    fn drop_guard(&mut self, state: &str, index: usize) {
+        let Some(at) = self.guards_line(state) else {
             return;
         };
         let line = self.lines[at].clone();
@@ -353,8 +353,8 @@ impl Draft {
         self.lines[at] = format!("guards = [{}]", kept.join(", "));
     }
 
-    fn exempt_guard(&mut self, phase: &str, index: usize) {
-        let Some(at) = self.guards_line(phase) else {
+    fn exempt_guard(&mut self, state: &str, index: usize) {
+        let Some(at) = self.guards_line(state) else {
             return;
         };
         let line = self.lines[at].clone();
@@ -381,15 +381,15 @@ impl Draft {
         }
     }
 
-    fn straighten_branch(&mut self, phase: &str) {
-        if let Some(block) = self.block(&format!("[states.{phase}]")) {
+    fn straighten_branch(&mut self, state: &str) {
+        if let Some(block) = self.block(&format!("[states.{state}]")) {
             self.remove_field(block, "inputs");
         }
         let ordinary = self
             .transition_blocks()
             .into_iter()
             .filter(|block| {
-                self.field(*block, "from").as_deref() == Some(phase)
+                self.field(*block, "from").as_deref() == Some(state)
                     && self.field(*block, "blocked-route").as_deref() != Some("true")
             })
             .collect::<Vec<_>>();
@@ -397,7 +397,7 @@ impl Draft {
             self.remove(*block);
         }
         if let Some(block) = self.transition_blocks().into_iter().find(|block| {
-            self.field(*block, "from").as_deref() == Some(phase)
+            self.field(*block, "from").as_deref() == Some(state)
                 && self.field(*block, "blocked-route").as_deref() != Some("true")
         }) {
             self.remove_field(block, "input");
@@ -426,9 +426,9 @@ fn apply(
                 .replace(".phases]", ".states]")
         }
         "restore-location" => match spot {
-            Spot::State(name) => draft.restore_phase(name, scaffold),
-            Spot::Guard(phase, _) => {
-                if let Some(at) = draft.guards_line(phase) {
+            Spot::State(name) => draft.restore_state(name, scaffold),
+            Spot::Guard(state, _) => {
+                if let Some(at) = draft.guards_line(state) {
                     draft.lines.remove(at);
                 }
             }
@@ -452,12 +452,12 @@ fn apply(
             _ => {}
         },
         "straighten-branch" => {
-            let phase = match spot {
+            let state = match spot {
                 Spot::State(name) | Spot::Edge(name, _) => Some(name.as_str()),
                 _ => None,
             };
-            if let Some(phase) = phase {
-                draft.straighten_branch(phase);
+            if let Some(state) = state {
+                draft.straighten_branch(state);
             }
         }
         "break-cycle" => {
@@ -467,7 +467,7 @@ fn apply(
         }
         "drop-state" => {
             if let Spot::State(name) = spot {
-                draft.drop_phase(name);
+                draft.drop_state(name);
             }
         }
         "merge-initial" | "connect-terminal" => {
@@ -490,13 +490,13 @@ fn apply(
             }
         }
         "pin-command" => {
-            if let Spot::Guard(phase, index) = spot {
-                draft.exempt_guard(phase, *index);
+            if let Spot::Guard(state, index) = spot {
+                draft.exempt_guard(state, *index);
             }
         }
         "drop-guard" => {
-            if let Spot::Guard(phase, index) = spot {
-                draft.drop_guard(phase, *index);
+            if let Spot::Guard(state, index) = spot {
+                draft.drop_guard(state, *index);
             }
         }
         other => panic!("the drill does not implement the action {other:?}"),

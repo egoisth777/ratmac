@@ -337,10 +337,10 @@ fn the_whole_doctor_report_renders_paths_one_way() {
     );
 }
 
-/// A Machine Class whose phase name legitimately carries a backslash, so the
-/// report must quote it back exactly.  A phase key is an identifier, not a
+/// A Machine Class whose state name legitimately carries a backslash, so the
+/// report must quote it back exactly.  A state key is an identifier, not a
 /// path: a report that rewrote it could not be matched to the runbook.
-const BACKSLASH_PHASE: &str = "
+const BACKSLASH_STATE: &str = "
 [states.plan]
 prompt = \"Plan.\"
 
@@ -362,7 +362,7 @@ fn a_report_quotes_a_backslash_identifier_verbatim() {
     let sandbox = fresh_sandbox("identifier");
     let checkout = sandbox.root.join("plain");
     fs::create_dir_all(checkout.join(".ratmac")).expect("create Engine directory");
-    fs::write(checkout.join(".ratmac/ratmac.toml"), BACKSLASH_PHASE)
+    fs::write(checkout.join(".ratmac/ratmac.toml"), BACKSLASH_STATE)
         .expect("write backslash-identifier Machine Class");
 
     let doctor = rtm_at(&checkout, &["doctor"]);
@@ -370,7 +370,7 @@ fn a_report_quotes_a_backslash_identifier_verbatim() {
     assert!(
         report.contains("alpha\\\\beta"),
         "ENS-010: a report names a runbook identifier exactly as the runbook spells it, so a \
-         phase named `alpha\\beta` must appear with its backslash; report was:\n{report}"
+         state named `alpha\\beta` must appear with its backslash; report was:\n{report}"
     );
     assert!(
         !report.contains("alpha//beta"),
@@ -585,7 +585,7 @@ fn a_refusing_report_command_spells_its_path_one_way() {
     let sandbox = fresh_sandbox("residue");
     let checkout = sandbox.root.join("plain");
     write_machine_class(&checkout);
-    fs::write(checkout.join(".ratmac/state.toml"), "phase = \"plan\"\n")
+    fs::write(checkout.join(".ratmac/state.toml"), "state = \"plan\"\n")
         .expect("plant pre-split Engine residue");
 
     for args in [vec!["doctor"], vec!["status", "--run", "run-001"]] {
@@ -624,7 +624,7 @@ to = "done"
 
 /// ENSV-011: the renderer spells paths the Engine resolved; it never rewrites
 /// the runbook's own words.  A guard field is authored text quoted back at its
-/// author, like a phase name, so a report that "fixed" its separator would
+/// author, like a state name, so a report that "fixed" its separator would
 /// send that author grepping for a line that is not in their file (R-028).
 #[test]
 fn an_authored_guard_path_is_quoted_as_the_runbook_spells_it() {

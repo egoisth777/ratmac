@@ -7,6 +7,7 @@
 pub mod archive;
 pub mod json;
 pub mod policy;
+pub mod rebrand;
 pub mod role;
 pub mod snapshot;
 pub mod tempgit;
@@ -27,12 +28,12 @@ mod tests {
     }
 
     #[test]
-    fn test_machine_state_is_phase_only() {
+    fn test_machine_state_is_state_only() {
         let fixture = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../fixtures/phase-only-class/ratmac.toml"
+            "/../fixtures/state-only-class/ratmac.toml"
         ));
-        let document: toml::Value = fixture.parse().expect("phase-only fixture is valid TOML");
+        let document: toml::Value = fixture.parse().expect("state-only fixture is valid TOML");
         let states = document
             .get("states")
             .and_then(toml::Value::as_table)
@@ -42,7 +43,7 @@ mod tests {
             .and_then(toml::Value::as_array)
             .expect("fixture declares transitions");
 
-        let declared_phases: Vec<_> = states.keys().map(State::new).collect();
+        let declared_states: Vec<_> = states.keys().map(State::new).collect();
         let declared_transitions: Vec<_> = transitions
             .iter()
             .map(|transition| {
@@ -51,16 +52,16 @@ mod tests {
                     table
                         .get("from")
                         .and_then(toml::Value::as_str)
-                        .expect("transition has a source phase"),
+                        .expect("transition has a source state"),
                     table
                         .get("to")
                         .and_then(toml::Value::as_str)
-                        .expect("transition has a target phase"),
+                        .expect("transition has a target state"),
                 )
             })
             .collect();
 
-        let graph = MachineGraph::new(declared_phases, declared_transitions);
+        let graph = MachineGraph::new(declared_states, declared_transitions);
         assert_eq!(graph.states().count(), 3);
         assert_eq!(graph.transitions().count(), 2);
 
@@ -94,15 +95,15 @@ mod tests {
     const STATUS_VALUES: [&str; 5] = ["planned", "executing", "blocked", "passed", "failed"];
 
     #[test]
-    fn test_status_is_phase_local_lifecycle_enum() {
+    fn test_status_is_state_local_lifecycle_enum() {
         let fixture = include_str!("../../fixtures/status-lifecycle/run.toml");
-        let phase_name = fixture
+        let state_name = fixture
             .lines()
             .find_map(|line| {
                 line.strip_prefix("state = ")
                     .map(|value| value.trim_matches('"'))
             })
-            .expect("status fixture must declare a phase");
+            .expect("status fixture must declare a state");
         let configured_status = fixture
             .lines()
             .find_map(|line| {
@@ -115,16 +116,16 @@ mod tests {
             vec![State::new("build"), State::new("verify")],
             vec![Transition::new("build", "verify")],
         );
-        let expected_transition = graph.next_state(State::new(phase_name));
+        let expected_transition = graph.next_state(State::new(state_name));
         assert_eq!(configured_status, "planned");
 
         for raw_status in STATUS_VALUES {
             let status = Status::from_str(raw_status).unwrap_or_else(|error| {
                 panic!("{raw_status:?} must be a valid lifecycle status: {error}")
             });
-            let run = Run::new(State::new(phase_name), status);
+            let run = Run::new(State::new(state_name), status);
 
-            assert_eq!(run.state(), &State::new(phase_name));
+            assert_eq!(run.state(), &State::new(state_name));
             assert_eq!(run.status().to_string(), raw_status);
             assert_eq!(
                 graph.next_state(run.state().clone()),
@@ -160,7 +161,7 @@ mod tests {
             "status-dimension parse errors must identify the offending key: {message}"
         );
 
-        let phase_transition_class = r#"
+        let state_transition_class = r#"
             [states.prepare]
             prompt = "Prepare the inputs."
 
@@ -171,8 +172,8 @@ mod tests {
             from = "prepare"
             to = "done"
         "#;
-        let class = MachineClass::from_toml(phase_transition_class)
-            .expect("phase/transition-only Machine Classes must be accepted");
+        let class = MachineClass::from_toml(state_transition_class)
+            .expect("state/transition-only Machine Classes must be accepted");
 
         assert_eq!(class.states().len(), 2);
         assert_eq!(class.transitions().len(), 1);
@@ -275,7 +276,7 @@ mod tests {
         assert_eq!(before, after, "start must preserve class bytes exactly");
         let text = String::from_utf8(after).expect("ratmac.toml remains UTF-8");
         for key in [
-            "phase =",
+            "state =",
             "status =",
             "goal_revision =",
             "input_revision =",
@@ -349,7 +350,7 @@ mod t006 {
             !scheduler
                 .machine()
                 .states()
-                .any(|phase| phase == &State::new("blocked")),
+                .any(|state| state == &State::new("blocked")),
             "blocked must not become a machine-graph node"
         );
 
@@ -551,7 +552,7 @@ mod t007_state_file {
     }
 
     #[test]
-    fn test_status_prints_phase_status_blocker_and_pending_guards() {
+    fn test_status_prints_state_status_blocker_and_pending_guards() {
         let project = IsolatedProject::new();
         install_machine_class(&project);
         let mut scheduler = scheduler_with_fixture_state(&project, VALID_STATE);
@@ -752,7 +753,7 @@ mod t005 {
     //!
     //! The parser API exercised here is intentionally small: `MachineClass::from_toml`
     //! returns a `Result`, while `states()` and `transitions()` expose the accepted
-    //! graph. Product code is owned by a later build phase; these tests are the P4
+    //! graph. Product code is owned by a later build state; these tests are the P4
     //! proof boundary for R-011.
 
     use ratmac::machine::MachineClass;
@@ -879,15 +880,15 @@ prompt = "Prepare"
 from = "prepare"
 to = "missing"
 "#;
-        let empty_phase = "[states.\"\"]\nprompt = \"Empty\"\n";
-        let whitespace_phase = "[states.\"   \"]\nprompt = \"Whitespace\"\n";
+        let empty_state = "[states.\"\"]\nprompt = \"Empty\"\n";
+        let whitespace_state = "[states.\"   \"]\nprompt = \"Whitespace\"\n";
         assert!(MachineClass::from_toml(empty).is_err());
         assert!(MachineClass::from_toml(undeclared)
             .expect_err("undeclared transition endpoint must fail")
             .to_string()
             .contains("undeclared"));
-        assert!(MachineClass::from_toml(empty_phase).is_err());
-        assert!(MachineClass::from_toml(whitespace_phase).is_err());
+        assert!(MachineClass::from_toml(empty_state).is_err());
+        assert!(MachineClass::from_toml(whitespace_state).is_err());
     }
 
     fn revalidation_project() -> PathBuf {

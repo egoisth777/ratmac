@@ -9,7 +9,7 @@ authority.
 and `completion_gate` each require a literal `ticket` field, and the runbook is read-only at runtime with no
 interpolation. Four candidates, recorded for P1 to choose between rather than settled here:
 
-- **(a) Coarse loop.** The P4/P5 loop becomes one Phase whose exit guard is `record_contract`, which names
+- **(a) Coarse loop.** The P4/P5 loop becomes one State whose exit guard is `record_contract`, which names
   no ticket. **Rejected at review:** `record_contract` checks planning-record shape only - one residual per
   requirement, evidence behind `satisfied`, one owning ticket per gap, acyclic dependencies, complete
   sections. It checks no receipt. Choosing it silently drops the per-ticket guarantees `PGE-003` and
@@ -17,14 +17,14 @@ interpolation. Four candidates, recorded for P1 to choose between rather than se
 - **(b) Run per ticket.** `rtm start` once per ticket; the runbook names that ticket. Keeps the gates,
   but makes the runbook a per-ticket artifact and multiplies Runs, and the cycle's own P1-P3 stages then sit
   outside any Run.
-- **(c) Bind the gate target from `active_refs`.** The State File already carries `active_refs` as one of
+- **(c) Bind the gate target from `active_refs`.** The Run Record already carries `active_refs` as one of
   its seven Scheduler-written fields (R-025, ADR-0008), and the fixtures show its intended content is
   exactly this - `["ticket-r020"]`, `["R-025", "T-07", "T-15"]`. `Scheduler::step` loads the state before it
   calls `guard_failures`, so the active refs are already in scope one call above the guard dispatch. The
   runbook then declares the *role* ("the active ticket") instead of an id, an explicit `rtm` input sets the
   active ref, and no ticket id ever enters the file. This adds no dimension to the machine graph:
-  `ADR-0001` fixes what transitions may branch on - Phase, never `status` - and the State File already
-  holds six fields besides `phase`. **Cheapest of the three that keep the gates.**
+  `ADR-0001` fixes what transitions may branch on - State, never `status` - and the Run Record already
+  holds six fields besides `state`. **Cheapest of the three that keep the gates.**
 - **(d) New machine state plus field interpolation in the runbook format.** Rejected: it makes the runbook
   a template language and reopens `R-013`.
 
@@ -60,7 +60,7 @@ So the cycle needs two predicates with different clocks and different owners:
   of whatever writes the evidence, which is the hole two corrections above. The machine-owned signal is the
   Scheduler's own successful transition: `Scheduler::step` runs the guards, writes `.arca/state.toml`, then
   appends one history line, rolling both back together if the append fails, so the two never disagree. A
-  ticket is complete when the Engine recorded that it left the P5 Phase with that ticket active - or when
+  ticket is complete when the Engine recorded that it left the P5 State with that ticket active - or when
   the ticket took an authorized archive move, the alternative `PCR-003` already offers.
 
   **This needs one small engine change, and P1 should scope it.** The appended line is exactly
@@ -79,7 +79,7 @@ read a step nobody wrote down. Either the rules gain that step explicitly, or re
 gap-check-only judgment and ticket completion carries its own evidence - the second is what the two
 predicates above assume, and it is the reason they are two.
 
-**2. The landing append (`PCR-004`).** With a Run live, `.arca/log.md` belongs to `rtm`, and no Phase
+**2. The landing append (`PCR-004`).** With a Run live, `.arca/log.md` belongs to `rtm`, and no State
 Prompt may instruct an agent to write it (`RB401`). Smallest resolution: one `rtm` command that takes the
 line's content and performs the Scheduler-owned append, so the prompt says "record the landing" and names a
 command instead of a path. Alternative recorded for P1: declare `.arca/log.md` agent-writable and drop it
@@ -94,7 +94,7 @@ place and derive "open" from evidence: a ticket is open while any residual it ow
 matches the issue rule and keeps the directory small. P1 picks one - the requirement is that a guard, not a
 reader, can tell the difference.
 
-**4. Write the Plan-Build Runbook (`PCR-001`, `PCR-002`, `PCR-005`).** Phases follow the working rules already
+**4. Write the Plan-Build Runbook (`PCR-001`, `PCR-002`, `PCR-005`).** States follow the working rules already
 written down: intake and integration (P1), freeze and gap check (P2), cut tickets (P3), tests-first (P4),
 implementation and close (P5), with the loop edge from P5 back to P4 while tickets remain and the exit edge
 to a rest state when the gap check comes back clean. Guards are the ones that already exist -
@@ -104,7 +104,7 @@ whether the closed guard vocabulary is sufficient. Where it is not, the finding 
 not a widening of scope here. `rtm status` then answers the stage question, and `.arca/index.md`'s lookup
 table is demoted to the no-Run fallback it already claims to be.
 
-**Open: Run lifetime.** Whether the cycle Run is perpetual (started once, a rest Phase between sprints, a
+**Open: Run lifetime.** Whether the cycle Run is perpetual (started once, a rest State between sprints, a
 permanent `.arca/state.toml`) or per-sprint (`rtm start` at P1, finished at the clean gap check) is
 undecided and decides `PCR-002`'s reach: only the perpetual shape lets `rtm status` answer between sprints
 and so actually retires the second oracle. Recorded as an open decision, not assumed.

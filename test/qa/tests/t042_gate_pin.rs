@@ -221,7 +221,7 @@ fn tamper_refuses_and_restore_proceeds() {
         // must restore the lifecycle value it edits past, or the terminal
         // refusal correctly fires before the pin under test.
         .replace("status = \"passed\"", "status = \"planned\"");
-    fs::write(&state_path, rewound).expect("rewind run to the guarded phase");
+    fs::write(&state_path, rewound).expect("rewind run to the guarded state");
 
     let mut tampered = pristine.clone();
     tampered.extend_from_slice(b"tampered");
@@ -429,7 +429,7 @@ fn pin_refusal_carries_identity_and_diagnostic_framing() {
         .replace("state = \"done\"", "state = \"prepare\"")
         // FDC-002: restore the lifecycle value the rewind edits past.
         .replace("status = \"passed\"", "status = \"planned\"");
-    fs::write(&state_path, rewound).expect("rewind run to the guarded phase");
+    fs::write(&state_path, rewound).expect("rewind run to the guarded state");
     let mut bytes = fs::read(&gate).expect("read gate");
     bytes.extend_from_slice(b"x");
     fs::write(&gate, bytes).expect("tamper");
