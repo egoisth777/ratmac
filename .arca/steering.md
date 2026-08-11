@@ -98,13 +98,13 @@ they select nothing.
    owns or consumes (the runbook, the runs roster, the locks, the receipts) now
    live under the engine-named root `.ratmac/`, and the arca folder roots the
    contract guards read became runbook data, retiring most of the
-   hard-coded-path debt (R-016). Exit - one owner per root - is reached except
-   for the roots-table ticket `t-076`, which is held: two of its rows
-   contradict the rules that mechanize them, and the ruling waits in
-   `i-026-namespace-row-rulings`. Entry for finishing it: a human rules where a
-   held ticket's fact lives and who may name a retired folder in Engine source.
-   Until then `src/` still carries one declared `.arca` exception and the gap
-   records `res-106` and `res-113` stay unproven.
+   hard-coded-path debt (R-016). Exit - one owner per root - is reached: Billy
+   ruled on 2026-08-10 (`NRR-001`, `NRR-002`) that the Engine has no work-item
+   concept and that one retired folder name may be declared once in Engine
+   source under its own owner, the roots-table ticket `t-076` landed, `t-087`
+   removed the Engine's last write under a workflow root, and the gap records
+   `res-106` and `res-113` are proven. What `src/` still carries is that one
+   named, owned `.arca` exception - the residue detector's own literal.
 2. **The Plan-Build Runbook** - the cycle-as-runbook issue
    (`i-015-cycle-as-runbook`), waiting whole in the deferred buffer:
    self-hosting this repository's P1-P5 loop. Entry: routing, delivery,
