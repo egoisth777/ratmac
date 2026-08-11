@@ -26,9 +26,6 @@ test/qa/fixtures/rebrand-audit/allowlist.tsv	both	The audit manifest necessarily
 .arca/issue/archive/**	phase	Archived issue bundles are frozen provenance, including the cutover issue that retires the word.
 .arca/residual/archive/**	phase	Archived gap records are frozen provenance.
 .arca/residual/manifest/**	phase	Snapshot manifests list the tracked paths as they were named that day.
-.arca/residual/res-118.md	phase	The record quotes the pre-cutover evidence it was written against.
-.arca/residual/res-119.md	phase	The record quotes the pre-cutover evidence it was written against.
-.arca/residual/res-120.md	phase	The record quotes the pre-cutover evidence it was written against.
 .arca/research/**	phase	Frozen research notes predate the cutover.
 .arca/goal/design.md	phase	Frozen goal bundle: the cutover decision names the spelling it supersedes.
 .arca/goal/spec.md	phase	Frozen goal bundle: the cutover requirements name the spelling they supersede.
