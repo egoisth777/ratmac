@@ -20,9 +20,14 @@ use crate::state::{StateError, StatePrompt, StateStore, StateWriteOutcome, Statu
 
 static ROLLBACK_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
-/// The single declared exception to the ENS-008 literal audit: this legacy
-/// workflow directory exists only for the ENS-009 pre-split residue check;
-/// t-077 owns retiring it.
+/// The single declared exception to the ENS-008 literal audit (NRR-002): the
+/// retired pre-split workflow folder, spelled here once so the residue check
+/// can look for it. Every other address in the Engine is a declared root.
+///
+/// owner: the ENS-009 pre-split residue refusal in `open_run` below. This
+/// declaration lives exactly as long as that refusal does - no cleanup ticket
+/// is coming for it - and a second spelling of the folder anywhere in `src/`
+/// is a defect the NRRV-003 scan fails on by name.
 const LEGACY_WORKFLOW_DIR: &str = ".arca";
 
 pub(crate) fn legacy_workflow_dir() -> &'static str {

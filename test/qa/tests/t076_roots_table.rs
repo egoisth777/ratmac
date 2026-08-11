@@ -17,6 +17,10 @@ use std::process::{Command, Output};
 const LEGACY_WORKFLOW_LITERAL: &[u8] = b".arca";
 const LEGACY_WORKFLOW_EXCEPTION_PATH: &str = "scheduler.rs";
 const LEGACY_WORKFLOW_EXCEPTION_DECLARATION: &str = r#"const LEGACY_WORKFLOW_DIR: &str = ".arca";"#;
+/// NRR-002: the exception is permanent for as long as `ENS-009` stands, so the
+/// declaration must say who owns it. This is the clause the scan requires in
+/// the doc comment directly above the declaration.
+const LEGACY_WORKFLOW_EXCEPTION_OWNER: &str = "owner: the ENS-009 pre-split residue refusal";
 
 struct Fixture {
     repo: TempRepo,
@@ -168,52 +172,121 @@ fn collect_source_files(directory: &Path, files: &mut Vec<PathBuf>) {
     }
 }
 
-fn assert_legacy_workflow_literal_exception() {
-    let source =
-        fs::canonicalize(repo_root().join("src")).expect("canonicalize Engine source directory");
+/// Which clause of NRR-002 a source tree breaks. Each variant is a separate
+/// sentence in the requirement, so the scan names the one it caught.
+#[derive(Debug, Eq, PartialEq)]
+enum ExceptionDefect {
+    /// More than one literal, or none at all.
+    LiteralCount(Vec<(String, usize, String)>),
+    /// The one literal moved out of the file the exception names.
+    WrongFile { path: String, line: usize },
+    /// The declaration itself was renamed or reshaped.
+    Renamed {
+        path: String,
+        line: usize,
+        found: String,
+    },
+    /// The declaration no longer says who owns it.
+    OwnerClauseMissing { path: String, line: usize },
+}
+
+impl ExceptionDefect {
+    fn clause(&self) -> &'static str {
+        match self {
+            Self::LiteralCount(_) => "exactly one literal",
+            Self::WrongFile { .. } => "the named file",
+            Self::Renamed { .. } => "the named declaration",
+            Self::OwnerClauseMissing { .. } => "the owner clause",
+        }
+    }
+}
+
+/// NRRV-003: the whole rule, applied to any source tree, so the same code that
+/// judges the shipped Engine can judge a deliberately damaged copy of it.
+fn scan_legacy_workflow_exception(source: &Path) -> Result<(), ExceptionDefect> {
     let mut files = Vec::new();
-    collect_source_files(&source, &mut files);
+    collect_source_files(source, &mut files);
     files.sort();
 
-    let mut occurrences = Vec::new();
+    let mut occurrences: Vec<(String, usize, String, Vec<String>)> = Vec::new();
     for path in files {
         let relative = path
-            .strip_prefix(&source)
-            .expect("Engine source file remains under src")
+            .strip_prefix(source)
+            .expect("Engine source file remains under the scanned root")
             .to_string_lossy()
             .replace('\\', "/");
         let text = fs::read_to_string(&path).expect("read Engine source file");
-        for (index, line) in text.lines().enumerate() {
+        let lines: Vec<&str> = text.lines().collect();
+        for (index, line) in lines.iter().enumerate() {
             let count = line
                 .as_bytes()
                 .windows(LEGACY_WORKFLOW_LITERAL.len())
                 .filter(|window| *window == LEGACY_WORKFLOW_LITERAL)
                 .count();
+            if count == 0 {
+                continue;
+            }
+            // The doc comment directly above the declaration, nearest line first.
+            let mut comment = Vec::new();
+            for above in lines[..index].iter().rev() {
+                let trimmed = above.trim_start();
+                if trimmed.starts_with("///") || trimmed.starts_with("//") {
+                    comment.push(trimmed.to_owned());
+                } else if trimmed.is_empty() && comment.is_empty() {
+                    continue;
+                } else {
+                    break;
+                }
+            }
             for _ in 0..count {
-                occurrences.push((relative.clone(), index + 1, line.to_owned()));
+                occurrences.push((
+                    relative.clone(),
+                    index + 1,
+                    (*line).to_owned(),
+                    comment.clone(),
+                ));
             }
         }
     }
 
-    assert_eq!(
-        occurrences.len(),
-        1,
-        "the source audit permits exactly one ENS-009 legacy-literal exception; \
-         a second literal is forbidden and a missing literal means its named exception vanished: \
-         {occurrences:?}"
-    );
-    let (path, line, declaration) = occurrences
-        .pop()
-        .expect("the exact named exception is required");
-    assert_eq!(
-        path, LEGACY_WORKFLOW_EXCEPTION_PATH,
-        "the sole legacy literal must stay in the named exception source line {line}: {declaration}"
-    );
-    assert_eq!(
-        declaration.trim(),
-        LEGACY_WORKFLOW_EXCEPTION_DECLARATION,
-        "the sole legacy literal must be the named exception declaration at {path}:{line}"
-    );
+    if occurrences.len() != 1 {
+        return Err(ExceptionDefect::LiteralCount(
+            occurrences
+                .into_iter()
+                .map(|(path, line, text, _)| (path, line, text))
+                .collect(),
+        ));
+    }
+    let (path, line, declaration, comment) = occurrences.pop().expect("one occurrence remains");
+    if path != LEGACY_WORKFLOW_EXCEPTION_PATH {
+        return Err(ExceptionDefect::WrongFile { path, line });
+    }
+    if declaration.trim() != LEGACY_WORKFLOW_EXCEPTION_DECLARATION {
+        return Err(ExceptionDefect::Renamed {
+            path,
+            line,
+            found: declaration.trim().to_owned(),
+        });
+    }
+    if !comment
+        .iter()
+        .any(|entry| entry.contains(LEGACY_WORKFLOW_EXCEPTION_OWNER))
+    {
+        return Err(ExceptionDefect::OwnerClauseMissing { path, line });
+    }
+    Ok(())
+}
+
+fn assert_legacy_workflow_literal_exception() {
+    let source =
+        fs::canonicalize(repo_root().join("src")).expect("canonicalize Engine source directory");
+    if let Err(defect) = scan_legacy_workflow_exception(&source) {
+        panic!(
+            "the shipped Engine source must satisfy the one named ENS-009 exception; \
+             {} is broken: {defect:?}",
+            defect.clause()
+        );
+    }
 }
 
 /// ENSV-009: a declared root routes its guard below that repository-relative
@@ -272,4 +345,105 @@ fn roots_table_validates_named_paths_with_distinct_diagnostics() {
     );
 
     assert_legacy_workflow_literal_exception();
+}
+
+/// Copy a source tree into a fresh temporary directory so a mutation can be
+/// made against real Engine source without touching the repository.
+fn copy_source_tree(source: &Path, destination: &Path) {
+    fs::create_dir_all(destination).expect("create mutated source directory");
+    for entry in fs::read_dir(source).expect("read source directory") {
+        let entry = entry.expect("read source entry");
+        let target = destination.join(entry.file_name());
+        let metadata = fs::symlink_metadata(entry.path()).expect("read source metadata");
+        if metadata.is_dir() {
+            copy_source_tree(&entry.path(), &target);
+        } else if metadata.is_file() {
+            fs::copy(entry.path(), &target).expect("copy source file");
+        }
+    }
+}
+
+fn mutated_source(label: &str, mutate: impl Fn(&Path)) -> PathBuf {
+    let root = std::env::temp_dir().join(format!(
+        "ratmac-nrrv003-{label}-{}-{:?}",
+        std::process::id(),
+        std::thread::current().id()
+    ));
+    if root.exists() {
+        fs::remove_dir_all(&root).expect("clear mutated source directory");
+    }
+    let source =
+        fs::canonicalize(repo_root().join("src")).expect("canonicalize Engine source directory");
+    copy_source_tree(&source, &root);
+    mutate(&root);
+    root
+}
+
+/// NRRV-003: Engine source names the retired pre-split folder exactly once, in
+/// one declaration that carries its own name and owner, and the check that
+/// proves it fails on a second literal, on a rename, and on a lost owner.
+#[test]
+fn source_scan_pins_the_one_named_legacy_exception() {
+    let shipped =
+        fs::canonicalize(repo_root().join("src")).expect("canonicalize Engine source directory");
+    assert_eq!(
+        scan_legacy_workflow_exception(&shipped),
+        Ok(()),
+        "the shipped Engine source must carry the one named exception, owner clause included"
+    );
+
+    let second_literal = mutated_source("second-literal", |root| {
+        let path = root.join("root.rs");
+        let mut text = fs::read_to_string(&path).expect("read the file that gains a literal");
+        text.push_str("\nconst SNEAKED_BACK: &str = \".arca/ticket\";\n");
+        fs::write(&path, text).expect("write the second literal");
+    });
+    let defect = scan_legacy_workflow_exception(&second_literal)
+        .expect_err("a second literal must fail the scan");
+    assert_eq!(
+        defect.clause(),
+        "exactly one literal",
+        "a second literal must be reported as the count clause: {defect:?}"
+    );
+    fs::remove_dir_all(&second_literal).expect("clear the second-literal tree");
+
+    let renamed = mutated_source("renamed", |root| {
+        let path = root.join(LEGACY_WORKFLOW_EXCEPTION_PATH);
+        let text = fs::read_to_string(&path).expect("read the declaration file");
+        let renamed = text.replace("LEGACY_WORKFLOW_DIR", "OLD_WORKFLOW_DIR");
+        assert_ne!(renamed, text, "the rename must change the declaration");
+        fs::write(&path, renamed).expect("write the renamed declaration");
+    });
+    let defect =
+        scan_legacy_workflow_exception(&renamed).expect_err("a renamed declaration must fail");
+    assert_eq!(
+        defect.clause(),
+        "the named declaration",
+        "a rename must be reported as the declaration clause: {defect:?}"
+    );
+    fs::remove_dir_all(&renamed).expect("clear the renamed tree");
+
+    let ownerless = mutated_source("ownerless", |root| {
+        let path = root.join(LEGACY_WORKFLOW_EXCEPTION_PATH);
+        let text = fs::read_to_string(&path).expect("read the declaration file");
+        let stripped: Vec<&str> = text
+            .lines()
+            .filter(|line| !line.contains(LEGACY_WORKFLOW_EXCEPTION_OWNER))
+            .collect();
+        assert_ne!(
+            stripped.len(),
+            text.lines().count(),
+            "the owner clause must exist before it can be deleted"
+        );
+        fs::write(&path, format!("{}\n", stripped.join("\n")))
+            .expect("write the ownerless declaration");
+    });
+    let defect =
+        scan_legacy_workflow_exception(&ownerless).expect_err("a lost owner clause must fail");
+    assert_eq!(
+        defect.clause(),
+        "the owner clause",
+        "a deleted owner clause must be reported as the owner clause: {defect:?}"
+    );
+    fs::remove_dir_all(&ownerless).expect("clear the ownerless tree");
 }
