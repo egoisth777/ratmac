@@ -18,6 +18,7 @@ macro_rules! engine_bin {
 }
 
 pub mod archive;
+pub mod baseline;
 pub mod json;
 pub mod policy;
 pub mod rebrand;

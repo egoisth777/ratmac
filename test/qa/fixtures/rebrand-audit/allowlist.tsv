@@ -50,3 +50,5 @@ test/qa/tests/t084_state_audit.rs	phase	The audit lane plants and hunts the reti
 test/qa/fixtures/rebrand-audit/allowlist.tsv	phase	The audit manifest necessarily spells the token it hunts.
 test/qa/tests/t057_deep_doctor.rs	phase	The RB111 seed must plant the pre-cutover table the doctor refuses.
 test/qa/tests/t058_authoring_loop.rs	phase	The RB111 seed must plant the pre-cutover table the repair renames.
+test/qa/src/baseline.rs	phase	The before-and-after comparison must spell both sides of the rename to translate between them.
+test/qa/tests/t085_rename_is_behavior_free.rs	phase	The regression proof names the position the pre-cutover runbook declared.
