@@ -60,7 +60,7 @@ pub fn help(command: impl AsRef<str>) -> &'static str {
             "Usage: rtm step --run <id> [--help]\n\nAdvance exactly the named Run. Run addressing is always required; a missing --run refuses and prints the roster. Only the Main-Agent or a human invokes rtm step. Subagents only read state and never invoke rtm.\n"
         }
         "hold" => {
-            "Usage: rtm hold <ticket-id> --run <id> --blocker <issue folder or residual> --confirm \"hold <ticket-id>\"\n\nA human confirms holding an executing ticket that is blocked for an out-of-scope reason. The named Run then routes along the Runbook's blocked route while the ticket stays not-passed and its residuals unproven. The confirmation phrase is typed at invocation; it is never read from a file.\n"
+            "Usage: rtm hold --run <id> --blocker <reference beneath a declared root> --confirm \"hold <id>\"\n\nA human confirms pausing a Run that is blocked for an out-of-scope reason. The Run Record records the pause and its blocker reference, and the named Run routes along the Runbook's blocked route; it stays not-passed until a human resumes it. The blocker is an opaque reference: rtm checks that it exists beneath a declared root and judges nothing else about it. The confirmation phrase is typed at invocation; it is never read from a file.\n"
         }
         "abandon" => {
             "Usage: rtm abandon --run <id> --confirm \"abandon <run id>\"\n\nA human retires a broken Run: rtm records a terminal abandoned event, then retires the admission state, the Run evidence, and the lock so a fresh Run can start. The confirmation phrase names the addressed run id (FDC-007), is typed at invocation, and is never read from a file. Retiring only a leftover lock - no live run anywhere - omits --run and confirms with \"abandon <project directory name>\". No bypass flag exists - a stale lock is retired through this path.\n"
@@ -302,7 +302,6 @@ fn status<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Res
 /// Every condition is checked before the first write, so a refusal leaves
 /// Scheduler-owned files byte-identical.
 fn hold<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Result<(), CliError> {
-    let mut ticket = String::new();
     let mut blocker: Option<String> = None;
     let mut confirmation: Option<String> = None;
     let mut run: Option<String> = None;
@@ -330,7 +329,7 @@ fn hold<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Resul
                         .cloned()
                         .ok_or_else(|| {
                             CliError::new(
-                                "hold: --blocker needs an issue folder or residual record",
+                                "hold: --blocker needs a reference beneath a declared root",
                             )
                         })?,
                 );
@@ -347,13 +346,6 @@ fn hold<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Resul
                 );
                 index += 2;
             }
-            other if other.starts_with("--") => {
-                return Err(CliError::new(format!("hold: unsupported option {other}")))
-            }
-            other if ticket.is_empty() => {
-                ticket = other.to_owned();
-                index += 1;
-            }
             other => {
                 return Err(CliError::new(format!(
                     "hold: unexpected extra argument {other}"
@@ -363,7 +355,6 @@ fn hold<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Resul
     }
 
     let request = crate::blocked::HoldRequest {
-        ticket,
         blocker,
         confirmation,
         run,
@@ -374,15 +365,15 @@ fn hold<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Resul
         .map_err(|refusal| CliError::new(format!("hold refused; {refusal}")))?;
     writeln!(
         writer,
-        "rtm: ticket {} held against {}; Run routed {} -> {}",
-        plan.ticket(),
+        "rtm: run {} paused against {}; routed {} -> {}",
+        plan.run_id(),
         plan.blocker(),
         plan.source_state(),
         plan.to_state()
     )?;
     writeln!(
         writer,
-        "The ticket is not passed and its residuals stay unproven."
+        "The Run is not passed; a human resumes it when the blocker clears."
     )?;
     Ok(())
 }

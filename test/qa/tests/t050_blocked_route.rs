@@ -6,17 +6,21 @@
 //! HT-048-02 `held_ticket_cannot_be_passed`
 //! HT-048-03 `interrupted_hold_leaves_no_half_route`
 //!
-//! An honestly blocked ticket gets an honest exit: a human holds it against a
-//! linked blocker record, the Run routes onward, and the ticket stays
-//! not-passed with its residuals unproven. Everything else refuses without
-//! touching Scheduler-owned files.
+//! An honestly blocked Run gets an honest exit: a human pauses it against a
+//! blocker reference, the Run Record carries the pause, and the Run routes
+//! onward while nothing it was working on is passed. Everything else refuses
+//! without touching Scheduler-owned files.
+//!
+//! NRR-001: the pause lives in Engine-owned state. The shop's own documents -
+//! this fixture's ticket and residual - must come through every hold
+//! byte-identical.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
-const TICKET: &str = "t-900";
+
 const BLOCKER: &str = ".arca/issue/i-777-blocker";
 
 struct Fixture {
@@ -65,7 +69,9 @@ impl Fixture {
         fs::write(
             root.join(".ratmac/ratmac.toml"),
             "[roots]\n\
-             ticket = \".arca/ticket\"\n\n\
+             ticket = \".arca/ticket\"\n\
+             issue = \".arca/issue\"\n\
+             residual = \".arca/residual\"\n\n\
              [states.intake]\nprompt = \"Integrate the issues.\"\n\n\
              [states.build]\nprompt = \"Build the ticket.\"\n\n\
              [states.build-review]\nprompt = \"Review the ticket.\"\n\n\
@@ -175,13 +181,43 @@ impl Fixture {
         .collect()
     }
 
+    /// NRR-001: a hold addresses a Run and nothing else. Unless the caller
+    /// supplies its own `--confirm`, the correct phrase is used.
     fn hold(&self, args: &[&str]) -> Output {
         // FDC-004: hold acts on an existing Run — always addressed.
-        let mut all = vec!["hold"];
-        all.extend_from_slice(args);
-        all.push("--run");
-        all.push(&self.run_id);
-        self.rtm(&all)
+        let mut all: Vec<String> = vec!["hold".to_owned(), "--run".to_owned(), self.run_id.clone()];
+        all.extend(args.iter().map(|argument| (*argument).to_owned()));
+        if !args.contains(&"--confirm") {
+            all.push("--confirm".to_owned());
+            all.push(self.confirmation());
+        }
+        let borrowed: Vec<&str> = all.iter().map(String::as_str).collect();
+        self.rtm(&borrowed)
+    }
+
+    /// The exact phrase a human must type to pause this Run.
+    fn confirmation(&self) -> String {
+        format!("hold {}", self.run_id)
+    }
+
+    /// The Run's lifecycle status, where the pause now lives.
+    fn status(&self) -> String {
+        let record = fs::read_to_string(self.record_path()).expect("read the Run Record");
+        record
+            .lines()
+            .find_map(|line| line.trim().strip_prefix("status = "))
+            .map(|value| value.trim().trim_matches('"').to_owned())
+            .expect("the Run Record records a status")
+    }
+
+    /// The blocker reference the Engine recorded, if any.
+    fn blocker(&self) -> String {
+        let record = fs::read_to_string(self.record_path()).expect("read the Run Record");
+        record
+            .lines()
+            .find_map(|line| line.trim().strip_prefix("blocker = "))
+            .map(|value| value.trim().trim_matches('"').to_owned())
+            .expect("the Run Record records a blocker field")
     }
 
     fn hold_text(&self, args: &[&str]) -> String {
@@ -237,12 +273,14 @@ fn wait_for_file(path: &Path, timeout: Duration) -> bool {
     }
 }
 
-/// PT-048-01: an authorized, linked hold routes the Run onward.
+/// PT-048-01: an authorized, linked hold routes the Run onward and records
+/// the whole pause in Engine-owned state.
 #[test]
 fn held_with_blocker_routes_onward() {
     let fixture = Fixture::new("routes");
     let log_before = fs::read_to_string(fixture.root.join(".ratmac/log.md")).expect("read log");
-    let output = fixture.hold(&[TICKET, "--blocker", BLOCKER, "--confirm", "hold t-900"]);
+    let ticket_before = fixture.ticket();
+    let output = fixture.hold(&["--blocker", BLOCKER]);
     assert!(
         output.status.success(),
         "an authorized hold succeeds: {}",
@@ -254,14 +292,20 @@ fn held_with_blocker_routes_onward() {
         "intake",
         "the Run routes to the declared blocked-route destination"
     );
-    let ticket = fixture.ticket();
-    assert!(
-        ticket.contains("status: \"held\""),
-        "the ticket is held, not passed: {ticket}"
+    assert_eq!(
+        fixture.status(),
+        "blocked",
+        "NRR-001: the Run Record carries the paused mark"
     );
-    assert!(
-        ticket.contains(&format!("blocker-ref: \"{BLOCKER}\"")),
-        "the ticket records what blocks it: {ticket}"
+    assert_eq!(
+        fixture.blocker(),
+        BLOCKER,
+        "the Run Record carries the blocker reference verbatim"
+    );
+    assert_eq!(
+        fixture.ticket(),
+        ticket_before,
+        "NRR-001: the shop's own document is byte-identical across the hold"
     );
     assert!(
         fixture.residual().contains("status: \"missing\""),
@@ -276,8 +320,10 @@ fn held_with_blocker_routes_onward() {
     );
     let appended = &log[log_before.len()..];
     assert!(
-        appended.contains(TICKET) && appended.contains(BLOCKER) && appended.contains("intake"),
-        "the log records the hold, its blocker, and where the Run routed: {appended}"
+        appended.contains(&fixture.run_id)
+            && appended.contains(BLOCKER)
+            && appended.contains("intake"),
+        "the log records the paused Run, its blocker, and where it routed: {appended}"
     );
 
     // The Run really is at intake: its prompt is the intake prompt.
@@ -295,15 +341,18 @@ fn unauthorized_or_unlinked_refuses() {
     // No confirmation phrase at all.
     let fixture = Fixture::new("unauthorized");
     let before = fixture.owned_bytes();
-    let refusal = fixture.hold_text(&[TICKET, "--blocker", BLOCKER]);
+    let ticket_before = fixture.ticket();
+    let refusal = fixture.hold_text(&["--blocker", BLOCKER, "--confirm", ""]);
     assert!(
         refusal.to_ascii_lowercase().contains("confirm"),
         "the refusal says the human authorization is missing: {refusal}"
     );
     assert_eq!(fixture.state(), "build", "the Run did not route");
-    assert!(
-        fixture.ticket().contains("status: \"executing\""),
-        "the ticket was not held"
+    assert_ne!(fixture.status(), "blocked", "the Run was not paused");
+    assert_eq!(
+        fixture.ticket(),
+        ticket_before,
+        "a refused hold touches no shop document"
     );
     assert_eq!(
         before,
@@ -311,10 +360,10 @@ fn unauthorized_or_unlinked_refuses() {
         "Scheduler-owned files are byte-identical across the refusal"
     );
 
-    // A confirmation phrase for a different ticket is not authorization.
-    let refusal = fixture.hold_text(&[TICKET, "--blocker", BLOCKER, "--confirm", "hold t-901"]);
+    // A confirmation phrase naming another Run is not authorization.
+    let refusal = fixture.hold_text(&["--blocker", BLOCKER, "--confirm", "hold run-999"]);
     assert!(
-        refusal.contains("hold t-900"),
+        refusal.contains(&fixture.confirmation()),
         "the refusal states the phrase it required: {refusal}"
     );
     assert_eq!(
@@ -326,7 +375,7 @@ fn unauthorized_or_unlinked_refuses() {
     // Authorized, but with no blocker link.
     let fixture = Fixture::new("unlinked");
     let before = fixture.owned_bytes();
-    let refusal = fixture.hold_text(&[TICKET, "--confirm", "hold t-900"]);
+    let refusal = fixture.hold_text(&[]);
     assert!(
         refusal.to_ascii_lowercase().contains("blocker"),
         "the refusal says the blocker link is missing: {refusal}"
@@ -339,27 +388,23 @@ fn unauthorized_or_unlinked_refuses() {
     );
 }
 
-/// HT-048-01 (Input/Routing): a blocker that does not resolve is named.
+/// HT-048-01 (Input/Routing): a blocker that does not resolve is named, and
+/// the Engine judges nothing else about what it points at.
 #[test]
 fn unresolvable_blocker_refuses() {
     let fixture = Fixture::new("missing-blocker");
     let before = fixture.owned_bytes();
 
-    let refusal = fixture.hold_text(&[
-        TICKET,
-        "--blocker",
-        ".arca/issue/i-404-gone",
-        "--confirm",
-        "hold t-900",
-    ]);
+    let refusal = fixture.hold_text(&["--blocker", ".arca/issue/i-404-gone"]);
     assert!(
         refusal.contains("i-404-gone"),
         "the refusal names the unresolvable blocker: {refusal}"
     );
     assert_eq!(before, fixture.owned_bytes(), "nothing was written");
 
-    // An issue folder that exists but is not a complete five-file record is
-    // not a blocker record either.
+    // NRR-001: the blocker is an opaque reference. A folder holding one file
+    // is no less a blocker than a fully-shaped record - the shape is the
+    // shop's rule, and the Engine never learns it.
     fs::create_dir_all(fixture.root.join(".arca/issue/i-778-partial"))
         .expect("create partial issue");
     fs::write(
@@ -367,34 +412,38 @@ fn unresolvable_blocker_refuses() {
         "# partial\n",
     )
     .expect("write partial issue");
-    let refusal = fixture.hold_text(&[
-        TICKET,
-        "--blocker",
-        ".arca/issue/i-778-partial",
-        "--confirm",
-        "hold t-900",
-    ]);
+    let ticket_before = fixture.ticket();
+    let accepted = fixture.hold_text(&["--blocker", ".arca/issue/i-778-partial"]);
     assert!(
-        refusal.contains("i-778-partial") && refusal.contains("spec.md"),
-        "the refusal names the incomplete record and what it lacks: {refusal}"
+        !accepted.to_ascii_lowercase().contains("refused"),
+        "an opaque reference inside a declared root is accepted: {accepted}"
+    );
+    assert_eq!(
+        fixture.blocker(),
+        ".arca/issue/i-778-partial",
+        "the Engine stores the reference it was given"
+    );
+    assert_eq!(
+        fixture.ticket(),
+        ticket_before,
+        "NRR-001: accepting a blocker writes no shop document"
     );
 
-    // A named residual is an acceptable blocker record.
-    let residual = fixture.hold_text(&[
-        TICKET,
-        "--blocker",
-        ".arca/residual/res-900.md",
-        "--confirm",
-        "hold t-900",
-    ]);
+    // A named residual file is just as acceptable a reference.
+    let residual_fixture = Fixture::new("residual-blocker");
+    let residual = residual_fixture.hold_text(&["--blocker", ".arca/residual/res-900.md"]);
     assert!(
         !residual.to_ascii_lowercase().contains("refused"),
-        "a named residual is a valid blocker record: {residual}"
+        "a named residual is a valid blocker reference: {residual}"
     );
-    assert_eq!(fixture.state(), "intake", "the authorized hold routed");
+    assert_eq!(
+        residual_fixture.state(),
+        "intake",
+        "the authorized hold routed"
+    );
 }
 
-/// PGE-006: blocker inspection never escapes the invoking project.
+/// PGE-006 / NRR-001: blocker inspection never escapes the declared roots.
 #[test]
 fn blocker_reference_must_stay_beneath_project_root() {
     let fixture = Fixture::new("confined-blocker");
@@ -422,15 +471,26 @@ fn blocker_reference_must_stay_beneath_project_root() {
     let absolute = outside.to_string_lossy().into_owned();
 
     for blocker in [&escaped, &absolute] {
-        let refusal = fixture.hold_text(&[TICKET, "--blocker", blocker, "--confirm", "hold t-900"]);
+        let refusal = fixture.hold_text(&["--blocker", blocker]);
         assert!(
-            refusal.contains("project root"),
-            "an external complete issue is rejected before inspection: {refusal}"
+            refusal.contains("declared root"),
+            "an external reference is rejected before inspection: {refusal}"
         );
     }
 
+    // A path inside the project but outside every declared root is refused
+    // for the same reason: containment is measured against the roots table.
+    fs::create_dir_all(fixture.root.join("scratch")).expect("create an undeclared directory");
+    fs::write(fixture.root.join("scratch/note.md"), "# note\n").expect("write an undeclared file");
+    let refusal = fixture.hold_text(&["--blocker", "scratch/note.md"]);
+    assert!(
+        refusal.contains("declared root"),
+        "a reference outside every declared root is rejected: {refusal}"
+    );
+
     let _ = fs::remove_dir_all(&outside);
     assert_eq!(fixture.state(), "build", "the Run did not route");
+    assert_ne!(fixture.status(), "blocked", "the Run was not paused");
     assert_eq!(
         before,
         fixture.owned_bytes(),
@@ -438,7 +498,8 @@ fn blocker_reference_must_stay_beneath_project_root() {
     );
 }
 
-/// HT-048-02 (Lifecycle/Model): held is a ticket state, and it never passes.
+/// HT-048-02 (Lifecycle/Model): a paused Run is not a machine State, and it
+/// never passes a completion gate.
 #[test]
 fn held_ticket_cannot_be_passed() {
     // Ordinary routing never takes the escape, even though the Runbook
@@ -459,34 +520,43 @@ fn held_ticket_cannot_be_passed() {
     );
 
     let fixture = Fixture::new("not-passed");
-    assert!(fixture
-        .hold(&[TICKET, "--blocker", BLOCKER, "--confirm", "hold t-900"])
-        .status
-        .success());
+    let ticket_before = fixture.ticket();
+    assert!(fixture.hold(&["--blocker", BLOCKER]).status.success());
 
-    // The Machine state is a State; `held` never appears there.
-    let state = fs::read_to_string(fixture.record_path()).expect("read state");
+    // The machine position is a State; the pause is a status beside it.
+    let record = fs::read_to_string(fixture.record_path()).expect("read the Run Record");
     assert!(
-        !state.contains("held"),
-        "held is a ticket state, never a Machine state: {state}"
+        !record.contains("state = \"blocked\""),
+        "the pause is a status, never a machine State: {record}"
     );
+    assert_eq!(fixture.status(), "blocked", "the Run Record records it");
 
-    // And the completion gate still refuses the held ticket.
+    // The completion gate learns the pause from the Run Record, not from a
+    // contributor's document.
+    assert_eq!(
+        fixture.ticket(),
+        ticket_before,
+        "NRR-001: the hold left the shop's document alone"
+    );
     let defects = ratmac::completion::gate_completion(
         &fixture.root,
         &fixture.root.join(".ratmac"),
         &fixture.run_id,
         ".arca/ticket/t-900.md",
     )
-    .expect_err("a held ticket cannot be completed");
+    .expect_err("a paused Run cannot be completed");
     let text = defects
         .iter()
         .map(ToString::to_string)
         .collect::<Vec<_>>()
         .join("; ");
     assert!(
-        text.contains("held"),
-        "the completion gate says the ticket is held: {text}"
+        text.contains("paused") && text.contains(&fixture.run_id),
+        "the completion gate names the paused Run: {text}"
+    );
+    assert!(
+        text.contains(BLOCKER),
+        "the completion gate names the recorded blocker: {text}"
     );
     assert!(
         fixture.residual().contains("status: \"missing\""),
@@ -501,11 +571,11 @@ fn interrupted_hold_leaves_no_half_route() {
     let before = fixture.owned_bytes();
     let ticket_before = fixture.ticket();
 
-    // The last write cannot land: the ticket file is read-only.
-    let ticket_path = fixture.root.join(".arca/ticket/t-900.md");
-    set_readonly(&ticket_path, true);
-    let refusal = fixture.hold_text(&[TICKET, "--blocker", BLOCKER, "--confirm", "hold t-900"]);
-    set_readonly(&ticket_path, false);
+    // The one write the hold makes cannot land: the Run Record is read-only.
+    let record_path = fixture.record_path();
+    set_readonly(&record_path, true);
+    let refusal = fixture.hold_text(&["--blocker", BLOCKER]);
+    set_readonly(&record_path, false);
 
     assert!(
         refusal.to_ascii_lowercase().contains("hold"),
@@ -516,10 +586,15 @@ fn interrupted_hold_leaves_no_half_route() {
         "build",
         "an interrupted hold leaves the Run pre-route"
     );
+    assert_ne!(
+        fixture.status(),
+        "blocked",
+        "an interrupted hold leaves the Run unpaused"
+    );
     assert_eq!(
         ticket_before,
         fixture.ticket(),
-        "an interrupted hold leaves the ticket untouched"
+        "an interrupted hold leaves the shop's document untouched"
     );
 
     assert_eq!(
@@ -529,13 +604,20 @@ fn interrupted_hold_leaves_no_half_route() {
     );
 
     // Recovery: with the obstruction gone, the same hold applies fully.
-    assert!(fixture
-        .hold(&[TICKET, "--blocker", BLOCKER, "--confirm", "hold t-900"])
-        .status
-        .success());
+    assert!(fixture.hold(&["--blocker", BLOCKER]).status.success());
     assert_eq!(fixture.state(), "intake", "the retried hold routes fully");
-    assert!(fixture.ticket().contains("status: \"held\""));
+    assert_eq!(
+        fixture.status(),
+        "blocked",
+        "the retried hold pauses the Run"
+    );
+    assert_eq!(
+        fixture.ticket(),
+        ticket_before,
+        "the retried hold still writes no shop document"
+    );
 }
+
 /// ENS-008: a runbook swapped after hold planning refuses before State writes.
 #[test]
 fn runbook_swap_before_hold_state_write_refuses_without_a_half_route() {
@@ -545,14 +627,14 @@ fn runbook_swap_before_hold_state_write_refuses_without_a_half_route() {
     let barrier_dir = fixture.root.join(".ratmac/test-hold-snapshot");
     let marker = barrier_dir.join("marker");
     let release = barrier_dir.join("release");
+    let confirmation = fixture.confirmation();
     let mut child = Command::new(ratmac_qa::engine_bin!())
         .args([
             "hold",
-            TICKET,
             "--blocker",
             BLOCKER,
             "--confirm",
-            "hold t-900",
+            &confirmation,
             "--run",
             &fixture.run_id,
         ])
@@ -594,7 +676,12 @@ fn runbook_swap_before_hold_state_write_refuses_without_a_half_route() {
         output.status
     );
     assert_eq!(fixture.state(), "build", "the Run did not route");
-    assert_eq!(fixture.ticket(), ticket_before, "the ticket was not held");
+    assert_ne!(fixture.status(), "blocked", "the Run was not paused");
+    assert_eq!(
+        fixture.ticket(),
+        ticket_before,
+        "the shop's document is byte-identical"
+    );
     assert_eq!(
         fixture.owned_bytes(),
         owned_before,

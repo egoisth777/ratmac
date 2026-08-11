@@ -301,11 +301,10 @@ fn flat_layout_residue_refuses_and_instructs() {
 }
 /// PT-059-03 (RRV-003): a confirmed blocked-route hold is an existing-Run
 /// operation that loads the Machine Class. It must apply the flat-residue and
-/// runbook-pin preflight before changing the State File, log, or ticket; after
+/// runbook-pin preflight before changing the Run Record or the log; after
 /// both observed defects are repaired, the same hold request can proceed.
 #[test]
 fn hold_applies_residue_and_runbook_pin_preflight() {
-    const TICKET: &str = "t-900";
     const BLOCKER: &str = ".arca/issue/i-900-blocker";
 
     let fixture = Fixture::new("hold-preflight");
@@ -339,7 +338,7 @@ fn hold_applies_residue_and_runbook_pin_preflight() {
     .expect("write unproven residual");
     fs::write(
         fixture.path(".ratmac/ratmac.toml"),
-        "[roots]\nticket = \".arca/ticket\"\n\n\
+        "[roots]\nticket = \".arca/ticket\"\nissue = \".arca/issue\"\n\n\
          [states.intake]\nprompt = \"Integrate the issues.\"\n\n\
          [states.build]\nprompt = \"Build the ticket.\"\n\n\
          [states.review]\nprompt = \"Review the ticket.\"\n\n\
@@ -370,15 +369,15 @@ fn hold_applies_residue_and_runbook_pin_preflight() {
         combined(&step)
     );
 
+    let confirmation = format!("hold {id}");
     let hold_args = [
         "hold",
-        TICKET,
         "--run",
         id.as_str(),
         "--blocker",
         BLOCKER,
         "--confirm",
-        "hold t-900",
+        confirmation.as_str(),
     ];
 
     let mut drifted = runbook.clone();
@@ -448,10 +447,14 @@ fn hold_applies_residue_and_runbook_pin_preflight() {
         state.contains("state = \"intake\""),
         "the repaired hold must take the declared blocked route: {state}"
     );
-    let ticket =
-        fs::read_to_string(fixture.path(".arca/ticket/t-900.md")).expect("read held ticket");
     assert!(
-        ticket.contains("status: \"held\""),
-        "the repaired hold must mark the ticket held: {ticket}"
+        state.contains("status = \"blocked\"") && state.contains(BLOCKER),
+        "NRR-001: the repaired hold records the pause and its blocker in the Run Record: {state}"
+    );
+    let ticket = fs::read_to_string(fixture.path(".arca/ticket/t-900.md"))
+        .expect("read the shop's own document");
+    assert!(
+        ticket.contains("status: \"executing\""),
+        "NRR-001: the hold writes no file under a workflow root: {ticket}"
     );
 }

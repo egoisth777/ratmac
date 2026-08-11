@@ -363,20 +363,23 @@ pub fn gate_completion_at(
 
     let checks = declared_checks(&source);
     let mut defects: Vec<CompletionDefect> = Vec::new();
-    // PGE-006: a held ticket is honestly not-passed; completion is not the
-    // route out of it.
-    if let Some(blocker) = crate::blocked::held_against(&source) {
-        defects.push(defect(
-            "",
-            format!(
-                "ticket {ticket_id} is held against {}; a held ticket cannot be passed",
-                if blocker.is_empty() {
-                    "an unnamed blocker".to_owned()
-                } else {
-                    blocker
-                }
-            ),
-        ));
+    // PGE-006 / NRR-001: a paused Run is honestly not-passed, and completion
+    // is not the route out of it. The pause lives in Engine-owned state, so
+    // the gate reads the Run Record - never a contributor's document.
+    if let Ok(state) = crate::state::StateStore::for_engine_root(engine_root, run_id).load() {
+        if state.status == crate::model::Status::Blocked {
+            defects.push(defect(
+                "",
+                format!(
+                    "run {run_id} is paused against {}; a paused Run cannot pass a completion gate",
+                    if state.blocker.trim().is_empty() {
+                        "an unnamed blocker"
+                    } else {
+                        state.blocker.trim()
+                    }
+                ),
+            ));
+        }
     }
     if checks.is_empty() {
         defects.push(defect(

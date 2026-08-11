@@ -13,11 +13,11 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::SystemTime;
 
-const TICKET: &str = "t-900";
 const BLOCKER: &str = ".arca/issue/i-777-blocker";
 const RUNBOOK: &str = r#"
 [roots]
 ticket = ".arca/ticket"
+issue = ".arca/issue"
 
 [states.intake]
 prompt = "Integrate the issue."
@@ -313,13 +313,13 @@ fn scheduler_writes_only_ratmac_transition_log() {
     );
     assert_human_history_unchanged(&fixture, &human_before, "the refused first-Run step");
 
+    let first_confirmation = format!("hold {first_run}");
     let held = fixture.rtm(&[
         "hold",
-        TICKET,
         "--blocker",
         BLOCKER,
         "--confirm",
-        "hold t-900",
+        &first_confirmation,
         "--run",
         &first_run,
     ]);
@@ -352,11 +352,10 @@ fn scheduler_writes_only_ratmac_transition_log() {
         records_after_hold[1]
     );
     assert!(
-        records_after_hold[1].contains(TICKET)
-            && records_after_hold[1].contains(BLOCKER)
-            && records_after_hold[1].contains(&format!("Run {first_run}"))
+        records_after_hold[1].contains(BLOCKER)
+            && records_after_hold[1].contains(&format!("run {first_run}"))
             && records_after_hold[1].contains("build -> intake"),
-        "the hold record names its ticket, blocker, Run, and route: {:?}",
+        "the hold record names its Run, blocker, and route: {:?}",
         records_after_hold[1]
     );
     let first_state_after_hold = fixture.state_bytes(&first_run);
@@ -642,13 +641,13 @@ fn hold_and_abandon_surface_the_shared_fragment_refusal() {
         combined(&held_step)
     );
     let held_log_before = held.engine_log();
+    let held_confirmation = format!("hold {held_run}");
     let held_partial = held.rtm_with_partial_log_append_failure(&[
         "hold",
-        TICKET,
         "--blocker",
         BLOCKER,
         "--confirm",
-        "hold t-900",
+        &held_confirmation,
         "--run",
         &held_run,
     ]);

@@ -17,6 +17,7 @@ const BLOCKER: &str = ".arca/issue/i-900-blocker";
 const LIFECYCLE_RUNBOOK: &str = r#"
 [roots]
 ticket = ".arca/ticket"
+issue = ".arca/issue"
 
 [classes.reviewer.bindings.ticket]
 required = true
@@ -426,15 +427,15 @@ fn every_entry_point_refuses_each_presplit_artifact_without_mutation() {
         let start = ["start"];
         let status = ["status", "--run", run.as_str()];
         let step = ["step", "--run", run.as_str()];
+        let hold_confirmation = format!("hold {run}");
         let hold = [
             "hold",
-            TICKET,
             "--run",
             run.as_str(),
             "--blocker",
             BLOCKER,
             "--confirm",
-            "hold t-900",
+            hold_confirmation.as_str(),
         ];
         let abandon = [
             "abandon",
@@ -724,9 +725,8 @@ fn every_public_entry_point_preflights_its_addressed_project() {
             let hold_plan = match entry {
                 AddressedEntryPoint::Hold => {
                     let request = ratmac::blocked::HoldRequest {
-                        ticket: TICKET.to_owned(),
                         blocker: Some(BLOCKER.to_owned()),
-                        confirmation: Some(format!("hold {TICKET}")),
+                        confirmation: Some(format!("hold {child}")),
                         run: Some(child.clone()),
                     };
                     Some(

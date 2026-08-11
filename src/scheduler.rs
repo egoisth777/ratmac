@@ -984,6 +984,15 @@ impl Scheduler {
             .ok_or_else(|| StateError::new("operation requires Scheduler::open"))
     }
 
+    /// The addressed Run's workspace - the tree its declared roots resolve
+    /// in. Path-bearing references a human passes for that Run are located
+    /// here, not in the invoking checkout.
+    pub(crate) fn workspace_root(&self) -> Result<&Path, StateError> {
+        self.root
+            .as_deref()
+            .ok_or_else(|| StateError::new("operation requires Scheduler::open"))
+    }
+
     fn invoking_root(&self) -> Result<&Path, StateError> {
         self.invoking_root
             .as_deref()
@@ -1021,10 +1030,10 @@ impl Scheduler {
     }
     /// Resolve a declared workflow role from this Scheduler's validated
     /// addressed workspace mapping.
-    pub(crate) fn workflow_root(&self, role: &str) -> Result<PathBuf, StateError> {
-        self.workflow_roots
-            .resolve(role)
-            .map_err(|error| StateError::new(error.to_string()))
+    /// Every declared root, by role. NRR-001: the hold locates its blocker
+    /// beneath one of these and judges nothing else about it.
+    pub(crate) fn workflow_roots(&self) -> impl Iterator<Item = (&str, &Path)> {
+        self.workflow_roots.iter()
     }
     pub fn machine(&self) -> &MachineGraph {
         &self.machine

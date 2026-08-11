@@ -343,7 +343,8 @@ impl HoldFixture {
         fs::write(
             root.join(".ratmac/ratmac.toml"),
             "[roots]\n\
-             ticket = \".arca/ticket\"\n\n\
+             ticket = \".arca/ticket\"\n\
+             issue = \".arca/issue\"\n\n\
              [states.intake]\nprompt = \"Integrate the issues.\"\n\n\
              [states.build]\nprompt = \"Build the ticket.\"\n\n\
              [states.build-review]\nprompt = \"Review the ticket.\"\n\n\
@@ -407,11 +408,10 @@ impl HoldFixture {
         let mut child = Command::new(&self.engine)
             .args([
                 "hold",
-                "t-900",
                 "--blocker",
                 BLOCKER,
                 "--confirm",
-                "hold t-900",
+                &format!("hold {}", self.run_id),
                 "--run",
                 &self.run_id,
             ])

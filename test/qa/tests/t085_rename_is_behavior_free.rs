@@ -61,10 +61,12 @@ fn behavior_is_unchanged() {
         scenario("step with the guard met", &["step", "--run", "run-001"]),
         scenario("step past the last phase", &["step", "--run", "run-001"]),
         scenario("step against an unknown Run", &["step", "--run", "run-404"]),
-        scenario(
-            "hold without the confirmation",
-            &["hold", "t-900", "--blocker", ".arca/issue/i-777-blocker"],
-        ),
+        // The hold scenario is gone on purpose. t-087 / NRR-001 removed the
+        // Engine's work-item concept, so `rtm hold` takes a different
+        // argument shape and refuses in different words than the freeze
+        // Engine did. That is a deliberate behavior change owned by t-087,
+        // proved by test/qa/tests/t087_no_work_item.rs - not a rename, and
+        // therefore not comparable here.
         scenario(
             "abandon without the confirmation",
             &["abandon", "--run", "run-001"],

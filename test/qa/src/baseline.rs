@@ -389,11 +389,78 @@ pub const BEHAVIORAL_SUITES: &[&str] = &[
 ///
 /// A line is excused only when it contains one of these fragments, so the
 /// exception stays narrow and reviewable rather than a blanket skip.
-pub const DECLARED_EXCEPTIONS: &[(&str, &str)] = &[(
-    "CARGO_BIN_EXE_rtm",
-    "t-086 gave the harness build its own target name; every suite now finds \
-     the Engine through ratmac_qa::engine_bin!()",
-)];
+pub const DECLARED_EXCEPTIONS: &[(&str, &str)] = &[
+    (
+        "CARGO_BIN_EXE_rtm",
+        "t-086 gave the harness build its own target name; every suite now finds \
+         the Engine through ratmac_qa::engine_bin!()",
+    ),
+    // t-087 / NRR-001 deliberately changed hold behavior: the Engine no
+    // longer marks or reads a work-item document, so every freeze assertion
+    // about that write is superseded by an assertion that the document is
+    // byte-identical and the Run Record carries the pause. Each fragment
+    // below names one such assertion and nothing else.
+    (
+        "status:\\\"held\\\"",
+        "t-087 moved the held fact into the Run Record; the ticket file is \
+         no longer written, and today's check proves it is byte-identical",
+    ),
+    (
+        "blocker-ref:",
+        "t-087 records the blocker reference in the Run Record instead of a \
+         document's front matter",
+    ),
+    (
+        "the ticket was not held",
+        "t-087: a refused hold is proven by an unpaused Run Record and an \
+         untouched document",
+    ),
+    (
+        "appended.contains(TICKET)",
+        "t-087: the history entry names the paused Run, not a work item",
+    ),
+    (
+        "records_after_hold[1].contains(TICKET)",
+        "t-087: the history entry names the paused Run, not a work item",
+    ),
+    (
+        "refusal.contains(\"hold t-900\")",
+        "t-087: the confirmation phrase names the addressed Run",
+    ),
+    (
+        "&[TICKET,\"--blocker\",BLOCKER",
+        "t-087: hold takes no work-item argument",
+    ),
+    (
+        "i-778-partial",
+        "t-087: the blocker is an opaque reference, so the Engine no longer \
+         judges a record's shape",
+    ),
+    (
+        "a named residual is a valid blocker record",
+        "t-087: every reference beneath a declared root is equally valid",
+    ),
+    (
+        "the authorized hold routed",
+        "t-087: the same route is asserted from the Run Record",
+    ),
+    (
+        "an external complete issue is rejected before inspection",
+        "t-087: containment is measured against the declared roots",
+    ),
+    (
+        "held is a ticket state",
+        "t-087: the pause is a Run status, and the check now says so",
+    ),
+    (
+        "the completion gate says the ticket is held",
+        "t-087: the gate names the paused Run it read from the Run Record",
+    ),
+    (
+        "an interrupted hold leaves the ticket untouched",
+        "t-087: an interrupted hold is proven by an unpaused Run Record",
+    ),
+];
 
 /// A file as the freeze commit holds it.
 pub fn freeze_file(repo_root: &Path, relative: &str) -> String {

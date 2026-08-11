@@ -1,40 +1,38 @@
-//! PGE-006: the human-confirmed blocked route.
+//! PGE-006 / NRR-001: the human-confirmed blocked route.
 //!
-//! A ticket blocked for an out-of-scope reason gets an honest exit instead of
-//! a dishonest pass. A human runs
+//! `rtm` is a generic state-machine runner, and some runbooks have no notion
+//! of a work item at all, so this module knows about Runs and nothing else. A
+//! human runs
 //!
 //! ```text
-//! rtm hold <ticket-id> --blocker <ref> --confirm "hold <ticket-id>"
+//! rtm hold --run <run-id> --blocker <ref> --confirm "hold <run-id>"
 //! ```
 //!
-//! and the Engine, only when every condition below holds, marks the ticket
-//! `held`, records what blocks it, and routes the Run along the Runbook's
-//! declared blocked route:
+//! and the Engine, only when every condition below holds, records the pause in
+//! the Run Record, routes the Run along the Runbook's declared blocked route,
+//! and appends one history entry:
 //!
-//! - the confirmation phrase matches `hold <ticket-id>` exactly: it is typed
-//!   at invocation by the human who decides to hold, never read from a file an
+//! - the confirmation phrase matches `hold <run-id>` exactly: it is typed at
+//!   invocation by the human who decides to hold, never read from a file an
 //!   agent can write. The Engine keeps no caller identity; it checks only that
 //!   the phrase was typed (ORS-001);
-//! - the ticket exists and is not already passed;
-//! - the blocker reference resolves to a complete five-file issue folder or a
-//!   named residual record;
+//! - the blocker reference exists and resolves beneath a declared runbook
+//!   root. What kind of record it names is the shop's rule, never the
+//!   Engine's;
+//! - the addressed Run is not terminal;
 //! - the current State declares a blocked route.
 //!
 //! An admission refusal before the route write leaves Scheduler-owned files
-//! byte-identical. A ticket replacement failure before it reaches its
-//! destination restores the addressed Run's pre-route state. If replacement
-//! reached the ticket but its parent directory cannot be synced, the Engine
-//! warns and keeps the agreeing ticket and Run state. Once that route and
-//! ticket are durable, a history append failure never rewrites either artifact;
-//! it is reported as an honest error.
+//! byte-identical. Once the Run Record is durable, a history append failure
+//! never rewrites it; it is reported as an honest error.
 //!
-//! The ticket stays not-passed and its residuals untouched: holding a ticket
-//! proves nothing about the work.
+//! The Engine writes no file under any workflow root here (NRR-001). A shop
+//! that also marks its own documents does that itself, in its own landing.
 
 use std::fmt;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 #[cfg(feature = "test-fault-injection")]
@@ -42,7 +40,6 @@ use std::thread;
 #[cfg(feature = "test-fault-injection")]
 use std::time::{Duration, Instant};
 
-use crate::contract::ISSUE_FILES;
 use crate::root::Displayed;
 #[cfg(windows)]
 use std::os::windows::ffi::OsStrExt;
@@ -105,10 +102,10 @@ fn wait_before_hold_boundary_if_requested(boundary: &str) -> Result<(), HoldRefu
         return Ok(());
     }
     let marker = std::env::var_os("RATMAC_TEST_HOLD_BARRIER_MARKER")
-        .map(PathBuf::from)
+        .map(std::path::PathBuf::from)
         .ok_or_else(|| refusal("hold test barrier needs RATMAC_TEST_HOLD_BARRIER_MARKER"))?;
     let release = std::env::var_os("RATMAC_TEST_HOLD_BARRIER_RELEASE")
-        .map(PathBuf::from)
+        .map(std::path::PathBuf::from)
         .ok_or_else(|| refusal("hold test barrier needs RATMAC_TEST_HOLD_BARRIER_RELEASE"))?;
     if let Some(parent) = marker.parent() {
         fs::create_dir_all(parent).map_err(|error| {
@@ -149,7 +146,7 @@ fn wait_before_hold_boundary_if_requested(_boundary: &str) -> Result<(), HoldRef
 /// What a human asked for.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HoldRequest {
-    pub ticket: String,
+    /// An opaque reference to whatever the shop says blocks this Run.
     pub blocker: Option<String>,
     pub confirmation: Option<String>,
     /// The addressed run (FDC-004: `--run <id>`, always required).
@@ -159,20 +156,17 @@ pub struct HoldRequest {
 /// A verified hold, ready to apply.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HoldPlan {
-    ticket: String,
-    ticket_path: PathBuf,
     blocker: String,
     run_id: String,
-    /// reloads and compares both fields after taking the root-then-addressed
-    /// Run lock pair.
+    /// reloads and compares both fields after taking the addressed Run lock.
     from_state: String,
     from_status: crate::model::Status,
     to_state: String,
 }
 
 impl HoldPlan {
-    pub(crate) fn ticket(&self) -> &str {
-        &self.ticket
+    pub(crate) fn run_id(&self) -> &str {
+        &self.run_id
     }
 
     pub(crate) fn blocker(&self) -> &str {
@@ -188,37 +182,32 @@ impl HoldPlan {
     }
 }
 
-/// The exact phrase a human must type to hold `ticket`.
-pub fn confirmation_phrase(ticket: &str) -> String {
-    format!("hold {ticket}")
-}
-
-/// Render a hold ticket id as one safe filename beneath the declared ticket
-/// root. Hold plans are public data, so apply-time validation repeats this
-/// check rather than trusting a planned path.
-fn ticket_file_name(ticket: &str) -> Result<String, HoldRefusal> {
-    let path = Path::new(ticket);
-    let one_normal_component = matches!(
-        (path.components().next(), path.components().nth(1)),
-        (Some(std::path::Component::Normal(_)), None)
-    );
-    if ticket.contains(['/', '\\']) || !one_normal_component {
-        return Err(refusal(format!(
-            "hold ticket {ticket:?} must be one safe filename segment"
-        )));
-    }
-    Ok(format!("{ticket}.md"))
+/// The exact phrase a human must type to hold the Run `run_id`.
+pub fn confirmation_phrase(run_id: &str) -> String {
+    format!("hold {run_id}")
 }
 
 /// The `p5-blocked` route predicate: verify a hold without writing anything.
 pub fn plan_hold(root: &Path, request: &HoldRequest) -> Result<HoldPlan, HoldRefusal> {
     crate::Scheduler::refuse_flat_residue(root).map_err(|error| refusal(error.to_string()))?;
 
-    let ticket = request.ticket.trim();
-    if ticket.is_empty() {
-        return Err(refusal("hold names no ticket"));
-    }
-    let required = confirmation_phrase(ticket);
+    // FDC-004/FDC-005: hold is an existing-Run operation. Resolve one exact
+    // canonical roster member through Scheduler::open_run so flat residue and
+    // the recorded runbook pin are checked before this plan can permit a
+    // mutation.
+    let roster = crate::Scheduler::run_roster(root).map_err(|error| refusal(error.to_string()))?;
+    let roster_line = if roster.is_empty() {
+        "none".to_owned()
+    } else {
+        roster.join(", ")
+    };
+    let Some(run_id) = request.run.as_deref().filter(|id| !id.is_empty()) else {
+        return Err(refusal(format!(
+            "hold requires --run <id>; runs: {roster_line}"
+        )));
+    };
+
+    let required = confirmation_phrase(run_id);
     match request.confirmation.as_deref().map(str::trim) {
         None => {
             return Err(refusal(format!(
@@ -235,55 +224,19 @@ pub fn plan_hold(root: &Path, request: &HoldRequest) -> Result<HoldPlan, HoldRef
 
     let Some(blocker) = request.blocker.as_deref().map(str::trim) else {
         return Err(refusal(
-            "hold has no blocker link: pass --blocker <issue folder or residual record>",
+            "hold has no blocker link: pass --blocker <reference beneath a declared root>",
         ));
     };
     if blocker.is_empty() {
         return Err(refusal(
-            "hold has no blocker link: pass --blocker <issue folder or residual record>",
+            "hold has no blocker link: pass --blocker <reference beneath a declared root>",
         ));
     }
 
-    verify_blocker(root, blocker)?;
-
-    // FDC-004/FDC-005: hold is an existing-Run operation. Resolve one exact
-    // canonical roster member through Scheduler::open_run so flat residue and
-    // the recorded runbook pin are checked before this plan can permit a
-    // mutation.
-
-    let roster = crate::Scheduler::run_roster(root).map_err(|error| refusal(error.to_string()))?;
-    let roster_line = if roster.is_empty() {
-        "none".to_owned()
-    } else {
-        roster.join(", ")
-    };
-    let ticket_file_name = ticket_file_name(ticket)?;
-    let Some(run_id) = request.run.as_deref().filter(|id| !id.is_empty()) else {
-        return Err(refusal(format!(
-            "hold requires --run <id>; runs: {roster_line}"
-        )));
-    };
     let scheduler =
         crate::Scheduler::open_run(root, run_id).map_err(|error| refusal(error.to_string()))?;
-    let ticket_path = scheduler
-        .workflow_root("ticket")
-        .map_err(|error| refusal(error.to_string()))?
-        .join(&ticket_file_name);
-    let source = fs::read_to_string(&ticket_path).map_err(|error| {
-        refusal(format!(
-            "hold refers to no ticket: {} is unreadable ({error})",
-            ticket_path.displayed()
-        ))
-    })?;
-    let status = field(&source, "status").unwrap_or_default();
-    if status == "passed" {
-        return Err(refusal(format!(
-            "ticket {ticket} is already passed; a passed ticket has nothing to hold"
-        )));
-    }
-    if status == "held" {
-        return Err(refusal(format!("ticket {ticket} is already held")));
-    }
+    verify_blocker(&scheduler, blocker)?;
+
     let state = scheduler
         .load_state()
         .map_err(|error| refusal(format!("hold requires an active Run: {error}")))?;
@@ -295,6 +248,16 @@ pub fn plan_hold(root: &Path, request: &HoldRequest) -> Result<HoldPlan, HoldRef
             "run {run_id} is terminal (status passed): a blocked route may not move it"
         )));
     }
+    if state.status == crate::model::Status::Blocked {
+        return Err(refusal(format!(
+            "run {run_id} is already blocked against {}",
+            if state.blocker.is_empty() {
+                "an unnamed blocker"
+            } else {
+                state.blocker.as_str()
+            }
+        )));
+    }
     let Some(route) = scheduler.machine().blocked_route_for(&from_state) else {
         return Err(refusal(format!(
             "State {from_state:?} declares no blocked route; add a transition with blocked-route = true"
@@ -302,8 +265,6 @@ pub fn plan_hold(root: &Path, request: &HoldRequest) -> Result<HoldPlan, HoldRef
     };
 
     Ok(HoldPlan {
-        ticket: ticket.to_owned(),
-        ticket_path,
         blocker: blocker.to_owned(),
         run_id: run_id.to_owned(),
         from_state,
@@ -312,8 +273,16 @@ pub fn plan_hold(root: &Path, request: &HoldRequest) -> Result<HoldPlan, HoldRef
     })
 }
 
-/// A blocker record is a complete five-file issue folder or a named residual.
-fn verify_blocker(root: &Path, blocker: &str) -> Result<(), HoldRefusal> {
+/// NRR-001: the blocker is an opaque reference. The Engine checks that it
+/// exists and that it resolves beneath a root the runbook declares - never
+/// what kind of record it is, which is the shop's rule and not the Engine's.
+fn verify_blocker(scheduler: &crate::Scheduler, blocker: &str) -> Result<(), HoldRefusal> {
+    // The reference belongs to the addressed Run's workspace: that is the
+    // tree its declared roots resolve in, whether it is the invoking checkout
+    // or a linked one bound at spawn.
+    let root = scheduler
+        .workspace_root()
+        .map_err(|error| refusal(error.to_string()))?;
     let relative = Path::new(blocker);
     if relative.is_absolute()
         || relative.components().any(|component| {
@@ -326,118 +295,69 @@ fn verify_blocker(root: &Path, blocker: &str) -> Result<(), HoldRefusal> {
         })
     {
         return Err(refusal(format!(
-            "blocker {blocker:?} must stay beneath the project root"
+            "blocker {blocker:?} must stay beneath a declared root"
         )));
     }
     let canonical_root = fs::canonicalize(root).map_err(|error| {
         refusal(format!(
-            "cannot resolve project root {} while checking blocker {blocker}: {error}",
+            "cannot resolve the Run workspace {} while checking blocker {blocker}: {error}",
             root.displayed()
         ))
     })?;
     let candidate = canonical_root.join(relative);
     let path = fs::canonicalize(&candidate).map_err(|error| {
         refusal(format!(
-            "blocker {blocker} does not resolve beneath the project root: {error}"
+            "blocker {blocker} does not resolve beneath a declared root: {error}"
         ))
     })?;
-    if !path.starts_with(&canonical_root) {
-        return Err(refusal(format!(
-            "blocker {blocker:?} resolves outside the project root"
-        )));
-    }
-    if path.is_dir() {
-        let mut missing: Vec<&str> = Vec::new();
-        for required in ISSUE_FILES {
-            if !path.join(required).is_file() {
-                missing.push(required);
-            }
-        }
-        if missing.is_empty() {
+
+    let mut declared: Vec<String> = Vec::new();
+    for (role, directory) in scheduler.workflow_roots() {
+        declared.push(role.to_owned());
+        let canonical_directory = match fs::canonicalize(directory) {
+            Ok(resolved) => resolved,
+            Err(_) => continue,
+        };
+        if path.starts_with(&canonical_directory) {
             return Ok(());
         }
-        return Err(refusal(format!(
-            "blocker {blocker} is not a complete five-file issue record: missing {}",
-            missing.join(", ")
-        )));
     }
-    if path.is_file() {
-        let name = path
-            .file_name()
-            .map(crate::root::component)
-            .unwrap_or_default();
-        if name.starts_with("res-") && name.ends_with(".md") {
-            return Ok(());
-        }
-        return Err(refusal(format!(
-            "blocker {blocker} is neither a five-file issue folder nor a named residual record"
-        )));
-    }
+    declared.sort();
+    let roots_line = if declared.is_empty() {
+        "the runbook declares no [roots]".to_owned()
+    } else {
+        format!("declared roots: {}", declared.join(", "))
+    };
     Err(refusal(format!(
-        "blocker {blocker} does not resolve to any artifact"
+        "blocker {blocker} resolves outside every declared root; {roots_line}"
     )))
 }
 
-/// Apply a verified hold: ticket state, routed State, and one history entry.
+/// Apply a verified hold: the paused mark in the Run Record, the routed
+/// State, and one history entry.
 ///
-/// The plan's cheap non-ticket checks happen before the lock pair. The exact
-/// planned state is compared after acquisition. The shared ticket is a
-/// root-domain read-modify-write: root is acquired before the addressed Run and
-/// remains held from its source read through the final compare and replacement,
-/// so ordinary lifecycle callers cannot write between them. Root releases
-/// before the append-only history record. A portable rename still cannot detect
-/// an out-of-band edit that races its final replacement window.
+/// Everything the hold changes lives under the Engine root and belongs to one
+/// Run, so the addressed Run lock alone serializes it - there is no shared
+/// document to read-modify-write any more (NRR-001). The exact planned state
+/// is compared after acquisition, and a failure after the record is durable is
+/// reported honestly rather than rewritten.
 pub fn apply_hold(root: &Path, plan: &HoldPlan) -> Result<(), HoldRefusal> {
     // Planning and application are separate public boundaries. Resolve from
-    // the addressed Run's workspace again before this path can mutate a
-    // ticket or State; a rebinding must refuse rather than write the stale
-    // plan path.
+    // the addressed Run's workspace again before this path can mutate state.
     let scheduler = crate::Scheduler::open_run(root, &plan.run_id)
         .map_err(|error| refusal(error.to_string()))?;
-    let current_ticket_path = scheduler
-        .workflow_root("ticket")
-        .map_err(|error| refusal(error.to_string()))?
-        .join(ticket_file_name(&plan.ticket)?);
-    if current_ticket_path != plan.ticket_path {
-        return Err(refusal(format!(
-            "hold ticket root changed: planned path {} no longer matches declared path {}; re-plan the hold against the current ticket root",
-            plan.ticket_path.displayed(),
-            current_ticket_path.displayed()
-        )));
-    }
+    verify_blocker(&scheduler, &plan.blocker)?;
 
     let roots = crate::root::resolve(root);
     let engine_root = roots.engine_root().to_path_buf();
     let state_path = engine_root.join("runs").join(&plan.run_id).join("run.toml");
 
-    // The ticket is shared across Runs, while the Run Record is not. Acquire
-    // the pair in the global root-before-Run order before reading the shared
-    // ticket, so the entire read-modify-write has mutual exclusion.
-    let (root_lock, run_lock) = crate::lock::acquire_root_then_run(&engine_root, &plan.run_id)
-        .map_err(|error| refusal(error.to_string()))?;
-    root_lock
-        .ensure_current()
+    let run_lock = crate::lock::RunLock::acquire(&engine_root, &plan.run_id)
         .map_err(|error| refusal(error.to_string()))?;
     run_lock
         .ensure_current()
         .map_err(|error| refusal(error.to_string()))?;
-    let source = fs::read_to_string(&plan.ticket_path)
-        .map_err(|error| refusal(format!("hold cannot read the ticket: {error}")))?;
-    match field(&source, "status").unwrap_or_default().as_str() {
-        "passed" => {
-            return Err(refusal(format!(
-                "ticket {} is already passed; a passed ticket has nothing to hold",
-                plan.ticket
-            )));
-        }
-        "held" => return Err(refusal(format!("ticket {} is already held", plan.ticket))),
-        _ => {}
-    }
-    let held = hold_ticket(&source, &plan.blocker);
 
-    // Snapshot only after owning the root-then-Run pair. If ticket writing
-    // later fails, restoration returns these exact locked bytes, never bytes a
-    // concurrent lawful motion left before we acquired the Run lock.
     let old_state_bytes = fs::read(&state_path)
         .map_err(|error| refusal(format!("hold cannot read state: {error}")))?;
     let store = crate::state::StateStore::for_engine_root(&engine_root, &plan.run_id);
@@ -453,22 +373,11 @@ pub fn apply_hold(root: &Path, plan: &HoldPlan) -> Result<(), HoldRefusal> {
             plan.run_id, plan.from_state, plan.from_status, state.state, state.status
         )));
     }
-    // Reopen while holding the mutation pair. This binds the route and ticket
-    // address to the same freshly pinned class that permits this write,
-    // rather than trusting public fields in a caller-supplied HoldPlan.
+    // Reopen while holding the mutation lock. This binds the route to the same
+    // freshly pinned class that permits this write, rather than trusting
+    // public fields in a caller-supplied HoldPlan.
     let current_scheduler = crate::Scheduler::open_run(root, &plan.run_id)
         .map_err(|error| refusal(error.to_string()))?;
-    let locked_ticket_path = current_scheduler
-        .workflow_root("ticket")
-        .map_err(|error| refusal(error.to_string()))?
-        .join(ticket_file_name(&plan.ticket)?);
-    if locked_ticket_path != plan.ticket_path {
-        return Err(refusal(format!(
-            "hold ticket root changed: planned path {} no longer matches declared path {}; re-plan the hold against the current ticket root",
-            plan.ticket_path.displayed(),
-            locked_ticket_path.displayed()
-        )));
-    }
     let Some(route) = current_scheduler.machine().blocked_route_for(&state.state) else {
         return Err(refusal(format!(
             "hold route changed: state {:?} no longer declares a blocked route; re-plan the hold",
@@ -484,19 +393,6 @@ pub fn apply_hold(root: &Path, plan: &HoldPlan) -> Result<(), HoldRefusal> {
             route.to().as_str()
         )));
     }
-    verify_blocker(root, &plan.blocker)?;
-    let current_ticket = fs::read_to_string(&plan.ticket_path).map_err(|error| {
-        refusal(format!(
-            "hold cannot reread ticket {}: {error}",
-            plan.ticket_path.displayed()
-        ))
-    })?;
-    if current_ticket != source {
-        return Err(refusal(format!(
-            "hold ticket {} changed while the hold was being prepared; nothing was written",
-            plan.ticket_path.displayed()
-        )));
-    }
 
     // Snapshot the pre-existing append target through the Scheduler before
     // committing state: an unusable or missing log refuses without a
@@ -508,6 +404,10 @@ pub fn apply_hold(root: &Path, plan: &HoldPlan) -> Result<(), HoldRefusal> {
     })?;
 
     state.state = plan.to_state.clone();
+    // The whole held fact, in Engine-owned state: the paused mark and the
+    // opaque reference the human named (NRR-001).
+    state.status = crate::model::Status::Blocked;
+    state.blocker = plan.blocker.clone();
     run_lock
         .ensure_current()
         .map_err(|error| refusal(error.to_string()))?;
@@ -528,58 +428,10 @@ pub fn apply_hold(root: &Path, plan: &HoldPlan) -> Result<(), HoldRefusal> {
         }
     }
 
-    // Check again immediately before replacing the ticket. This catches an
-    // edit that arrives before the comparison; an edit inside the portable
-    // replacement window cannot be detected.
-    let current_ticket = fs::read_to_string(&plan.ticket_path);
-    match current_ticket {
-        Ok(current) if current == source => {}
-        Ok(_) => {
-            let restore = restore_state_bytes(&run_lock, &state_path, &old_state_bytes);
-            return match restore {
-                Ok(()) => Err(refusal(format!(
-                    "hold ticket {} changed while the hold was being prepared; nothing was written",
-                    plan.ticket_path.displayed()
-                ))),
-                Err(restore_error) => Err(refusal(format!(
-                    "hold ticket {} changed while the hold was being prepared; state rollback incomplete: {restore_error}",
-                    plan.ticket_path.displayed()
-                ))),
-            };
-        }
-        Err(error) => {
-            let restore = restore_state_bytes(&run_lock, &state_path, &old_state_bytes);
-            return match restore {
-                Ok(()) => Err(refusal(format!(
-                    "hold cannot reread ticket {}: {error}; nothing was written",
-                    plan.ticket_path.displayed()
-                ))),
-                Err(restore_error) => Err(refusal(format!(
-                    "hold cannot reread ticket {}: {error}; state rollback incomplete: {restore_error}",
-                    plan.ticket_path.displayed()
-                ))),
-            };
-        }
-    }
-
-    // The shared ticket comparison and replacement run under the root claim.
-    // Recheck both live claims before publishing the QA marker and again after
-    // its release; a barrier error restores the state written above.
-    if let Err(error) = root_lock
-        .ensure_current()
-        .and_then(|_| run_lock.ensure_current())
-    {
-        let restore = restore_state_bytes(&run_lock, &state_path, &old_state_bytes);
-        return match restore {
-            Ok(()) => Err(refusal(format!(
-                "hold cannot verify the ticket mutation lock: {error}; nothing was written"
-            ))),
-            Err(restore_error) => Err(refusal(format!(
-                "hold cannot verify the ticket mutation lock: {error}; state rollback incomplete: {restore_error}"
-            ))),
-        };
-    }
-    if let Err(error) = wait_before_hold_boundary_if_requested("before-ticket-replace") {
+    // The QA seam that used to sit before the shared-document replacement now
+    // sits between the durable record and its history entry: the last point at
+    // which an interruption can be observed mid-hold.
+    if let Err(error) = wait_before_hold_boundary_if_requested("before-history-append") {
         let restore = restore_state_bytes(&run_lock, &state_path, &old_state_bytes);
         return match restore {
             Ok(()) => Err(refusal(format!("{}; nothing was written", error.reason))),
@@ -589,93 +441,30 @@ pub fn apply_hold(root: &Path, plan: &HoldPlan) -> Result<(), HoldRefusal> {
             ))),
         };
     }
-    if let Err(error) = root_lock
-        .ensure_current()
-        .and_then(|_| run_lock.ensure_current())
-    {
+    if let Err(error) = run_lock.ensure_current() {
         let restore = restore_state_bytes(&run_lock, &state_path, &old_state_bytes);
         return match restore {
             Ok(()) => Err(refusal(format!(
-                "hold cannot verify the ticket mutation lock: {error}; nothing was written"
+                "hold cannot verify the Run mutation lock: {error}; nothing was written"
             ))),
             Err(restore_error) => Err(refusal(format!(
-                "hold cannot verify the ticket mutation lock: {error}; state rollback incomplete: {restore_error}"
+                "hold cannot verify the Run mutation lock: {error}; state rollback incomplete: {restore_error}"
             ))),
         };
     }
-    let parent_sync_warning = match replace_file_atomically(&plan.ticket_path, held.as_bytes()) {
-        Ok(ReplaceFileOutcome::Durable) => None,
-        Ok(ReplaceFileOutcome::ReplacedWithParentSyncWarning(error)) => Some(error),
-        Err(error) => {
-            let restore = restore_state_bytes(&run_lock, &state_path, &old_state_bytes);
-            return match restore {
-                Ok(()) => Err(refusal(format!("hold cannot write the ticket: {error}"))),
-                Err(restore_error) => Err(refusal(format!(
-                    "hold cannot write the ticket: {error}; state rollback incomplete: {restore_error}"
-                ))),
-            };
-        }
-    };
-    // The shared ticket is now durable. Release root before diagnostics or the
-    // append-only history record can take any further time.
-    drop(root_lock);
-    if let Some(error) = parent_sync_warning {
-        eprintln!(
-            "warning: hold ticket {} was replaced but its parent directory could not be synced: {error}; continuing because the ticket and Run state now agree",
-            plan.ticket_path.displayed()
-        );
-    }
 
-    // Keep the addressed Run lock through its own route and append-only record,
-    // so an unrelated root holder cannot delay a completed hold.
+    // Keep the addressed Run lock through its own route and append-only record.
     let entry = format!(
-        "- Hold: ticket {} held against {}; Run {} routed {} -> {} on an explicit human confirmation. The ticket is not passed and its residuals stay unproven.\n",
-        plan.ticket, plan.blocker, plan.run_id, plan.from_state, plan.to_state
+        "- Hold: run {} paused against {}; routed {} -> {} on an explicit human confirmation.\n",
+        plan.run_id, plan.blocker, plan.from_state, plan.to_state
     );
     match crate::Scheduler::append_transition_log(&mut log, entry.as_bytes()) {
         crate::scheduler::TransitionLogAppend::Complete => Ok(()),
         crate::scheduler::TransitionLogAppend::Failed(failure) => Err(refusal(format!(
-            "hold cannot append history; the ticket and Run state were updated and no history rewrite was attempted: {}",
+            "hold cannot append history; the Run Record was updated and no history rewrite was attempted: {}",
             failure.into_operator_error()
         ))),
     }
-}
-
-/// Rewrite a ticket's front matter: `status: "held"` plus its blocker link.
-fn hold_ticket(source: &str, blocker: &str) -> String {
-    let mut lines: Vec<String> = Vec::new();
-    let mut wrote_status = false;
-    let mut wrote_blocker = false;
-    for line in source.lines() {
-        let trimmed = line.trim_start();
-        if trimmed.starts_with("status:") && !wrote_status {
-            lines.push("status: \"held\"".to_owned());
-            wrote_status = true;
-            continue;
-        }
-        if trimmed.starts_with("blocker-ref:") && !wrote_blocker {
-            lines.push(format!("blocker-ref: \"{blocker}\""));
-            wrote_blocker = true;
-            continue;
-        }
-        lines.push(line.to_owned());
-    }
-    if !wrote_blocker {
-        // Place the link beside the status it explains.
-        if let Some(index) = lines
-            .iter()
-            .position(|line| line.trim_start().starts_with("status:"))
-        {
-            lines.insert(index + 1, format!("blocker-ref: \"{blocker}\""));
-        } else {
-            lines.push(format!("blocker-ref: \"{blocker}\""));
-        }
-    }
-    let mut text = lines.join("\n");
-    if source.ends_with('\n') {
-        text.push('\n');
-    }
-    text
 }
 
 /// Restore exact addressed-Run bytes only while the caller still owns its
@@ -707,7 +496,7 @@ fn restore_state_bytes(
 ///
 /// A failed temporary write leaves the destination intact. The only replace
 /// step is atomic on supported platforms, matching StateStore's durable-write
-/// discipline for the human ticket and exact State rollback. Once the rename
+/// discipline for exact Run Record rollback. Once the rename
 /// succeeds, a parent-sync failure is reported as a warning rather than as an
 /// untouched destination: the replacement has already happened.
 fn replace_file_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<ReplaceFileOutcome> {
@@ -795,20 +584,4 @@ fn replace_existing_file(temporary: &Path, destination: &Path) -> std::io::Resul
 #[cfg(not(windows))]
 fn replace_existing_file(temporary: &Path, destination: &Path) -> std::io::Result<()> {
     fs::rename(temporary, destination)
-}
-
-/// Read `key: value` from a record's front matter.
-fn field(source: &str, key: &str) -> Option<String> {
-    source.lines().find_map(|line| {
-        let rest = line.trim().strip_prefix(key)?.strip_prefix(':')?;
-        Some(rest.trim().trim_matches('"').to_owned())
-    })
-}
-
-/// Whether a ticket is currently held, and against what.
-pub fn held_against(ticket_source: &str) -> Option<String> {
-    if field(ticket_source, "status").as_deref() != Some("held") {
-        return None;
-    }
-    Some(field(ticket_source, "blocker-ref").unwrap_or_default())
 }
