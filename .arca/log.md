@@ -387,3 +387,5 @@
 - 2026-08-10: t-092 red: `PCRV-001` and `PCRV-004` fail as designed in the ticket worktree - the shipped machine class is still the demonstration build machine, so its States are not the cycle's stages and two `RB302` warnings keep the doctor off zero.
 
 - 2026-08-10: t-092 green: the shipped Machine Class is this repository's own P1-P5 cycle. A Run reaches rest by stepping alone; `rtm doctor` exits 0 on it; no guard judges what the agent under test writes. Eight mutations, eight kills. The retired demonstration machine is kept as a fixture. Found while testing: the join waits on the turns a stage spawned, not on the tickets on disk, and `close` cannot refuse a still-open item within the closed guard vocabulary - the record gate names the contradiction only once an item takes the archive move with its gap unproven.
+
+- 2026-08-10: t-093 red: `PCRV-002` fails as designed in the ticket worktree - the engine half already answers (the addressed report names the Run's stage, and with no Run it names none), so the whole gap is the documentation demotion: `.arca/index.md` still offers the by-hand tree lookup as the oracle with no `no-live-Run fallback` label.
