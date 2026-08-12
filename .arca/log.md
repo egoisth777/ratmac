@@ -385,3 +385,5 @@
 - 2026-08-10: t-091 landed as `be6c872` on `main`; the ticket worktree and its branch are removed and the hidden lanes are copied back. Two tickets remain in this sprint: `t-092` and `t-093`.
 
 - 2026-08-10: t-092 red: `PCRV-001` and `PCRV-004` fail as designed in the ticket worktree - the shipped machine class is still the demonstration build machine, so its States are not the cycle's stages and two `RB302` warnings keep the doctor off zero.
+
+- 2026-08-10: t-092 green: the shipped Machine Class is this repository's own P1-P5 cycle. A Run reaches rest by stepping alone; `rtm doctor` exits 0 on it; no guard judges what the agent under test writes. Eight mutations, eight kills. The retired demonstration machine is kept as a fixture. Found while testing: the join waits on the turns a stage spawned, not on the tickets on disk, and `close` cannot refuse a still-open item within the closed guard vocabulary - the record gate names the contradiction only once an item takes the archive move with its gap unproven.

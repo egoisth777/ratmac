@@ -297,9 +297,7 @@ impl Cycle {
 
     /// Every check the work item declares, recorded green and fresh.
     fn write_completion(&self, run: &str) {
-        let dir = self
-            .root
-            .join(format!(".ratmac/evidence/{run}/completion"));
+        let dir = self.root.join(format!(".ratmac/evidence/{run}/completion"));
         fs::create_dir_all(&dir).expect("create completion directory");
         let digest = ratmac::completion::tree_digest(&self.root, &["src".to_owned()])
             .expect("source roots are readable");
@@ -325,7 +323,7 @@ impl Cycle {
                 dir.join(format!("{}.toml", ratmac::completion::check_slug(check))),
                 body,
             )
-                .expect("write completion receipt");
+            .expect("write completion receipt");
         }
     }
 }
@@ -469,4 +467,3 @@ fn severity_word(severity: Severity) -> &'static str {
         Severity::Warning => "warning",
     }
 }
-
