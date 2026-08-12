@@ -394,8 +394,13 @@ fn an_unsupplied_binding_refuses_at_dispatch_without_writing() {
         "a binding nobody supplied cannot grade anything: {text}"
     );
     assert!(
-        text.contains("absent"),
-        "the refusal names the unsupplied binding; got:\n{text}"
+        text.contains("absent") && text.contains("supplies no binding"),
+        "the refusal names the unsupplied binding and says no value was \
+         supplied - never substituting one; got:\n{text}"
+    );
+    assert!(
+        text.contains(&child),
+        "the refusal names the Run whose address is missing; got:\n{text}"
     );
     assert_eq!(
         snapshot(&fixture.root),
