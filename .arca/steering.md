@@ -105,31 +105,16 @@ they select nothing.
    removed the Engine's last write under a workflow root, and the gap records
    `res-106` and `res-113` are proven. What `src/` still carries is that one
    named, owned `.arca` exception - the residue detector's own literal.
-2. **The Plan-Build Runbook** - the cycle-as-runbook issue
-   (`i-015-cycle-as-runbook`), waiting whole in the deferred buffer:
-   self-hosting this repository's P1-P5 loop. Entry: routing, delivery,
-   completion, and composition are all integrated and landed, because the
-   runbook consumes all four; and the engine-namespace split above, because
-   the Plan-Build Runbook welds in whatever namespace exists when it is
-   authored. The four contracts are landed; the split is the remaining entry
-   condition. Exit - the Self-hosted property itself: the Plan-Build Runbook's
-   Machine Class declares the cycle and is doctor-clean, `rtm status`
-   answers "where are we" with the tree-derived lookup demoted to a
-   no-live-Run fallback, the landing line is Engine-appended while a Run is
-   live, and no gate's verdict rests on content writable by the agent under
-   test. Only when that exit holds does ratmac replace the manual P1-P5
-   control this file describes - never before, and never by declaring it
-   here.
-   The carrier also owns (`PCR-001`) the dirty-tree refusal before every
-   deliberate-damage step and the intake gate's acceptance of
-   working-authority requirement headings. Those responsibilities and the
-   entry conditions are unchanged.
-   The State-not-Phase wish is no longer a forecast: Billy promoted it on
-   2026-08-10, it entered as `i-025-state-vocabulary` (`SVC-001`-`SVC-010`),
-   and it is the current sprint. That satisfies the ordering this item always
-   demanded - the machine position is renamed before the Plan-Build Runbook is
-   authored, so the shop's own runbook is written once, in `states`, and never
-   needs a format migration.
+2. **The Plan-Build Runbook** - promoted and integrated as
+   `i-015-cycle-as-runbook` (`PCR-001`, `PCR-002`, `PCR-003`, `PCR-005`,
+   `PCR-007`, `PCR-008`, `PCR-009`): Billy selected it from the deferred
+   buffer on 2026-08-10, every entry condition having landed - routing,
+   delivery, completion, composition, the engine-namespace split, and the
+   State-not-Phase rename that let the shop's own runbook be written once, in
+   `states`. It is the current sprint, so its exit is measured there and not
+   forecast here. One ask did not survive integration: the landing line stays
+   a human act, because the working rules made history human-only and the
+   no-work-item ruling forbids the Engine writing under a workflow root.
 3. **The `failed`-outcome contract** - a blocked, independent side path that
    names the concrete Engine-observable failure event granting the third
    terminal. Entry: a human answers the failure-event fork below with that
@@ -174,65 +159,71 @@ wrote down is drift.
 Derived record. Regenerated wholesale at P1 close from the signed issue set;
 never hand-edited, never a progress report. Stage lives in the tree.
 
-Freeze stamp: `git:c98e896` +
-`goal-sha256:c424fc95698599c78e106969c2be4e9a3ca9d4889ff59e9a8a2219d476b545f1`
+Freeze stamp: `git:4ac18a1` +
+`goal-sha256:74ccde5aefbf2a5b5c4a773e6438ddb20f1d6c123d095f5bb3dc51b2e73e8440`
 - the P1 integration HEAD and the canonical goal revision computed by
 `src/goal.rs::revision` over the checked-out goal. P1 opened and closed
-2026-08-10 on the duplicate-engine-binary issue; the gap check and the ticket
-were cut against this stamp.
+2026-08-10 on the cycle-as-runbook issue; the gap check and every ticket are
+cut against this stamp.
 
 A sprint starts when enough issues have collected to be worth integrating
 into the goal, and runs the cycle - plan, then build - until the gap check
 comes back clean.
 
-This sprint: make one command's suite result admissible evidence. Two build
-targets in this repository write the same engine command, so a whole-repository
-test run launches whichever build finished last; give the test copy its own
-target name and refuse a future collision by name.
+This sprint: run the shop's own process on the engine. The Machine Class this
+repository ships is still a demonstration that builds a file called
+`release.txt`, while the process the shop actually follows lives as prose and
+"where are we" is answered by a person reading a table. Replace the
+demonstration with the real cycle, and make the engine able to carry it
+without learning what a ticket is.
 
-Signed issue set: i-027-duplicate-engine-binary. `DEB-001` and `DEB-002` are
-accepted product requirements. The carrying Ideal-shape property is **Every
-boundary machine-checked** - the shop's own merge boundary advances on a suite
-result, and a result that depends on build order is narration wearing a green
-badge. **Refusals are branchable** is served too: the returning collision is
-refused by a check that names both declarations, not left to a toolchain
-warning the toolchain may reword.
+Signed issue set: i-015-cycle-as-runbook. `PCR-001`, `PCR-002`, `PCR-003`,
+`PCR-005`, `PCR-007`, `PCR-008`, and `PCR-009` are accepted product
+requirements; `PCR-004` is rejected. The carrying Ideal-shape property is
+**Self-hosted** - the tool's first governed project is its own construction.
+**Every boundary machine-checked** is served with it: a stage that cannot be
+expressed as a guard over artifacts is a stage the shop was advancing on
+narration. **Generic engine** binds the shape of the answer: the cycle's own
+identifiers stay in the runbook and out of Rust.
 
 Route - an ordered dependency list, one why per edge. It says what depends
 on what, never when.
 
-1. Name the test copy and point every test at it, then state the no-collision
-   rule as the shop's own check - one ticket, because the check is what proves
-   the rename worked and neither half is evidence without the other.
-2. Release the held behaviour-unchanged ticket `t-085` from the previous
-   sprint; after the rename because its whole claim is what one command's
-   output says.
+1. Teach the intake gate that an accepted ask may resolve to a
+   working-authority requirement heading (`PCR-008`). First, because the gate
+   refuses this repository's own tree until it does, and every later stage
+   runs against that tree.
+2. Give a receipt-class guard the bound address (`PCR-007`). Before the
+   runbook is authored, because the runbook cannot name its ticket turns
+   until the address exists.
+3. Add the refusal that stops deliberate damage on an uncommitted tree
+   (`PCR-009`). Independent of the two above and of the runbook; it earns its
+   place in this sprint because the runbook is where it is declared.
+4. Make the open-work-item predicate a machine check over the real records
+   (`PCR-003`). After the gate work, because it reads the same roots.
+5. Author the Plan-Build Runbook itself and prove the doctor exits clean on
+   it (`PCR-001`, `PCR-005`). Last of the building work, because it consumes
+   every piece above and is worth nothing without them.
+6. Demote the tree-derived stage lookup to the labelled no-live-Run fallback
+   (`PCR-002`). After the runbook exists, because until then the tree is the
+   only oracle and demoting it would leave the question unanswered.
 
-Endpoint: `cargo test --workspace` builds no two targets to one path, prints no
-collision warning, launches the pause-point build from every test, keeps the
-shipped `rtm` free of pause points, and a check refuses the next duplicate
-naming both declarations.
+Endpoint: `rtm doctor` exits `0` on this repository's Machine Class; a Run
+started on it advances through intake, gap check, cutting the work items, the
+ticket turns, close, and rest by starting and stepping alone; the addressed
+report names the stage while that Run is live; no guard's verdict rests on
+content the agent under test can write; and no identifier for a work item
+appears in the runbook file.
 
-Carried over from the state-vocabulary sprint (closed P1 stamp `git:4f78de5`):
-its nine tickets `t-077` through `t-084` are landed and its cutover endpoint is
-reached - no live product surface names the machine position `Phase`. Its last
-ticket `t-085`, the behaviour-unchanged proof, is held against this sprint's
-issue and its gap record `res-122` stays unproven until that proof runs from one
-command.
-
-Held: the roots-table ticket `t-076` is paused with `blocker-ref`
-`i-026-namespace-row-rulings` - two engine-namespace rows contradict the rules
-that mechanize them, and only a human can rule where the held fact lives and
-who may name a retired folder in Engine source. Its gap records `res-106` and
-`res-113` stay unproven until that issue is selected.
-
-Deferred: the Plan-Build Runbook (`i-015-cycle-as-runbook`) now waits only on
-`i-026`; it still carries the machine enforcement of the discard guard - the
-dirty-tree refusal before any deliberate-damage step and the intake gate's
-acceptance of working-authority requirement headings (`PCR-001`, extended
-2026-08-03); the `failed`-outcome contract awaits a concrete Engine-observable
-event. Also still deferred: a git-state guard kind and extraction of hard-coded
-`.arca/issue|ticket|residual|goal` paths from the Engine (R-016 debt).
+Not in this sprint, and named so the absence is legible: the landing line
+stays a human act (`PCR-004`, rejected); a repository-state guard kind would
+be needed for the dirty-tree refusal to see a file that was never added, and
+the closed vocabulary cannot express "no gap remains", so the branch out of
+the gap-check stage is a declared transition input judged by the records the
+record gate reads. The `failed`-outcome contract still awaits a concrete
+Engine-observable event. Extraction of the hard-coded workflow paths from the
+Engine (R-016 debt) stays deferred, as does the completion gate's remaining
+habit of parsing a contributor's document for the checks it declares.
 
 ## Advisor conclusion — 2026-08-03
 
