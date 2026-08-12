@@ -318,6 +318,266 @@ pub fn gate_intake_at(
         Err(defects)
     }
 }
+/// PCR-003: what the tree says about one work item.
+///
+/// Two facts decide it, both on disk: where the item sits, and whether every
+/// gap record it owns is proven. Nothing a contributor wrote in prose takes
+/// part.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum WorkItemState {
+    /// Still being worked: the item sits in the working root and owns at
+    /// least one gap record that is not proven.
+    Open,
+    /// Proven but still in the working root - the state every landing passes
+    /// through until the cycle-end archive move.
+    AwaitingArchive,
+    /// The item took the authorized archive move and every gap it owns is
+    /// proven.
+    Landed,
+}
+
+impl fmt::Display for WorkItemState {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let word = match self {
+            Self::Open => "open",
+            Self::AwaitingArchive => "awaiting archive",
+            Self::Landed => "landed",
+        };
+        formatter.write_str(word)
+    }
+}
+
+/// One work item and the state computed for it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WorkItem {
+    /// The item's identifier: its file name without the extension.
+    pub id: String,
+    pub state: WorkItemState,
+    /// The path a reviewer opens.
+    pub shown: String,
+}
+
+/// PCR-003: classify every work item from the tree alone.
+///
+/// This compatibility entry point resolves the contract's fixed role names
+/// from the reviewed runbook before reading any record.
+pub fn work_items(workspace: &Path) -> Result<Vec<WorkItem>, Vec<ContractDefect>> {
+    let roots = contract_roots(workspace, &["residual", "ticket"])?;
+    work_items_at(&roots[1], &roots[0])
+}
+
+/// Classify work items under already resolved roots.
+///
+/// The answer is ordered by identifier and never depends on the order the
+/// filesystem hands back its entries. A tree the two facts contradict each
+/// other on yields defects instead of a preferred signal.
+pub fn work_items_at(
+    ticket_root: &Path,
+    residual_root: &Path,
+) -> Result<Vec<WorkItem>, Vec<ContractDefect>> {
+    let mut defects = Vec::new();
+
+    // Every gap record, active and archived, with the status it states.
+    let mut proven: BTreeMap<String, bool> = BTreeMap::new();
+    let mut gap_shown: BTreeMap<String, String> = BTreeMap::new();
+    let mut gap_paths = files_in(residual_root.to_path_buf(), "md");
+    gap_paths.extend(files_in(residual_root.join("archive"), "md"));
+    for path in gap_paths {
+        let id = stem(&path);
+        let text = fs::read_to_string(&path).unwrap_or_default();
+        gap_shown.insert(id.clone(), shown(&path));
+        match yaml_field(&text, "status").as_deref() {
+            Some("satisfied") => {
+                proven.insert(id, true);
+            }
+            Some("missing" | "partial") => {
+                proven.insert(id, false);
+            }
+            Some(other) => defects.push(defect(
+                shown(&path),
+                format!("states status {other:?}; expected missing, partial, or satisfied"),
+            )),
+            None => defects.push(defect(shown(&path), "record is unreadable: no status field")),
+        }
+    }
+
+    // Every work item, by location. An item is addressed by its identifier
+    // without regard to case, because one differing only in case is the same
+    // item to a reader and to a case-insensitive filesystem.
+    let archive_root = ticket_root.join("archive");
+    let mut located: BTreeMap<String, (Vec<PathBuf>, Vec<PathBuf>)> = BTreeMap::new();
+    for (paths, archived) in [
+        (files_in(ticket_root.to_path_buf(), "md"), false),
+        (files_in(archive_root.clone(), "md"), true),
+    ] {
+        for path in paths {
+            if let Some(escape) = escapes_root(ticket_root, &path) {
+                defects.push(escape);
+                continue;
+            }
+            let entry = located.entry(stem(&path).to_lowercase()).or_default();
+            if archived {
+                entry.1.push(path);
+            } else {
+                entry.0.push(path);
+            }
+        }
+    }
+
+    // A work item outside the flat root is never silently dropped: the two
+    // addresses are the working root and its archive, and nothing else.
+    for folder in folders_in(ticket_root) {
+        if folder == archive_root {
+            continue;
+        }
+        if !files_in(folder.clone(), "md").is_empty() {
+            defects.push(defect(
+                shown(&folder),
+                "holds work items outside the working root and its archive; \
+                 an item lives in one of those two places",
+            ));
+        }
+    }
+
+    let mut items = Vec::new();
+    let mut owned: BTreeSet<String> = BTreeSet::new();
+    for (_, (working, archived)) in located {
+        let path = working.first().or_else(|| archived.first());
+        let Some(path) = path else { continue };
+        let id = stem(path);
+        let shown_item = shown(path);
+        if !working.is_empty() && !archived.is_empty() {
+            defects.push(defect(
+                &shown_item,
+                format!(
+                    "appears in the working root and in the archive ({}); \
+                     the archive move is half done and neither copy may be read as the answer",
+                    archived
+                        .iter()
+                        .map(|path| shown(path))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            ));
+            continue;
+        }
+        if working.len() > 1 || archived.len() > 1 {
+            defects.push(defect(
+                &shown_item,
+                "is addressed by more than one file differing only in case",
+            ));
+            continue;
+        }
+
+        let text = fs::read_to_string(path).unwrap_or_default();
+        let gaps = yaml_list(&text, "residual-ids");
+        let mut unproven = Vec::new();
+        let mut unreadable = false;
+        for gap in &gaps {
+            owned.insert(gap.clone());
+            match proven.get(gap) {
+                Some(true) => {}
+                Some(false) => unproven.push(gap.clone()),
+                None => {
+                    unreadable = true;
+                    defects.push(defect(
+                        &shown_item,
+                        format!("cites gap record {gap}, which is not on disk"),
+                    ));
+                }
+            }
+        }
+        if unreadable {
+            continue;
+        }
+
+        let state = if archived.is_empty() {
+            if gaps.is_empty() {
+                defects.push(defect(
+                    &shown_item,
+                    "owns no gap record, so nothing on disk says whether its work is finished",
+                ));
+                continue;
+            }
+            if unproven.is_empty() {
+                WorkItemState::AwaitingArchive
+            } else {
+                WorkItemState::Open
+            }
+        } else {
+            if !unproven.is_empty() {
+                defects.push(defect(
+                    &shown_item,
+                    format!(
+                        "took the archive move while gap {} is still unproven",
+                        unproven.join(", ")
+                    ),
+                ));
+                continue;
+            }
+            WorkItemState::Landed
+        };
+        items.push(WorkItem {
+            id,
+            state,
+            shown: shown_item,
+        });
+    }
+
+    // An interrupted move can also remove the item: its unproven gap is left
+    // with nobody to finish it.
+    for (gap, is_proven) in &proven {
+        if !*is_proven && !owned.contains(gap) {
+            defects.push(defect(
+                gap_shown.get(gap).cloned().unwrap_or_else(|| gap.clone()),
+                "is unproven and no work item on disk owns it",
+            ));
+        }
+    }
+
+    items.sort_by(|left, right| left.id.cmp(&right.id));
+    if defects.is_empty() {
+        Ok(items)
+    } else {
+        defects.sort_by(|left, right| {
+            (&left.artifact, &left.reason).cmp(&(&right.artifact, &right.reason))
+        });
+        Err(defects)
+    }
+}
+
+/// Refuse a path that leaves the declared root through a link.
+fn escapes_root(root: &Path, path: &Path) -> Option<ContractDefect> {
+    let canonical_root = fs::canonicalize(root).ok()?;
+    let canonical_path = fs::canonicalize(path).ok()?;
+    if canonical_path.starts_with(&canonical_root) {
+        return None;
+    }
+    Some(defect(
+        shown(path),
+        format!(
+            "resolves to {}, outside the declared root {}",
+            crate::root::displayed(&canonical_path),
+            shown(root)
+        ),
+    ))
+}
+
+/// Direct subdirectories of `dir`, sorted.
+fn folders_in(dir: &Path) -> Vec<PathBuf> {
+    let mut folders: Vec<PathBuf> = fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|entry| entry.path())
+                .filter(|path| path.is_dir())
+                .collect()
+        })
+        .unwrap_or_default();
+    folders.sort();
+    folders
+}
+
 /// PGE-002: verify residual and ticket record contracts.
 ///
 /// This compatibility entry point resolves the fixed contract roles from the

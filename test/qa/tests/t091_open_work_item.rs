@@ -34,7 +34,12 @@ impl Tree {
                 .as_nanos()
         ));
         let _ = fs::remove_dir_all(&root);
-        for dir in [".arca/residual", ".arca/ticket/archive", ".ratmac"] {
+        for dir in [
+            ".arca/goal",
+            ".arca/residual",
+            ".arca/ticket/archive",
+            ".ratmac",
+        ] {
             fs::create_dir_all(root.join(dir)).expect("create fixture tree");
         }
         let tree = Tree { root };
