@@ -114,7 +114,7 @@ is not listed for the selected kind is `RB107`; a missing required field is
 | :--- | :--- | :--- | :--- |
 | `files_exact` | The listing of a directory equals the declared entry set; with no entry set, only that the path exists. | `path` | `root` (declared role), `entries` (array of strings; `files` is an accepted alias and must agree when both appear) |
 | `file_contains` | A substring is present in a file. | `path`, `contains` | `root` (declared role) |
-| `command_exit` | A spawned program's exit code equals `expected`. The child's stderr is captured and rendered as a bounded diagnostic on refusal (ETB-002). Unless `exempt`, the program must resolve to a pinnable regular file whose hash is recorded in Run evidence (ETB-001). | `program`, `expected` | `args` (array of strings), `exempt` (boolean; marks a toolchain probe that reads no project state) |
+| `command_exit` | A spawned program's exit code equals `expected`. The child's stderr is captured and rendered as a bounded diagnostic on refusal, or its stdout when stderr is silent - labelled `diagnostic (stdout)` so the reader knows which channel spoke (ETB-002). Unless `exempt`, the program must resolve to a pinnable regular file whose hash is recorded in Run evidence (ETB-001). | `program`, `expected` | `args` (array of strings), `exempt` (boolean; marks a toolchain probe that reads no project state) |
 | `sensitivity_receipts` | Every planned test the addressed ticket declares has a sensitivity receipt under `.ratmac/evidence/` (PGE-003). | exactly one of `ticket`, `ticket-binding` | `root` (declared role) |
 | `completion_gate` | Every check the addressed ticket declares has a green, fresh completion receipt (PGE-005). | exactly one of `ticket`, `ticket-binding` | `root` (declared role) |
 | `intake_contract` | The fixed `goal` and `issue` roles provide the goal authority and intake/deferred/archive issue namespace. The guard parses each ask's exact `accepted\|rejected\|duplicate\|deferred` disposition from `spec.md`, never from status alone; enforces the deferred and archived bundle rules, accepted requirement IDs, and live links (PGE-001). | none | none |
@@ -221,7 +221,7 @@ the decision and the statement above that preserves it.
 | `R-011` | Top level and Guard kinds: an unknown key is `RB103`, never ignored. |
 | `R-028` | States: `prompt` is required, and the State Prompt is that prose plus the generated guard list. |
 | `ETB-001` | Guard kinds: a non-`exempt` `command_exit` must resolve to a pinnable regular file; `RB301`. |
-| `ETB-002` | Guard kinds: a failing `command_exit` refusal carries the bounded stderr diagnostic. |
+| `ETB-002` | Guard kinds: a failing `command_exit` refusal carries the bounded diagnostic from stderr, or from stdout as the declared fallback channel when stderr is silent. |
 | `ETB-003` | Transitions: `freeze = "goal"` marks the one recognised freeze boundary; `RB109`. |
 | `PGE-003` | Guard kinds: `sensitivity_receipts` reads the ticket's planned-test receipts. |
 | `PGE-005` | Guard kinds: `completion_gate` reads the ticket's completion receipts. |

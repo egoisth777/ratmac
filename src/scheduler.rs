@@ -3232,7 +3232,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
             .args(args)
             .current_dir(root)
             .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .output()
             .map_err(|error| {
@@ -3250,7 +3250,10 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
             Err(guard_failure(
                 "command_exit",
                 program,
-                format!("exit {observed}; {}", bounded_diagnostic(&output.stderr)),
+                format!(
+                    "exit {observed}; {}",
+                    bounded_diagnostic(&output.stderr, &output.stdout)
+                ),
                 format!("exit {expected}"),
             ))
         }
@@ -3644,7 +3647,7 @@ fn guarded_target(root: &Path, path: &str, kind: &str) -> Result<PathBuf, GuardF
 }
 
 /// ETB-002: the deterministic diagnostic bound. A refusal carries at most the
-/// last [`DIAGNOSTIC_BOUND`] bytes of the guard's stderr.
+/// last [`DIAGNOSTIC_BOUND`] bytes of the guard's reporting channel.
 pub const DIAGNOSTIC_BOUND: usize = 4096;
 
 /// Fixed wording when the guard says nothing: never an omitted field.
@@ -3653,12 +3656,26 @@ pub const NO_DIAGNOSTIC: &str = "no diagnostic emitted";
 /// Explicit overflow marker prefixed to a truncated diagnostic.
 pub const TRUNCATION_MARKER: &str = "\u{2026}truncated";
 
-/// Render a guard's stderr as a bounded, lossy, single-line diagnostic.
+/// Render a guard's reporting channel as a bounded, lossy, single-line
+/// diagnostic.
 ///
 /// The retained window is the *last* [`DIAGNOSTIC_BOUND`] bytes, because a
 /// failing command states why it failed at the end of its output.
-fn bounded_diagnostic(stderr: &[u8]) -> String {
-    let text = String::from_utf8_lossy(stderr);
+///
+/// ETB-002/PCR-009: stderr is the channel a failing command is expected to
+/// speak on, so it wins. Many report the observed fact on stdout instead -
+/// the version-control checkpoint guard names the uncommitted files there -
+/// and a refusal that dropped it would name an exit code and nothing else.
+/// So stdout is the declared fallback, labelled, and consulted only when
+/// stderr is silent; a command silent on both still yields the explicit
+/// no-diagnostic statement rather than an omission.
+fn bounded_diagnostic(stderr: &[u8], stdout: &[u8]) -> String {
+    let error_text = String::from_utf8_lossy(stderr);
+    let (source, text) = if error_text.trim().is_empty() {
+        ("diagnostic (stdout)", String::from_utf8_lossy(stdout))
+    } else {
+        ("diagnostic", error_text)
+    };
     let trimmed = text.trim();
     if trimmed.is_empty() {
         return format!("diagnostic: {NO_DIAGNOSTIC}");
@@ -3674,7 +3691,7 @@ fn bounded_diagnostic(stderr: &[u8]) -> String {
             .unwrap_or(retained.len());
         retained = format!("{TRUNCATION_MARKER}{}", &retained[start..]);
     }
-    format!("diagnostic: {retained}")
+    format!("{source}: {retained}")
 }
 
 fn guard_failure(
