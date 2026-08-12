@@ -85,7 +85,7 @@ impl Project {
 /// The guard-kind rows of `.arca/runbook-spec.md`: kind -> (required, optional)
 /// field names, read out of the backticked cells. The specification is the
 /// authority (RBS-004); this test reads it rather than restating it.
-fn spec_field_sets() -> BTreeMap<String, (BTreeSet<String>, BTreeSet<String>)> {
+fn spec_field_sets() -> BTreeMap<String, SpecRow> {
     let text = fs::read_to_string(repo_root().join(".arca/runbook-spec.md"))
         .expect("read .arca/runbook-spec.md");
     let start = text
@@ -111,9 +111,22 @@ fn spec_field_sets() -> BTreeMap<String, (BTreeSet<String>, BTreeSet<String>)> {
         if kind == "Kind" || kind.chars().all(|c| c == '-' || c == ':') {
             continue;
         }
+        let named = backticked(cells[2]);
+        // PCR-007: a row may require a choice rather than a field - "exactly
+        // one of `a`, `b`" names an address, not two mandatory keys.
+        let exclusive = cells[2].starts_with("exactly one of");
+        let (required, choice) = if exclusive {
+            (BTreeSet::new(), named)
+        } else {
+            (named, BTreeSet::new())
+        };
         rows.insert(
             kind.to_owned(),
-            (backticked(cells[2]), backticked(cells[3])),
+            SpecRow {
+                required,
+                choice,
+                optional: backticked(cells[3]),
+            },
         );
     }
     assert!(
@@ -122,6 +135,14 @@ fn spec_field_sets() -> BTreeMap<String, (BTreeSet<String>, BTreeSet<String>)> {
         rows.len()
     );
     rows
+}
+
+/// One guard-kind row of the specification: the fields it demands, the
+/// exclusive choice it demands exactly one of, and the fields it allows.
+struct SpecRow {
+    required: BTreeSet<String>,
+    choice: BTreeSet<String>,
+    optional: BTreeSet<String>,
 }
 
 /// Every backticked token in a specification cell.
@@ -187,13 +208,25 @@ guards = [
 fn per_kind_fields_are_validated_at_parse_time() {
     let spec = spec_field_sets();
 
-    for (kind, (required, optional)) in &spec {
+    for (
+        kind,
+        SpecRow {
+            required,
+            choice,
+            optional,
+        },
+    ) in &spec
+    {
         let accepted = GuardKind::accepted_fields(kind)
             .unwrap_or_else(|| panic!("TRP-002: {kind:?} must be a known kind"))
             .iter()
             .map(|field| (*field).to_owned())
             .collect::<BTreeSet<_>>();
-        let declared = required.union(optional).cloned().collect::<BTreeSet<_>>();
+        let declared = required
+            .union(optional)
+            .chain(choice)
+            .cloned()
+            .collect::<BTreeSet<_>>();
         assert_eq!(
             accepted, declared,
             "TRP-003: the fields {kind:?} accepts must equal the specification's row"
@@ -212,6 +245,7 @@ fn per_kind_fields_are_validated_at_parse_time() {
             let present = required
                 .iter()
                 .filter(|field| *field != missing)
+                .chain(choice.iter().take(1))
                 .map(|field| format!(", {field} = {}", sample_value(field)))
                 .collect::<String>();
             let guard = format!("{{ kind = \"{kind}\"{present} }}");
@@ -219,6 +253,45 @@ fn per_kind_fields_are_validated_at_parse_time() {
             assert!(
                 message.contains(missing.as_str()) && message.contains(kind.as_str()),
                 "TRP-003: {kind:?} without {missing:?} must refuse naming both: {message}"
+            );
+        }
+
+        // PCR-007: an exclusive choice admits exactly one member - no more,
+        // no fewer.
+        if choice.is_empty() {
+            continue;
+        }
+        let mandatory = required
+            .iter()
+            .map(|field| format!(", {field} = {}", sample_value(field)))
+            .collect::<String>();
+        let neither = refusal(&runbook_with_guard(&format!(
+            "{{ kind = \"{kind}\"{mandatory} }}"
+        )));
+        let both = choice
+            .iter()
+            .map(|field| format!(", {field} = {}", sample_value(field)))
+            .collect::<String>();
+        let together = refusal(&runbook_with_guard(&format!(
+            "{{ kind = \"{kind}\"{mandatory}{both} }}"
+        )));
+        for message in [&neither, &together] {
+            for field in choice {
+                assert!(
+                    message.contains(field.as_str()),
+                    "TRP-003/PCR-007: {kind:?} must name {field:?} when the choice is unmet: {message}"
+                );
+            }
+        }
+        for chosen in choice {
+            let guard = format!(
+                "{{ kind = \"{kind}\"{mandatory}, {chosen} = {} }}",
+                sample_value(chosen)
+            );
+            let source = runbook_with_guard(&guard);
+            assert!(
+                MachineClass::from_toml(&source).is_ok(),
+                "TRP-003/PCR-007: {kind:?} with only {chosen:?} must parse:\n{source}"
             );
         }
     }

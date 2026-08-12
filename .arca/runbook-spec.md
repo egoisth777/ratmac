@@ -115,15 +115,23 @@ is not listed for the selected kind is `RB107`; a missing required field is
 | `files_exact` | The listing of a directory equals the declared entry set; with no entry set, only that the path exists. | `path` | `root` (declared role), `entries` (array of strings; `files` is an accepted alias and must agree when both appear) |
 | `file_contains` | A substring is present in a file. | `path`, `contains` | `root` (declared role) |
 | `command_exit` | A spawned program's exit code equals `expected`. The child's stderr is captured and rendered as a bounded diagnostic on refusal (ETB-002). Unless `exempt`, the program must resolve to a pinnable regular file whose hash is recorded in Run evidence (ETB-001). | `program`, `expected` | `args` (array of strings), `exempt` (boolean; marks a toolchain probe that reads no project state) |
-| `sensitivity_receipts` | Every planned test the named ticket declares has a sensitivity receipt under `.ratmac/evidence/` (PGE-003). | `ticket` | `root` (declared role) |
-| `completion_gate` | Every check the named ticket declares has a green, fresh completion receipt (PGE-005). | `ticket` | `root` (declared role) |
+| `sensitivity_receipts` | Every planned test the addressed ticket declares has a sensitivity receipt under `.ratmac/evidence/` (PGE-003). | exactly one of `ticket`, `ticket-binding` | `root` (declared role) |
+| `completion_gate` | Every check the addressed ticket declares has a green, fresh completion receipt (PGE-005). | exactly one of `ticket`, `ticket-binding` | `root` (declared role) |
 | `intake_contract` | The fixed `goal` and `issue` roles provide the goal authority and intake/deferred/archive issue namespace. The guard parses each ask's exact `accepted\|rejected\|duplicate\|deferred` disposition from `spec.md`, never from status alone; enforces the deferred and archived bundle rules, accepted requirement IDs, and live links (PGE-001). | none | none |
 | `join` | FDC-009/FDC-011: the composition join. Satisfied only when the spawn ledger's live children carry Engine-written terminal `passed` facts - at least `min` of them. Until a ledger records children, a join guard honestly refuses. `require` accepts only `"all_passed"`; any other value is `RB506`, as is `min` below 1. | `require` | `min` (integer >= 1; default 1) |
 | `record_contract` | The fixed `goal`, `residual`, and `ticket` roles provide the records for one residual per frozen requirement, evidence behind every `satisfied`, one owning ticket per gap, acyclic ticket dependencies, and complete ticket sections (PGE-002). | none | none |
 
+A per-item guard names the one item it judges in exactly one of two ways
+(PCR-007). `ticket = "t-047"` writes the item in the runbook. `ticket-binding
+= "item"` names a binding instead: the caller supplies its value when the
+child Run is spawned, the value is recorded once in the parent's append-only
+spawn ledger, and the Engine reads it back at dispatch. Declaring both forms,
+neither, or an empty one is `RB112`. A bound address that no ledger entry
+supplies refuses at dispatch, naming the guard kind, the binding, and the Run.
+
 For `files_exact`, `file_contains`, `sensitivity_receipts`, and
-`completion_gate`, an optional `root = "<role>"` resolves `path` or `ticket`
-beneath that declared root. Without `root`, the address remains relative to
+`completion_gate`, an optional `root = "<role>"` resolves `path` or the
+resolved item address beneath that declared root. Without `root`, the address remains relative to
 the Run workspace. Contract guards have no path fields: `intake_contract`
 requires `goal` and `issue`; `record_contract` requires `goal`, `residual`,
 and `ticket`.
@@ -172,6 +180,7 @@ when any finding is an error.
 | `RB109` | error | `freeze` carries a value other than `"goal"`. |
 | `RB110` | error | A key carries a value of the wrong type. |
 | `RB111` | error | The runbook declares a pre-cutover `phases` table instead of `states`; the loader refuses before any further parse or run work, naming the runbook file and the repair (rename the table to `states`), and this refusal takes precedence over the generic unknown-key `RB103`. |
+| `RB112` | error | A per-item guard (`sensitivity_receipts`, `completion_gate`) declares both address forms, neither, or an empty one: exactly one of `ticket` and `ticket-binding` names the item it judges. |
 | `RB601` | error | The `roots` table is malformed: it is not a table, has an empty role, a non-string or empty path, an absolute path, or a path that lexically escapes the repository. |
 | `RB602` | error | A guard names a root role the runbook does not declare, including a fixed contract role. |
 | `RB603` | error | A declared root role names a path that does not exist or cannot be read when the runbook loads. |

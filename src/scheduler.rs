@@ -12,7 +12,7 @@ use sha2::{Digest, Sha256};
 use crate::graph::{MachineGraph, State};
 use crate::ledger::LedgerEntry;
 use crate::lock::{RootLock, RunLock};
-use crate::machine::{GuardKind, MachineClass, StateDefinition};
+use crate::machine::{GuardAddress, GuardKind, MachineClass, StateDefinition};
 use crate::model::{Run, RunState, Status};
 use crate::root::Displayed;
 use crate::roots::ValidatedWorkflowRoots;
@@ -2766,12 +2766,20 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
                 } => self.evaluate_command_exit(root, program, args, *expected, *exempt),
                 GuardKind::SensitivityReceipts {
                     root: root_name,
-                    ticket,
-                } => self.evaluate_sensitivity_receipts(root, root_name.as_deref(), ticket),
+                    address,
+                } => self
+                    .resolve_guard_address("sensitivity_receipts", address)
+                    .and_then(|ticket| {
+                        self.evaluate_sensitivity_receipts(root, root_name.as_deref(), &ticket)
+                    }),
                 GuardKind::CompletionGate {
                     root: root_name,
-                    ticket,
-                } => self.evaluate_completion_gate(root, root_name.as_deref(), ticket),
+                    address,
+                } => self
+                    .resolve_guard_address("completion_gate", address)
+                    .and_then(|ticket| {
+                        self.evaluate_completion_gate(root, root_name.as_deref(), &ticket)
+                    }),
                 GuardKind::IntakeContract => self
                     .resolve_guard_root(root, Some("goal"), "intake_contract", "goal")
                     .and_then(|goal_root| {
@@ -2931,6 +2939,82 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
     /// resolve to a sensitivity receipt under the addressed Run's
     /// `.ratmac/evidence/<run-id>/`; prose, filenames, and status fields
     /// satisfy nothing.
+    /// PCR-007: the one item a per-item guard judges, resolved before the
+    /// guard reads anything.
+    ///
+    /// A literal address is the runbook's own word. A bound address is the
+    /// value the caller supplied at spawn: it lives in the parent's
+    /// append-only spawn ledger, written once and never rewritten, so a Run
+    /// cannot change what it is graded against by writing a file the gate
+    /// reads. The Engine still handles an opaque string - containment and
+    /// shape are judged where the address becomes a path.
+    fn resolve_guard_address(
+        &self,
+        kind: &str,
+        address: &GuardAddress,
+    ) -> Result<String, GuardFailure> {
+        let name = match address {
+            GuardAddress::Literal(ticket) => return Ok(ticket.clone()),
+            GuardAddress::Binding(name) => name,
+        };
+        let engine_root = self.engine_root().map_err(|error| {
+            guard_failure(
+                kind,
+                address.displayed(),
+                error.to_string(),
+                "an addressed Run with a resolved Engine root",
+            )
+        })?;
+        let run_id = self.run_id().ok_or_else(|| {
+            guard_failure(
+                kind,
+                address.displayed(),
+                "no addressed Run",
+                "an addressed Run",
+            )
+        })?;
+        let record = Self::ledger_record_of_at(engine_root, run_id).map_err(|error| {
+            guard_failure(
+                kind,
+                address.displayed(),
+                error.to_string(),
+                "a readable spawn ledger recording this Run",
+            )
+        })?;
+        let (ledger_path, entry) = record.ok_or_else(|| {
+            guard_failure(
+                kind,
+                address.displayed(),
+                format!("run {run_id} is not recorded as a child in any spawn ledger, so binding {name:?} has no value"),
+                "a bound address supplied when the Run was spawned",
+            )
+        })?;
+        let value = entry.bind.get(name).ok_or_else(|| {
+            guard_failure(
+                kind,
+                address.displayed(),
+                format!(
+                    "the spawn ledger entry for run {run_id} in {} supplies no binding {name:?}; it supplies {:?}",
+                    ledger_path.displayed(),
+                    entry.bind.keys().collect::<Vec<_>>()
+                ),
+                "a bound address supplied when the Run was spawned",
+            )
+        })?;
+        if value.trim().is_empty() {
+            return Err(guard_failure(
+                kind,
+                address.displayed(),
+                format!(
+                    "the spawn ledger entry for run {run_id} in {} binds {name:?} to an empty value",
+                    ledger_path.displayed()
+                ),
+                "a bound address naming one item",
+            ));
+        }
+        Ok(value.clone())
+    }
+
     fn evaluate_sensitivity_receipts(
         &self,
         workspace: &Path,

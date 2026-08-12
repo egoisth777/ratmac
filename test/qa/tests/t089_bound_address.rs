@@ -220,9 +220,7 @@ impl Fixture {
 
     /// One green, fresh completion receipt for `check`, recorded for `run`.
     fn write_receipt(&self, run: &str, ticket: &str, check: &str) {
-        let directory = self
-            .root
-            .join(format!(".ratmac/evidence/{run}/completion"));
+        let directory = self.root.join(format!(".ratmac/evidence/{run}/completion"));
         fs::create_dir_all(&directory).expect("create evidence directory");
         let digest = ratmac::completion::tree_digest(&self.root, &["src".to_owned()])
             .expect("source roots are readable");
@@ -309,10 +307,15 @@ fn a_bound_gate_grades_each_child_against_its_own_receipts() {
     fixture.write_receipt(&second, "t-101", "PT-101-01");
 
     let step = fixture.rtm(&["step", "--run", &first]);
+    let text = combined(&step);
     assert!(
-        step.status.success(),
-        "the first child passes on its own receipts: {}",
-        combined(&step)
+        step.status.success() && !text.contains("step refused"),
+        "the first child passes on its own receipts: {text}"
+    );
+    let state = combined(&fixture.rtm(&["status", "--run", &first]));
+    assert!(
+        state.contains("State: done"),
+        "the first child reaches the State beyond its gate; got:\n{state}"
     );
 
     // The second child's evidence is deliberately the first child's: the gate
@@ -327,7 +330,7 @@ fn a_bound_gate_grades_each_child_against_its_own_receipts() {
     let step = fixture.rtm(&["step", "--run", &second]);
     let text = combined(&step);
     assert!(
-        !step.status.success(),
+        text.contains("step refused"),
         "a child graded against a neighbour's receipts refuses: {text}"
     );
     assert!(
@@ -387,7 +390,7 @@ fn an_unsupplied_binding_refuses_at_dispatch_without_writing() {
     let step = fixture.rtm(&["step", "--run", &child]);
     let text = combined(&step);
     assert!(
-        !step.status.success(),
+        text.contains("step refused"),
         "a binding nobody supplied cannot grade anything: {text}"
     );
     assert!(

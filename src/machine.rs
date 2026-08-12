@@ -118,11 +118,11 @@ pub enum GuardKind {
     },
     SensitivityReceipts {
         root: Option<String>,
-        ticket: String,
+        address: GuardAddress,
     },
     CompletionGate {
         root: Option<String>,
-        ticket: String,
+        address: GuardAddress,
     },
     IntakeContract,
     RecordContract,
@@ -154,7 +154,7 @@ impl GuardKind {
             "files_exact" => &["root", "path", "entries", "files"],
             "file_contains" => &["root", "path", "contains"],
             "command_exit" => &["program", "args", "expected", "exempt"],
-            "sensitivity_receipts" | "completion_gate" => &["root", "ticket"],
+            "sensitivity_receipts" | "completion_gate" => &["root", "ticket", "ticket-binding"],
             "intake_contract" | "record_contract" => &[],
             "join" => &["require", "min"],
             _ => return None,
@@ -267,11 +267,61 @@ impl GuardKind {
                 }
                 fields
             }
-            Self::SensitivityReceipts { root, .. } | Self::CompletionGate { root, .. } => root
-                .as_deref()
-                .map(|root| vec![("root", string(root))])
-                .unwrap_or_default(),
+            Self::SensitivityReceipts { root, address }
+            | Self::CompletionGate { root, address } => {
+                let mut fields = Vec::new();
+                if let Some(root) = root {
+                    fields.push(("root", string(root)));
+                }
+                match address {
+                    GuardAddress::Literal(ticket) => fields.push(("ticket", string(ticket))),
+                    GuardAddress::Binding(name) => fields.push(("ticket-binding", string(name))),
+                }
+                fields
+            }
             Self::IntakeContract | Self::RecordContract => Vec::new(),
+        }
+    }
+}
+
+/// PCR-007: how a per-item guard names the one item it judges.
+///
+/// A literal address is written in the runbook and is the same for every Run
+/// that reaches the guard. A bound address names a binding instead: the caller
+/// supplies its value when the child Run is spawned, the value lands in the
+/// append-only spawn ledger, and the Engine reads it back at dispatch. Either
+/// way the Engine handles one opaque string and learns nothing about what it
+/// means.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum GuardAddress {
+    /// `ticket = "t-047"` - written in the runbook.
+    Literal(String),
+    /// `ticket-binding = "item"` - supplied at spawn under this name.
+    Binding(String),
+}
+
+impl GuardAddress {
+    /// The literal address, or `None` when the address is bound.
+    pub fn literal(&self) -> Option<&str> {
+        match self {
+            Self::Literal(value) => Some(value),
+            Self::Binding(_) => None,
+        }
+    }
+
+    /// The binding name, or `None` when the address is literal.
+    pub fn binding(&self) -> Option<&str> {
+        match self {
+            Self::Literal(_) => None,
+            Self::Binding(name) => Some(name),
+        }
+    }
+
+    /// How a diagnostic names this address before any value is resolved.
+    pub fn displayed(&self) -> String {
+        match self {
+            Self::Literal(value) => value.clone(),
+            Self::Binding(name) => format!("binding {name:?}"),
         }
     }
 }
@@ -1262,11 +1312,11 @@ impl MachineClass {
             },
             "sensitivity_receipts" => GuardKind::SensitivityReceipts {
                 root: field.optional_string("root")?,
-                ticket: field.string("ticket")?,
+                address: field.address(location)?,
             },
             "completion_gate" => GuardKind::CompletionGate {
                 root: field.optional_string("root")?,
-                ticket: field.string("ticket")?,
+                address: field.address(location)?,
             },
             "intake_contract" => GuardKind::IntakeContract,
             "record_contract" => GuardKind::RecordContract,
@@ -1390,6 +1440,51 @@ impl Field<'_> {
             .as_str()
             .map(str::to_owned)
             .ok_or_else(|| self.wrong_type(key, "a string"))
+    }
+
+    /// PCR-007: the one address a per-item guard judges, in exactly one of
+    /// its two forms. Declaring both would leave the reader guessing which
+    /// wins; declaring neither leaves the guard with nothing to judge. Both
+    /// are the same defect class, so both carry `RB112`.
+    fn address(&self, location: &str) -> Result<GuardAddress, MachineClassParseError> {
+        let literal = self.optional_string("ticket")?;
+        let binding = self.optional_string("ticket-binding")?;
+        match (literal, binding) {
+            (Some(_), Some(_)) => Err(MachineClassParseError::at(
+                "RB112",
+                location.to_owned(),
+                format!(
+                    "invalid {location}: the guard declares both address forms, \"ticket\" and \"ticket-binding\"; a per-item guard judges one item named one way"
+                ),
+            )),
+            (None, None) => Err(MachineClassParseError::at(
+                "RB112",
+                location.to_owned(),
+                format!(
+                    "invalid {location}: the guard declares neither address form; name the item with \"ticket\", or name the binding that supplies it with \"ticket-binding\""
+                ),
+            )),
+            (Some(ticket), None) => {
+                if ticket.trim().is_empty() {
+                    return Err(MachineClassParseError::at(
+                        "RB112",
+                        location.to_owned(),
+                        format!("invalid {location}: \"ticket\" is empty; a per-item guard judges one named item"),
+                    ));
+                }
+                Ok(GuardAddress::Literal(ticket))
+            }
+            (None, Some(name)) => {
+                if name.trim().is_empty() {
+                    return Err(MachineClassParseError::at(
+                        "RB112",
+                        location.to_owned(),
+                        format!("invalid {location}: \"ticket-binding\" is empty; name the binding whose value addresses the item"),
+                    ));
+                }
+                Ok(GuardAddress::Binding(name))
+            }
+        }
     }
 
     fn optional_string(&self, key: &str) -> Result<Option<String>, MachineClassParseError> {

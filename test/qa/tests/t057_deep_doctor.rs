@@ -166,6 +166,11 @@ fn defect_catalogue() -> Vec<(&'static str, &'static str, &'static str)> {
         ),
         ("rb110", "RB110", "[states.a]\nprompt = 42\n"),
         ("rb111", "RB111", "[phases.a]\nprompt = \"p\"\n"),
+        (
+            "rb112",
+            "RB112",
+            "[states.a]\nprompt = \"p\"\nguards = [{ kind = \"completion_gate\", ticket = \"t-047\", ticket-binding = \"item\" }]\n",
+        ),
         ("rb201", "RB201", "[states]\n"),
         (
             "rb202",
