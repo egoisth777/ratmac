@@ -368,3 +368,4 @@
 - 2026-08-10: close: archived the two landed tickets `t-076` and `t-087` and their four proven gap records (`res-106`, `res-113`, `res-126`, `res-127`); corrected the Horizon paragraph that still called `t-076` held. No ticket is open and no gap record reads `missing` or `partial`.
 - 2026-08-10: gap check clean: 127 accepted requirement rows in `.arca/goal/spec.md`, 127 gap records across `.arca/residual/` and `.arca/residual/archive/` read as one namespace - one record per requirement, none `missing` or `partial`, no chains, no record citing an unknown id. No ticket is open. The tree is Idle.
 - 2026-08-10: marked the wish `Engine-namespace split` fulfilled - its issue `i-024` is archived and its seven tickets landed, ending with `t-087`.
+- 2026-08-10: sync: pushed `main` to `origin` at Idle (43 commits, `35c8ced..460600f`); the state-vocabulary sprint and its two follow-on tickets are on the remote.
