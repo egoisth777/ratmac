@@ -383,3 +383,5 @@
 - 2026-08-10: t-091 red: `PCRV-003` fails as designed in the ticket worktree - `ratmac::contract::work_items` and `WorkItemState` do not exist, so nothing computes whether a work item is open and the red is the absent predicate rather than a wrong answer.
 - 2026-08-10: t-091 green: `work_items` computes open, awaiting archive, and landed from the tree alone - location plus gap-record status - and names every contradiction instead of preferring one signal. Eight mutations, eight kills. The predicate agrees with this repository's own tree, which the hidden Cross-Feature lane runs against directly.
 - 2026-08-10: t-091 landed as `be6c872` on `main`; the ticket worktree and its branch are removed and the hidden lanes are copied back. Two tickets remain in this sprint: `t-092` and `t-093`.
+
+- 2026-08-10: t-092 red: `PCRV-001` and `PCRV-004` fail as designed in the ticket worktree - the shipped machine class is still the demonstration build machine, so its States are not the cycle's stages and two `RB302` warnings keep the doctor off zero.
