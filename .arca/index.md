@@ -11,15 +11,23 @@ Consult this file first, every time: the map below orients you; the routes
 table locates every file; then read the file itself. The map is orientation
 only, **never evidence** - a residual may not cite it.
 
-**Where are we?** Derived from the tree, never declared - check in order:
-open tickets in `.arca/ticket/` -> P4/P5 (building); `missing|partial`
-residuals without tickets -> P3; goal frozen but residuals stale -> P2; a
-`pending` issue bundle directly under `.arca/issue/` -> P1; none of the above
--> Idle. Bundles in `.arca/issue/deferred/` are live waiting work but do not
-force P1. Selecting one visibly moves that same complete bundle to the intake
-work area and changes its status to `pending`. (The addressed Run's Run Record answers only
-for a live `rtm` Run; until the **Plan-Build Runbook** is this project's
-Machine Class, the tree is the oracle - see steering.md, Current sprint endpoint.)
+**Where are we?** `rtm status --run <id>` answers it. The **Plan-Build
+Runbook** (`.ratmac/ratmac.toml`) is this project's Machine Class, so the
+sprint's stage *is* the addressed Run's State: `intake`, `gap-check`,
+`cut-tickets`, `ticket-turns`, `close`, `rest`. A sprint has one entry and one
+end, so one Run answers for it from start to rest. With no argument, `rtm
+status` prints the roster.
+
+**No-live-Run fallback.** Only while the roster is empty - the window between
+sprints - derive the stage from the tree, in order: open tickets in
+`.arca/ticket/` -> P4/P5 (building); `missing|partial` residuals without
+tickets -> P3; goal frozen but residuals stale -> P2; a `pending` issue bundle
+directly under `.arca/issue/` -> P1; none of the above -> Idle. Bundles in
+`.arca/issue/deferred/` are live waiting work but do not force P1. Selecting
+one visibly moves that same complete bundle to the intake work area and
+changes its status to `pending`. This derivation is the no-live-Run fallback
+and never competes with a live Run: while one exists, its Run Record is the
+only answer.
 
 ## Map - how ratmac hangs together
 
