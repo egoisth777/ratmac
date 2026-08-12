@@ -9,7 +9,7 @@
 
 use ratmac::contract::{work_items, WorkItemState};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// A tree with a declared ticket root: two items that took the archive move,
 /// one item still being worked, and one that is proven but not yet archived.
@@ -96,7 +96,7 @@ impl Tree {
 
 /// The computed answer as `id -> state`, so a failure names the item that
 /// moved rather than reporting that some vector differs.
-fn states(root: &PathBuf) -> Vec<(String, WorkItemState)> {
+fn states(root: &Path) -> Vec<(String, WorkItemState)> {
     work_items(root)
         .unwrap_or_else(|defects| {
             panic!(

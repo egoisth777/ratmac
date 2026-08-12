@@ -331,8 +331,8 @@ pub enum WorkItemState {
     /// Proven but still in the working root - the state every landing passes
     /// through until the cycle-end archive move.
     AwaitingArchive,
-    /// The item took the authorized archive move and every gap it owns is
-    /// proven.
+    /// The item made the archive move the working rules define, and every
+    /// gap it owns is proven.
     Landed,
 }
 
@@ -397,7 +397,10 @@ pub fn work_items_at(
                 shown(&path),
                 format!("states status {other:?}; expected missing, partial, or satisfied"),
             )),
-            None => defects.push(defect(shown(&path), "record is unreadable: no status field")),
+            None => defects.push(defect(
+                shown(&path),
+                "record is unreadable: no status field",
+            )),
         }
     }
 
