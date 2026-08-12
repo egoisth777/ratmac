@@ -390,3 +390,67 @@ remainder is named, not hidden: `src/completion.rs` still parses a ticket docume
 checks a ticket declares (`## Merge Gate`, `HT-nnn-nn` lane ids, a `ticket-id` receipt
 field), which is the same leak in a different place; it is filed as its own wish rather than
 folded into this ruling, because removing it redesigns the completion gate's contract.
+
+## The shop's own cycle as a runbook (ADR-0015)
+
+**Context.** The engine was built to run a declared process, and the only process it has ever
+run is a demonstration machine that builds a file called `release.txt`. The cycle this
+repository actually follows lives as prose in the working rules, and "where are we" is
+answered by a person reading a lookup table. The issue about running the cycle as a runbook
+([i-015](../issue/archive/i-015-cycle-as-runbook/index.md)) waited three planning passes for the
+contracts beneath it; those are landed, so the question is no longer whether but in what
+shape.
+
+**Decision.** Six rulings, each forced by something already in force rather than chosen for
+taste.
+
+- *One sprint is one Run.* The format fixes this, not preference. The initial State is the one
+  State with no inbound ordinary edge, and its absence is the error `RB202`. A rest State that
+  routed back to intake would give every State an inbound edge and no machine would parse. So
+  the cycle machine runs from an intake State to a terminal rest State, reaching the
+  Engine-written `passed` fact there, and the next sprint is the next Run.
+- *The stage is the State.* Because a sprint is a Run, the addressed report answers the stage
+  question directly from the Run Record while the sprint is live. Between sprints there is no
+  Run and no answer, so the tree-derived lookup survives as the labelled fallback for exactly
+  that window and is never a competing second answer.
+- *The work item is addressed by a binding, not by a name in the file.* The per-item gates need
+  to know which item they judge, and a read-only runbook may not carry the identifier. The
+  earlier proposal bound the target through the Run Record's active references and had to
+  invent a derivation to stop a stale value from choosing what the gates grade. Composition
+  removes the problem instead of guarding it: the stage that opens the ticket turns declares
+  one child class, each turn is spawned with its address supplied as a binding value, and the
+  Engine records that value in the append-only spawn ledger. A value written once at spawn and
+  never rewritten cannot go stale, the runbook holds no identifier, and the Engine still reads
+  an opaque string - `NRR-001` holds. The remaining literal-address form stays exactly as it
+  is; this adds the bound form beside it.
+- *A doctor-clean cycle rules out the file-shaped guards.* Any `files_exact` or `file_contains`
+  guard over a path outside the Engine's own tree raises the `RB302` warning, which makes the
+  doctor exit `1`. Requiring exit `0` therefore constrains the cycle to the contract-, receipt-,
+  join-, and command-class guards, which is the honest test of whether the closed vocabulary
+  can express a real process. It also means the branch out of the gap-check stage is routed by
+  a declared transition input rather than a guard: no guard kind can say "no gap remains", and
+  inventing one is out of scope. The evidence behind that input is not lost - the record gate
+  reads the same records on the way in, and the next Run re-derives the judgment at its own gap
+  check.
+- *Working-authority requirements are first-class at intake.* The intake gate resolves an
+  accepted ask to a goal row today. This repository's own tree would be refused by it, because
+  rules that bind the contributor rather than the program resolve to headings in the working
+  authority and deliberately mint no goal row. The gate learns that second resolution, and
+  refuses only an ask that resolves to neither.
+- *Damage runs from a checkpoint, and a guard proves it.* The step into the deliberate-damage
+  stage carries a command guard that observes whether the tree holds an uncommitted change to a
+  tracked file. That is the exact hazard the safety-commit rule was written for: the
+  composition-format turn destroyed a tracked file by restoring stale index bytes. A file that
+  was never added is invisible to an exit code and is also untouched by the restore this rule
+  protects, so the guard is weaker than the prose in a place where the prose is not load-bearing.
+
+**Consequences.** The runbook that governs this repository is authored under the manual cycle
+one last time and governs the sprint after it; a machine cannot bootstrap its own first Run.
+`PCR-004` is rejected rather than deferred: the landing line stays a human act, because the
+working rules now make `.arca/log.md` human-only and `NRR-001` forbids the Engine writing
+under a workflow root, so the property that history cannot be rewritten by whoever is working
+is carried by the Engine-owned transition log instead. Two limits are named rather than hidden:
+the dirty-tree guard cannot see a file that was never added, which needs a repository-state
+guard kind that steering already carries as deferred debt; and the completion gate still parses
+a contributor's document for the checks it declares, the remainder `ADR-0014` named and left
+to its own wish.

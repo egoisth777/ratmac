@@ -104,3 +104,16 @@ name so it stops overwriting the shipped one, tests launch the build they were c
 against, and a check over the package manifests refuses a future collision by name. No Engine
 behaviour changes; see [ADR-0013](design.md#one-engine-binary-per-build-target-adr-0013).
 
+
+## Integrated Plan-Build Runbook
+
+The engine runs this repository's own plan-build cycle. Requirements are integrated from
+[i-015-cycle-as-runbook](../issue/archive/i-015-cycle-as-runbook/index.md): `PCR-001`, `PCR-002`,
+`PCR-003`, `PCR-005`, `PCR-007`, `PCR-008`, and `PCR-009`. The Machine Class stops being a
+demonstration and declares the real stages, one sprint is one Run so the addressed report
+names the stage while it lasts, a receipt-class guard addresses its work item through a
+binding supplied at spawn instead of an identifier written in the file, the intake gate
+accepts a working-authority heading as a resolution, a guard refuses deliberate damage on an
+uncommitted tree, and the doctor exits clean on the result. `PCR-004` was rejected: the
+landing line stays a human act. See
+[ADR-0015](design.md#the-shops-own-cycle-as-a-runbook-adr-0015).

@@ -273,3 +273,15 @@ Behavior checks derived from [spec.md](spec.md). Each is a testable one-liner.
 |NRRV-001|A full hold leaves every file under a workflow root byte-identical: the Run Record carries the paused mark and its blocker reference, the Engine transition log carries the entry, and the completion gate refuses the paused Run by reading Engine-owned state alone. A blocker that escapes its declared root refuses, and a hold interrupted before its write leaves the Run unpaused.|NRR-001|
 |NRRV-002|No Engine argument, message, refusal, field, or path names a work-item document or its shape: the source audit finds no work-item filename construction, no work-item field parse, and no work-item-shaped blocker rule in the Engine, and a runbook that never mentions one still holds, routes, and refuses completion.|NRR-001|
 |NRRV-003|The source scan finds exactly one declaration naming the retired pre-split folder, states that exception by its own name, and fails both when a second literal appears and when the declaration is renamed.|NRR-002|
+
+## Integrated Plan-Build Runbook verification
+
+|ID|Check|Requirement|
+|---|---|---|
+|PCRV-001|This repository's Machine Class parses through the one runbook reader and declares the cycle's stages and edges; a Run started on it reaches the ticket turns and then the rest State by starting and stepping alone, and no stage advances on a rule supplied from outside the file.|PCR-001|
+|PCRV-002|The cycle machine has exactly one initial State and exactly one terminal rest State, so a sprint is one Run; while that Run is live the addressed report names its stage, and the tree-derived lookup is present only as the labelled no-live-Run fallback.|PCR-002|
+|PCRV-003|A machine check over this repository's real records tells an open work item from a landed one with no prose input, and seeding one unproven gap record flips exactly one item to open.|PCR-003|
+|PCRV-004|The doctor exits `0` on this repository's Machine Class and the exit code is pinned by a test; adding a guard whose verdict rests on content the agent under test can write makes the same test fail with the warning that names it.|PCR-005|
+|PCRV-005|A receipt-class guard that names a binding instead of a literal address grades the item whose value the spawn supplied: two child turns spawned with different values are graded against their own receipts, receipts belonging to the other turn satisfy neither, and the runbook file contains no identifier. Declaring both forms, or naming a binding the spawn never supplied, refuses under its own code without writing.|PCR-007|
+|PCRV-006|The intake gate passes an accepted ask that resolves only to a requirement-ID heading in the working authority, passes one that resolves only to a goal row, and refuses one that resolves to neither, naming the ask and both places it looked.|PCR-008|
+|PCRV-007|Stepping into the deliberate-damage stage refuses while a tracked file carries an uncommitted change, names the observed and expected fact, and leaves State and Status untouched; committing the change makes the same step succeed.|PCR-009|

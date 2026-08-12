@@ -113,4 +113,8 @@ Glossary of ubiquitous language. One term, one meaning. Terms not listed here mu
 | Build target | One thing the build produces from source: a command a person can run, or a library other code links. Each target has a name and one output file. |
 | Output collision | Two build targets that write the same output file. The one that finishes last survives, so the result depends on build order rather than on what was asked for. |
 | Pause point | A wiring seam compiled in only for testing, letting a test stop the Engine at a named moment mid-operation, inspect the tree, and let it continue. Absent from the shipped command by design. |
-
+| Plan-Build Runbook | The Machine Class that declares this repository's own plan-build cycle: its stages as States, their prompts, and the Exit Guards between them. The first real process the Engine runs. |
+| Cycle stage | One State of the Plan-Build Runbook — intake, gap check, cutting the work items, a ticket turn, close, rest. While a sprint Run is live, the stage is what the addressed report names. |
+| Open work item | A work item still being worked: present directly under the declared ticket root. One that has taken the authorized archive move is landed. The distinction is decided by a machine check, never by reading prose. |
+| Bound address | A guard's way of naming what it judges without writing the identifier in the runbook: the guard names a binding, the caller supplies the value at spawn, and the Engine reads it back from the append-only spawn ledger. The value is an opaque string to the Engine. |
+| No-live-Run fallback | The tree-derived answer to "where are we", used only in the window between sprints when no Run exists. It is labelled as such and is never a second answer while a Run is live. |
