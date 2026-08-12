@@ -174,8 +174,8 @@ fn an_undeclared_authority_resolves_nothing() {
     gate_intake(&tree.root).expect("a goal-row ask still passes with no authority declared");
 
     tree.write_issue("i-101-authority", "AUTH-001");
-    let defects =
-        gate_intake(&tree.root).expect_err("with no authority declared, its heading resolves nothing");
+    let defects = gate_intake(&tree.root)
+        .expect_err("with no authority declared, its heading resolves nothing");
     let joined = defects
         .iter()
         .map(|defect| defect.to_string())

@@ -2784,8 +2784,15 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
                                         goal_root.displayed(),
                                         issue_root.displayed()
                                     ),
-                                    crate::contract::gate_intake_at(&goal_root, &issue_root),
-                                    "issue dispositions, status, and location agree across intake/deferred/archive; five-file shape intact; accepted IDs in the goal; live links resolving",
+                                    crate::contract::gate_intake_at(
+                                        &goal_root,
+                                        &issue_root,
+                                        // PCR-008: the working authority is an
+                                        // optional role. Undeclared means one
+                                        // place a requirement can live.
+                                        self.workflow_roots.resolve("authority").ok().as_deref(),
+                                    ),
+                                    "issue dispositions, status, and location agree across intake/deferred/archive; five-file shape intact; accepted IDs in the goal or the working authority; live links resolving",
                                 )
                             })
                     }),

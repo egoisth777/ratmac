@@ -93,13 +93,26 @@ impl IssueLocation {
 /// This compatibility entry point resolves the contract's fixed role names
 /// from the reviewed runbook before reading any workflow record.
 pub fn gate_intake(workspace: &Path) -> Result<(), Vec<ContractDefect>> {
-    let roots = contract_roots(workspace, &["goal", "issue"])?;
-    gate_intake_at(&roots[0], &roots[1])
+    let (required, roots) = contract_roots_with_table(workspace, &["goal", "issue"])?;
+    // PCR-008: the working authority is optional. A project that declares no
+    // such root simply keeps one place a requirement can live, which is
+    // stricter than the second resolution rather than looser.
+    let authority = roots.resolve("authority").ok();
+    gate_intake_at(&required[0], &required[1], authority.as_deref())
 }
 
 /// Evaluate intake records under the already resolved `goal` and `issue`
-/// roots. Schema-known leaf names are the only addresses added here.
-pub fn gate_intake_at(goal_root: &Path, issue_root: &Path) -> Result<(), Vec<ContractDefect>> {
+/// roots, plus the optional working-authority root. Schema-known leaf names
+/// are the only addresses added here.
+///
+/// PCR-008: an accepted ask resolves in either authority. A goal row states
+/// what the program must do; a requirement-ID heading in the working authority
+/// states what a contributor must do and deliberately mints no goal row.
+pub fn gate_intake_at(
+    goal_root: &Path,
+    issue_root: &Path,
+    authority_root: Option<&Path>,
+) -> Result<(), Vec<ContractDefect>> {
     let mut defects = Vec::new();
     let goal_path = goal_root.join("spec.md");
     let shown_goal = shown(&goal_path);
@@ -111,6 +124,11 @@ pub fn gate_intake_at(goal_root: &Path, issue_root: &Path) -> Result<(), Vec<Con
         ));
     }
     let goal_ids = requirement_ids(&goal);
+    let authority_ids = authority_requirement_ids(authority_root);
+    let shown_authority = match authority_root {
+        Some(root) => format!("requirement headings in {}", shown(root)),
+        None => "requirement headings (no working-authority root is declared)".to_owned(),
+    };
     let mut seen_ids: BTreeMap<String, String> = BTreeMap::new();
 
     for (name, folder, location) in issue_folders(issue_root) {
@@ -254,11 +272,11 @@ pub fn gate_intake_at(goal_root: &Path, issue_root: &Path) -> Result<(), Vec<Con
         }
         if matches!(status.as_str(), "integrated" | "deferred") {
             for requirement in &accepted {
-                if !goal_ids.contains(requirement) {
+                if !goal_ids.contains(requirement) && !authority_ids.contains(requirement) {
                     defects.push(defect(
                         &shown,
                         format!(
-                            "claims {status}, but accepted requirement {requirement} is absent from the goal authority"
+                            "claims {status}, but accepted requirement {requirement} resolves in neither authority: it is absent from the goal rows in {shown_goal} and from {shown_authority}"
                         ),
                     ));
                 }
@@ -537,6 +555,15 @@ fn declared_gate_kinds(root: &Path) -> BTreeSet<String> {
 }
 
 fn contract_roots(workspace: &Path, roles: &[&str]) -> Result<Vec<PathBuf>, Vec<ContractDefect>> {
+    contract_roots_with_table(workspace, roles).map(|(paths, _)| paths)
+}
+
+/// Resolve the required roles and hand back the validated table, so a caller
+/// needing an optional role does not load and validate the class twice.
+fn contract_roots_with_table(
+    workspace: &Path,
+    roles: &[&str],
+) -> Result<(Vec<PathBuf>, crate::roots::ValidatedWorkflowRoots), Vec<ContractDefect>> {
     let engine = crate::root::resolve(workspace);
     let class =
         crate::machine::MachineClass::load_from_project_root(workspace).map_err(|error| {
@@ -548,14 +575,15 @@ fn contract_roots(workspace: &Path, roles: &[&str]) -> Result<Vec<PathBuf>, Vec<
     let roots = class
         .validate_roots(engine.invoking_checkout_root(), engine.engine_root())
         .map_err(|error| vec![defect("runbook", error.to_string())])?;
-    roles
+    let paths = roles
         .iter()
         .map(|role| {
             roots
                 .resolve(role)
                 .map_err(|error| vec![defect("runbook", error.to_string())])
         })
-        .collect()
+        .collect::<Result<Vec<PathBuf>, Vec<ContractDefect>>>()?;
+    Ok((paths, roots))
 }
 
 fn shown(path: &Path) -> String {
@@ -632,6 +660,47 @@ fn requirement_ids(text: &str) -> BTreeSet<String> {
             .to_owned();
         if is_requirement_id(&first) {
             ids.insert(first);
+        }
+    }
+    ids
+}
+
+/// PCR-008: requirement IDs carried as headings in the working authority.
+///
+/// A working-authority requirement binds the contributor rather than the
+/// program, so it mints no goal row and can only be addressed by its own
+/// heading. Only the markdown files directly under the declared root are read:
+/// the goal, issue, and record trees live in their own roots and are not
+/// working authority. A heading inside a fenced code block is sample text, not
+/// a declaration.
+fn authority_requirement_ids(root: Option<&Path>) -> BTreeSet<String> {
+    let mut ids = BTreeSet::new();
+    let Some(root) = root else {
+        return ids;
+    };
+    for path in files_in(root.to_path_buf(), "md") {
+        let Ok(text) = fs::read_to_string(&path) else {
+            continue;
+        };
+        let mut fenced = false;
+        for line in text.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("```") {
+                fenced = !fenced;
+                continue;
+            }
+            if fenced || !trimmed.starts_with('#') {
+                continue;
+            }
+            let first = trimmed
+                .trim_start_matches('#')
+                .split_whitespace()
+                .next()
+                .unwrap_or_default()
+                .trim_matches('`');
+            if is_requirement_id(first) {
+                ids.insert(first.to_owned());
+            }
         }
     }
     ids
