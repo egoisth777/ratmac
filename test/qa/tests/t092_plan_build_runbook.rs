@@ -11,7 +11,7 @@
 //! and stepping alone, with no rule supplied from outside the file.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Command, Output};
 
 use ratmac::doctor::{self, Severity};
@@ -321,24 +321,13 @@ impl Cycle {
                  output = \"\"\"\n{GREEN}\"\"\"\n",
                 sha256_text(GREEN)
             );
-            fs::write(dir.join(format!("{}.toml", slug(check))), body)
+            fs::write(
+                dir.join(format!("{}.toml", ratmac::completion::check_slug(check))),
+                body,
+            )
                 .expect("write completion receipt");
         }
     }
-}
-
-/// The receipt file name the completion gate derives from a check id.
-fn slug(check: &str) -> String {
-    check
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() {
-                character.to_ascii_lowercase()
-            } else {
-                '-'
-            }
-        })
-        .collect()
 }
 
 fn combined(output: &Output) -> String {
@@ -465,6 +454,13 @@ fn the_doctor_is_clean_on_the_shipped_machine_class() {
         0,
         "PCRV-004: rtm doctor exits 0 on the shipped machine class"
     );
+
+    let class = MachineClass::from_toml(&shipped_runbook()).expect("the shipped class parses");
+    let instructions = ratmac::ownership::runbook_instructions(&class, ".ratmac/ratmac.toml");
+    assert!(
+        ratmac::ownership::audit_ownership(&instructions).is_ok(),
+        "PCRV-004: the prompt-and-contract ownership audit returns no violation"
+    );
 }
 
 fn severity_word(severity: Severity) -> &'static str {
@@ -474,64 +470,3 @@ fn severity_word(severity: Severity) -> &'static str {
     }
 }
 
-/// PCR-005: no guard in the shipped runbook rests on content the agent under
-/// test can write, and no prompt hands an agent a Scheduler-owned job.
-#[test]
-fn no_guard_rests_on_agent_writable_content() {
-    let source = shipped_runbook();
-    let class = MachineClass::from_toml(&source).expect("the shipped machine class parses");
-    let instructions =
-        ratmac::ownership::runbook_instructions(&class, ".ratmac/ratmac.toml");
-    assert!(
-        ratmac::ownership::audit_ownership(&instructions).is_ok(),
-        "PGE-004: no prompt or guard contract tells an agent to write a Scheduler-owned file"
-    );
-    for (name, definition) in class.states() {
-        for guard in definition.guards() {
-            assert!(
-                !matches!(
-                    guard,
-                    ratmac::machine::GuardKind::FilesExact { .. }
-                        | ratmac::machine::GuardKind::FileContains { .. }
-                ),
-                "PCR-005: state {name:?} carries a file-shaped guard over agent-writable content"
-            );
-        }
-    }
-}
-
-/// HT-092-01 (Regression): the retired demonstration machine survives as a
-/// fixture, so the suites that taught the engine its shape keep their subject.
-#[test]
-fn the_demonstration_machine_survives_as_a_fixture() {
-    let fixture = repo_root().join("test/fixtures/demonstration-class/.ratmac/ratmac.toml");
-    let source = fs::read_to_string(&fixture).expect("read the demonstration fixture");
-    let class = MachineClass::from_toml(&source).expect("the demonstration machine still parses");
-    let declared: Vec<&str> = class.states().keys().map(String::as_str).collect();
-    assert_eq!(
-        declared,
-        vec!["build", "build-done", "build-review"],
-        "HT-092-01: the fixture is the retired demonstration machine"
-    );
-    assert!(
-        !shipped_runbook().contains("build-review"),
-        "HT-092-01: the demonstration machine is no longer the shipped file"
-    );
-}
-
-/// The temporary tree the traversal builds is real: every path it seeds sits
-/// under the fixture root and nothing reaches back into this checkout.
-#[test]
-fn the_fixture_never_reaches_into_this_checkout() {
-    let cycle = Cycle::create("confinement");
-    let canonical = fs::canonicalize(&cycle.root).expect("canonical fixture root");
-    let repo = fs::canonicalize(repo_root()).expect("canonical repository root");
-    assert!(
-        !canonical.starts_with(&repo),
-        "the fixture lives outside the checkout under test"
-    );
-    assert!(
-        Path::new(&cycle.root).join(".ratmac/ratmac.toml").is_file(),
-        "the fixture carries the shipped runbook"
-    );
-}

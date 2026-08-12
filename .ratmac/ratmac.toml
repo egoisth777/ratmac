@@ -1,42 +1,185 @@
-# Project Runbook. State prompts are agent-facing instructions; they never ask
-# an agent to write a Scheduler-owned file (PGE-004).
-
+# The Plan-Build Runbook - the P1-P5 cycle this repository runs (PCR-001).
+#
+# Comments carry authoring intent and never reach an agent (R-012). Prompts are
+# agent-facing prose; guards are the machine's own reading of what is on disk,
+# never an agent's claim. No guard here rests on content the agent under test
+# can write (PCR-005), so the file declares no file-shaped guard over a
+# workflow root, and no prompt hands an agent a Scheduler-owned job (PGE-004).
 
 [roots]
 goal = ".arca/goal"
 issue = ".arca/issue"
 residual = ".arca/residual"
 ticket = ".arca/ticket"
-[states.build]
-prompt = "Build the selected artifact only, then record your evidence under .arca/evidence/."
+# PCR-008: the working authority. Only the markdown directly under this root is
+# read, so an accepted ask may resolve to a requirement-ID heading in the
+# working rules instead of a product row in the goal.
+authority = ".arca"
 
-[[states.build.guards]]
-kind = "files_exact"
-path = "artifacts"
-entries = ["release.txt"]
+# --- P1 ----------------------------------------------------------------------
 
-[[states.build.guards]]
-kind = "file_contains"
-path = "artifacts/release.txt"
-contains = "ready: true"
+[states.intake]
+prompt = """
+Fold every pending issue in the intake area into the frozen goal or the working
+rules. Give each ask a stable requirement identifier and exactly one
+disposition - accepted, rejected, duplicate, or deferred - and link it both
+ways. An accepted ask resolves either to a product requirement row in the goal
+specification or to an explicit requirement-identifier heading in the working
+rules. Leave no ask undecided and no bundle half moved.
+"""
+guards = [{ kind = "intake_contract" }]
 
-[[states.build.guards]]
-kind = "command_exit"
-program = "rustc"
-args = ["--version"]
-expected = 0
-exempt = true
+# --- P2 ----------------------------------------------------------------------
 
-[states.build-review]
-prompt = "Review the selected artifact."
+[states.gap-check]
+prompt = """
+Freeze the goal and measure it. Compare every frozen requirement against what
+the tree actually holds, and state each answer as missing, partial, or
+satisfied with a pointer to the proof and a short why. Then answer this stage's
+question: are there gaps to work, or is the goal clean?
+"""
+inputs = ["gaps", "clean"]
+# The gap check is left only while the intake reading it measures against still
+# holds: every ask dispositioned, every bundle where the rules put it. The gap
+# records themselves are judged one stage later, when they have owners - the
+# record contract demands an owning work item for every unproven gap, which is
+# exactly what P3 has not cut yet.
+guards = [{ kind = "intake_contract" }]
 
-[states.build-done]
-prompt = "Finish the selected artifact."
+# --- P3 ----------------------------------------------------------------------
+
+[states.cut-tickets]
+prompt = """
+Cut one work item per open gap, each with its own vertical outcome, worktree
+scope, apparent test plan, hidden coverage manifest, and merge gate. Every open
+gap gets exactly one owner and no gap is owned twice. Order the items by their
+dependencies and leave no cycle among them.
+"""
+guards = [{ kind = "record_contract" }]
+
+# --- P4 and P5 ---------------------------------------------------------------
+
+[states.ticket-turns]
+prompt = """
+Take the ordered work items one at a time. For each, begin one turn of the
+ticket class bound to that item, and let the turn reach its end before the next
+one begins. This stage is done when every turn it began has passed.
+"""
+guards = [
+  { kind = "record_contract" },
+  { kind = "join", require = "all_passed" },
+]
+
+[[states.ticket-turns.spawns]]
+class = "ticket"
+name = "turn"
+bind = ["item"]
+
+# --- the turn of the cycle ---------------------------------------------------
+
+[states.close]
+prompt = """
+Close this turn of the cycle. Judge every gap the finished items claimed, move
+each finished item to the archive, and leave the tree clean and green.
+"""
+guards = [{ kind = "record_contract" }]
+
+[states.rest]
+prompt = """
+Nothing is open. The cycle is at rest until the next issue arrives.
+"""
 
 [[transitions]]
-from = "build"
-to = "build-review"
+from = "intake"
+to = "gap-check"
+# ETB-003: intake is complete, so the goal the gap check measures is frozen.
+freeze = "goal"
 
 [[transitions]]
-from = "build-review"
-to = "build-done"
+from = "gap-check"
+to = "cut-tickets"
+input = "gaps"
+
+[[transitions]]
+from = "gap-check"
+to = "rest"
+input = "clean"
+
+[[transitions]]
+from = "cut-tickets"
+to = "ticket-turns"
+
+[[transitions]]
+from = "ticket-turns"
+to = "close"
+
+[[transitions]]
+from = "close"
+to = "gap-check"
+
+# --- the ticket class: one turn, one work item -------------------------------
+
+# PCR-007: the turn judges the item its caller bound, so the runbook carries no
+# ticket identifier of its own and stays read-only.
+[classes.ticket.bindings.item]
+required = true
+
+[classes.ticket.states.tests]
+prompt = """
+Write this item's planned tests first and prove each one red for the stated
+reason. Every planned test the item declares needs a sensitivity receipt
+showing the test runs and fails before its implementation exists.
+"""
+guards = [
+  { kind = "sensitivity_receipts", ticket-binding = "item", root = "ticket" },
+]
+
+[classes.ticket.states.implement]
+prompt = """
+Make the planned tests pass, then run the item's whole merge gate: its focused
+tests, the affected regressions, its hidden lanes, and the quality commands.
+Commit the green work before going on - the next stage breaks the tree on
+purpose and has to have something to restore.
+"""
+guards = [
+  { kind = "completion_gate", ticket-binding = "item", root = "ticket" },
+  # PCR-009: the safety commit is a machine check, not prose. Exit 0 is a
+  # working tree with no uncommitted change to a tracked file.
+  { kind = "command_exit", program = "git", args = [
+    "diff",
+    "--stat",
+    "--exit-code",
+    "HEAD",
+  ], expected = 0 },
+]
+
+[classes.ticket.states.damage]
+prompt = """
+Break the green work on purpose, one mutation at a time, and check that a test
+catches each one. Restore the tree from the safety commit after every mutation.
+A mutation that survives is a hole in the tests, not a win.
+"""
+# Leaving the damage stage means the checks are green and fresh again: the
+# completion gate re-derives every receipt against the tree as it stands, so a
+# tree left damaged cannot pass.
+guards = [
+  { kind = "completion_gate", ticket-binding = "item", root = "ticket" },
+]
+
+[classes.ticket.states.done]
+prompt = """
+The turn is finished: the item's tests are green, its mutations are killed, and
+its landing is merged.
+"""
+
+[[classes.ticket.transitions]]
+from = "tests"
+to = "implement"
+
+[[classes.ticket.transitions]]
+from = "implement"
+to = "damage"
+
+[[classes.ticket.transitions]]
+from = "damage"
+to = "done"

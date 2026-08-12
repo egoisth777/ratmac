@@ -1,0 +1,42 @@
+# Project Runbook. State prompts are agent-facing instructions; they never ask
+# an agent to write a Scheduler-owned file (PGE-004).
+
+
+[roots]
+goal = ".arca/goal"
+issue = ".arca/issue"
+residual = ".arca/residual"
+ticket = ".arca/ticket"
+[states.build]
+prompt = "Build the selected artifact only, then record your evidence under .arca/evidence/."
+
+[[states.build.guards]]
+kind = "files_exact"
+path = "artifacts"
+entries = ["release.txt"]
+
+[[states.build.guards]]
+kind = "file_contains"
+path = "artifacts/release.txt"
+contains = "ready: true"
+
+[[states.build.guards]]
+kind = "command_exit"
+program = "rustc"
+args = ["--version"]
+expected = 0
+exempt = true
+
+[states.build-review]
+prompt = "Review the selected artifact."
+
+[states.build-done]
+prompt = "Finish the selected artifact."
+
+[[transitions]]
+from = "build"
+to = "build-review"
+
+[[transitions]]
+from = "build-review"
+to = "build-done"
