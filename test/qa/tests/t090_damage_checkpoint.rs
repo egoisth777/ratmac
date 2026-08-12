@@ -184,6 +184,11 @@ fn the_damage_step_refuses_until_the_tree_is_committed() {
         refusal.contains("exit 0"),
         "the refusal names the expected fact: {refusal}"
     );
+    assert!(
+        refusal.contains("diagnostic (stdout)"),
+        "ETB-002: the refusal labels the channel the observed fact came from, \
+         so a reader is never guessing which one spoke: {refusal}"
+    );
     assert_eq!(
         fixture.record(&run),
         before_record,
