@@ -11,7 +11,10 @@
 //! The audit itself lives in `ratmac_qa::edition` so the private lanes judge the
 //! same code rather than a second copy of the rule.
 
-use ratmac_qa::edition::{audit_editions, edition_tags, report, AuditFinding, EXAMPLE_BAR_MESSAGE};
+use ratmac_qa::edition::{
+    audit_editions, audit_sequence, edition_tags, repo_root, report, AuditFinding,
+    EXAMPLE_BAR_MESSAGE,
+};
 use ratmac_qa::tempgit::TempRepo;
 
 /// A repository with one commit on `main` and nothing else.
@@ -98,5 +101,96 @@ fn every_edition_is_annotated_documented_and_reachable() {
             .expect("audit a well-formed edition")
             .is_empty(),
         "an annotated edition recording the bar passes"
+    );
+}
+
+/// Write the tracked record of what each edition marks.
+fn ledger(repo: &TempRepo, rows: &[(&str, &str)]) {
+    let mut text = String::from(
+        "# Editions\n\n| Edition | Commit | What it marks |\n| :--- | :--- | :--- |\n",
+    );
+    for (tag, commit) in rows {
+        text.push_str(&format!("| `{tag}` | `{commit}` | fixture |\n"));
+    }
+    repo.write(".arca/editions.md", &text);
+    repo.commit_all("record the edition");
+}
+
+/// `EDNV-004`, sequence half: the numbers run from `001` with no hole and no
+/// duplicate, and every edition still marks the commit the tracked ledger
+/// records. Version control cannot refuse a moved tag, so the committed record
+/// is the only thing a move can disagree with.
+#[test]
+fn the_sequence_has_no_holes_and_no_edition_has_moved() {
+    let findings = audit_sequence(&repo_root()).expect("audit this repository's edition sequence");
+    assert_eq!(
+        findings,
+        Vec::new(),
+        "this repository's editions are sequential, unique, and unmoved"
+    );
+
+    // A hole: the sequence reaches 002 with no 001.
+    let hole = base("t096-hole");
+    ledger(&hole, &[("edition-002", &hole.head())]);
+    hole.git(&["tag", "-a", "edition-002", "-m", EXAMPLE_BAR_MESSAGE]);
+    let findings = audit_sequence(hole.root()).expect("audit a sequence with a hole");
+    assert!(
+        findings
+            .iter()
+            .any(|finding| finding.tag == "edition-001" && finding.property == "sequence"),
+        "a missing number is reported by the number that is missing: {findings:?}"
+    );
+
+    // A move: the tag no longer marks the commit the ledger records.
+    let moved = base("t096-moved");
+    let first = moved.head();
+    ledger(&moved, &[("edition-001", &first)]);
+    moved.git(&["tag", "-a", "edition-001", "-m", EXAMPLE_BAR_MESSAGE]);
+    moved.write("src/lib.rs", "pub fn later() {}\n");
+    moved.commit_all("later work");
+    moved.git(&["tag", "-f", "-a", "edition-001", "-m", EXAMPLE_BAR_MESSAGE]);
+    let findings = audit_sequence(moved.root()).expect("audit a moved edition");
+    assert!(
+        findings
+            .iter()
+            .any(|finding| finding.tag == "edition-001" && finding.property == "immutable"),
+        "a moved edition is reported against its recorded commit: {findings:?}"
+    );
+
+    // An unrecorded edition: nothing to disagree with is itself the defect.
+    let unrecorded = base("t096-unrecorded");
+    ledger(&unrecorded, &[("edition-001", &unrecorded.head())]);
+    unrecorded.git(&["tag", "-a", "edition-001", "-m", EXAMPLE_BAR_MESSAGE]);
+    unrecorded.write("src/lib.rs", "pub fn later() {}\n");
+    unrecorded.commit_all("later work");
+    unrecorded.git(&["tag", "-a", "edition-002", "-m", EXAMPLE_BAR_MESSAGE]);
+    let findings = audit_sequence(unrecorded.root()).expect("audit an unrecorded edition");
+    assert!(
+        findings
+            .iter()
+            .any(|finding| finding.tag == "edition-002" && finding.property == "immutable"),
+        "an edition the ledger never recorded is reported: {findings:?}"
+    );
+
+    // A malformed number is not an alternative spelling.
+    let malformed = base("t096-malformed");
+    ledger(&malformed, &[("edition-001", &malformed.head())]);
+    malformed.git(&["tag", "-a", "edition-001", "-m", EXAMPLE_BAR_MESSAGE]);
+    malformed.git(&["tag", "-a", "edition-0002", "-m", EXAMPLE_BAR_MESSAGE]);
+    let findings = audit_sequence(malformed.root()).expect("audit a malformed edition name");
+    assert!(
+        findings
+            .iter()
+            .any(|finding| finding.tag == "edition-0002" && finding.property == "named"),
+        "edition-0002 is malformed, not edition two: {findings:?}"
+    );
+
+    // A missing ledger refuses; absence never reads as agreement.
+    let absent = base("t096-no-ledger");
+    absent.git(&["tag", "-a", "edition-001", "-m", EXAMPLE_BAR_MESSAGE]);
+    let refusal = audit_sequence(absent.root()).expect_err("a missing ledger refuses");
+    assert!(
+        refusal.contains(".arca/editions.md"),
+        "the refusal names the record that is missing: {refusal}"
     );
 }

@@ -1,0 +1,15 @@
+# Editions - the committed record of what each edition marks
+
+`EDN-003` says an edition never moves and never disappears. Version control cannot
+be made to refuse a moved tag, so this file is what makes a move visible: it
+records, in the repository's own history, the commit each edition was cut at. The
+edition audit compares every row here against the tag database, so a tag that was
+moved or deleted becomes a reported difference instead of an invisible edit.
+
+A row is written in the same landing that cuts the edition, and is never edited
+afterwards. The commit column holds a full hash because that is the field's whole
+purpose - it is the record a citation resolves against, not a name.
+
+| Edition | Commit | What it marks |
+| :--- | :--- | :--- |
+| `edition-001` | `18bc304200cc0cfb20dbff42b5b966a79ec3526f` | The rest that closed the cycle-as-runbook sprint: the shipped Machine Class became this repository's own five-stage cycle, and the addressed report answers where a sprint stands. |

@@ -175,3 +175,187 @@ pub fn report(findings: &[AuditFinding]) -> String {
 pub fn repo_root() -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
+
+/// The tracked record of what each edition marks, as `EDN-003` requires. A move
+/// is only visible as a difference against something committed.
+pub const LEDGER_PATH: &str = ".arca/editions.md";
+
+/// One recorded edition: its number, its name as written, and the commit it was
+/// cut at.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct LedgerRow {
+    pub number: u32,
+    pub tag: String,
+    pub commit: String,
+}
+
+/// Read the committed record. A missing, empty, or unparseable ledger is an
+/// error, never an agreement: absence must not read as "nothing moved".
+pub fn read_ledger(root: &Path) -> Result<Vec<LedgerRow>, String> {
+    let path = root.join(LEDGER_PATH);
+    let text = std::fs::read_to_string(&path).map_err(|error| {
+        format!("{LEDGER_PATH} is unreadable, so no edition is recorded: {error}")
+    })?;
+    let mut rows = Vec::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if !trimmed.starts_with("| `edition-") {
+            continue;
+        }
+        let cells: Vec<&str> = trimmed
+            .trim_matches('|')
+            .split('|')
+            .map(|cell| cell.trim().trim_matches('`').trim())
+            .collect();
+        let (Some(tag), Some(commit)) = (cells.first(), cells.get(1)) else {
+            return Err(format!(
+                "{LEDGER_PATH}: row {trimmed:?} is not a complete record"
+            ));
+        };
+        let number = edition_number(tag).ok_or_else(|| {
+            format!("{LEDGER_PATH}: {tag:?} is not an edition name of the form edition-NNN")
+        })?;
+        if commit.len() != 40
+            || !commit
+                .chars()
+                .all(|character| character.is_ascii_hexdigit())
+        {
+            return Err(format!(
+                "{LEDGER_PATH}: {tag} records {commit:?}, which is not a whole commit hash"
+            ));
+        }
+        rows.push(LedgerRow {
+            number,
+            tag: (*tag).to_owned(),
+            commit: (*commit).to_owned(),
+        });
+    }
+    if rows.is_empty() {
+        return Err(format!("{LEDGER_PATH} records no edition at all"));
+    }
+    rows.sort();
+    Ok(rows)
+}
+
+/// The number an edition name carries, or `None` when the name is not exactly
+/// `edition-NNN` with three digits. `EDN-001` fixes that shape, so `edition-1`
+/// and `edition-0001` are malformed rather than alternative spellings.
+pub fn edition_number(tag: &str) -> Option<u32> {
+    let digits = tag.strip_prefix(EDITION_PREFIX)?;
+    if digits.len() != 3 || !digits.chars().all(|character| character.is_ascii_digit()) {
+        return None;
+    }
+    digits.parse().ok()
+}
+
+/// Audit the sequence and the immutability of a repository's editions:
+/// well-formed names, no hole, no duplicate number, and every edition still on
+/// the commit the ledger records.
+pub fn audit_sequence(root: &Path) -> Result<Vec<AuditFinding>, String> {
+    let mut findings = Vec::new();
+    if root.exists() {
+        return Ok(findings); // RED STUB: no sequence or immutability rule is checked yet
+    }
+
+    // A name that resembles an edition but is not one must be reported here,
+    // because the pattern the rest of the audit uses will not see it.
+    let resembling = git(root, &["tag", "--list", "edition*", "Edition*"])?;
+    for tag in resembling
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        if edition_number(tag).is_none() {
+            findings.push(AuditFinding {
+                tag: tag.to_owned(),
+                property: "named".to_owned(),
+                detail:
+                    "the name is not exactly edition-NNN with three digits, so it marks nothing"
+                        .to_owned(),
+            });
+        }
+    }
+
+    let tags = edition_tags(root)?;
+    let mut numbered: Vec<(u32, String)> = Vec::new();
+    for tag in &tags {
+        if let Some(number) = edition_number(tag) {
+            numbered.push((number, tag.clone()));
+        }
+    }
+    numbered.sort();
+
+    // Duplicates: two names resolving to the same number.
+    for window in numbered.windows(2) {
+        if window[0].0 == window[1].0 {
+            findings.push(AuditFinding {
+                tag: window[1].1.clone(),
+                property: "sequence".to_owned(),
+                detail: format!(
+                    "number {:03} is claimed twice, by {} and {}",
+                    window[0].0, window[0].1, window[1].1
+                ),
+            });
+        }
+    }
+
+    // Holes: the sequence runs from 001 to the highest with nothing skipped.
+    if let Some((highest, _)) = numbered.last() {
+        let present: std::collections::BTreeSet<u32> =
+            numbered.iter().map(|(number, _)| *number).collect();
+        for expected in 1..=*highest {
+            if !present.contains(&expected) {
+                findings.push(AuditFinding {
+                    tag: format!("{EDITION_PREFIX}{expected:03}"),
+                    property: "sequence".to_owned(),
+                    detail: format!(
+                        "the sequence reaches {highest:03} with no {expected:03}, so a citation to it resolves to nothing"
+                    ),
+                });
+            }
+        }
+    }
+
+    // Immutability: the ledger is the committed expectation.
+    let ledger = read_ledger(root)?;
+    for row in &ledger {
+        if !tags.contains(&row.tag) {
+            findings.push(AuditFinding {
+                tag: row.tag.clone(),
+                property: "immutable".to_owned(),
+                detail: format!(
+                    "{LEDGER_PATH} records commit {} but the tag is gone",
+                    row.commit
+                ),
+            });
+            continue;
+        }
+        let actual = edition_commit(root, &row.tag)?;
+        if actual != row.commit {
+            findings.push(AuditFinding {
+                tag: row.tag.clone(),
+                property: "immutable".to_owned(),
+                detail: format!(
+                    "{LEDGER_PATH} records commit {} but the tag now marks {actual}",
+                    row.commit
+                ),
+            });
+        }
+    }
+    let recorded: std::collections::BTreeSet<&str> =
+        ledger.iter().map(|row| row.tag.as_str()).collect();
+    for tag in &tags {
+        if edition_number(tag).is_some() && !recorded.contains(tag.as_str()) {
+            findings.push(AuditFinding {
+                tag: tag.clone(),
+                property: "immutable".to_owned(),
+                detail: format!(
+                    "{LEDGER_PATH} records nothing for it, so a move would be invisible"
+                ),
+            });
+        }
+    }
+
+    findings.sort();
+    Ok(findings)
+}
