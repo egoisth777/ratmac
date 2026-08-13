@@ -244,8 +244,8 @@ human to ask for it.
   issue, no ticket, no goal edit, no `rtm`, no branch or worktree operation.
 - **Filing is not promotion.** Appending a wish starts no step, mints no issue, and forces no P1; it
   earns no `.arca/log.md` line and rides the session's next ordinary commit. A human promoting a wish
-  marks it in place, and a wish whose work has landed is marked `fulfilled` with links to its archived
-  issue and ticket.
+  marks the promotion in place; a wish whose work has landed is deleted instead, by the landing that
+  fulfilled it, under "A fulfilled wish leaves the file" above.
 
 ## The steps (P1–P5)
 
@@ -253,7 +253,7 @@ human to ask for it.
 
 | Step                  | Does                                                                                                             | Finish line                                                                          |
 | :-------------------- | :--------------------------------------------------------------------------------------------------------------- | :----------------------------------------------------------------------------------- |
-| **P1** Fold in issues | Work every `pending` issue in the intake work area into the goal or the working authority: give each ask a stable requirement ID and a decision `accepted|rejected|duplicate|deferred`, link everything both ways — an accepted ask resolves either to a product requirement row in `.arca/goal/spec.md` or to an explicit requirement-ID heading in the working authority (this file), and a working-authority requirement binds at integration while minting no goal row, no gap record, and no ticket; name, per accepted issue, the Ideal-shape property it advances — an issue that advances none and defers nothing is `rejected`, or it is a pivot, and then steering changes first and the issue waits for the next pass; shape check | An issue with any deferred ask moves whole to `.arca/issue/deferred/` with status `deferred`; every other issue ends `integrated|rejected`; every integrated issue has at least one accepted or duplicate ask, every accepted requirement exists in the goal or under its requirement-ID heading in the working authority, and each accepted issue names the shape property it advances; all live links resolve |
+| **P1** Fold in issues | Work every `pending` issue in the intake work area into the goal or the working authority: give each ask a stable requirement ID and a decision `accepted|rejected|duplicate|deferred`, link everything both ways — an accepted ask resolves either to a product requirement row in `.arca/goal/spec.md` or to an explicit requirement-ID heading in the working authority (this file), and a working-authority requirement mints no goal row and binds at integration; it mints a gap record and a ticket only when it carries an executable deliverable, as the edition requirements do ([Editions](#editions)); name, per accepted issue, the Ideal-shape property it advances — an issue that advances none and defers nothing is `rejected`, or it is a pivot, and then steering changes first and the issue waits for the next pass; shape check | An issue with any deferred ask moves whole to `.arca/issue/deferred/` with status `deferred`; every other issue ends `integrated|rejected`; every integrated issue has at least one accepted or duplicate ask, every accepted requirement exists in the goal or under its requirement-ID heading in the working authority, and each accepted issue names the shape property it advances; all live links resolve |
 | **P2** Find the gaps  | Freeze the goal (note git HEAD), then compare each requirement against what actually exists; write one record in `.arca/residual/` per requirement: `missing|partial|satisfied`, with pointers to the proof and a short why | Every requirement has exactly one record, active and archive counted together; no proof ⇒ never `satisfied` |
 | **P3** Cut tickets    | Turn each `missing|partial` record into one small, self-contained, provable piece of work in `.arca/ticket/` (from `.arca/tpl/ticket.md`); order them so a ticket that needs another comes after it; **approved on creation** | Each such record ↔ exactly one ticket; all links resolve                             |
 
@@ -748,8 +748,9 @@ only as a secondary result.
    ordinary P1-P5 loop with fresh evidence and no trial implementation bytes.
    A promoted RatMac observation changes working authority or product
    requirements through P1 before later work depends on it.
-5. Mark a completed source wish `fulfilled` with links to its archived issue
-   and ticket. Push `main`, then check out the clean experiment base, run
+5. Delete the completed source wish from `.arca/wishlist.md` in the landing that
+   fulfilled it; its trail stays in `.arca/log.md` and the archived issue and
+   ticket. Push `main`, then check out the clean experiment base, run
    `sync`, and run `status`. The next trial may start only after that ready
    check is clean and every actionable observation is visible on `main`.
 
