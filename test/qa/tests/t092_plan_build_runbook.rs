@@ -413,6 +413,16 @@ fn the_cycle_runs_from_intake_to_rest() {
         cycle.root.join(".arca/ticket/archive/t-100.md"),
     )
     .expect("archive the finished item");
+    // `EDN-002`: the closing State may not be left unmarked. The traversal ends
+    // its turn on an edition, exactly as this repository's own sprints do.
+    cycle.commit("the turn's green landing");
+    cycle.git(&[
+        "tag",
+        "-a",
+        "edition-001",
+        "-m",
+        "fixture edition: every gate green",
+    ]);
     cycle.step(&run);
     assert_eq!(cycle.state(&run), "gap-check");
 

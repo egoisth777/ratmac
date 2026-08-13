@@ -261,7 +261,10 @@ fn a_refused_close_writes_nothing() {
     let before_head = fixture.head();
 
     let refusal = fixture.step(&run);
-    assert!(refusal.contains("step refused"), "the step refuses: {refusal}");
+    assert!(
+        refusal.contains("step refused"),
+        "the step refuses: {refusal}"
+    );
 
     assert_eq!(
         tree(&fixture.root),
@@ -278,7 +281,11 @@ fn a_refused_close_writes_nothing() {
         before_log,
         "a refused step appends no transition entry"
     );
-    assert_eq!(fixture.tags(), before_tags, "the guard creates and moves no tag");
+    assert_eq!(
+        fixture.tags(),
+        before_tags,
+        "the guard creates and moves no tag"
+    );
     assert_eq!(fixture.head(), before_head, "the guard commits nothing");
 }
 
@@ -290,13 +297,20 @@ fn the_shipped_cycle_declares_the_edition_guard() {
     let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let shipped = fs::read_to_string(repo_root.join(".ratmac/ratmac.toml"))
         .expect("read the shipped Machine Class");
-    let close = shipped
+    let declared = shipped
         .split("[states.close]")
         .nth(1)
         .expect("the cycle declares a closing State")
         .split("\n[")
         .next()
         .expect("the closing State has a body");
+    // Comments carry authoring intent and reach no agent, so a comment naming
+    // the pattern must never be able to satisfy a check about the guard.
+    let close = declared
+        .lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n");
     assert!(
         close.contains("command_exit"),
         "the closing State carries a command-class guard: {close}"
@@ -308,5 +322,15 @@ fn the_shipped_cycle_declares_the_edition_guard() {
     assert!(
         close.contains("record_contract"),
         "the closing State keeps the record contract it already carried: {close}"
+    );
+    // The whole rule turns on the sense of the check: a guard that demanded a
+    // non-zero exit would pass exactly when the commit is unmarked.
+    assert!(
+        close.contains("expected = 0"),
+        "the guard passes on success, not on failure: {close}"
+    );
+    assert!(
+        close.contains("\"describe\"") && close.contains("\"--exact-match\""),
+        "the guard asks version control which tag names this exact commit: {close}"
     );
 }

@@ -82,7 +82,19 @@ prompt = """
 Close this turn of the cycle. Judge every gap the finished items claimed, move
 each finished item to the archive, and leave the tree clean and green.
 """
-guards = [{ kind = "record_contract" }]
+guards = [
+  { kind = "record_contract" },
+  # EDN-002: a sprint may not reach rest unmarked. Exit 0 is an annotated tag
+  # named edition-* pointing at the commit being left, so every sprint ends on
+  # an edition and therefore every sprint starts from one. Read-only: the
+  # Engine learns nothing about version control from it.
+  { kind = "command_exit", program = "git", args = [
+    "describe",
+    "--exact-match",
+    "--match",
+    "edition-*",
+  ], expected = 0 },
+]
 
 [states.rest]
 prompt = """
