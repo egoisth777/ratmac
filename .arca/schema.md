@@ -233,8 +233,13 @@ human to ask for it.
   test is never evidence by itself; cite the command, receipt, review, artifact, or file and line.
 - **Append only, and read before you write.** The Subagent reads the whole file first: if a live wish
   already covers the observation, it strengthens that entry with the new evidence instead of adding a
-  second carrier. Other authors' wishes are never reordered, reworded, or deleted. Several observations
-  go in one append, not one per message.
+  second carrier. Other authors' live wishes are never reordered, reworded, or deleted. Several
+  observations go in one append, not one per message.
+- **A fulfilled wish leaves the file.** The wishlist holds open wishes only. When a wish's desired end
+  lands, the landing that fulfilled it deletes its entry in the same commit - it is never kept and
+  marked `fulfilled`. Its trail stays where history is kept: the landing line in `.arca/log.md`, the
+  archived issue bundle that carried it, and the gap records those tickets cite. A wish only partly
+  landed stays, with the landed part recorded in its own entry.
 - **Subagent scope.** That Subagent writes `.arca/wishlist.md` and nothing else — no code, no tests, no
   issue, no ticket, no goal edit, no `rtm`, no branch or worktree operation.
 - **Filing is not promotion.** Appending a wish starts no step, mints no issue, and forces no P1; it
