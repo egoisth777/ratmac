@@ -98,4 +98,5 @@ Plain-word definitions for terms used in work with Billy. Consult this file befo
 - **Build target**: One thing the build produces from source - a command a person can run, or a library other code links. Each target has a name and one output file.
 - **Output collision**: Two build targets writing the same output file. Whichever finishes last survives, so what you run depends on build order rather than on what you asked for.
 - **Pause point**: A seam compiled into a test build only, letting a test stop the engine at a named moment mid-operation, look at the tree, and let it continue. The shipped command never carries one.
-
+- **Edition**: A commit this shop has declared a stable base for developing the engine, marked by an annotated tag named `edition-NNN` whose message records what was proven there. Sequential, never moved, never deleted (schema.md `EDN-001`-`EDN-003`).
+- **Cutting an edition**: Creating that tag, at rest, after every gate is green. The act is what makes the claim; the tag is only where the claim is written down.

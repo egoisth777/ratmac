@@ -13,7 +13,7 @@
 
 | Trace | Where it lands |
 | :--- | :--- |
-| The edition convention, its bar, and its immutability | A new requirement-ID section in the working rules, [schema.md](../../schema.md) - the same authority that already carries the checkpoint rule the word must not collide with. |
+| The edition convention, its bar, and its immutability | A new requirement-ID section in the working rules, [schema.md](../../../schema.md) - the same authority that already carries the checkpoint rule the word must not collide with. |
 | The guard itself | This repository's Machine Class, `.ratmac/ratmac.toml`, on the closing stage beside the record contract. |
-| The term | The goal bundle's [ubiquitous language](../../goal/ubi-lang.md), so "edition" is defined once for the whole shop rather than per issue. |
+| The term | The shop glossary, [dict.md](../../../dict.md) - corrected at P1 from the goal bundle's ubiquitous language, because `EDN` binds contributors, not the program, and `dict.md` is where working terms such as Park and Checkpoint already live. |
 | The strengthened wish | The live wish about gap records citing commits that no longer resolve: an edition keeps its commit reachable, which is half that wish's desired end. |

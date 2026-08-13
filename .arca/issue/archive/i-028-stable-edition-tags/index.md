@@ -3,7 +3,7 @@
 ```yaml
 issue-id: "i-028-stable-edition-tags"
 provenance: "Billy's ruling of 2026-08-10, immediately after the i-015 sprint made the engine run its own cycle: with self-development live, the shop needs a marker that says a given commit is a stable point to develop the engine from, and the repository carries no such marker (two tags exist, both `trial-archive/*`)."
-status: "pending"
+status: "integrated"
 ```
 
 ## Summary

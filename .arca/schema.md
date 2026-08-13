@@ -485,6 +485,57 @@ kills predate them stay byte-identical — nothing is re-run, re-stamped, or rew
 older history should expect kills produced from pre-green trees there. The `t-064` P5 notes stay frozen
 as written; the provenance paragraph above is where their backup-copy lesson is superseded.
 
+## Editions
+
+Self-development makes the base a correctness input: work built on a commit that was never green
+is unfalsifiable. `EDN-001`-`EDN-003` are working-authority requirements: accepted asks resolve to
+the headings below and bind at integration while minting no goal row, gap record, or ticket.
+
+Not a checkpoint. [SDC-002](#sdc-002--damage-only-from-a-checkpoint) spends that word on the
+throwaway safety commit inside a ticket worktree; an edition is the opposite kind of thing - public,
+permanent, and cut only at rest.
+
+### EDN-001 - what an edition is and when it may be cut
+
+Integrated from [issue i-028](issue/archive/i-028-stable-edition-tags/spec.md#requirement-records).
+
+An **edition** is this shop's only marker for "this commit is a stable base to develop the engine
+from": an annotated tag named `edition-NNN`, sequential from `edition-001`, whose message records
+what was proven. It may be cut only where all of the following hold at that commit:
+
+- the cycle is at rest - nothing pending in the intake work area, no open work item, no gap record
+  left unproven;
+- `cargo test --workspace`, `cargo fmt --check`, `cargo clippy --workspace --all-targets`, and
+  `tools/check_links.py` are green;
+- `rtm doctor` on this repository exits `0` with no findings;
+- the working tree is clean and identical to that commit.
+
+`edition-001` was cut at `18bc304`, at the rest that closed the cycle-as-runbook sprint.
+
+### EDN-002 - the cycle refuses to reach rest unmarked
+
+Integrated from [issue i-028](issue/archive/i-028-stable-edition-tags/spec.md#requirement-records).
+
+The `close` State of this repository's Machine Class carries an Exit Guard that passes only when the
+commit being left is exactly an edition, so no sprint finishes unmarked - and therefore every sprint
+necessarily starts from one. It is spelled in the existing closed guard vocabulary and adds no guard
+kind: one `command_exit` guard running `git describe --exact-match --match edition-* HEAD`, expected
+`0`. The Engine keeps knowing nothing about version control.
+
+Stated limit: that probe proves a tag named `edition-*` points at the commit. It cannot tell an
+annotated tag from a lightweight one, and cannot judge whether the message is honest. The gates
+listed in `EDN-001` are the evidence; the tag is where a human writes down that they passed.
+
+### EDN-003 - an edition never moves
+
+Integrated from [issue i-028](issue/archive/i-028-stable-edition-tags/spec.md#requirement-records).
+
+An edition, once cut, is never moved and never deleted, and the sequence takes the next unused
+number even if an edition is later judged bad: a bad edition is retired by cutting the next one,
+never by rewriting the last. This is what makes a cited commit keep resolving - a tag holds its
+commit reachable, so a record citing an edition cannot rot the way a bare hash on an unmerged line
+can.
+
 ## Blocked route
 
 A ticket blocked for an out-of-scope reason is held, never quietly passed. The Engine records
