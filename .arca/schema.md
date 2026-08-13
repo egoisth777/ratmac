@@ -488,8 +488,11 @@ as written; the provenance paragraph above is where their backup-copy lesson is 
 ## Editions
 
 Self-development makes the base a correctness input: work built on a commit that was never green
-is unfalsifiable. `EDN-001`-`EDN-003` are working-authority requirements: accepted asks resolve to
-the headings below and bind at integration while minting no goal row, gap record, or ticket.
+is unfalsifiable. `EDN-001`-`EDN-003` are working-authority requirements: accepted asks resolve to the headings
+below and mint no goal row. Unlike the working-authority sections above, they are measurable and
+carry executable deliverables - a guard in this repository's Machine Class and an audit over its
+tags - so they are measured by gap records and worked by tickets like any other requirement, which
+`PCR-008` already allows by letting an accepted ask resolve in either authority.
 
 Not a checkpoint. [SDC-002](#sdc-002--damage-only-from-a-checkpoint) spends that word on the
 throwaway safety commit inside a ticket worktree; an edition is the opposite kind of thing - public,
