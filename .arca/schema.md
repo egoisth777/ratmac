@@ -539,6 +539,12 @@ never by rewriting the last. This is what makes a cited commit keep resolving - 
 commit reachable, so a record citing an edition cannot rot the way a bare hash on an unmerged line
 can.
 
+Version control cannot be made to refuse a moved tag, so the move is caught by disagreement instead:
+[`.arca/editions.md`](editions.md) records, in this repository's own history, the commit each edition
+was cut at. A row is written in the landing that cuts the edition and never edited afterwards, and the
+edition audit compares every row against the tag database. A missing, blank, or partial record is a
+refusal, never an agreement - absence must not read as "nothing moved".
+
 ## Blocked route
 
 A ticket blocked for an out-of-scope reason is held, never quietly passed. The Engine records

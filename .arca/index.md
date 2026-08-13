@@ -180,6 +180,7 @@ All agent routing and documentation must use these paths.
 | `.arca/ticket/` | Small self-contained work units, cut from gap records. |
 | `.ratmac/` | Shared Engine runtime root at the primary checkout: Git-ignored `runs/`, `mint.toml`, `locks/`, and `log.md`; the invoking checkout's Machine Class `ratmac.toml` and receipts under `evidence/<run-id>/` stay tracked. |
 | `.ratmac/runs/<run-id>/run.toml` | Per-Run Run Record - written ONLY by `rtm`; everyone else reads. |
+| `.arca/editions.md` | The committed record of what each edition marks, one row per `edition-NNN`; the edition audit compares it against the tag database. |
 | `.arca/log.md` | Human-only append-only history; every human landing leaves a line. `rtm` logs transitions in `.ratmac/log.md`. |
 | `.arca/tpl/` | Blank forms; a form filled in at its proper path is the real thing. |
 | `.arca/vis/` | Shared pictures and graphs. |

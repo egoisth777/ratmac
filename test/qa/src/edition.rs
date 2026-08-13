@@ -253,9 +253,6 @@ pub fn edition_number(tag: &str) -> Option<u32> {
 /// the commit the ledger records.
 pub fn audit_sequence(root: &Path) -> Result<Vec<AuditFinding>, String> {
     let mut findings = Vec::new();
-    if root.exists() {
-        return Ok(findings); // RED STUB: no sequence or immutability rule is checked yet
-    }
 
     // A name that resembles an edition but is not one must be reported here,
     // because the pattern the rest of the audit uses will not see it.

@@ -134,11 +134,14 @@ fn the_sequence_has_no_holes_and_no_edition_has_moved() {
     ledger(&hole, &[("edition-002", &hole.head())]);
     hole.git(&["tag", "-a", "edition-002", "-m", EXAMPLE_BAR_MESSAGE]);
     let findings = audit_sequence(hole.root()).expect("audit a sequence with a hole");
+    let hole_finding = findings
+        .iter()
+        .find(|finding| finding.tag == "edition-001" && finding.property == "sequence")
+        .unwrap_or_else(|| panic!("a missing number is reported by itself: {findings:?}"));
     assert!(
-        findings
-            .iter()
-            .any(|finding| finding.tag == "edition-001" && finding.property == "sequence"),
-        "a missing number is reported by the number that is missing: {findings:?}"
+        hole_finding.detail.contains("002") && hole_finding.detail.contains("001"),
+        "the report names the number reached and the number missing: {}",
+        hole_finding.detail
     );
 
     // A move: the tag no longer marks the commit the ledger records.
@@ -149,12 +152,16 @@ fn the_sequence_has_no_holes_and_no_edition_has_moved() {
     moved.write("src/lib.rs", "pub fn later() {}\n");
     moved.commit_all("later work");
     moved.git(&["tag", "-f", "-a", "edition-001", "-m", EXAMPLE_BAR_MESSAGE]);
+    let moved_head = moved.head();
     let findings = audit_sequence(moved.root()).expect("audit a moved edition");
+    let move_finding = findings
+        .iter()
+        .find(|finding| finding.tag == "edition-001" && finding.property == "immutable")
+        .unwrap_or_else(|| panic!("a moved edition is reported: {findings:?}"));
     assert!(
-        findings
-            .iter()
-            .any(|finding| finding.tag == "edition-001" && finding.property == "immutable"),
-        "a moved edition is reported against its recorded commit: {findings:?}"
+        move_finding.detail.contains(&first) && move_finding.detail.contains(&moved_head),
+        "the report names the recorded commit and the one the tag now marks: {}",
+        move_finding.detail
     );
 
     // An unrecorded edition: nothing to disagree with is itself the defect.
