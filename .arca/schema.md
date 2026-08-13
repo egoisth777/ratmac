@@ -513,7 +513,7 @@ what was proven. It may be cut only where all of the following hold at that comm
 - `rtm doctor` on this repository exits `0` with no findings;
 - the working tree is clean and identical to that commit.
 
-`edition-001` was cut at `18bc304`, at the rest that closed the cycle-as-runbook sprint.
+`edition-001` marks the rest that closed the cycle-as-runbook sprint.
 
 ### EDN-002 - the cycle refuses to reach rest unmarked
 
