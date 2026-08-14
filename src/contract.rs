@@ -622,6 +622,14 @@ pub fn gate_records_at(
     let unmechanized = unproven_mechanization(workspace);
     let goal = fs::read_to_string(goal_root.join("spec.md")).unwrap_or_default();
     let goal_ids = requirement_ids(&goal);
+    // PCR-008: a requirement lives in either authority, so a record citing a
+    // working-authority heading is a legal citation. The
+    // one-record-per-requirement demand below still binds goal rows only,
+    // because working-authority requirements deliberately mint no gap row.
+    let authority = contract_roots_with_table(workspace, &[])
+        .ok()
+        .and_then(|(_, roots)| roots.resolve("authority").ok());
+    let authority_ids = authority_requirement_ids(authority.as_deref());
 
     // Active and archived residuals are one namespace.
     let mut by_requirement: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -653,10 +661,15 @@ pub fn gate_records_at(
             defects.push(defect(&shown, "record is unreadable: no status field"));
             continue;
         };
-        if !goal_ids.is_empty() && !goal_ids.contains(&requirement) {
+        if !goal_ids.is_empty()
+            && !goal_ids.contains(&requirement)
+            && !authority_ids.contains(&requirement)
+        {
             defects.push(defect(
                 &shown,
-                format!("cites requirement {requirement}, which is absent from the goal authority"),
+                format!(
+                    "cites requirement {requirement}, which is absent from both the goal authority and the working authority"
+                ),
             ));
         }
         by_requirement
@@ -824,9 +837,17 @@ fn declared_gate_kinds(root: &Path) -> BTreeSet<String> {
     let Ok(class) = crate::machine::MachineClass::load_from_project_root(root) else {
         return BTreeSet::new();
     };
+    // A runbook may mechanize the per-ticket gates inside a child class (the
+    // cycle runbook does), so class states count as declared too.
     class
         .states()
         .values()
+        .chain(
+            class
+                .classes()
+                .values()
+                .flat_map(|child| child.states().values()),
+        )
         .flat_map(|state| state.guards())
         .map(|guard| guard.name().to_owned())
         .collect()

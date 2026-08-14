@@ -826,3 +826,65 @@ fn an_archived_record_cites_its_own_freeze_and_a_live_one_cites_todays() {
         "the archived record without a citation is the defect: {defects:?}"
     );
 }
+
+/// GPH intake fold surfaced two record-gate gaps. First: PCR-008 lets a
+/// requirement live as a working-authority heading, so a gap record citing
+/// such a requirement is a legal citation, not "absent from the goal
+/// authority". The one-record-per-requirement demand still binds goal rows
+/// only, because working-authority requirements deliberately mint no gap row.
+#[test]
+fn a_record_may_cite_a_working_authority_requirement() {
+    let tree = Tree::new("authority-citation");
+    tree.write_goal();
+    fs::write(
+        tree.root.join(".arca/schema.md"),
+        "# Working rules\n\n### WKA-001 - a working-authority requirement\n\nBinds contributors.\n",
+    )
+    .expect("write working authority");
+    let runbook = fs::read_to_string(tree.root.join(".ratmac/ratmac.toml")).expect("read runbook");
+    fs::write(
+        tree.root.join(".ratmac/ratmac.toml"),
+        runbook.replace("[roots]\n", "[roots]\nauthority = \".arca\"\n"),
+    )
+    .expect("declare the authority root");
+    tree.write_residual("res-100", "DEMO-001", "satisfied", FROZEN, &["src/lib.rs"]);
+    tree.write_residual("res-101", "WKA-001", "satisfied", FROZEN, &["schema.md"]);
+    let verdict = records(&tree);
+    let text = match &verdict {
+        Ok(()) => String::new(),
+        Err(defects) => reasons(defects),
+    };
+    assert!(
+        verdict.is_ok(),
+        "a citation to a working-authority heading is legal: {text}"
+    );
+}
+
+/// Second: a runbook may mechanize the per-ticket gates inside a child class
+/// (the cycle runbook does exactly that), so the mechanization scan must read
+/// class states too, not only the top-level States.
+#[test]
+fn gates_declared_in_a_child_class_count_as_mechanized() {
+    let tree = Tree::new("class-mechanization");
+    tree.write_goal();
+    let runbook = fs::read_to_string(tree.root.join(".ratmac/ratmac.toml")).expect("read runbook");
+    // Strip the per-ticket gate from the top level and move it into a class.
+    let runbook = runbook.replace(
+        "guards = [{ kind = \"sensitivity_receipts\", root = \"ticket\", ticket = \"t-100.md\" }]",
+        "guards = []",
+    );
+    let runbook = format!(
+        "{runbook}\n[classes.ticket]\n\n[classes.ticket.states.work]\nprompt = \"Work.\"\nguards = [{{ kind = \"sensitivity_receipts\", ticket-binding = \"item\", root = \"ticket\" }}, {{ kind = \"completion_gate\", ticket-binding = \"item\", root = \"ticket\" }}]\n"
+    );
+    fs::write(tree.root.join(".ratmac/ratmac.toml"), runbook).expect("write class runbook");
+    let unproven = ratmac::contract::unproven_mechanization(&tree.root);
+    let text = unproven
+        .iter()
+        .map(|defect| format!("{defect}"))
+        .collect::<Vec<_>>()
+        .join("; ");
+    assert!(
+        !text.contains("sensitivity_receipts") && !text.contains("completion_gate"),
+        "gates declared in a child class are mechanized: {text}"
+    );
+}
