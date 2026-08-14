@@ -17,10 +17,15 @@ use sha2::{Digest, Sha256};
 pub const EVIDENCE_FILE: &str = "evidence.toml";
 
 /// The recorded identity of one executable: where it resolved and what it is.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Identity {
     pub resolved: String,
     pub sha256: String,
+    /// Provenance: the commit this binary was built from (ECP-001); absent
+    /// on identities recorded before the channel pin existed.
+    pub source_commit: Option<String>,
+    /// Provenance: `stable` or `nightly` (ECP-001); absent likewise.
+    pub channel: Option<String>,
 }
 
 impl fmt::Display for Identity {
@@ -120,6 +125,28 @@ impl Evidence {
         self.engine = Some(identity);
     }
 
+    /// The engine pin's refusal rule (ECP-001): an absent pin records the
+    /// observed identity; an equal pin confirms; any difference - path, hash,
+    /// or provenance - refuses exactly as an identity mismatch does, and
+    /// writes nothing.
+    pub fn confirm_engine(&mut self, observed: Identity) -> Result<(), String> {
+        match &self.engine {
+            None => {
+                self.engine = Some(observed);
+                Ok(())
+            }
+            Some(recorded) if *recorded == observed => Ok(()),
+            Some(recorded) => Err(format!(
+                "engine pin mismatch: recorded {recorded} channel={} source-commit={}; \
+                 observed {observed} channel={} source-commit={}",
+                recorded.channel.as_deref().unwrap_or("-"),
+                recorded.source_commit.as_deref().unwrap_or("-"),
+                observed.channel.as_deref().unwrap_or("-"),
+                observed.source_commit.as_deref().unwrap_or("-"),
+            )),
+        }
+    }
+
     /// Record a gate pin for `program`; existing pins are never overwritten
     /// silently, because a differing identity is a refusal, not an update.
     pub fn record_gate(&mut self, program: &str, identity: Identity) {
@@ -138,6 +165,12 @@ impl Evidence {
             text.push_str("[engine]\n");
             text.push_str(&format!("resolved = {}\n", quote(&engine.resolved)));
             text.push_str(&format!("sha256 = {}\n", quote(&engine.sha256)));
+            if let Some(source_commit) = &engine.source_commit {
+                text.push_str(&format!("source-commit = {}\n", quote(source_commit)));
+            }
+            if let Some(channel) = &engine.channel {
+                text.push_str(&format!("channel = {}\n", quote(channel)));
+            }
         }
         if self.goal_baseline.is_some() || self.goal_frozen.is_some() {
             text.push_str("\n[goal]\n");
@@ -193,6 +226,10 @@ pub fn engine_identity() -> Option<Identity> {
     Some(Identity {
         resolved: crate::root::displayed(&path),
         sha256,
+        // Provenance is stamped at build time by the channel-aware bootstrap
+        // (ECP-002); a binary built without it honestly reports none.
+        source_commit: option_env!("RTM_SOURCE_COMMIT").map(str::to_owned),
+        channel: option_env!("RTM_CHANNEL").map(str::to_owned),
     })
 }
 
@@ -334,9 +371,18 @@ pub fn build_invocation_reason(program: &str, args: &[&str]) -> Option<String> {
 
 /// Read one `Identity` from a TOML table.
 fn identity_from(value: &toml::Value) -> Option<Identity> {
+    let optional = |name: &str| {
+        value
+            .get(name)
+            .and_then(toml::Value::as_str)
+            .filter(|text| !text.is_empty())
+            .map(str::to_owned)
+    };
     Some(Identity {
         resolved: value.get("resolved")?.as_str()?.to_owned(),
         sha256: value.get("sha256")?.as_str()?.to_owned(),
+        source_commit: optional("source-commit"),
+        channel: optional("channel"),
     })
 }
 

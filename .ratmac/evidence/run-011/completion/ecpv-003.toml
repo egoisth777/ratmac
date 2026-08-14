@@ -1,0 +1,19 @@
+ticket-id = "t-101"
+check-id = "ECPV-003"
+kind = "focused"
+command = "cargo test -p ratmac-qa --test t101_engine_channels the_doctor_names_an_off_pin_engine_under_a_live_run -- --exact"
+working-dir = "."
+exit-status = 0
+output-sha256 = "530ece8717d49927a5303451f1f9f28d8f466ee2d5c2a3de527eeb2f759e398b"
+tree-roots = ['src', 'test']
+tree-sha256 = "4e3c8f149e7c1bd0631b035d7e5f267662c4f94273dff7c230a61caf7e4ba1ff"
+output = '''
+
+running 1 test
+test the_doctor_names_an_off_pin_engine_under_a_live_run ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.90s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests\t101_engine_channels.rs (target\debug\deps\t101_engine_channels-8ce3bb7f1f643e00.exe)
+'''

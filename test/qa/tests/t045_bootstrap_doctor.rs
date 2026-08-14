@@ -283,6 +283,7 @@ fn bootstrap_refuses_pin_mismatch() {
     evidence.set_engine(Identity {
         resolved: binary.to_string_lossy().into_owned(),
         sha256: pinned.clone(),
+        ..Identity::default()
     });
     evidence
         .write(&boot.root.join(".ratmac"))

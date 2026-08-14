@@ -1,0 +1,19 @@
+ticket-id = "t-101"
+check-id = "ECPV-002"
+kind = "focused"
+command = "cargo test -p ratmac-qa --test t101_engine_channels the_bootstrap_resolves_stable_from_the_ledger -- --exact"
+working-dir = "."
+exit-status = 0
+output-sha256 = "2037e9b0a891adb70eda43adbf349892a0b43a1a99996aef59c026b33d788f40"
+tree-roots = ['src', 'test']
+tree-sha256 = "4e3c8f149e7c1bd0631b035d7e5f267662c4f94273dff7c230a61caf7e4ba1ff"
+output = '''
+
+running 1 test
+test the_bootstrap_resolves_stable_from_the_ledger ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.72s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests\t101_engine_channels.rs (target\debug\deps\t101_engine_channels-8ce3bb7f1f643e00.exe)
+'''

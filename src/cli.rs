@@ -737,6 +737,35 @@ fn environment_report<W: Write>(
         engine_hash
     )?;
 
+    // ECP-003: the running engine's own channel and provenance, stamped at
+    // build time by the channel-aware bootstrap; a binary built without it
+    // honestly reports none.
+    let own = crate::pin::engine_identity();
+    let (own_channel, own_source) = own
+        .map(|identity| (identity.channel, identity.source_commit))
+        .unwrap_or((None, None));
+    writeln!(
+        writer,
+        "Engine provenance: channel={} source-commit={}",
+        own_channel.as_deref().unwrap_or("none"),
+        own_source.as_deref().unwrap_or("none")
+    )?;
+
+    // ECP-003: the channel/provenance row - what stable resolves to here,
+    // offline, or why it refuses; then any live Run driven off-pin.
+    let project_root = roots.invoking_checkout_root();
+    match crate::channel::resolve_channel(project_root, "stable") {
+        Ok(resolution) => writeln!(
+            writer,
+            "Engine channel: stable is {} at {}",
+            resolution.edition, resolution.commit
+        )?,
+        Err(reason) => writeln!(writer, "Engine channel: {reason}")?,
+    }
+    for finding in crate::channel::live_run_findings(project_root, roots.engine_root()) {
+        writeln!(writer, "Engine channel finding: {finding}")?;
+    }
+
     diagnosis.write_engine_root(writer)?;
     let runbook_path = roots.machine_class_path();
 

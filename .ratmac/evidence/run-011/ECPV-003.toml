@@ -1,0 +1,66 @@
+planned-test-id = "ECPV-003"
+ticket-id = "t-101"
+kind = "baseline-failure"
+command = "cargo test -p ratmac-qa --test t101_engine_channels the_doctor_names_an_off_pin_engine_under_a_live_run -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t101_engine_channels.rs"
+test-name = "the_doctor_names_an_off_pin_engine_under_a_live_run"
+exit-status = 101
+output-sha256 = "11d3e6a6cd976f9f102fe35702f1e75cdacad88e5e1132088664f52e83e31fea"
+output = '''
+   Compiling ratmac-qa v0.1.0 (E:\repos\projs\skill-dev\ratmac-t-101\test\qa)
+error[E0432]: unresolved import `ratmac::channel`
+  --> test\qa\tests\t101_engine_channels.rs:11:13
+   |
+11 | use ratmac::channel::{live_run_findings, resolve_channel};
+   |             ^^^^^^^ could not find `channel` in `ratmac`
+
+error[E0560]: struct `Identity` has no field named `source_commit`
+  --> test\qa\tests\t101_engine_channels.rs:20:9
+   |
+20 |         source_commit: Some(source_commit.into()),
+   |         ^^^^^^^^^^^^^ `Identity` does not have this field
+   |
+   = note: all struct fields are already assigned
+
+error[E0560]: struct `Identity` has no field named `channel`
+  --> test\qa\tests\t101_engine_channels.rs:21:9
+   |
+21 |         channel: Some(channel.into()),
+   |         ^^^^^^^ `Identity` does not have this field
+   |
+   = note: all struct fields are already assigned
+
+error[E0599]: no method named `confirm_engine` found for struct `Evidence` in the current scope
+  --> test\qa\tests\t101_engine_channels.rs:35:10
+   |
+34 | /     evidence
+35 | |         .confirm_engine(recorded.clone())
+   | |         -^^^^^^^^^^^^^^ method not found in `Evidence`
+   | |_________|
+   |
+
+error[E0599]: no method named `confirm_engine` found for struct `Evidence` in the current scope
+  --> test\qa\tests\t101_engine_channels.rs:51:10
+   |
+50 |       let refusal = reloaded
+   |  ___________________-
+51 | |         .confirm_engine(provenanced(&"2".repeat(40), "stable"))
+   | |         -^^^^^^^^^^^^^^ method not found in `Evidence`
+   | |_________|
+   |
+
+error[E0599]: no method named `confirm_engine` found for struct `Evidence` in the current scope
+  --> test\qa\tests\t101_engine_channels.rs:58:10
+   |
+57 |       let refusal = reloaded
+   |  ___________________-
+58 | |         .confirm_engine(provenanced(&"1".repeat(40), "nightly"))
+   | |         -^^^^^^^^^^^^^^ method not found in `Evidence`
+   | |_________|
+   |
+
+Some errors have detailed explanations: E0432, E0560, E0599.
+For more information about an error, try `rustc --explain E0432`.
+error: could not compile `ratmac-qa` (test "t101_engine_channels") due to 6 previous errors
+'''

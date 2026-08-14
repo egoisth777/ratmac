@@ -2,6 +2,7 @@
 
 pub mod abandon;
 pub mod blocked;
+pub mod channel;
 pub mod cli;
 pub mod completion;
 pub mod contract;

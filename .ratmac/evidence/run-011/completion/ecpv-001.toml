@@ -1,0 +1,19 @@
+ticket-id = "t-101"
+check-id = "ECPV-001"
+kind = "focused"
+command = "cargo test -p ratmac-qa --test t101_engine_channels a_provenance_mismatch_refuses_and_updates_nothing -- --exact"
+working-dir = "."
+exit-status = 0
+output-sha256 = "19b2f9d0a5ad41fac98a26af7d668eb9cc6e29b8ad942cbe44d5e58b68b652bc"
+tree-roots = ['src', 'test']
+tree-sha256 = "4e3c8f149e7c1bd0631b035d7e5f267662c4f94273dff7c230a61caf7e4ba1ff"
+output = '''
+
+running 1 test
+test a_provenance_mismatch_refuses_and_updates_nothing ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.16s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests\t101_engine_channels.rs (target\debug\deps\t101_engine_channels-8ce3bb7f1f643e00.exe)
+'''

@@ -3284,6 +3284,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
         let observed = crate::pin::Identity {
             resolved: crate::root::displayed(&resolved),
             sha256,
+            ..crate::pin::Identity::default()
         };
 
         let run_dir = self.run_dir().map_err(|error| {

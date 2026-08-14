@@ -18,7 +18,13 @@
 #>
 
 [CmdletBinding()]
-param()
+param(
+    # ECP-002: name a channel and the bootstrap resolves its commit, offline:
+    # stable from .arca/editions.md (refusing a ledger/tag disagreement),
+    # nightly from the current landing (HEAD).
+    [ValidateSet('stable', 'nightly')]
+    [string] $Channel
+)
 
 $ErrorActionPreference = 'Stop'
 
@@ -65,6 +71,39 @@ function Get-EnginePin {
     [pscustomobject]@{ Resolved = $resolved; Sha256 = $sha256 }
 }
 
+
+# ECP-002: resolve the stable channel from the ledger, offline; a ledger/tag
+# disagreement or malformed row refuses, never resolves.
+function Resolve-StableChannel {
+    param([Parameter(Mandatory)][string] $Root)
+    $ledger = Join-Path $Root '.arca/editions.md'
+    if (-not (Test-Path -LiteralPath $ledger)) {
+        Deny -Reason "stable: cannot read $ledger"
+    }
+    $edition = $null
+    $recorded = $null
+    foreach ($line in (Get-Content -LiteralPath $ledger)) {
+        if ($line.Trim() -match '^\|\s*`(edition-[^`]+)`\s*\|\s*`([^`]*)`\s*\|') {
+            $edition = $Matches[1]
+            $recorded = $Matches[2]
+        }
+    }
+    if ($null -eq $edition) {
+        Deny -Reason 'stable: the editions ledger carries no edition row, so there is no stable to resolve'
+    }
+    if ($recorded -notmatch '^[0-9a-f]{40}$') {
+        Deny -Reason "stable: ledger row $edition records '$recorded', which is not a whole 40-hex commit hash"
+    }
+    $tagged = & git -C $Root rev-parse --verify "refs/tags/$edition^{commit}" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Deny -Reason "stable: ledger names $edition, but the tag does not resolve in the local repository"
+    }
+    if ($tagged -ne $recorded) {
+        Deny -Reason "stable: the ledger records $edition at $recorded but the tag points at $tagged; a ledger/tag disagreement is refused, not resolved"
+    }
+    [pscustomobject]@{ Edition = $edition; Commit = $recorded }
+}
+
 $scriptRoot = Split-Path -Parent $PSCommandPath
 $root = (Resolve-Path (Join-Path $scriptRoot '..')).Path
 $here = (Get-Location).Path
@@ -86,6 +125,24 @@ $candidates = @(
 $engine = $candidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
 
 if (-not $engine) {
+    if ($Channel) {
+        # ECP-002: stamp resolved provenance into the binary it builds. A
+        # build always builds HEAD, so `stable` is stamped only when HEAD is
+        # the ledger's stable commit - anything else would be a binary from
+        # the tree under judgment asserting proven provenance.
+        $head = & git -C $root rev-parse --verify 'HEAD^{commit}'
+        if ($LASTEXITCODE -ne 0) { Deny -Reason 'HEAD does not resolve in the local repository' }
+        if ($Channel -eq 'stable') {
+            $stable = Resolve-StableChannel -Root $root
+            if ($head -ne $stable.Commit) {
+                Deny -Reason "stable: HEAD is $head but stable is $($stable.Edition) at $($stable.Commit); a stable engine is built from the stable commit, never from the tree under judgment" -Guidance @(
+                    "git -c advice.detachedHead=false checkout $($stable.Commit)",
+                    'pwsh -File tools/rtm.ps1 -Channel stable')
+            }
+        }
+        $env:RTM_CHANNEL = $Channel
+        $env:RTM_SOURCE_COMMIT = $head
+    }
     $build = & cargo build --offline --bin rtm 2>&1
     if ($LASTEXITCODE -ne 0) {
         Deny -Reason 'the project-local build did not produce an Engine' -Guidance (
@@ -120,6 +177,18 @@ if ($null -eq $pin) {
     Write-Report 'Pin: no pin recorded in .ratmac/evidence.toml'
 } else {
     Write-Report 'Pin: matches .ratmac/evidence.toml [engine]'
+}
+if ($Channel) {
+    if ($Channel -eq 'nightly') {
+        $commit = & git -C $root rev-parse --verify 'HEAD^{commit}' 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            Deny -Reason 'nightly: HEAD does not resolve in the local repository'
+        }
+        Write-Report "Channel: nightly is the current landing $commit"
+    } else {
+        $stable = Resolve-StableChannel -Root $root
+        Write-Report "Channel: stable is $($stable.Edition) at $($stable.Commit)"
+    }
 }
 Write-Report "Diagnose: $engine doctor"
 exit 0
