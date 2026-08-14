@@ -1,0 +1,32 @@
+planned-test-id = "GPHV-003"
+ticket-id = "t-100"
+kind = "mutation-kill"
+command = "cargo test -p ratmac-qa --test t048_contract_gates every_contract_gate_states_its_verdict_on_this_repository -- --exact # mutation: the runtime-resolved retired run's receipt digest is corrupted, so the sensitivity verdict flips and the oracle refuses"
+working-dir = "."
+test-file = "test/qa/tests/t048_contract_gates.rs"
+test-name = "every_contract_gate_states_its_verdict_on_this_repository"
+exit-status = 101
+output-sha256 = "3d3d3648539108297a66773e7ef1279ebcfb2af85020adaff31b91683d4e309a"
+output = '''
+
+running 1 test
+test every_contract_gate_states_its_verdict_on_this_repository ... FAILED
+
+failures:
+
+---- every_contract_gate_states_its_verdict_on_this_repository stdout ----
+
+thread 'every_contract_gate_states_its_verdict_on_this_repository' (46996) panicked at test\qa\tests\t048_contract_gates.rs:1153:5:
+run run-008: the retired run's sensitivity receipts still verify: Some([ReceiptDefect { planned_test: "GPHV-001", reason: "digest does not re-derive from the recorded output: observed 0892603b2a30405356444ac2658e284e364ccab00bd188d651c4fa72eb7e281a, recorded 000000002a30405356444ac2658e284e364ccab00bd188d651c4fa72eb7e281a" }])
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    every_contract_gate_states_its_verdict_on_this_repository
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 17 filtered out; finished in 0.14s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests\t048_contract_gates.rs (target\debug\deps\t048_contract_gates-c797f3046aee4fc7.exe)
+error: test failed, to rerun pass `-p ratmac-qa --test t048_contract_gates`
+'''
