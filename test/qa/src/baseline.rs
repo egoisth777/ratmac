@@ -65,7 +65,18 @@ pub fn canonical(text: &str) -> String {
     for (before, after, token) in VOCABULARY {
         out = out.replace(before, token).replace(after, token);
     }
-    out
+    // t-101 / ECP-003: the doctor gained the engine channel and provenance
+    // rows after the freeze. They are new rows owned and proven by
+    // t101_engine_channels.rs, not a rewording of a freeze row, so the
+    // comparison sets exactly these rows aside - nothing else on the line.
+    out.lines()
+        .filter(|line| {
+            !line.starts_with("Engine provenance:")
+                && !line.starts_with("Engine channel:")
+                && !line.starts_with("Engine channel finding:")
+        })
+        .map(|line| format!("{line}\n"))
+        .collect()
 }
 
 /// The repository this harness was compiled from.

@@ -124,7 +124,7 @@ pub fn live_run_findings(root: &Path, engine_root: &Path) -> Vec<String> {
             entry
                 .path()
                 .is_dir()
-                .then(|| entry.file_name().to_string_lossy().into_owned())
+                .then(|| crate::root::component(entry.file_name()))
         })
         .collect();
     run_ids.sort();
