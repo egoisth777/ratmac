@@ -3,7 +3,7 @@
 ```yaml
 issue-id: "i-031-stable-and-nightly-engine-channels"
 provenance: "Billy's ask of 2026-08-13, filed as a wish the same day - self-hosting needs the driving engine pinned to a proven edition while the source moves"
-status: "pending"
+status: "integrated"
 ```
 
 ## Summary
@@ -36,3 +36,4 @@ so stable is *defined* as the newest edition.
 
 - 2026-08-13: filed from Billy's ask; three requirement records proposed, all
   routed through the existing `Evidence::engine` pin and the `ORS-002` bootstrap.
+- 2026-08-13: P1 integrated all three asks as accepted goal rows ECP-001..ECP-003; run-006 carries the sprint.
