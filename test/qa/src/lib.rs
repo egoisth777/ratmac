@@ -17,6 +17,7 @@ macro_rules! engine_bin {
     };
 }
 
+pub mod aged;
 pub mod archive;
 pub mod baseline;
 pub mod edition;
