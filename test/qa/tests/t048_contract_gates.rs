@@ -1114,35 +1114,29 @@ fn the_merge_gate_rule_names_the_fixture_with_a_past() {
 
 /// GPHV-003 (t-100): every contract gate runs against this repository as it
 /// stands, with its expected verdict recorded here - an oracle, not a
-/// snapshot. This repository is the one fixture whose past keeps growing.
+/// snapshot. The addressed run and ticket are resolved from the tree at
+/// runtime (`GPH-003`: this repository is the growing fixture), so the check
+/// keeps reporting as history grows.
 ///
 /// Expected verdicts for a repository between sprints:
 /// - intake: pass - live intake is empty or integrated, links resolve.
-/// - sensitivity (most recent retired ticket run, `run-008`/`t-098`): pass -
-///   the archived ticket still names its planned tests and their recorded
-///   red receipts re-derive.
-/// - completion (same run): refusal - the landing that archived the ticket
-///   edited the tree after the completion checks ran, so the recorded
-///   `tree-sha256` is stale by construction; staleness is the verdict the
-///   gate exists to report, never a pass.
+/// - sensitivity (most recent retired ticket run): pass - the archived
+///   ticket still names its planned tests and their recorded receipts
+///   re-derive.
+/// - completion (same run): deterministic from the tree - pass while the
+///   receipt roots are untouched since the run, a stale-tree refusal once
+///   later landings edited them; never any other refusal class.
 #[test]
 fn every_contract_gate_states_its_verdict_on_this_repository() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .expect("the repository root resolves");
-    assert!(
-        root.join(".arca/schema.md").is_file(),
-        "the resolved root {} is this repository, not a stray directory",
-        root.display()
-    );
+    let root = ratmac_qa::grown::repo_root();
     let engine_root = root.join(".ratmac");
-    let ticket_rel = ".arca/ticket/archive/t-098.md";
-    let ticket = root.join(ticket_rel);
-    assert!(
-        ticket.is_file(),
-        "the most recent retired ticket is archived"
+    let run = ratmac_qa::grown::latest_retired(&root);
+    assert_eq!(
+        ratmac_qa::grown::sprint_stage(&root, &run),
+        ratmac_qa::grown::SprintStage::BetweenSprints,
+        "the repository is between sprints - the state these verdicts are stated for"
     );
+    let ticket = root.join(&run.ticket_rel);
 
     // Intake: expected pass.
     let intake = gate_intake(&root);
@@ -1152,22 +1146,34 @@ fn every_contract_gate_states_its_verdict_on_this_repository() {
         intake.err()
     );
 
-    // Sensitivity: expected pass - archived red receipts still re-derive.
-    let sensitivity =
-        ratmac::receipt::gate_sensitivity_at(&root, &engine_root, "run-008", &ticket, ticket_rel);
+    // Sensitivity: expected pass - the retired run's receipts still re-derive.
+    let sensitivity = ratmac::receipt::gate_sensitivity_at(
+        &root,
+        &engine_root,
+        &run.run_id,
+        &ticket,
+        &run.ticket_rel,
+    );
     assert!(
         sensitivity.is_ok(),
-        "the retired run's sensitivity receipts still verify: {:?}",
+        "run {}: the retired run's sensitivity receipts still verify: {:?}",
+        run.run_id,
         sensitivity.err()
     );
 
-    // Completion: expected refusal - stale by the landing that followed it.
-    let completion =
-        ratmac::completion::gate_completion_at(&root, &engine_root, "run-008", &ticket, ticket_rel)
-            .expect_err("between sprints the retired run's completion receipts are stale");
-    let text = format!("{completion:?}");
-    assert!(
-        text.contains("tree") || text.contains("stale"),
-        "the refusal is the staleness the gate exists to catch: {text}"
-    );
+    // Completion: pass or a stale-tree refusal, never anything else.
+    if let Err(defects) = ratmac::completion::gate_completion_at(
+        &root,
+        &engine_root,
+        &run.run_id,
+        &ticket,
+        &run.ticket_rel,
+    ) {
+        let text = format!("{defects:?}");
+        assert!(
+            text.contains("tree") || text.contains("stale"),
+            "run {}: the only allowed refusal is the staleness the gate exists to catch: {text}",
+            run.run_id
+        );
+    }
 }
