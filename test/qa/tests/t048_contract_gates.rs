@@ -888,3 +888,86 @@ fn gates_declared_in_a_child_class_count_as_mechanized() {
         "gates declared in a child class are mechanized: {text}"
     );
 }
+
+/// ARFV-003 / ARF-002: a re-judgment reaches into the archive. While a live
+/// `missing` record stands against a requirement whose archived record still
+/// says `satisfied`, the gate refuses naming both; once the archived record is
+/// moved back to the active folder (the re-judgment replacing it) with an
+/// owning ticket, the gate passes. A `satisfied` claim resting on a
+/// requirement no gate mechanizes still refuses on the aged fixture.
+#[test]
+fn a_rejudged_archived_record_refuses_until_it_moves_back() {
+    const OLD_FROZEN: &str = "2222222222222222222222222222222222222222222222222222222222222222";
+    let tree = Tree::new("rejudged-archive");
+    // Second requirement beside the seeded DEMO-001.
+    fs::write(
+        tree.root.join(".arca/goal/spec.md"),
+        "# Goal spec\n\n\
+         | Req ID | Requirement | Source |\n\
+         |---|---|---|\n\
+         | DEMO-001 | The demo behaves. | [issue DEMO-001](../issue/i-100-demo/spec.md#requirement-records) |\n\
+         | DEMO-002 | The past behaves. | [issue DEMO-002](../issue/i-100-demo/spec.md#requirement-records) |\n",
+    )
+    .expect("widen goal spec");
+    // The aged half: an archived record from freeze A, satisfied.
+    tree.write_archived_residual("res-150", "DEMO-002", OLD_FROZEN);
+    // The re-judgment: a live missing record against the same requirement.
+    tree.write_residual("res-151", "DEMO-002", "missing", FROZEN, &[]);
+    tree.write_ticket("t-150", &["res-151"], &[]);
+    let refused = records(&tree)
+        .expect_err("a live re-judgment beside an archived satisfied record must refuse");
+    let text = reasons(&refused);
+    assert!(
+        text.contains("res-150") && text.contains("res-151"),
+        "the refusal names both records: {text}"
+    );
+    // The move back: the re-judgment replaces the archived record in the
+    // active folder; one record per requirement again, owned.
+    fs::remove_file(tree.root.join(".arca/residual/archive/res-150.md")).expect("archive move");
+    let verdict = records(&tree);
+    let text = match &verdict {
+        Ok(()) => String::new(),
+        Err(defects) => reasons(defects),
+    };
+    assert!(verdict.is_ok(), "the moved-back record passes: {text}");
+}
+
+/// ARFV-004 / ARF-001, ARF-003: the check that could not run before this
+/// issue. The record gate's expected verdict on this repository as it stands
+/// is green, and it keeps passing as the archive grows, because an archived
+/// record answers to its own freeze.
+#[test]
+fn the_record_gate_passes_on_this_repository_as_it_stands() {
+    let root = ratmac_qa::baseline::repo_root();
+    // The freeze is computed from the tracked goal bundle, exactly as the
+    // Engine computes it, so this check needs no machine-local Run state and
+    // keeps running on a fresh clone as the archive grows.
+    let frozen = ratmac::goal::revision(&root.join(".arca/goal"))
+        .expect("read the goal bundle")
+        .expect("this repository has a goal bundle");
+    let engine = std::env::temp_dir().join(format!(
+        "ratmac-t048-selfcheck-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock after epoch")
+            .as_nanos()
+    ));
+    let run_dir = engine.join("runs/run-000");
+    fs::create_dir_all(&run_dir).expect("create synthetic run");
+    fs::write(
+        run_dir.join("evidence.toml"),
+        format!("[goal]\nfrozen = \"{frozen}\"\n"),
+    )
+    .expect("write synthetic freeze");
+    let verdict = gate_records(&root, &engine, "run-000");
+    let _ = fs::remove_dir_all(&engine);
+    let text = match &verdict {
+        Ok(()) => String::new(),
+        Err(defects) => reasons(defects),
+    };
+    assert!(
+        verdict.is_ok(),
+        "this repository as it stands passes its own record gate: {text}"
+    );
+}
