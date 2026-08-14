@@ -37,8 +37,8 @@ carrier is `.arca/issue/archive/i-023-doctor-full-fingerprint/`; `DFP-001`
 widens only the argument-free human doctor's rendered Engine SHA-256 from a
 16-character prefix to the complete 64-character lowercase digest. The fresh
 public proof is in `test/qa/tests/t045_bootstrap_doctor.rs`; inherited public
-behavior remains green, and `.arca-private/t-058/` through
-`.arca-private/t-070/` hold the current hidden lanes. Every Architecture,
+behavior remains green, and `test-hidden/t-058/` through
+`test-hidden/t-070/` hold the current hidden lanes. Every Architecture,
 Binary, Modules, and Tests row below describes this landed tree. Refresh at
 each cycle close (gap check green).
 
@@ -140,7 +140,7 @@ coverage is `t059_run_residency` (4 tests), `t060_runbook_pin` (3),
 `t045_bootstrap_doctor::doctor_reports_complete_engine_fingerprint_and_is_write_free`
 plus the inherited `t045` and `t057` suites. Wording surfaces (caller policy,
 schema rules) are asserted against `.arca/schema.md` and `AGENTS.md`. Hidden
-lanes `.arca-private/t-058/` through `t-070/` contain
+lanes `test-hidden/t-058/` through `t-070/` contain
 6/6/6/5/6/6/6/6/6/5/6/6/6 tests. Opt-in release lane:
 `RATMAC_RELEASE_ACCEPTANCE=1`.
 
@@ -184,7 +184,7 @@ All agent routing and documentation must use these paths.
 | `.arca/log.md` | Human-only append-only history; every human landing leaves a line. `rtm` logs transitions in `.ratmac/log.md`. |
 | `.arca/tpl/` | Blank forms; a form filled in at its proper path is the real thing. |
 | `.arca/vis/` | Shared pictures and graphs. |
-| `.arca-private/` | Hidden test code, out of git, listed by its owning ticket. |
+| `test-hidden/` | Hidden test code, out of git, listed by its owning ticket. |
 | `test/` | The runnable suite plus `test/test-list.md`. |
 | `src/` | The Engine - mapped above. |
 

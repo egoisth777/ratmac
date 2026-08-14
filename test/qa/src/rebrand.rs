@@ -21,7 +21,7 @@ pub const PRE_CUTOVER_POSITION: &str = concat!("ph", "ase");
 pub const ALLOWLIST: &str = "fixtures/rebrand-audit/allowlist.tsv";
 
 /// Directory names the walk never descends into.
-const SKIPPED: [&str; 3] = [".git", ".arca-private", "target"];
+const SKIPPED: [&str; 3] = [".git", "test-hidden", "target"];
 
 /// One enumerated carrier: a path pattern, the token it may carry, and why.
 #[derive(Debug, Clone, PartialEq, Eq)]

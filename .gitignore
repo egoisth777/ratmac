@@ -21,7 +21,7 @@ target
 #.idea/
 
 # Hidden ticket tests are local verification artifacts.
-.arca-private/
+test-hidden/
 
 # Engine root: runtime ignored, Machine Class and receipts tracked (ENS-012)
 .ratmac/runs/

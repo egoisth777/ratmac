@@ -19,7 +19,7 @@ There are two sets of rules. **They never limit each other.**
 
 If a goal sentence seems to forbid a working file (e.g. "no working files", "creates no code/tickets/tests"),
 it is talking about the running program, never about your workspace (`.arca/residual/`,
-`.arca/ticket/`, `.arca-private/`, `test/`, source code). When two rules seem to clash: decide by which set
+`.arca/ticket/`, `test-hidden/`, `test/`, source code). When two rules seem to clash: decide by which set
 each belongs to, add one log line (`conflict-resolved: <refs> — <one-line reason>`), and keep going. **A rule
 clash is never a reason to stop work.**
 
@@ -84,7 +84,7 @@ An unanswered question pauses only the piece that needs it, never the whole.
 | `test_root`                  | `test/` (Rust harness: cargo test crate under `test/qa/`; create it if absent).                |
 | `discovery_command` / `run_command` | By language — Rust: `cargo test`; otherwise look at the repo and pick.                  |
 | `fixture_setup`              | Copies of test data in a temp folder, kept separate per test; none when not needed.            |
-| `private_artifact_root` (hidden tests) | `.arca-private/` (kept out of git), created when first needed.                       |
+| `private_artifact_root` (hidden tests) | `test-hidden/` (kept out of git), created when first needed.                       |
 
 ## Units and git
 
@@ -118,17 +118,17 @@ Cycle-end git discipline — three duties close every build cycle:
 - **Ticket worktrees.** Every build turn runs in a linked worktree on a ticket branch named after its
   ticket (`t-<id>-<slug>`, e.g. `t-063-run-completion`). Its landings happen there; when the turn ends green, the ticket
   branch merges into `main` — fast-forward when `main` has not moved, otherwise one merge commit that is
-  itself a landing with its own log line — then `.arca-private/` copies back (next duty), and only then
+  itself a landing with its own log line — then `test-hidden/` copies back (next duty), and only then
   are the worktree and branch removed. A cycle never closes
   with a live ticket worktree. A ticket worktree is not a trial worktree: a trial branch never merges
   into `main` (see Trial worktrees), and nothing here changes that.
-- **Hidden lanes travel with the turn.** `.arca-private/` is untracked (gitignored), so a fresh ticket
+- **Hidden lanes travel with the turn.** `test-hidden/` is untracked (gitignored), so a fresh ticket
   worktree does not contain it, and each hidden crate's `ratmac = { path = "../.." }` resolves to
-  whichever checkout holds the crate. At turn start, copy `.arca-private/` from the primary checkout
+  whichever checkout holds the crate. At turn start, copy `test-hidden/` from the primary checkout
   into the ticket worktree, skipping each crate's `target/` build output; author the new ticket's
   hidden crate inside that copy; run every hidden lane from inside the worktree, so the lanes test
   the branch code, never the pre-turn `main`. At green the order is fixed: merge first; copy
-  `.arca-private/` back to the primary checkout second — before any removal, because the new crate is
+  `test-hidden/` back to the primary checkout second — before any removal, because the new crate is
   gitignored and committed nowhere, so removing the worktree first destroys its only copy; remove the
   worktree and branch third; re-run the hidden lanes once from `main` last — the post-merge confirmation.
 - **Sync at Idle.** A cycle is complete only when its landings are on the remote: after the clean gap
@@ -262,7 +262,7 @@ human to ask for it.
 | Step                            | Does                                                                                                             | Finish line                                                                          |
 | :------------------------------ | :--------------------------------------------------------------------------------------------------------------- | :----------------------------------------------------------------------------------- |
 | **P4** Write this ticket's tests | Turn the ticket's planned checks (planned-test-ID → test function, recorded in the ticket) into runnable tests; then re-read them trying to poke holes: would they catch a wrong answer, do they cover the edges, does each stand alone; run them — they should fail, since the code is not written yet | Every planned check for this ticket runs as a real test; hole-poking notes logged    |
-| **P5** Write the code           | Implement; run **every test so far** (all earlier tickets' plus this one's); run the hidden test lanes (test code in `.arca-private/`, listed in the ticket with `hidden-id`, `goal-contract-ref`, `category`, `oracle`, `owner`); fix and re-run until all green; then the deliberate-damage checks in the fixed order of [Deliberate damage and discard safety](#deliberate-damage-and-discard-safety): safety commit, each check from it, restore and verify, kills into the owning gap record, `git commit --amend` into the green landing; short review; take the next ticket | All tests green including hidden lanes, run from inside the ticket worktree; every deliberate-damage check run from the safety commit and the checkpoint amended into the green landing with its one log line; then in order: merge the ticket branch into `main`, copy `.arca-private/` back to the primary checkout, remove the worktree and branch, re-run the hidden lanes green from `main`. No tickets left → redo P2's gap check → nothing `missing|partial` → push `main` to `origin`, then Idle |
+| **P5** Write the code           | Implement; run **every test so far** (all earlier tickets' plus this one's); run the hidden test lanes (test code in `test-hidden/`, listed in the ticket with `hidden-id`, `goal-contract-ref`, `category`, `oracle`, `owner`); fix and re-run until all green; then the deliberate-damage checks in the fixed order of [Deliberate damage and discard safety](#deliberate-damage-and-discard-safety): safety commit, each check from it, restore and verify, kills into the owning gap record, `git commit --amend` into the green landing; short review; take the next ticket | All tests green including hidden lanes, run from inside the ticket worktree; every deliberate-damage check run from the safety commit and the checkpoint amended into the green landing with its one log line; then in order: merge the ticket branch into `main`, copy `test-hidden/` back to the primary checkout, remove the worktree and branch, re-run the hidden lanes green from `main`. No tickets left → redo P2's gap check → nothing `missing|partial` → push `main` to `origin`, then Idle |
 
 ```mermaid
 flowchart LR
@@ -813,7 +813,7 @@ Do:
 
 - Enter on any work-shaped request; catch up missing earlier steps yourself.
 - Prefer work-it-out > safe guess > ask; log every guess; put all questions in one message.
-- Write each ticket's tests in P4, before its code. Keep hidden test code in `.arca-private/`, listed in the
+- Write each ticket's tests in P4, before its code. Keep hidden test code in `test-hidden/`, listed in the
   owning ticket.
 - Fill in real files from the blanks in `.arca/tpl/`; keep `.arca/log.md` new-lines-only.
 - Found a goal problem mid-build? File a new issue in `.arca/issue/` — that is the only road back.
