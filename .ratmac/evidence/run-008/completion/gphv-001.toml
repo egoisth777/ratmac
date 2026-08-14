@@ -1,0 +1,21 @@
+ticket-id = "t-098"
+check-id = "GPHV-001"
+kind = "focused"
+command = "cargo test -p ratmac-qa --test t048_contract_gates the_intake_gate_passes_on_a_tree_with_a_past -- --exact"
+working-dir = "."
+exit-status = 0
+output-sha256 = "a2a8357c996ae0cd4780ada22b5afa08aed1de05e4db9dbac8af1b97dfaddb9f"
+tree-roots = ["src", "test"]
+tree-sha256 = "b59402a3cf8686e459fb41254d21c0fff6af31ee17ea3f691c6843eb065bbf4f"
+output = '''
+
+running 1 test
+test the_intake_gate_passes_on_a_tree_with_a_past ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 15 filtered out; finished in 0.05s
+
+   Compiling ratmac v0.1.0 (E:\repos\projs\skill-dev\ratmac-t-098)
+   Compiling ratmac-qa v0.1.0 (E:\repos\projs\skill-dev\ratmac-t-098\test\qa)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.38s
+     Running tests\t048_contract_gates.rs (target\debug\deps\t048_contract_gates-c797f3046aee4fc7.exe)
+'''

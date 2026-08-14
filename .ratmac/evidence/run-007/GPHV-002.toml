@@ -1,0 +1,34 @@
+planned-test-id = "GPHV-002"
+ticket-id = "t-098"
+kind = "mutation-kill"
+command = "cargo test -p ratmac-qa --test t048_contract_gates age_is_never_a_free_pass -- --exact  # mutation: the five-file shape check exempts the archive, so a corrupted archived bundle is waved through"
+working-dir = "."
+test-file = "test/qa/tests/t048_contract_gates.rs"
+test-name = "age_is_never_a_free_pass"
+exit-status = 101
+output-sha256 = "de08ca28ab6a4e023ec7823556df944e5c015ae226aa45728855a6d99fc4b5db"
+output = '''
+
+running 1 test
+test age_is_never_a_free_pass ... FAILED
+
+failures:
+
+---- age_is_never_a_free_pass stdout ----
+
+thread 'age_is_never_a_free_pass' (6736) panicked at test\qa\tests\t048_contract_gates.rs:1011:10:
+a corrupted archived bundle refuses: ()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    age_is_never_a_free_pass
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 15 filtered out; finished in 0.06s
+
+   Compiling ratmac v0.1.0 (E:\repos\projs\skill-dev\ratmac-t-098)
+   Compiling ratmac-qa v0.1.0 (E:\repos\projs\skill-dev\ratmac-t-098\test\qa)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.27s
+     Running tests\t048_contract_gates.rs (target\debug\deps\t048_contract_gates-c797f3046aee4fc7.exe)
+error: test failed, to rerun pass `-p ratmac-qa --test t048_contract_gates`
+'''
