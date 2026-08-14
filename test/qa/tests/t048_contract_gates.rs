@@ -1070,3 +1070,44 @@ fn write_archived_ticket(root: &std::path::Path, id: &str, residual: &str) {
     )
     .expect("write archived ticket");
 }
+
+/// GPHV-004 (t-099): the working rules carry the Merge Gate rule forward - a
+/// ticket that adds or amends a contract gate lists its fixture-with-a-past
+/// check in its Merge Gate, stated under the `GPH-002` heading where review
+/// reads it, and every gate-touching ticket of the landing sprint carries the
+/// listing.
+#[test]
+fn the_merge_gate_rule_names_the_fixture_with_a_past() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let schema =
+        std::fs::read_to_string(root.join(".arca/schema.md")).expect("read the working rules");
+
+    // The rule binds inside its own working-authority heading, not merely
+    // somewhere in the file.
+    let heading = "### GPH-002 - the Merge Gate carries the rule forward";
+    let start = schema
+        .find(heading)
+        .expect("the GPH-002 heading exists in the working rules");
+    let body = &schema[start..];
+    let section = &body[..body[4..].find("\n#").map(|i| i + 4).unwrap_or(body.len())];
+    assert!(
+        section.contains("fixture-with-a-past check")
+            && section.contains("the same way hidden-lane coverage is listed"),
+        "the GPH-002 section states the fixture-with-a-past listing rule"
+    );
+    assert!(
+        section.contains("review refusal"),
+        "the rule names its binding point: review"
+    );
+
+    // The sprint's own gate-touching tickets carry the listing - the retrofit
+    // the rule demands is written where the tickets live or landed.
+    for ticket in ["archive/t-097.md", "archive/t-098.md"] {
+        let text = std::fs::read_to_string(root.join(".arca/ticket").join(ticket))
+            .expect("read a gate-touching sprint ticket");
+        assert!(
+            text.contains("**Fixture with a past:**"),
+            "{ticket} lists its fixture-with-a-past check in its Merge Gate"
+        );
+    }
+}
