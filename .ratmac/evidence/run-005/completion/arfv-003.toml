@@ -1,0 +1,19 @@
+ticket-id = "t-097"
+check-id = "ARFV-003"
+kind = "focused"
+command = "cargo test -p ratmac-qa --test t048_contract_gates a_rejudged_archived_record_refuses_until_it_moves_back -- --exact"
+working-dir = "."
+exit-status = 0
+output-sha256 = "a90e7410bc621a09f525e47048c4fda37c4150be80bb4dfebcbf88e183f97b05"
+tree-roots = ["src", "test"]
+tree-sha256 = "a7fb1549e2d3efca9c3515ce82107d5aee913120261c7f18f41c51d0d886a87b"
+output = '''
+
+running 1 test
+test a_rejudged_archived_record_refuses_until_it_moves_back ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 0.28s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running tests\t048_contract_gates.rs (target\debug\deps\t048_contract_gates-c797f3046aee4fc7.exe)
+'''

@@ -1,0 +1,25 @@
+ticket-id = "t-097"
+check-id = "HT-097-03"
+kind = "hidden-lane"
+command = "cargo test --offline ht_097_03"
+working-dir = ".arca-private/t-097"
+exit-status = 0
+output-sha256 = "0c3888fc7483352ee3db478ffadbbe0b92514010ad096c666b538bd4a5f7ce8d"
+tree-roots = ["src", "test/qa", ".arca-private/t-097/tests"]
+tree-sha256 = "e362264f2cfb2fe616276cd6beadc403e25f4d162a08928c1399b61aaaa06198"
+output = '''
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+test ht_097_03_lifecycle_each_point_of_the_move_back_has_a_verdict ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.27s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running unittests src\lib.rs (target\debug\deps\ratmac_t097_hidden-9f8806c43a3abdd1.exe)
+     Running tests\hidden.rs (target\debug\deps\hidden-9a3f9002bec323b0.exe)
+'''
