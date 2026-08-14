@@ -632,6 +632,14 @@ pub fn gate_records_at(
     for path in residual_paths {
         let id = stem(&path);
         let shown = shown(&path);
+        // ARF-001: an archived record is frozen provenance. It cites the goal
+        // revision frozen when it was judged, so the equality against this
+        // Run's freeze binds live records only; the citation itself is still
+        // required to be present and well-formed wherever the record lives.
+        let archived = path
+            .parent()
+            .and_then(|parent| parent.file_name())
+            .is_some_and(|name| name == "archive");
         let text = fs::read_to_string(&path).unwrap_or_default();
 
         let Some(requirement) = yaml_field(&text, "goal-requirement-ref") else {
@@ -657,12 +665,19 @@ pub fn gate_records_at(
             .push(shown.clone());
 
         let cited = yaml_field(&text, "frozen-goal-bundle-revision").unwrap_or_default();
-        if let Some(frozen) = frozen.as_deref() {
-            if !cited.contains(frozen) {
-                defects.push(defect(
-                    &shown,
-                    format!("cites goal revision {cited}, but the frozen revision is {frozen}"),
-                ));
+        if cited.trim().is_empty() || !cited.contains("goal-sha256:") {
+            defects.push(defect(
+                &shown,
+                "records no parseable frozen-goal-bundle-revision citation",
+            ));
+        } else if !archived {
+            if let Some(frozen) = frozen.as_deref() {
+                if !cited.contains(frozen) {
+                    defects.push(defect(
+                        &shown,
+                        format!("cites goal revision {cited}, but the frozen revision is {frozen}"),
+                    ));
+                }
             }
         }
 

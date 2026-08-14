@@ -640,8 +640,11 @@ loop. Declare them in the Runbook State that must not be left without them:
   requirement ID exists in the goal; and links from live intake and deferred bundles resolve in both
   directions.
 - `record_contract` — exactly one residual per requirement, counted over the
-  active folder and `.arca/residual/archive/` together, each citing the
-  frozen goal revision; `satisfied` only with concrete evidence references;
+  active folder and `.arca/residual/archive/` together. Every record carries a
+  parseable frozen-goal-bundle-revision citation; the equality against the
+  Run's frozen revision binds live records only, because an archived record is
+  frozen provenance citing the freeze it was judged under (`ARF-001`,
+  [issue i-029](issue/i-029-archived-records-cite-their-own-freeze/spec.md#requirement-records)); `satisfied` only with concrete evidence references;
   every `missing`/`partial` residual living in the active folder — an
   archived `missing`/`partial` record is a contract violation — and owned by
   exactly one ticket; acyclic ticket dependencies; every ticket carrying its

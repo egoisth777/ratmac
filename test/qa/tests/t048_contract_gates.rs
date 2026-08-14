@@ -150,6 +150,25 @@ impl Tree {
         .expect("write residual");
     }
 
+    /// ARF-001: an archived residual is frozen provenance from an earlier
+    /// freeze. Written under `archive/` with an older revision citation.
+    fn write_archived_residual(&self, id: &str, requirement: &str, frozen: &str) {
+        let dir = self.root.join(".arca/residual/archive");
+        fs::create_dir_all(&dir).expect("create residual archive");
+        fs::write(
+            dir.join(format!("{id}.md")),
+            format!(
+                "# Residual Record\n\n```yaml\n\
+                 residual-id: \"{id}\"\n\
+                 goal-requirement-ref: \"{requirement}\"\n\
+                 frozen-goal-bundle-revision: \"goal-sha256:{frozen}\"\n\
+                 concrete-evidence-refs:\n  - \"src/demo.rs\"\n\
+                 status: \"satisfied\"\n```\n"
+            ),
+        )
+        .expect("write archived residual");
+    }
+
     fn write_ticket(&self, id: &str, residuals: &[&str], dependencies: &[&str]) {
         let residual_lines: String = residuals
             .iter()
@@ -736,5 +755,74 @@ fn stale_frozen_revision_refuses() {
         reasons(&defects).to_ascii_lowercase().contains("frozen"),
         "the refusal says the goal is not frozen: {}",
         reasons(&defects)
+    );
+}
+
+/// ARF-001 / ARFV-001: a fixture with a past. An archived record citing an
+/// older freeze passes; a live record citing the same older freeze refuses;
+/// an archived record with no parseable citation refuses. The fixture that
+/// could not exist before i-029: every earlier tree was born at the current
+/// freeze, which is exactly why an unpassable gate looked green.
+#[test]
+fn an_archived_record_cites_its_own_freeze_and_a_live_one_cites_todays() {
+    const OLDER: &str = "2222222222222222222222222222222222222222222222222222222222222222";
+
+    // Second requirement so the archived record is not a duplicate.
+    let tree = Tree::new("aged");
+    fs::write(
+        tree.root.join(".arca/goal/spec.md"),
+        "# Goal spec\n\n\
+         | Req ID | Requirement | Source |\n\
+         |---|---|---|\n\
+         | DEMO-001 | The demo behaves. | [issue DEMO-001](../issue/i-100-demo/spec.md#requirement-records) |\n\
+         | DEMO-002 | The past behaves. | [issue DEMO-002](../issue/i-100-demo/spec.md#requirement-records) |\n",
+    )
+    .expect("widen goal spec");
+    tree.write_archived_residual("res-101", "DEMO-002", OLDER);
+
+    records(&tree)
+        .expect("an archived record citing the freeze it was judged under is not a defect");
+
+    // The same older citation on a live record still refuses, same wording.
+    tree.write_residual("res-102", "DEMO-002", "missing", OLDER, &[]);
+    tree.write_ticket("t-101", &["res-102"], &[]);
+    let defects = records(&tree).expect_err("a live record must cite today's freeze");
+    assert!(
+        defects.iter().any(|defect| {
+            defect.artifact.contains("res-102")
+                && defect.reason.contains("but the frozen revision is")
+        }),
+        "the live record is the defect, with the original wording: {defects:?}"
+    );
+    assert!(
+        !defects
+            .iter()
+            .any(|defect| defect.artifact.contains("res-101")),
+        "the archived record is still not the defect: {defects:?}"
+    );
+    fs::remove_file(tree.root.join(".arca/residual/res-102.md")).expect("drop live record");
+    fs::remove_file(tree.root.join(".arca/ticket/t-101.md")).expect("drop ticket");
+
+    // Age is never a free pass: an archived record with no parseable citation
+    // refuses wherever it lives.
+    fs::write(
+        tree.root.join(".arca/residual/archive/res-101.md"),
+        "# Residual Record\n\n```yaml\n\
+         residual-id: \"res-101\"\n\
+         goal-requirement-ref: \"DEMO-002\"\n\
+         frozen-goal-bundle-revision: \"pending\"\n\
+         concrete-evidence-refs:\n  - \"src/demo.rs\"\n\
+         status: \"satisfied\"\n```\n",
+    )
+    .expect("corrupt the citation");
+    let defects = records(&tree).expect_err("a citation must exist and parse in the archive");
+    assert!(
+        defects.iter().any(|defect| {
+            defect.artifact.contains("res-101")
+                && defect
+                    .reason
+                    .contains("no parseable frozen-goal-bundle-revision")
+        }),
+        "the archived record without a citation is the defect: {defects:?}"
     );
 }
