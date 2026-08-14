@@ -413,3 +413,5 @@
 - 2026-08-13 correction: the edition-002 ledger row was missed in the closing landing; added now, one commit later - the audit that caught it (t095) is the row's own reason to exist.
 - 2026-08-13: t-098 red: `GPHV-001` and `GPHV-002` both fail as designed before the aged-tree checks exist - the intake gate has never been run on a tree with an archive from an earlier freeze (commit b67d536 carries the red receipts).
 - 2026-08-13: t-098 green landing (8afd8cb): every contract gate now has an aged-fixture check; intake, completion, and sensitivity gates exercised on trees with a past; six hidden lanes green; res-141 re-judged satisfied; worktree and branch removed; hidden lanes confirmed from main.
+- 2026-08-13: t-099 red: `GPHV-004` fails as designed with the fixture-with-a-past clause removed from `GPH-002` - the pin refuses when the rule is not written where review reads it (9961f56 carries the red receipt).
+- 2026-08-13: t-099 green landing (d598afb, archived at fbfa2ae): the Merge Gate rule is pinned by GPHV-004 with 4/4 mutation kills; six hidden lanes green from main; res-142 re-judged satisfied; worktree and branch removed.
