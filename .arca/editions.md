@@ -13,3 +13,4 @@ purpose - it is the record a citation resolves against, not a name.
 | Edition | Commit | What it marks |
 | :--- | :--- | :--- |
 | `edition-001` | `18bc304200cc0cfb20dbff42b5b966a79ec3526f` | The rest that closed the cycle-as-runbook sprint: the shipped Machine Class became this repository's own five-stage cycle, and the addressed report answers where a sprint stands. |
+| `edition-002` | `8276bd0bd0a353ebe5a5b2489b771e45d8dbfc08` | The rest that closed the archived-record-freeze sprint: the record contract proven on aged fixtures, run-002's blocker retired, i-029 and i-030 archived. |
