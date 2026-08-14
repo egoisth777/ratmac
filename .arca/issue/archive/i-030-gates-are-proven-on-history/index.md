@@ -3,7 +3,7 @@
 ```yaml
 issue-id: "i-030-gates-are-proven-on-history"
 provenance: "Advisory on the run-002 postmortem, 2026-08-10: the record contract was permanently unpassable and the suite reported green for months, and i-029's own summary names the cause - every existing check builds a fixture with no past. i-029's ARF-003 closes that blind spot for one gate; nothing closes it for the others."
-status: "pending"
+status: "integrated"
 ```
 
 ## Summary

@@ -545,6 +545,34 @@ was cut at. A row is written in the landing that cuts the edition and never edit
 edition audit compares every row against the tag database. A missing, blank, or partial record is a
 refusal, never an agreement - absence must not read as "nothing moved".
 
+## Gates proven on history
+
+`GPH-001`-`GPH-003` are working-authority requirements integrated from
+[issue i-030](issue/archive/i-030-gates-are-proven-on-history/spec.md#requirement-records):
+accepted asks resolve to the headings below and bind at integration. Like the edition
+requirements, they carry executable deliverables, so they are measured by gap records and
+worked by tickets.
+
+### GPH-001 - every contract gate has a fixture with a past
+
+Every contract gate is exercised by at least one fixture carrying the kind of history that
+gate walks - archived records citing an older freeze, archived bundles and tickets, receipts
+from an earlier run - with the gate's expected verdict on it stated by the check. A fresh
+fixture born at the current freeze cannot catch a gate that is unpassable on real history:
+the record contract was exactly that, green for months, found by a stalled Run.
+
+### GPH-002 - the Merge Gate carries the rule forward
+
+A ticket that adds or amends a contract gate lists, in its Merge Gate, the
+fixture-with-a-past check that exercises it, the same way hidden-lane coverage is listed. A
+gate landed without one is a review refusal.
+
+### GPH-003 - this repository is the growing fixture
+
+At least one check per contract gate runs the gate against this repository as it stands,
+with the expected verdict recorded in the check. This repository is the one fixture whose
+past is guaranteed to keep growing; `EDNV-004` proves the pattern.
+
 ## Blocked route
 
 A ticket blocked for an out-of-scope reason is held, never quietly passed. The Engine records
@@ -644,7 +672,7 @@ loop. Declare them in the Runbook State that must not be left without them:
   parseable frozen-goal-bundle-revision citation; the equality against the
   Run's frozen revision binds live records only, because an archived record is
   frozen provenance citing the freeze it was judged under (`ARF-001`,
-  [issue i-029](issue/i-029-archived-records-cite-their-own-freeze/spec.md#requirement-records)); `satisfied` only with concrete evidence references;
+  [issue i-029](issue/archive/i-029-archived-records-cite-their-own-freeze/spec.md#requirement-records)); `satisfied` only with concrete evidence references;
   every `missing`/`partial` residual living in the active folder — an
   archived `missing`/`partial` record is a contract violation — and owned by
   exactly one ticket; acyclic ticket dependencies; every ticket carrying its

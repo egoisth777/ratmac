@@ -3,7 +3,7 @@
 ```yaml
 issue-id: "i-029-archived-records-cite-their-own-freeze"
 provenance: "Found by the first real Run of the shop's own cycle on 2026-08-10: stepping out of the ticket-cutting stage refused with 127 defects, every one an archived gap record citing the goal revision that was frozen when it was judged, and no live record at fault."
-status: "pending"
+status: "integrated"
 ```
 
 ## Summary
