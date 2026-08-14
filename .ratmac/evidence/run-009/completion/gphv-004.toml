@@ -1,0 +1,20 @@
+ticket-id = "t-099"
+check-id = "GPHV-004"
+kind = "focused"
+command = "cargo test -p ratmac-qa --test t048_contract_gates the_merge_gate_rule_names_the_fixture_with_a_past -- --exact"
+working-dir = "."
+exit-status = 0
+output-sha256 = "941d1357b058276df784343ae7fb75a96b523fa896b040a8f250b14488f77645"
+tree-roots = ["src", "test"]
+tree-sha256 = "c0ab90a8621ee5ca9818ce4c4729405d3ef91740b5f564c799256e0e1a85267c"
+output = '''
+
+running 1 test
+test the_merge_gate_rule_names_the_fixture_with_a_past ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.00s
+
+   Compiling ratmac-qa v0.1.0 (E:\repos\projs\skill-dev\ratmac-t-099\test\qa)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.52s
+     Running tests\t048_contract_gates.rs (target\debug\deps\t048_contract_gates-c797f3046aee4fc7.exe)
+'''

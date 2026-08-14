@@ -1,0 +1,32 @@
+planned-test-id = "GPHV-004"
+ticket-id = "t-099"
+kind = "mutation-kill"
+command = "cargo test -p ratmac-qa --test t048_contract_gates the_merge_gate_rule_names_the_fixture_with_a_past -- --exact # mutation: the fixture-with-a-past listing clause is removed from GPH-002, so the pin refuses"
+working-dir = "."
+test-file = "test/qa/tests/t048_contract_gates.rs"
+test-name = "the_merge_gate_rule_names_the_fixture_with_a_past"
+exit-status = 101
+output-sha256 = "56cb8e86be64969c62586182209bb0559c137da35818daef737ae8517e1a6796"
+output = '''
+
+running 1 test
+test the_merge_gate_rule_names_the_fixture_with_a_past ... FAILED
+
+failures:
+
+---- the_merge_gate_rule_names_the_fixture_with_a_past stdout ----
+
+thread 'the_merge_gate_rule_names_the_fixture_with_a_past' (11444) panicked at test\qa\tests\t048_contract_gates.rs:1090:5:
+the GPH-002 section states the fixture-with-a-past listing rule
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    the_merge_gate_rule_names_the_fixture_with_a_past
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests\t048_contract_gates.rs (target\debug\deps\t048_contract_gates-c797f3046aee4fc7.exe)
+error: test failed, to rerun pass `-p ratmac-qa --test t048_contract_gates`
+'''
