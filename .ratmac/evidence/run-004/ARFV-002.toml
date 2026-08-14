@@ -1,0 +1,33 @@
+planned-test-id = "ARFV-002"
+ticket-id = "t-097"
+kind = "mutation-kill"
+command = "cargo test -p ratmac-qa --test t048_contract_gates an_archived_record_cites_its_own_freeze_and_a_live_one_cites_todays -- --exact  # mutation: the live-record equality is disabled, so a stale live citation passes"
+working-dir = "."
+test-file = "test/qa/tests/t048_contract_gates.rs"
+test-name = "an_archived_record_cites_its_own_freeze_and_a_live_one_cites_todays"
+exit-status = 101
+output-sha256 = "564b63dea4fdc2ee3a357008cc53113896239f3f5b94cf53cec94c1e2ea3add0"
+output = """
+running 1 test
+test an_archived_record_cites_its_own_freeze_and_a_live_one_cites_todays ... FAILED
+
+failures:
+
+---- an_archived_record_cites_its_own_freeze_and_a_live_one_cites_todays stdout ----
+
+thread 'an_archived_record_cites_its_own_freeze_and_a_live_one_cites_todays' (47944) panicked at test\\qa\\tests\\t048_contract_gates.rs:790:5:
+the live record is the defect, with the original wording: [ContractDefect { artifact: "requirement DEMO-002", reason: "has 2 residual records (//?/C:/Users/egois/AppData/Local/Temp/ratmac-t048-aged-34984-1786683798951482900/.arca/residual/archive/res-101.md, //?/C:/Users/egois/AppData/Local/Temp/ratmac-t048-aged-34984-1786683798951482900/.arca/residual/res-102.md); exactly one is allowed" }]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    an_archived_record_cites_its_own_freeze_and_a_live_one_cites_todays
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 13 filtered out; finished in 0.31s
+
+   Compiling ratmac v0.1.0 (E:\\repos\\projs\\skill-dev\\ratmac-t-097)
+   Compiling ratmac-qa v0.1.0 (E:\\repos\\projs\\skill-dev\\ratmac-t-097\\test\\qa)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.40s
+     Running tests\\t048_contract_gates.rs (target\\debug\\deps\\t048_contract_gates-c797f3046aee4fc7.exe)
+error: test failed, to rerun pass `-p ratmac-qa --test t048_contract_gates`
+"""

@@ -1,0 +1,43 @@
+planned-test-id = "ARFV-001"
+ticket-id = "t-097"
+kind = "mutation-kill"
+command = "cargo test -p ratmac-qa --test t048_contract_gates an_archived_record_cites_its_own_freeze_and_a_live_one_cites_todays -- --exact  # mutation: the archived-record exemption is removed, so an archived record citing its own freeze refuses"
+working-dir = "."
+test-file = "test/qa/tests/t048_contract_gates.rs"
+test-name = "an_archived_record_cites_its_own_freeze_and_a_live_one_cites_todays"
+exit-status = 101
+output-sha256 = "edb19c9d34cfa376320bd57f2bb68f75ad4270eabb880c8d69695015ec4993b8"
+output = '''
+
+running 1 test
+test an_archived_record_cites_its_own_freeze_and_a_live_one_cites_todays ... FAILED
+
+failures:
+
+---- an_archived_record_cites_its_own_freeze_and_a_live_one_cites_todays stdout ----
+
+thread 'an_archived_record_cites_its_own_freeze_and_a_live_one_cites_todays' (6384) panicked at test\qa\tests\t048_contract_gates.rs:784:10:
+an archived record citing the freeze it was judged under is not a defect: [ContractDefect { artifact: "//?/C:/Users/egois/AppData/Local/Temp/ratmac-t048-aged-23744-1786683955660773900/.arca/residual/archive/res-101.md", reason: "cites goal revision goal-sha256:2222222222222222222222222222222222222222222222222222222222222222, but the frozen revision is 1111111111111111111111111111111111111111111111111111111111111111" }]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    an_archived_record_cites_its_own_freeze_and_a_live_one_cites_todays
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 13 filtered out; finished in 0.14s
+
+   Compiling ratmac v0.1.0 (E:\repos\projs\skill-dev\ratmac-t-097)
+warning: unused variable: `archived`
+   --> src\contract.rs:647:13
+    |
+647 |         let archived = path
+    |             ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_archived`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+   Compiling ratmac-qa v0.1.0 (E:\repos\projs\skill-dev\ratmac-t-097\test\qa)
+warning: `ratmac` (lib) generated 1 warning (run `cargo fix --lib -p ratmac` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.61s
+     Running tests\t048_contract_gates.rs (target\debug\deps\t048_contract_gates-c797f3046aee4fc7.exe)
+error: test failed, to rerun pass `-p ratmac-qa --test t048_contract_gates`
+'''

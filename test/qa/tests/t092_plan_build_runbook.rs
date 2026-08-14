@@ -139,7 +139,7 @@ impl Cycle {
                 "# Residual Record\n\n```yaml\n\
                  residual-id: \"res-100\"\n\
                  goal-requirement-ref: \"DEMO-001\"\n\
-                 frozen-goal-bundle-revision: \"{frozen}\"\n\
+                 frozen-goal-bundle-revision: \"goal-sha256:{frozen}\"\n\
                  concrete-evidence-refs:\n{refs}\
                  status: \"{status}\"\n```\n"
             ),

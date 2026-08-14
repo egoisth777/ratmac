@@ -1,0 +1,33 @@
+planned-test-id = "ARFV-003"
+ticket-id = "t-097"
+kind = "mutation-kill"
+command = "cargo test -p ratmac-qa --test t048_contract_gates a_rejudged_archived_record_refuses_until_it_moves_back -- --exact  # mutation: the archive folder is dropped from the residual namespace, so a live re-judgment coexists silently with the archived satisfied record"
+working-dir = "."
+test-file = "test/qa/tests/t048_contract_gates.rs"
+test-name = "a_rejudged_archived_record_refuses_until_it_moves_back"
+exit-status = 101
+output-sha256 = "b1db2d0b6e7f0e2e7af08aeee0e094df7be61c9252b441289e6808c35d183134"
+output = """
+running 1 test
+test a_rejudged_archived_record_refuses_until_it_moves_back ... FAILED
+
+failures:
+
+---- a_rejudged_archived_record_refuses_until_it_moves_back stdout ----
+
+thread 'a_rejudged_archived_record_refuses_until_it_moves_back' (28948) panicked at test\\qa\\tests\\t048_contract_gates.rs:918:10:
+a live re-judgment beside an archived satisfied record must refuse: ()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    a_rejudged_archived_record_refuses_until_it_moves_back
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 13 filtered out; finished in 0.15s
+
+   Compiling ratmac v0.1.0 (E:\\repos\\projs\\skill-dev\\ratmac-t-097)
+   Compiling ratmac-qa v0.1.0 (E:\\repos\\projs\\skill-dev\\ratmac-t-097\\test\\qa)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.43s
+     Running tests\\t048_contract_gates.rs (target\\debug\\deps\\t048_contract_gates-c797f3046aee4fc7.exe)
+error: test failed, to rerun pass `-p ratmac-qa --test t048_contract_gates`
+"""
