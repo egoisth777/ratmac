@@ -422,3 +422,106 @@ fn unknown_planned_test_id_refuses() {
         "the refusal says why the ID is unresolvable: {refusal}"
     );
 }
+
+/// GPHV-001 (t-098): the sensitivity and completion gates on a tree carrying
+/// receipts from an earlier, retired run beside the addressed run's own. The
+/// retired run's receipts are history the addressed gate never consumes - and
+/// addressing the retired run itself still judges those receipts in full.
+#[test]
+fn the_completion_and_sensitivity_gates_pass_beside_a_retired_runs_receipts() {
+    let fixture = Fixture::new("aged-runs");
+    let engine_root = fixture.root.join(".ratmac");
+    let ticket = fixture.root.join(".arca/ticket/t-900.md");
+
+    // The retired run left receipts behind: one truncated, one stale.
+    let old_dir = engine_root.join("evidence/run-old");
+    fs::create_dir_all(&old_dir).expect("create the retired evidence");
+    fs::write(
+        old_dir.join("PT-900-01.toml"),
+        "planned-test-id = \"PT-900-01\"\ntrunc",
+    )
+    .expect("write the truncated retired receipt");
+
+    // The addressed run carries one valid sensitivity receipt.
+    let new_dir = engine_root.join("evidence/run-new");
+    fs::create_dir_all(&new_dir).expect("create the live evidence");
+    let output = "baseline red as planned\n";
+    fs::write(
+        new_dir.join("PT-900-01.toml"),
+        format!(
+            "planned-test-id = \"PT-900-01\"\nticket-id = \"t-900\"\nkind = \"baseline-failure\"\n\
+             command = \"cargo test -p ratmac-qa --test t900_example\"\nworking-dir = \".\"\n\
+             test-file = \"test/qa/tests/t900_example.rs\"\ntest-name = \"planned_behavior_is_checked\"\n\
+             exit-status = 101\noutput-sha256 = \"{}\"\noutput = \"\"\"\n{output}\"\"\"\n",
+            sha256_text(output)
+        ),
+    )
+    .expect("write the live receipt");
+
+    let verdict = ratmac::receipt::gate_sensitivity_at(
+        &fixture.root,
+        &engine_root,
+        "run-new",
+        &ticket,
+        ".arca/ticket/t-900.md",
+    );
+    assert!(
+        verdict.is_ok(),
+        "the sensitivity gate passes beside retired receipts: {:?}",
+        verdict.err()
+    );
+
+    // Completion beside the same history: one focused receipt, green and fresh.
+    let completion_dir = new_dir.join("completion");
+    fs::create_dir_all(&completion_dir).expect("create the completion evidence");
+    let run_output = "test result: ok. 1 passed\n";
+    let tree_digest = ratmac::completion::tree_digest(&fixture.root, &["test".to_owned()])
+        .expect("digest the fixture tree");
+    fs::write(
+        completion_dir.join("pt-900-01.toml"),
+        format!(
+            "ticket-id = \"t-900\"\ncheck-id = \"PT-900-01\"\nkind = \"focused\"\n\
+             command = \"cargo test -p ratmac-qa --test t900_example\"\nworking-dir = \".\"\n\
+             exit-status = 0\noutput-sha256 = \"{}\"\ntree-roots = [\"test\"]\ntree-sha256 = \"{tree_digest}\"\n\
+             output = \"\"\"\n{run_output}\"\"\"\n",
+            sha256_text(run_output)
+        ),
+    )
+    .expect("write the completion receipt");
+    let old_completion = old_dir.join("completion");
+    fs::create_dir_all(&old_completion).expect("create retired completion evidence");
+    fs::write(
+        old_completion.join("pt-900-01.toml"),
+        "ticket-id = \"t-900\"\ntrunc",
+    )
+    .expect("write the truncated retired completion receipt");
+
+    let verdict = ratmac::completion::gate_completion_at(
+        &fixture.root,
+        &engine_root,
+        "run-new",
+        &ticket,
+        ".arca/ticket/t-900.md",
+    );
+    assert!(
+        verdict.is_ok(),
+        "the completion gate passes beside retired receipts: {:?}",
+        verdict.err()
+    );
+
+    // GPHV-002's receipt clause: addressing the retired run judges its own
+    // truncated receipt and refuses by name - history is checked, not waved.
+    let refusal = ratmac::receipt::gate_sensitivity_at(
+        &fixture.root,
+        &engine_root,
+        "run-old",
+        &ticket,
+        ".arca/ticket/t-900.md",
+    )
+    .expect_err("the retired run's truncated receipt refuses when addressed");
+    let text = format!("{refusal:?}");
+    assert!(
+        text.contains("PT-900-01"),
+        "the refusal names the planned test: {text}"
+    );
+}

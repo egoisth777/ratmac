@@ -971,3 +971,102 @@ fn the_record_gate_passes_on_this_repository_as_it_stands() {
         "this repository as it stands passes its own record gate: {text}"
     );
 }
+
+/// GPHV-001 (t-098): the intake contract on a tree whose archive carries an
+/// issue bundle and a ticket from an earlier freeze. Age is legitimate here,
+/// so the gate's stated verdict is a pass.
+#[test]
+fn the_intake_gate_passes_on_a_tree_with_a_past() {
+    let mut tree = ratmac_qa::aged::AgedTree::new(
+        "intake-past",
+        "1111111111111111111111111111111111111111111111111111111111111111",
+    );
+    write_aged_runbook(&tree.root);
+    write_archived_bundle(&tree.root, "i-101-old");
+    write_archived_ticket(&tree.root, "t-050", "res-050");
+    tree.advance_to("3333333333333333333333333333333333333333333333333333333333333333");
+    assert!(tree.age() >= 1, "the fixture carries a past");
+    let verdict = gate_intake(&tree.root);
+    assert!(
+        verdict.is_ok(),
+        "intake passes on a tree with a past: {:?}",
+        verdict.err()
+    );
+}
+
+/// GPHV-002 (t-098): age is never a free pass. A corrupted archived bundle
+/// still refuses by name; history is checked, never waved through.
+#[test]
+fn age_is_never_a_free_pass() {
+    let mut tree = ratmac_qa::aged::AgedTree::new(
+        "intake-corrupt",
+        "1111111111111111111111111111111111111111111111111111111111111111",
+    );
+    write_aged_runbook(&tree.root);
+    write_archived_bundle(&tree.root, "i-101-old");
+    tree.advance_to("3333333333333333333333333333333333333333333333333333333333333333");
+    std::fs::remove_file(tree.root.join(".arca/issue/archive/i-101-old/design.md"))
+        .expect("corrupt the archived bundle");
+    let defects = gate_intake(&tree.root).expect_err("a corrupted archived bundle refuses");
+    let text = format!("{defects:?}");
+    assert!(
+        text.contains("i-101-old"),
+        "the refusal names the corrupted artifact: {text}"
+    );
+}
+
+/// The minimal runbook the intake gate demands at the fixture's Engine path.
+fn write_aged_runbook(root: &std::path::Path) {
+    std::fs::write(
+        root.join(".ratmac/ratmac.toml"),
+        "[roots]\n\
+         goal = \".arca/goal\"\n\
+         issue = \".arca/issue\"\n\
+         residual = \".arca/residual\"\n\
+         ticket = \".arca/ticket\"\n\
+         \n\
+         [states.intake]\n\
+         prompt = \"Integrate.\"\n\
+         guards = [{ kind = \"intake_contract\" }]\n\
+         \n\
+         [states.rest]\n\
+         prompt = \"Rest.\"\n",
+    )
+    .expect("write the aged runbook");
+}
+
+/// An archived five-file issue bundle from an earlier point in the tree's story.
+fn write_archived_bundle(root: &std::path::Path, id: &str) {
+    let dir = root.join(".arca/issue/archive").join(id);
+    std::fs::create_dir_all(&dir).expect("create archived bundle");
+    std::fs::write(
+        dir.join("index.md"),
+        format!(
+            "# Issue {id}\n\n```yaml\nissue-id: \"{id}\"\nstatus: \"integrated\"\n```\n\n\
+             See [goal spec](../../../goal/spec.md).\n"
+        ),
+    )
+    .expect("write archived index");
+    std::fs::write(
+        dir.join("spec.md"),
+        "# Issue specification\n\n## Requirement Records\n\n\
+         | Requirement ID | Requirement | Disposition | Rationale | Accepted Forward Authority Refs |\n\
+         | :--- | :--- | :--- | :--- | :--- |\n\
+         | `DEMO-001` | The demo behaves. | accepted | Demo. | [goal spec](../../../goal/spec.md) |\n",
+    )
+    .expect("write archived spec");
+    for leaf in ["design.md", "test-plan.md", "ubi-lang.md"] {
+        std::fs::write(dir.join(leaf), "# Archived\n\nArchived.\n").expect("write archived leaf");
+    }
+}
+
+/// An archived ticket whose residual took the archive move with it.
+fn write_archived_ticket(root: &std::path::Path, id: &str, residual: &str) {
+    let dir = root.join(".arca/ticket/archive");
+    std::fs::create_dir_all(&dir).expect("create ticket archive");
+    std::fs::write(
+        dir.join(format!("{id}.md")),
+        format!("---\nticket-id: \"{id}\"\nresidual-ids:\n  - \"{residual}\"\nstatus: \"passed\"\n---\n\n# Ticket: {id}\n"),
+    )
+    .expect("write archived ticket");
+}
