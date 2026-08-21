@@ -29,6 +29,7 @@ pub mod role;
 pub mod snapshot;
 pub mod targets;
 pub mod tempgit;
+pub mod ticket_tags;
 pub mod trial;
 
 #[cfg(test)]
