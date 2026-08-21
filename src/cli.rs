@@ -77,7 +77,10 @@ pub fn help(command: impl AsRef<str>) -> &'static str {
         "scaffold" => {
             "Usage: rtm scaffold <path>\n\nWrite the smallest doctor-clean runbook at a path that does not exist yet. Scaffolding creates exactly one file, never overwrites, and creates no directories. Edit from there and repair with rtm doctor --json <path>; the repair loop is documented in the runbook authoring guide.\n"
         }
-        _ => "Usage: rtm <command> [options]\n\nCommands: start, status, step, hold, abandon, spawn, respawn, doctor, scaffold\n",
+        "skill" => {
+            "Usage: rtm skill <path>\n\nWrite the thin ratmac-operator skill folder (SKILL.md plus references) at a path that does not exist yet. The skill write creates exactly one folder, never overwrites, and creates no directories. SKILL.md carries the identity stamp of the engine that wrote it. The skill itself teaches only invariants - the operating loop and the never-touch rules - and reaches everything current by running the engine and reading its output.\n"
+        }
+        _ => "Usage: rtm <command> [options]\n\nCommands: start, status, step, hold, abandon, spawn, respawn, doctor, scaffold, skill\n",
     }
 }
 
@@ -222,7 +225,7 @@ where
 
     if matches!(
         command.as_str(),
-        "start" | "step" | "hold" | "abandon" | "spawn" | "respawn" | "scaffold"
+        "start" | "step" | "hold" | "abandon" | "spawn" | "respawn" | "scaffold" | "skill"
     ) {
         Scheduler::refuse_flat_residue(&project_root)
             .map_err(|error| CliError::new(format!("{command}: {error}")))?;
@@ -232,6 +235,9 @@ where
         return scaffold(command_args, writer);
     }
 
+    if command == "skill" {
+        return skill(command_args, writer);
+    }
     if command == "hold" {
         hold(command_args, &project_root, writer)?;
         return Ok(0);
@@ -728,6 +734,36 @@ fn scaffold<W: Write>(args: &[String], writer: &mut W) -> Result<i32, CliError> 
         writer,
         "Wrote {}. Diagnose it with `rtm doctor --json {}`.",
         crate::root::displayed(path),
+        crate::root::displayed(path)
+    )?;
+    Ok(0)
+}
+
+/// AOP-003: write one skill folder at a path that does not exist yet.
+fn skill<W: Write>(args: &[String], writer: &mut W) -> Result<i32, CliError> {
+    const USAGE: &str = "skill takes exactly one path";
+    let mut target: Option<&str> = None;
+    for arg in args {
+        if arg.starts_with('-') {
+            return Err(CliError::refusal(format!(
+                "skill: unknown option {arg:?}; {USAGE}"
+            )));
+        }
+        if target.is_some() {
+            return Err(CliError::refusal(format!(
+                "skill: one path at a time; {USAGE}"
+            )));
+        }
+        target = Some(arg);
+    }
+    let Some(target) = target else {
+        return Err(CliError::refusal(format!("skill: no path given; {USAGE}")));
+    };
+    let path = Path::new(target);
+    crate::skill::write_skill(path).map_err(|refusal| CliError::refusal(refusal.to_string()))?;
+    writeln!(
+        writer,
+        "Wrote {}. Its SKILL.md carries the identity stamp of the engine that wrote it.",
         crate::root::displayed(path)
     )?;
     Ok(0)

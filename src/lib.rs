@@ -21,6 +21,7 @@ pub mod root;
 pub mod roots;
 pub mod scaffold;
 pub mod scheduler;
+pub mod skill;
 pub mod state;
 mod teach;
 pub mod verdict;
