@@ -98,6 +98,16 @@ fn roster_line(project_root: &Path) -> Result<String, CliError> {
     Ok(roster_line_at(roots.engine_root()))
 }
 
+/// AOP-002: wrap a hard error that halted a status/step render with the
+/// next-act table's line for the stable surface the error names, so the
+/// rendering still ends in one truthful `next:` line.
+fn hard_error(command: &str, error: crate::state::StateError) -> CliError {
+    CliError::new(format!(
+        "{command}: {error}\n{}",
+        crate::teach::error_next(&error)
+    ))
+}
+
 /// Render a roster whose Engine root has already been resolved and preflighted.
 fn roster_line_at(engine_root: &Path) -> String {
     let roster = Scheduler::run_roster_at(engine_root);
@@ -130,14 +140,16 @@ fn addressed_run_with_roots(
             "--run" => {
                 if run.is_some() {
                     return Err(CliError::refusal(format!(
-                        "{command}: --run given twice; address exactly one run; {}",
-                        roster_line_at(roots.engine_root())
+                        "{command}: --run given twice; address exactly one run; {}\n{}",
+                        roster_line_at(roots.engine_root()),
+                        crate::teach::addressing_next(roots.engine_root())
                     )));
                 }
                 let Some(value) = args.get(index + 1) else {
                     return Err(CliError::refusal(format!(
-                        "{command}: --run needs a run id; {}",
-                        roster_line_at(roots.engine_root())
+                        "{command}: --run needs a run id; {}\n{}",
+                        roster_line_at(roots.engine_root()),
+                        crate::teach::addressing_next(roots.engine_root())
                     )));
                 };
                 run = Some(value.clone());
@@ -145,19 +157,25 @@ fn addressed_run_with_roots(
             }
             other => {
                 return Err(CliError::refusal(format!(
-                    "{command}: unexpected argument {other:?}; usage: rtm {command} --run <id>"
+                    "{command}: unexpected argument {other:?}; usage: rtm {command} --run <id>\n{}",
+                    crate::teach::addressing_next(roots.engine_root())
                 )));
             }
         }
     }
     let Some(id) = run.filter(|id| !id.is_empty()) else {
         return Err(CliError::refusal(format!(
-            "{command}: run addressing is always required — pass --run <id>; {}",
-            roster_line_at(roots.engine_root())
+            "{command}: run addressing is always required — pass --run <id>; {}\n{}",
+            roster_line_at(roots.engine_root()),
+            crate::teach::addressing_next(roots.engine_root())
         )));
     };
-    Scheduler::validate_run_address_at(roots.engine_root(), &id)
-        .map_err(|error| CliError::refusal(format!("{command}: {error}")))?;
+    Scheduler::validate_run_address_at(roots.engine_root(), &id).map_err(|error| {
+        CliError::refusal(format!(
+            "{command}: {error}\n{}",
+            crate::teach::addressing_next(roots.engine_root())
+        ))
+    })?;
     Ok(id)
 }
 
@@ -253,19 +271,25 @@ where
 
     if command == "step" {
         let id = addressed_run(command, command_args, &project_root)?;
-        let mut scheduler = Scheduler::open_run(&project_root, &id)
-            .map_err(|error| CliError::new(format!("{command}: {error}")))?;
+        let mut scheduler =
+            Scheduler::open_run(&project_root, &id).map_err(|error| hard_error(command, error))?;
         let outcome = scheduler
             .step(StepRequest::new(""))
-            .map_err(|error| CliError::new(format!("step: {error}")))?;
-        if matches!(outcome, StepOutcome::Refused { .. }) {
+            .map_err(|error| hard_error("step", error))?;
+        if let StepOutcome::Refused { .. } = &outcome {
             writeln!(writer, "rtm: {outcome}")?;
+            if let Some(next) = crate::teach::step_refusal_next(&id, &outcome) {
+                writeln!(writer, "{next}")?;
+            }
         } else {
             let report = scheduler
                 .status()
-                .map_err(|error| CliError::new(format!("status: {error}")))?;
+                .map_err(|error| hard_error("status", error))?;
             writer.write_all(report.state_prompt().as_str().as_bytes())?;
             writer.write_all(b"\n")?;
+            if let Some(next) = crate::teach::status_next(&id, report.state.status) {
+                writeln!(writer, "{next}")?;
+            }
         }
         return Ok(0);
     }
@@ -280,20 +304,23 @@ where
 fn status<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Result<(), CliError> {
     let roots = crate::root::resolve(project_root);
     Scheduler::refuse_flat_residue_with_roots(&roots)
-        .map_err(|error| CliError::new(format!("status: {error}")))?;
+        .map_err(|error| hard_error("status", error))?;
     let id = addressed_run_with_roots("status", args, &roots)?;
     // The roots-taking open is required to resolve this invocation once; swapping in the path-taking form is a silent regression no test can catch.
-    let scheduler = Scheduler::open_run_with_roots(&roots, &id)
-        .map_err(|error| CliError::new(format!("status: {error}")))?;
+    let scheduler =
+        Scheduler::open_run_with_roots(&roots, &id).map_err(|error| hard_error("status", error))?;
     let report = scheduler
         .status()
-        .map_err(|error| CliError::new(format!("status: {error}")))?;
+        .map_err(|error| hard_error("status", error))?;
     scheduler
         .write_engine_root(writer)
         .map_err(|error| CliError::new(format!("status: {error}")))?;
     writeln!(writer, "{report}")?;
     writer.write_all(report.state_prompt().as_str().as_bytes())?;
     writer.write_all(b"\n")?;
+    if let Some(next) = crate::teach::status_next(&id, report.state.status) {
+        writeln!(writer, "{next}")?;
+    }
     Ok(())
 }
 

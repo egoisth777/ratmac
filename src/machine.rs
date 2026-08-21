@@ -282,6 +282,33 @@ impl GuardKind {
             Self::IntakeContract | Self::RecordContract => Vec::new(),
         }
     }
+
+    /// AOP-001: what this guard reads, spelled from the one parsed
+    /// declaration the guard dispatch consumes. The path-bearing kinds name
+    /// their authored fields verbatim ([`Self::rendered_fields`]); the
+    /// contract kinds declare no fields of their own, so they name their
+    /// fixed roles with the paths the runbook's `[roots]` table declares for
+    /// them - one reader, two uses, never hand-kept prose.
+    pub fn reads(&self, roots: &WorkflowRoots) -> Vec<(&'static str, String)> {
+        let declared = |roles: &[&'static str]| {
+            roles
+                .iter()
+                .filter_map(|role| {
+                    roots.path(role).map(|path| {
+                        (
+                            *role,
+                            toml::Value::String(crate::root::displayed(path)).to_string(),
+                        )
+                    })
+                })
+                .collect()
+        };
+        match self {
+            Self::IntakeContract => declared(&["goal", "issue"]),
+            Self::RecordContract => declared(&["goal", "residual", "ticket"]),
+            _ => self.rendered_fields(),
+        }
+    }
 }
 
 /// PCR-007: how a per-item guard names the one item it judges.

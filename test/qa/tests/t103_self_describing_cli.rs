@@ -13,11 +13,16 @@
 //!
 //! AOPV-002 walks every status/step outcome class a fixture can reach -
 //! success renders on live and aged Runs, guard refusal, terminal omission,
-//! unknown run id, missing `--run`, corrupt Run Record - and asserts each
-//! rendering ends in exactly one truthful `next:` line naming a command the
-//! engine accepts in that state, or deliberately omits it (terminal). Where
-//! the future wording is open the assertions are structural, so the wording
-//! stays free; only AOPV-001's guard renderings are pinned as full goldens.
+//! unknown run id, missing `--run`, corrupt Run Record - and judges each
+//! rendering against a golden repair table: the exercised class and its
+//! stable code map to the one exact repair command shape the engine must
+//! render, parameterized only by the addressed run id. The rendered `next:`
+//! line must equal its table row, stand as the outcome's last line, and name
+//! only subcommands the engine dispatches; then the test EXECUTES the named
+//! repair against the fixture and asserts the engine accepts it in that
+//! state. Terminal renders are the one deliberate omission and must carry no
+//! `next:` line at all - every other rendering owes exactly one, so neither a
+//! bogus `rtm status` on a refused id nor a silent zero can pass.
 //!
 //! Hole-poke notes:
 //! - Would AOPV-001 pass with hardcoded artifact names? No. The golden pair
@@ -30,10 +35,11 @@
 //!   The unknown-id refusal's `next:` must not address `run-999`, the corrupt
 //!   record's must not address the corrupt Run, and the terminal Run's must
 //!   not name `rtm step` on that Run - each of those is refused in exactly
-//!   that state. The one deliberate naming of a just-refused verb is the
-//!   guard refusal's `rtm step --run <id>`: R-020 keeps step accepted in that
-//!   state once the artifact is repaired, so that line stands behind a
-//!   command the engine accepts.
+//!   that state. Every named repair is executed and must exit 0, so a
+//!   command the engine would refuse cannot hide behind loose wording. The
+//!   one deliberate naming of a just-refused verb is the guard refusal's
+//!   `rtm step --run <id>`: R-020 keeps step accepted in that state once the
+//!   artifact is repaired, and the retry is pinned byte-identical.
 
 use std::fs;
 use std::path::PathBuf;
@@ -156,6 +162,70 @@ const SUBCOMMANDS: [&str; 9] = [
     "start", "status", "step", "hold", "abandon", "spawn", "respawn", "doctor", "scaffold",
 ];
 
+/// One row of AOPV-002's golden repair table: the outcome class the row pins,
+/// the stable code its refusal family carries (empty for success renders),
+/// and the exact `next:` line the engine must render for it - the single
+/// `{}` takes the addressed run id, so nothing else may vary.
+struct RepairRow {
+    class: &'static str,
+    code: &'static str,
+    shape: &'static str,
+}
+
+/// AOPV-002's golden repair table. Every exercised outcome class maps to one
+/// exact repair command shape; a rendering that names anything else, or
+/// nothing, is an invention this table catches.
+const REPAIRS: [RepairRow; 8] = [
+    RepairRow {
+        class: "status on a live Run",
+        code: "",
+        shape: "next: rtm step --run {}",
+    },
+    RepairRow {
+        class: "step guard refusal",
+        code: "R-020",
+        shape: "next: rtm step --run {}",
+    },
+    RepairRow {
+        class: "step success onto a non-terminal State",
+        code: "",
+        shape: "next: rtm step --run {}",
+    },
+    RepairRow {
+        class: "step on a terminal Run",
+        code: "R-019",
+        shape: "next: rtm status --run {}",
+    },
+    RepairRow {
+        class: "unknown run id",
+        code: "FDC-004",
+        shape: "next: rtm status --run {}",
+    },
+    RepairRow {
+        class: "missing --run",
+        code: "FDC-004",
+        shape: "next: rtm status --run {}",
+    },
+    RepairRow {
+        class: "malformed Run Record",
+        code: "R-027",
+        shape: "next: rtm start",
+    },
+    RepairRow {
+        class: "status on a pre-change record",
+        code: "",
+        shape: "next: rtm step --run {}",
+    },
+];
+
+/// The table row an assertion names, by class.
+fn repair(class: &str) -> &'static RepairRow {
+    REPAIRS
+        .iter()
+        .find(|row| row.class == class)
+        .unwrap_or_else(|| panic!("AOPV-002: unknown repair-table class {class:?}"))
+}
+
 struct Fixture {
     base: PathBuf,
     root: PathBuf,
@@ -229,6 +299,18 @@ fn next_lines(rendered: &str) -> Vec<&str> {
         .collect()
 }
 
+/// The one `next:` line a rendering carries, refusing zero and doubles alike:
+/// every outcome class except a terminal render owes exactly one.
+fn the_next_line<'a>(rendered: &'a str, context: &str) -> &'a str {
+    let lines = next_lines(rendered);
+    assert_eq!(
+        lines.len(),
+        1,
+        "AOPV-002: {context} must end in exactly one next: line: {rendered}"
+    );
+    lines[0]
+}
+
 /// The last non-empty line of a rendering - where a `next:` line must stand.
 fn last_line(rendered: &str) -> &str {
     rendered
@@ -255,24 +337,22 @@ fn names_only_real_subcommands(next: &str) -> bool {
     named
 }
 
-/// AOPV-002's oracle for an outcome that owes a next act: exactly one
-/// `next:` line, standing as the outcome's last line, naming `required`.
-fn assert_one_truthful_next(rendered: &str, required: &str, context: &str) {
-    let lines = next_lines(rendered);
+/// AOPV-002's golden oracle: the rendering's one `next:` line equals the
+/// repair table's exact shape for `class` (parameterized by `run_id`), stands
+/// as the outcome's last line, and names only real subcommands.
+fn assert_table_next(rendered: &str, class: &str, run_id: &str, context: &str) {
+    let row = repair(class);
+    let expected = row.shape.replace("{}", run_id);
+    let next = the_next_line(rendered, context);
     assert_eq!(
-        lines.len(),
-        1,
-        "AOPV-002: {context} must end in exactly one next: line: {rendered}"
+        next, expected,
+        "AOPV-002: {context}: the {} repair (code {}) must be exactly {expected:?}: {rendered}",
+        row.class, row.code
     );
-    let next = lines[0];
     assert_eq!(
         last_line(rendered),
         next,
         "AOPV-002: {context}: the next: line must be the outcome's last line: {rendered}"
-    );
-    assert!(
-        next.contains(required),
-        "AOPV-002: {context}: the next: line must name {required:?}: {rendered}"
     );
     assert!(
         names_only_real_subcommands(next),
@@ -280,25 +360,35 @@ fn assert_one_truthful_next(rendered: &str, required: &str, context: &str) {
     );
 }
 
-/// AOPV-002's oracle for an outcome whose next act the engine cannot stand
-/// behind, or must not address this Run at all: never more than one `next:`
-/// line, and any line present names only real subcommands.
-fn assert_no_invented_next(rendered: &str, forbidden: &str, context: &str) {
-    let lines = next_lines(rendered);
+/// AOPV-002's terminal oracle: the deliberate omission. A terminal render
+/// carries no `next:` line at all - nothing can be stood behind, so nothing
+/// is guessed.
+fn assert_terminal_omits(rendered: &str, context: &str) {
     assert!(
-        lines.len() <= 1,
-        "AOPV-002: {context} may carry at most one next: line: {rendered}"
+        next_lines(rendered).is_empty(),
+        "AOPV-002: {context}: a terminal render omits the next: line rather than guessing: {rendered}"
     );
-    if let [next] = lines[..] {
-        assert!(
-            names_only_real_subcommands(next),
-            "AOPV-002: {context}: any next: line must name a real subcommand: {rendered}"
-        );
-        assert!(
-            !next.contains(forbidden),
-            "AOPV-002: {context}: a next: line must not name the refused {forbidden:?}: {rendered}"
-        );
-    }
+}
+
+/// Execute the exact `next:` line a rendering taught and assert the engine
+/// accepts it in the state that rendered it. Acceptance is exit 0: a refused
+/// step renders its refusal and exits 0 (R-020), so even the repair that
+/// re-runs a refused verb is proven safe, and any command the engine would
+/// actually refuse fails here.
+fn assert_repair_accepted(fixture: &Fixture, next: &str, context: &str) -> Output {
+    let tokens = next
+        .strip_prefix("next: ")
+        .unwrap_or_else(|| panic!("AOPV-002: {context}: malformed next: line {next:?}"))
+        .split_whitespace()
+        .collect::<Vec<_>>();
+    let repaired = fixture.rtm(&tokens);
+    let repaired_text = text(&repaired);
+    assert!(
+        repaired.status.success(),
+        "AOPV-002: {context}: the engine must accept the taught repair {next:?} in that \
+         state: {repaired_text}"
+    );
+    repaired
 }
 
 /// AOPV-001 / AOP-001: for every guard kind the engine supports, `rtm status`
@@ -450,7 +540,8 @@ fn status_names_what_each_guard_reads() {
 
 /// AOPV-002 / AOP-002: every status/step outcome class ends in exactly one
 /// truthful `next:` line naming a command the engine accepts in that state -
-/// or deliberately omits the line where nothing can be stood behind.
+/// each matched against the golden repair table and then executed - or
+/// deliberately omits the line where nothing can be stood behind.
 #[test]
 fn every_outcome_ends_in_one_truthful_next_line() {
     let fixture = Fixture::new("outcomes", RUNBOOK_OUTCOMES);
@@ -462,25 +553,47 @@ fn every_outcome_ends_in_one_truthful_next_line() {
     );
 
     // 1. Success render on a live Run: the loop's next act is the work plus
-    //    the step that judges it.
+    //    the step that judges it. The taught repair is executed at once: the
+    //    artifact is still absent, so the step renders its refusal and exits
+    //    0 (R-020) - acceptance, not a crash.
     let live = fixture.status_text("run-001");
     assert!(
         live.contains("State: prepare") && live.contains("pending guard: files_exact"),
         "the live Run stands at the guarded State: {live}"
     );
-    assert_one_truthful_next(&live, "rtm step --run run-001", "status on a live Run");
+    assert_table_next(
+        &live,
+        "status on a live Run",
+        "run-001",
+        "status on a live Run",
+    );
+    let live_next = the_next_line(&live, "status on a live Run").to_owned();
+    assert_repair_accepted(&fixture, &live_next, "status on a live Run");
 
     // 2. Guard refusal on step: the artifact is absent, the guard refuses,
     //    and the repair is the artifact plus the same step, which R-020 keeps
-    //    safe to re-run in that state.
+    //    safe to re-run in that state. The retry is pinned byte-identical.
     let refused = text(&fixture.rtm(&["step", "--run", "run-001"]));
     assert!(
         refused.contains("step refused"),
         "the absent artifact refuses the step: {refused}"
     );
-    assert_one_truthful_next(&refused, "rtm step --run run-001", "step guard refusal");
+    assert_table_next(
+        &refused,
+        "step guard refusal",
+        "run-001",
+        "step guard refusal",
+    );
+    let refusal_next = the_next_line(&refused, "step guard refusal").to_owned();
+    let retried = assert_repair_accepted(&fixture, &refusal_next, "step guard refusal");
+    assert_eq!(
+        text(&retried),
+        refused,
+        "R-020: repeating a refused step renders the identical refusal"
+    );
 
-    // 3. Success render on step onto a non-terminal State.
+    // 3. Success render on step onto a non-terminal State. Its taught repair
+    //    is executed by step 4.
     fs::create_dir_all(fixture.root.join("handoff")).expect("create the handoff directory");
     fs::write(fixture.root.join("handoff/proof.txt"), "handoff\n")
         .expect("place the declared artifact");
@@ -489,23 +602,28 @@ fn every_outcome_ends_in_one_truthful_next_line() {
         advanced.contains("Move through the middle."),
         "the satisfied guard advances the Run: {advanced}"
     );
-    assert_one_truthful_next(
+    assert_table_next(
         &advanced,
-        "rtm step --run run-001",
+        "step success onto a non-terminal State",
+        "run-001",
         "step success onto a non-terminal State",
     );
+    let advance_next =
+        the_next_line(&advanced, "step success onto a non-terminal State").to_owned();
 
-    // 4. Success render on step into the terminal State: nothing legitimate
-    //    remains, so the line is deliberately omitted.
-    let finished = text(&fixture.rtm(&["step", "--run", "run-001"]));
-    assert!(
-        finished.contains("The run is complete."),
-        "the Run reaches its terminal State: {finished}"
+    // 4. Executing that repair steps into the terminal State: nothing
+    //    legitimate remains, so the line is deliberately omitted.
+    let finished = assert_repair_accepted(
+        &fixture,
+        &advance_next,
+        "step success onto a non-terminal State",
     );
+    let finished_text = text(&finished);
     assert!(
-        next_lines(&finished).is_empty(),
-        "AOPV-002: a terminal render omits the next: line rather than guessing: {finished}"
+        finished_text.contains("The run is complete."),
+        "the Run reaches its terminal State: {finished_text}"
     );
+    assert_terminal_omits(&finished_text, "step success onto the terminal State");
 
     // 5. Status on the terminal Run: same deliberate omission.
     let settled = fixture.status_text("run-001");
@@ -513,21 +631,34 @@ fn every_outcome_ends_in_one_truthful_next_line() {
         settled.contains("Status: passed"),
         "the terminal Run is passed: {settled}"
     );
-    assert!(
-        next_lines(&settled).is_empty(),
-        "AOPV-002: status on a terminal Run omits the next: line: {settled}"
-    );
+    assert_terminal_omits(&settled, "status on a terminal Run");
 
-    // 6. Step on the passed Run: the refusal may teach at most one next act,
-    //    and never the motion this state always refuses.
+    // 6. Step on the passed Run: the motion this state always refuses is
+    //    refused, and the taught repair is the run's own readable record.
     let beyond = text(&fixture.rtm(&["step", "--run", "run-001"]));
     assert!(
         beyond.contains("step refused"),
         "a passed Run refuses further motion: {beyond}"
     );
-    assert_no_invented_next(&beyond, "rtm step --run run-001", "step on a terminal Run");
+    assert_table_next(
+        &beyond,
+        "step on a terminal Run",
+        "run-001",
+        "step on a terminal Run",
+    );
+    let beyond_next = the_next_line(&beyond, "step on a terminal Run").to_owned();
+    assert!(
+        !beyond_next.contains("rtm step --run run-001"),
+        "AOPV-002: the terminal repair never names the refused motion: {beyond}"
+    );
+    let read_back = assert_repair_accepted(&fixture, &beyond_next, "step on a terminal Run");
+    assert!(
+        text(&read_back).contains("Status: passed"),
+        "the terminal repair reads the passed Run: {}",
+        text(&read_back)
+    );
 
-    // 7. Unknown run id: the refusal carries exactly one next: line whose
+    // 7. Unknown run id: the refusal carries exactly one `next:` line whose
     //    repair addresses a real Run - never the refused id itself.
     let unknown = fixture.rtm(&["status", "--run", "run-999"]);
     let unknown_text = text(&unknown);
@@ -535,12 +666,18 @@ fn every_outcome_ends_in_one_truthful_next_line() {
         !unknown.status.success() && unknown_text.contains("run-999"),
         "an unknown run id refuses, naming the input: {unknown_text}"
     );
-    assert_one_truthful_next(&unknown_text, "--run", "unknown run id refusal");
-    let next = next_lines(&unknown_text)[0];
+    assert_table_next(
+        &unknown_text,
+        "unknown run id",
+        "run-001",
+        "unknown run id refusal",
+    );
+    let unknown_next = the_next_line(&unknown_text, "unknown run id refusal").to_owned();
     assert!(
-        !next.contains("run-999"),
+        !unknown_next.contains("run-999"),
         "AOPV-002: the repair never addresses the refused id: {unknown_text}"
     );
+    assert_repair_accepted(&fixture, &unknown_next, "unknown run id refusal");
 
     // 8. Missing --run: the same addressing family on the step route.
     let unaddressed = fixture.rtm(&["step"]);
@@ -549,10 +686,18 @@ fn every_outcome_ends_in_one_truthful_next_line() {
         !unaddressed.status.success(),
         "step without --run refuses: {unaddressed_text}"
     );
-    assert_one_truthful_next(&unaddressed_text, "--run", "missing --run refusal");
+    assert_table_next(
+        &unaddressed_text,
+        "missing --run",
+        "run-001",
+        "missing --run refusal",
+    );
+    let unaddressed_next = the_next_line(&unaddressed_text, "missing --run refusal").to_owned();
+    assert_repair_accepted(&fixture, &unaddressed_next, "missing --run refusal");
 
-    // 9. Malformed Run Record: a hard error (R-027) that may teach at most
-    //    one next act, never one addressed to the corrupt Run.
+    // 9. Malformed Run Record: a hard error (R-027) whose repair never
+    //    addresses the corrupt Run - no engine verb repairs an Engine-owned
+    //    record, so the legitimate act is minting a fresh Run, executed here.
     let second = fixture.rtm(&["start"]);
     assert!(
         second.status.success() && text(&second).contains("run-002"),
@@ -570,19 +715,45 @@ fn every_outcome_ends_in_one_truthful_next_line() {
         !corrupt.status.success() && corrupt_text.contains("run.toml"),
         "a malformed Run Record is a hard error naming the file: {corrupt_text}"
     );
-    assert_no_invented_next(&corrupt_text, "run-002", "malformed Run Record refusal");
+    assert_table_next(
+        &corrupt_text,
+        "malformed Run Record",
+        "run-001",
+        "malformed Run Record refusal",
+    );
+    let corrupt_next = the_next_line(&corrupt_text, "malformed Run Record refusal").to_owned();
+    assert!(
+        !corrupt_next.contains("run-002"),
+        "AOPV-002: the corrupt Run's repair never addresses it: {corrupt_text}"
+    );
+    let minted = assert_repair_accepted(&fixture, &corrupt_next, "malformed Run Record refusal");
+    assert!(
+        text(&minted).contains("run-003"),
+        "the corrupt record's repair mints a fresh Run: {}",
+        text(&minted)
+    );
 
     // 10. GPH-001, a Run whose record predates the rendering change: the
-    //     aged record still receives the full teaching.
-    fixture.seed("run-003", "prepare");
-    let aged = fixture.status_text("run-003");
+    //     aged record still receives the full teaching, and its taught step
+    //     is accepted - the handoff artifact is on disk, so the repair is
+    //     the designed advance.
+    fixture.seed("run-004", "prepare");
+    let aged = fixture.status_text("run-004");
     assert!(
         aged.contains("pending guard: files_exact"),
         "the aged record renders its pending guard: {aged}"
     );
-    assert_one_truthful_next(
+    assert_table_next(
         &aged,
-        "rtm step --run run-003",
         "status on a pre-change record",
+        "run-004",
+        "status on a pre-change record",
+    );
+    let aged_next = the_next_line(&aged, "status on a pre-change record").to_owned();
+    let aged_repair = assert_repair_accepted(&fixture, &aged_next, "status on a pre-change record");
+    assert!(
+        text(&aged_repair).contains("Move through the middle."),
+        "the aged record's taught step advances the Run: {}",
+        text(&aged_repair)
     );
 }

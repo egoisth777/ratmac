@@ -22,6 +22,7 @@ pub mod roots;
 pub mod scaffold;
 pub mod scheduler;
 pub mod state;
+mod teach;
 pub mod verdict;
 
 pub use scheduler::{GuardFailure, RespawnRequest, Scheduler, StepOutcome, StepRequest};

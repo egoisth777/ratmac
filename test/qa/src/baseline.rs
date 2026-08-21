@@ -312,6 +312,13 @@ pub fn normalize(text: &str, root: &Path, engine: &Path) -> String {
     }
     let mut cleaned = String::with_capacity(out.len());
     for line in out.lines() {
+        // AOP-002 (t-103): the `next:` teaching line is wording today's
+        // engine renders and the freeze engine predates - added prose by
+        // design, not behavior. Exit codes, states, and trees still have to
+        // match, so only this one prefix is set aside, like a path or hash.
+        if line.starts_with("next: ") {
+            continue;
+        }
         cleaned.push_str(&mask_hex(line));
         cleaned.push('\n');
     }

@@ -15,7 +15,7 @@ use crate::lock::{RootLock, RunLock};
 use crate::machine::{GuardAddress, GuardKind, MachineClass, StateDefinition};
 use crate::model::{Run, RunState, Status};
 use crate::root::Displayed;
-use crate::roots::ValidatedWorkflowRoots;
+use crate::roots::{ValidatedWorkflowRoots, WorkflowRoots};
 use crate::state::{StateError, StatePrompt, StateStore, StateWriteOutcome, StatusReport};
 
 static ROLLBACK_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -3501,7 +3501,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
         // FDC-011/FDC-012: a child Run is reported from its own class's view.
         let (definition, _scope_machine) =
             Self::resolve_state_scope(class, &state.state, self.child_class.as_deref())?;
-        let pending_guards = Self::pending_guard_labels(definition);
+        let pending_guards = Self::pending_guard_labels(definition, class.roots());
         let state_prompt = Self::render_state_prompt(definition)?;
         Ok(StatusReport {
             state,
@@ -3601,11 +3601,25 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
         Ok(StatePrompt::new(rendered))
     }
 
-    fn pending_guard_labels(definition: &StateDefinition) -> Vec<String> {
+    /// AOP-001: each pending guard's label names what that guard reads,
+    /// spelled from the same typed declaration the guard dispatch will
+    /// evaluate - the guard's kind plus its declared fields, with the
+    /// contract kinds naming their fixed roles through the runbook's parsed
+    /// roots table.
+    fn pending_guard_labels(definition: &StateDefinition, roots: &WorkflowRoots) -> Vec<String> {
         definition
             .guards()
             .iter()
-            .map(|guard| guard.name().to_owned())
+            .map(|guard| {
+                let mut label = guard.name().to_owned();
+                for (key, value) in guard.reads(roots) {
+                    label.push(' ');
+                    label.push_str(key);
+                    label.push('=');
+                    label.push_str(&value);
+                }
+                label
+            })
             .collect()
     }
 }
@@ -3695,7 +3709,7 @@ fn bounded_diagnostic(stderr: &[u8], stdout: &[u8]) -> String {
     format!("{source}: {retained}")
 }
 
-fn guard_failure(
+pub(crate) fn guard_failure(
     kind: impl Into<String>,
     path: impl Into<String>,
     observed: impl Into<String>,
