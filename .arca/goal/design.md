@@ -454,3 +454,32 @@ the dirty-tree guard cannot see a file that was never added, which needs a repos
 guard kind that steering already carries as deferred debt; and the completion gate still parses
 a contributor's document for the checks it declares, the remainder `ADR-0014` named and left
 to its own wish.
+
+## The engine teaches its own operation (ADR-0016)
+
+**Decision.** The operator protocol ships two ways, per Billy's 2026-08-18 ruling: the
+status/step renderers derive guard expectations from the parsed guard declaration and end
+every outcome with one truthful `next:` line (`AOP-001`, `AOP-002`), and a sibling of the
+scaffold writes the thin `ratmac-operator` skill folder - one folder, never overwrites,
+engine-identity stamp, no flag enumeration (`AOP-003`, `AOP-004`). An MCP server was judged
+an adjunct (unreachable for plain CLI agents, protocol churn); a scaffold-emitted AGENTS.md
+stub stays open for a later issue if skill activation proves unreliable.
+
+**Consequences.** Rendering is derived, never hand-kept, so a future guard kind that forgets
+its rendering fails a golden test rather than shipping a silent gap; a fabricated `next:`
+hint is worse than none, so an unsupportable line is omitted. The skill teaches invariant
+behavior only and points at the CLI for everything current, so it cannot teach stale flags.
+
+## The ledger row records, never predicts (ADR-0017)
+
+**Decision.** Stable resolution reads the invoking project's current checkout - the ledger
+row and the tag must agree there - and the engine is then located or built from the tagged
+commit in a clean separate checkout whose tree is identical to that commit (`ELR-002`). The
+working-rules side (`ELR-001`, schema Editions) moved the row's writing to the recording
+landing that follows the tag, because a commit cannot contain its own hash.
+
+**Consequences.** A stable engine is buildable from any healthy `main` without hand edits;
+the tagged commit's own stale ledger is expected, not a defect. The build checkout's tree
+must match the tagged commit exactly, so a workaround that overlays files into it is a
+refusal - the class of trust leak the 2026-08-21 sprint setup exposed.
+

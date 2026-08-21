@@ -520,8 +520,10 @@ what was proven. It may be cut only where all of the following hold at that comm
 Integrated from [issue i-028](issue/archive/i-028-stable-edition-tags/spec.md#requirement-records).
 
 The `close` State of this repository's Machine Class carries an Exit Guard that passes only when the
-commit being left is exactly an edition, so no sprint finishes unmarked - and therefore every sprint
-necessarily starts from one. It is spelled in the existing closed guard vocabulary and adds no guard
+commit being left is exactly an edition, so no sprint finishes unmarked. Every sprint therefore starts
+from a main whose most recent close commit is tagged - the original claim that a sprint starts exactly
+at an edition was retired with the recording-landing order (`ELR-003` below): the recording landing and
+other between-sprint shop-lane landings legitimately follow the tag before the next start. It is spelled in the existing closed guard vocabulary and adds no guard
 kind: one `command_exit` guard running `git describe --exact-match --match edition-* HEAD`, expected
 `0`. The Engine keeps knowing nothing about version control.
 
@@ -541,9 +543,67 @@ can.
 
 Version control cannot be made to refuse a moved tag, so the move is caught by disagreement instead:
 [`.arca/editions.md`](editions.md) records, in this repository's own history, the commit each edition
-was cut at. A row is written in the landing that cuts the edition and never edited afterwards, and the
-edition audit compares every row against the tag database. A missing, blank, or partial record is a
-refusal, never an agreement - absence must not read as "nothing moved".
+was cut at. A row is appended in the recording landing (`ELR-001` below) and never edited afterwards,
+and the edition audit compares every row against the tag database. A missing, blank, or partial record
+is a refusal, never an agreement - absence must not read as "nothing moved".
+
+The original wording here - "a row is written in the landing that cuts the edition" - was revised by
+the issue about the edition ledger recording order
+([`ELR-001`](issue/archive/i-034-edition-ledger-recording-order/spec.md#requirement-records)) on
+2026-08-21: a commit cannot contain its own hash, so that order was unsatisfiable on first write, and
+the edition-002 and edition-003 row corrections in [`.arca/log.md`](log.md) are its recorded symptom.
+
+### ELR-001 - the recording landing follows the tag
+
+Integrated from [issue i-034](issue/archive/i-034-edition-ledger-recording-order/spec.md#requirement-records).
+
+The edition tag is cut at the proven rest commit; its ledger row is appended in the **next**
+landing - the recording landing - citing the tagged commit's full hash, and is never edited
+afterwards. No rule requires a ledger row and the commit it cites to land together, and at any
+tagged commit the row citing it does not exist yet by construction: a resolver reading the ledger
+must therefore read the invoking project's current checkout, never the tagged commit's own tree
+(the executable side is goal `ELR-002`). Archived records and history keep the old wording
+byte-for-byte.
+
+### ELR-003 - a sprint starts after the tag, not at it
+
+Integrated from [issue i-034](issue/archive/i-034-edition-ledger-recording-order/spec.md#requirement-records).
+
+Retired: the claim that every sprint necessarily starts exactly at an edition. `ELR-001` makes it
+impossible whenever the next sprint needs the row the recording landing carries, and between-sprint
+shop-lane landings (log lines, archive moves, wishes, the recording landing itself) legitimately
+follow the tag. What holds instead is exactly what the guards prove: `EDN-002`'s close guard proves
+the previous sprint's close commit was tagged, and `ECP-003` pins the **driving engine** to the
+stable channel - it never requires the source tree under judgment to equal the stable commit. No
+new start restriction is introduced.
+
+## Ticket check tags
+
+`CGD-001`-`CGD-002` are working-authority requirements integrated from the issue about the
+completion gate reading declared data
+([i-032](issue/deferred/i-032-completion-gate-reads-declared-data/spec.md#requirement-records)),
+revised at the 2026-08-21 planning pass per Billy's 2026-08-18 ruling (steering Horizon): the
+declared-checks question is a workflow matter. The Engine-side cutover ask (`CGD-003`) is deferred
+with the bundle. Accepted asks resolve to the headings below, bind at integration, and mint no
+goal row - but like the edition requirements they carry executable, observable deliverables (a
+shape check that validates the three lists; a checker that learns a ticket's checks from its tags
+rather than its prose), so they are measured by gap records and worked by tickets, which `PCR-008`
+allows by letting an accepted ask resolve in either authority.
+
+### CGD-001 - a ticket declares its checks as tags
+
+The ticket format declares the checks a ticket must prove as three explicit front-matter
+tag-list fields - `focused-tests`, `hidden-lanes`, `quality-commands` - each entry an opaque
+check id taken verbatim. The ticket blank (`.arca/tpl/ticket.md`) and this file's ticket rules
+define the fields; a checker learns a ticket's checks from the tags, never from its prose.
+Tickets cut before this integration are judged by the rules they were cut under.
+
+### CGD-002 - a malformed tag list refuses at the shape check
+
+A tag list that is present but malformed - not a list of non-empty strings, or a duplicate id
+across the three fields - fails the ticket's shape check at creation, naming the field and the
+offending entry. Silent tolerance stays banned; the refusal lives where the format is owned,
+not in Engine code.
 
 ## Gates proven on history
 

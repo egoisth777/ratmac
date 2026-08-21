@@ -3,7 +3,7 @@
 ```yaml
 issue-id: "i-032-completion-gate-reads-declared-data"
 provenance: "Wishlist, `The completion gate should not know what a ticket is either` - Billy's 2026-08-10 ruling applied where it was not yet carried; remainder identified after t-089 landed PCR-007"
-status: "pending"
+status: "deferred"
 ```
 
 ## Summary

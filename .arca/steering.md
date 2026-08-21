@@ -124,6 +124,18 @@ they select nothing.
    Plan-Build Runbook does not depend on it, so it blocks no
    critical-path item; it becomes relevant only if the runbook's terminal
    vocabulary turns out to need the third outcome.
+4. **Ticket tags in the runbook's ticket format** - Billy's 2026-08-18 ruling
+   on the issue about the completion gate reading declared data
+   (`i-032-completion-gate-reads-declared-data`): the declared-checks question
+   is a workflow matter, not an Engine matter. The ticket format the
+   Plan-Build Runbook owns gains explicit tag lists (focused tests, hidden
+   lanes, quality commands) as first-class ticket fields, and the completion
+   story follows from that format. Entry: the next planning pass (P1) revises
+   `i-032`'s pending asks to this framing - the ticket blank
+   (`.arca/tpl/ticket.md`) and the schema's ticket rules carry the tags; no
+   Engine cutover is presumed. Exit: a ticket declares its checks as tags the
+   workflow defines, and no checker needs to read a ticket's prose to learn
+   them.
 
 ## Open questions
 

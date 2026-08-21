@@ -11,6 +11,14 @@ design-refs:
   - "{{path/to/design.md#anchor}}"
 planned-test-refs:
   - "{{planned-test-id}}"
+# CGD-001 (schema.md, "Ticket check tags"): the ticket's declared checks as
+# three tag lists of opaque check ids; a checker reads these, never prose.
+focused-tests:
+  - "{{test-suite-or-function}}"
+hidden-lanes:
+  - "{{hidden-id}}"
+quality-commands:
+  - "{{command}}"
 dependencies:
   - "{{ticket-id}}"
 status: "{{status}}"

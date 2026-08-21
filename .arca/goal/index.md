@@ -117,3 +117,21 @@ accepts a working-authority heading as a resolution, a guard refuses deliberate 
 uncommitted tree, and the doctor exits clean on the result. `PCR-004` was rejected: the
 landing line stays a human act. See
 [ADR-0015](design.md#the-shops-own-cycle-as-a-runbook-adr-0015).
+
+## Integrated agent operator protocol
+
+The operating loop travels with the engine. Requirements are integrated from
+[i-033-agent-operator-protocol](../issue/archive/i-033-agent-operator-protocol/index.md):
+`AOP-001`-`AOP-004`. The status and step renderers teach at runtime - guard expectations
+rendered from the parsed declaration and one truthful `next:` line on every outcome - and a
+new subcommand writes the thin `ratmac-operator` skill folder for skill-aware harnesses.
+See [ADR-0016](design.md#the-engine-teaches-its-own-operation-adr-0016).
+
+## Integrated edition ledger recording
+
+The stable bootstrap resolves from the current record and builds the tagged commit in a
+clean checkout. Requirement integrated from
+[i-034-edition-ledger-recording-order](../issue/archive/i-034-edition-ledger-recording-order/index.md):
+`ELR-002`; its working-rules sibling `ELR-001` revised the Editions recording order in the
+schema. See [ADR-0017](design.md#the-ledger-row-records-never-predicts-adr-0017).
+

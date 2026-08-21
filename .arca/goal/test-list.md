@@ -285,3 +285,19 @@ Behavior checks derived from [spec.md](spec.md). Each is a testable one-liner.
 |PCRV-005|A receipt-class guard that names a binding instead of a literal address grades the item whose value the spawn supplied: two child turns spawned with different values are graded against their own receipts, receipts belonging to the other turn satisfy neither, and the runbook file contains no identifier. Declaring both forms, or naming a binding the spawn never supplied, refuses under its own code without writing.|PCR-007|
 |PCRV-006|The intake gate passes an accepted ask that resolves only to a requirement-ID heading in the working authority, passes one that resolves only to a goal row, and refuses one that resolves to neither, naming the ask and both places it looked.|PCR-008|
 |PCRV-007|Stepping into the deliberate-damage stage refuses while a tracked file carries an uncommitted change, names the observed and expected fact, and leaves State and Status untouched; committing the change makes the same step succeed.|PCR-009|
+
+## Integrated agent-operator-protocol verification
+
+|ID|Check|Requirement|
+|---|---|---|
+|AOPV-001|On a Run whose state carries each declared guard kind, `rtm status` output names what that guard reads; a golden test pins the rendering, and renaming the guard's declared artifact changes the rendering with no render-code edit.|AOP-001|
+|AOPV-002|Golden tests over every status/step rendering path: each ends in exactly one `next:` line naming a command the engine accepts in that state, or omits the line; a refusal's `next:` matches its stable code's repair.|AOP-002|
+|AOPV-003|The skill subcommand at a fresh path writes one folder containing `SKILL.md` plus references; at an existing path it refuses and writes nothing; `SKILL.md` carries the engine identity stamp.|AOP-003|
+|AOPV-004|A scan of the written skill finds no CLI flag tokens and no quoted command output; the loop steps and never-touch rules are present; driving a scaffolded runbook to terminal using only the skill and engine output succeeds.|AOP-004|
+
+## Integrated edition-ledger-recording verification
+
+|ID|Check|Requirement|
+|---|---|---|
+|ELRV-002|On a fixture repository whose tagged edition commit carries a stale ledger row while the invoking checkout's row agrees with the tag, the stable bootstrap resolves, builds in a clean checkout, and stamps provenance; the same invocation refuses on an invoking-checkout ledger/tag disagreement, and refuses when the build checkout's tree differs from the tagged commit.|ELR-002|
+

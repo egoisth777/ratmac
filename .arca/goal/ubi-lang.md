@@ -118,3 +118,7 @@ Glossary of ubiquitous language. One term, one meaning. Terms not listed here mu
 | Open work item | A work item still being worked: present directly under the declared ticket root. One that has taken the authorized archive move is landed. The distinction is decided by a machine check, never by reading prose. |
 | Bound address | A guard's way of naming what it judges without writing the identifier in the runbook: the guard names a binding, the caller supplies the value at spawn, and the Engine reads it back from the append-only spawn ledger. The value is an opaque string to the Engine. |
 | No-live-Run fallback | The tree-derived answer to "where are we", used only in the window between sprints when no Run exists. It is labelled as such and is never a second answer while a Run is live. |
+| Agent operator protocol | The generic, project-independent instructions an agent needs to be driven by any runbook: orient, read the state prompt, work, place artifacts, step, branch on refusal codes, never write run state. |
+| Operator skill | The thin static skill folder (`SKILL.md` plus references) the engine writes to teach the operating loop to skill-aware harnesses; invariant behavior only, no flag enumeration, stamped with the writing engine's identity. |
+| Recording landing | The landing immediately after an edition is tagged, whose whole job is appending that edition's ledger row citing the tagged commit's full hash; the row is immutable from then on. |
+
