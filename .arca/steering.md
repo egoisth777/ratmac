@@ -124,18 +124,20 @@ they select nothing.
    Plan-Build Runbook does not depend on it, so it blocks no
    critical-path item; it becomes relevant only if the runbook's terminal
    vocabulary turns out to need the third outcome.
-4. **Ticket tags in the runbook's ticket format** - Billy's 2026-08-18 ruling
-   on the issue about the completion gate reading declared data
-   (`i-032-completion-gate-reads-declared-data`): the declared-checks question
-   is a workflow matter, not an Engine matter. The ticket format the
-   Plan-Build Runbook owns gains explicit tag lists (focused tests, hidden
-   lanes, quality commands) as first-class ticket fields, and the completion
-   story follows from that format. Entry: the next planning pass (P1) revises
-   `i-032`'s pending asks to this framing - the ticket blank
-   (`.arca/tpl/ticket.md`) and the schema's ticket rules carry the tags; no
-   Engine cutover is presumed. Exit: a ticket declares its checks as tags the
-   workflow defines, and no checker needs to read a ticket's prose to learn
-   them.
+4. **Ticket tags in the runbook's ticket format** - promoted and integrated
+   at the 2026-08-21 planning pass as the revised completion-gate issue
+   (`i-032`, `CGD-001`/`CGD-002` accepted into the working authority,
+   `CGD-003` deferred with the bundle): the ticket blank and the schema's
+   Ticket check tags rules carry the three tag lists, and the sprint measures
+   the two executable clauses (a tag-reading checker; a malformed-list
+   refusal). The Engine-side cutover remains the deferred ask, selectable at
+   a later planning pass once the format is proven on real tickets.
+5. **The edition ledger recording order** - minted and integrated in the same
+   pass as `i-034` (`ELR-001`-`ELR-003`) after the stable engine refused to
+   build at its own tagged commit: the recording landing follows the tag, the
+   stable bootstrap resolves from the invoking checkout and builds a clean
+   tagged tree (`ELR-002`, measured this sprint), and the false
+   exactly-at-an-edition start claim is retired without a new restriction.
 
 ## Open questions
 
@@ -171,106 +173,22 @@ wrote down is drift.
 Derived record. Regenerated wholesale at P1 close from the signed issue set;
 never hand-edited, never a progress report. Stage lives in the tree.
 
-Freeze stamp: `git:4ac18a1` +
-`goal-sha256:74ccde5aefbf2a5b5c4a773e6438ddb20f1d6c123d095f5bb3dc51b2e73e8440`
-- the P1 integration HEAD and the canonical goal revision computed by
-`src/goal.rs::revision` over the checked-out goal. P1 opened and closed
-2026-08-10 on the cycle-as-runbook issue; the gap check and every ticket are
-cut against this stamp.
+Freeze stamp: `git:03eacee` +
+`goal-sha256:5d03d8cd5a62dc1f7849d4debee3022d20f0d137bade7c4173876153f393eb4e`
+- the P1 integration HEAD and the canonical goal revision recorded by the
+Engine at the run-013 freeze. P1 opened and closed 2026-08-21 on one signed
+batch of three: the agent-operator-protocol issue (`i-033`, accepted), the
+revised completion-gate issue (`i-032`, `CGD-001`/`CGD-002` accepted,
+`CGD-003` deferred), and the edition-ledger-recording issue (`i-034`,
+accepted). The gap check and every ticket are cut against this stamp.
 
-A sprint starts when enough issues have collected to be worth integrating
-into the goal, and runs the cycle - plan, then build - until the gap check
-comes back clean.
+Route - ordered dependencies of the signed sprint, one why per edge:
 
-This sprint: run the shop's own process on the engine. The Machine Class this
-repository ships is still a demonstration that builds a file called
-`release.txt`, while the process the shop actually follows lives as prose and
-"where are we" is answered by a person reading a table. Replace the
-demonstration with the real cycle, and make the engine able to carry it
-without learning what a ticket is.
-
-Signed issue set: i-015-cycle-as-runbook. `PCR-001`, `PCR-002`, `PCR-003`,
-`PCR-005`, `PCR-007`, `PCR-008`, and `PCR-009` are accepted product
-requirements; `PCR-004` is rejected. The carrying Ideal-shape property is
-**Self-hosted** - the tool's first governed project is its own construction.
-**Every boundary machine-checked** is served with it: a stage that cannot be
-expressed as a guard over artifacts is a stage the shop was advancing on
-narration. **Generic engine** binds the shape of the answer: the cycle's own
-identifiers stay in the runbook and out of Rust.
-
-Route - an ordered dependency list, one why per edge. It says what depends
-on what, never when.
-
-1. Teach the intake gate that an accepted ask may resolve to a
-   working-authority requirement heading (`PCR-008`). First, because the gate
-   refuses this repository's own tree until it does, and every later stage
-   runs against that tree.
-2. Give a receipt-class guard the bound address (`PCR-007`). Before the
-   runbook is authored, because the runbook cannot name its ticket turns
-   until the address exists.
-3. Add the refusal that stops deliberate damage on an uncommitted tree
-   (`PCR-009`). Independent of the two above and of the runbook; it earns its
-   place in this sprint because the runbook is where it is declared.
-4. Make the open-work-item predicate a machine check over the real records
-   (`PCR-003`). After the gate work, because it reads the same roots.
-5. Author the Plan-Build Runbook itself and prove the doctor exits clean on
-   it (`PCR-001`, `PCR-005`). Last of the building work, because it consumes
-   every piece above and is worth nothing without them.
-6. Demote the tree-derived stage lookup to the labelled no-live-Run fallback
-   (`PCR-002`). After the runbook exists, because until then the tree is the
-   only oracle and demoting it would leave the question unanswered.
-
-Endpoint: `rtm doctor` exits `0` on this repository's Machine Class; a Run
-started on it advances through intake, gap check, cutting the work items, the
-ticket turns, close, and rest by starting and stepping alone; the addressed
-report names the stage while that Run is live; no guard's verdict rests on
-content the agent under test can write; and no identifier for a work item
-appears in the runbook file.
-
-Not in this sprint, and named so the absence is legible: the landing line
-stays a human act (`PCR-004`, rejected); a repository-state guard kind would
-be needed for the dirty-tree refusal to see a file that was never added, and
-the closed vocabulary cannot express "no gap remains", so the branch out of
-the gap-check stage is a declared transition input judged by the records the
-record gate reads. The `failed`-outcome contract still awaits a concrete
-Engine-observable event. Extraction of the hard-coded workflow paths from the
-Engine (R-016 debt) stays deferred, as does the completion gate's remaining
-habit of parsing a contributor's document for the checks it declares.
-
-## Advisor conclusion — 2026-08-03
-
-The just-closed safe-deliberate-damage sprint ended at Idle: its
-working-authority rules landed, the final gap check found no product gaps,
-and there are no current product tickets or live Runs. That is a clean
-cutover point because namespace work would not have to move active product
-work or an in-flight Run.
-
-The engine-namespace split is the next promotion target. It is the only
-unblocked item on the critical path and directly gates the deferred
-cycle-as-runbook issue. Today path literals in Rust bake this repository's
-`.arca/issue`, `.arca/ticket`, `.arca/residual`, and `.arca/goal` layout into
-the Engine. If the cycle is authored first, its runbook will freeze those
-paths, so splitting later means re-pathing the shop's own governing runbook
-as well as the Engine. Cutting over now means doing that work once. The
-authored Machine Class identity above now says only runbook and plain TOML:
-it removes `.arca/ratmac.toml` and deliberately names no replacement root.
-
-The State-not-Phase wish remains unordered and unpromoted. If a human
-promotes it, settle it before cycle-as-runbook, or that runbook will require
-a later format migration. No engine-split issue is minted here. The next
-concrete action is to author its complete pending issue bundle for human P1
-disposition.
-
-## How direction flows
-
-| File | Question it answers | Changes when |
-| :--- | :--- | :--- |
-| `steering.md` | Why, and where to | direction pivots (rare, first) |
-| `.arca/goal/` - the goal bundle | What must become true | re-derived from steering; frozen per Run |
-| `.arca/issue/` | What is wrong or missing | on discovery, anytime |
-| `.arca/ticket/` | What work, provably done | cut from gap records at P3 |
-| `.arca/residual/` | Is each requirement proven | every gap check |
-| `.arca/log.md` | What happened | append-only, always |
-
-On a pivot: steering -> `goal/` -> issue triage -> tickets. The frozen goal
-is never edited while tickets are open; a new issue is the only road back.
+1. The self-describing CLI (`AOP-001`, `AOP-002`, from `i-033`) precedes the
+   operator skill (`AOP-003`, `AOP-004`, same issue) - the skill points at
+   the CLI's own output for everything current, so the output it points at
+   must exist first.
+2. The stable-bootstrap split (`ELR-002`, from `i-034`) depends on nothing in
+   this sprint and unblocks every future sprint's driver build.
+3. The tag-reading ticket checker (`CGD-001`, `CGD-002`, from `i-032`)
+   depends on nothing in this sprint; its tag format landed at integration.
