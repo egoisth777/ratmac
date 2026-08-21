@@ -1,0 +1,12 @@
+ticket-id = "t-102"
+check-id = "cargo clippy --workspace --all-targets"
+kind = "quality"
+command = "cargo clippy --workspace --all-targets"
+working-dir = "."
+exit-status = 0
+output-sha256 = "c92508a29848820f033cd2ea015c85dde0953c88b07cc967ce34b7c08f610549"
+tree-roots = ["src", "test/qa", "tools", "test-hidden/t-102"]
+tree-sha256 = "e60012f44c19ebcdebbcfd22994cca203af04654c6497d19c30f578ca0ce5229"
+output = '''
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.10s
+'''

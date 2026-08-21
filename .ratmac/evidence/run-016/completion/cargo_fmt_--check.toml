@@ -1,0 +1,11 @@
+ticket-id = "t-102"
+check-id = "cargo fmt --check"
+kind = "quality"
+command = "cargo fmt --check"
+working-dir = "."
+exit-status = 0
+output-sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+tree-roots = ["src", "test/qa", "tools", "test-hidden/t-102"]
+tree-sha256 = "e60012f44c19ebcdebbcfd22994cca203af04654c6497d19c30f578ca0ce5229"
+output = '''
+'''

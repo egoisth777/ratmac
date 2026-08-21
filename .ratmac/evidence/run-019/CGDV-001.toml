@@ -1,0 +1,32 @@
+planned-test-id = "CGDV-001"
+ticket-id = "t-105"
+kind = "baseline-failure"
+command = "cargo test -p ratmac-qa --test t105_ticket_check_tags the_checker_reads_tags_and_ignores_prose -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t105_ticket_check_tags.rs"
+test-name = "the_checker_reads_tags_and_ignores_prose"
+exit-status = 101
+output-sha256 = "ef03c8acd9ee747f0d9b75fb4aa5305bb627a7a630b33db729bb71ad9638971b"
+output = '''
+
+running 1 test
+test the_checker_reads_tags_and_ignores_prose ... FAILED
+
+failures:
+
+---- the_checker_reads_tags_and_ignores_prose stdout ----
+
+thread 'the_checker_reads_tags_and_ignores_prose' (4236) panicked at test\qa\tests\t105_ticket_check_tags.rs:191:13:
+t-102: the checker must declare t-102's checks from its tags: field  entry "": unimplemented: the checker does not read tags yet
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    the_checker_reads_tags_and_ignores_prose
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests\t105_ticket_check_tags.rs (target\debug\deps\t105_ticket_check_tags-c6de1d1f1e4399f8.exe)
+error: test failed, to rerun pass `-p ratmac-qa --test t105_ticket_check_tags`
+'''

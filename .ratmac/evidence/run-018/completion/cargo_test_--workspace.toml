@@ -1,0 +1,926 @@
+ticket-id = "t-104"
+check-id = "cargo test --workspace"
+kind = "quality"
+command = "cargo test --workspace"
+working-dir = "."
+exit-status = 0
+output-sha256 = "ef1291fa72f288d7a015b2739fa2b3cdf8ace84dad43694cf47557779bd8019a"
+tree-roots = ["src", "test/qa", "tools", "test-hidden/t-104"]
+tree-sha256 = "5cf75f3b52a7ff7a0b62c80ebd68c8ba853d9c741528ba9e240844bb1c7bf8fc"
+output = '''
+
+running 8 tests
+test root::tests::addressed_project_root_hoists_engine_directory ... ok
+test root::tests::addressed_project_root_uses_current_directory_for_bare_runbook ... ok
+test root::tests::addressed_project_root_uses_runbook_parent ... ok
+test teach::tests::the_table_keys_a_hard_error_by_its_stable_surface ... ok
+test teach::tests::the_table_keys_a_step_refusal_by_its_failure_kind ... ok
+test teach::tests::the_table_keys_the_next_act_by_status ... ok
+test verdict::tests::strict_record_keeps_exact_values ... ok
+test verdict::tests::strict_record_rejects_extra_and_blank_fields ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 19 tests
+test tests::test_machine_class_rejects_status_dimension ... ok
+test t005::test_machine_class_accepts_standard_guard_fields ... ok
+test t005::test_ratmac_unknown_key_is_hard_error ... ok
+test t005::test_ratmac_status_dimension_is_unknown_key_for_r011 ... ok
+test t005::test_machine_class_rejects_empty_or_undeclared_transition_endpoints ... ok
+test tests::test_machine_state_is_state_only ... ok
+test tests::test_status_is_state_local_lifecycle_enum ... ok
+test t006::test_blocked_only_for_missing_entry_prerequisite ... ok
+test tests::test_ratmac_toml_is_human_authored_reviewed_input ... ok
+test t005::test_start_with_missing_class_is_actionable_error ... ok
+test t005::test_status_with_active_state_but_missing_class_is_hard_error ... ok
+test t007_state_file::test_status_prints_state_status_blocker_and_pending_guards ... ok
+test t007_state_file::test_state_file_shape_and_status_are_reportable ... ok
+test t005::test_open_scheduler_revalidates_class_before_status_and_step ... ok
+test t007_state_file::test_state_file_records_blocked_and_blocker_fields ... ok
+test t008_state_writer_tests::test_only_rtm_writes_state_file ... ok
+test t010::test_start_instantiates_run_owned_state_log_and_lock ... ok
+test tests::test_start_reads_class_without_modifying_ratmac ... ok
+test t005::test_guard_paths_cannot_escape_project_root ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.32s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+test r021_model_represents_multiple_runs ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+test scheduler_files_are_under_ratmac ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+
+running 1 test
+test corrupt_state_halts_without_guessing ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+
+running 2 tests
+test step_request_advances_when_guards_pass ... ok
+test step_request_refuses_when_guard_fails ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+
+running 1 test
+test guards_use_artifacts_not_agent_claims ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+
+
+running 2 tests
+test failed_guard_writes_no_counter_or_extra_log ... ok
+test failed_guard_refuses_and_stays ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+
+running 1 test
+test guard_failure_never_sets_blocked ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+
+running 1 test
+test refusal_report_names_guard_and_facts ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+
+running 1 test
+test failure_step_is_idempotent ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+
+running 9 tests
+test status_on_missing_engine_does_not_create_metadata ... ok
+test log_open_failure_leaves_state_unchanged ... ok
+test missing_transition_log_is_hard_error_without_state_change ... ok
+test refused_step_does_not_append_transition_record ... ok
+test successful_step_appends_one_transition_record ... ok
+test non_newline_log_gets_separator_before_record ... ok
+test start_log_open_failure_leaves_no_state_and_lock ... ok
+test transition_log_is_append_only ... ok
+test state_mutators_honor_run_lock_while_status_is_read_only ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.15s
+
+
+running 1 test
+test concurrent_steps_are_arbitrated_by_lockfile ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+
+running 2 tests
+test state_prompt_requires_a_string_prompt_field ... ok
+test state_prompt_renders_inline_prose_then_generated_guards ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+
+running 1 test
+test state_prompt_excludes_other_states_and_graph ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+
+running 2 tests
+test status_prints_current_state_prompt ... ok
+test successful_step_prints_prompt_without_spawning ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+
+running 1 test
+test ratmac_comments_are_absent_from_state_prompt ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+
+running 1 test
+test non_wishwillow_machine_class_runs_identically ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+
+running 4 tests
+test start_help_states_the_one_caller_policy ... ok
+test binary_start_creates_owned_artifacts_and_releases_lock ... ok
+test binary_status_prints_report_and_state_prompt ... ok
+test binary_second_start_mints_sibling_without_mutating_run ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.35s
+
+
+running 1 test
+test step_help_documents_main_agent_only_policy ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+test canonical_package_and_binary_metadata ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+
+running 1 test
+test rtm_cli_surface ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.40s
+
+
+running 1 test
+test qa_uses_canonical_ratmac_rtm_identity ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 1 test
+test active_reference_audit ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+
+running 1 test
+test generated_metadata_is_canonical ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+
+running 1 test
+test lock_and_compatibility_policy ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.63s
+
+
+running 1 test
+test full_rebrand_acceptance ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.08s
+
+
+running 2 tests
+test external_identity_acceptance ... ignored, release acceptance lane: set RATMAC_RELEASE_ACCEPTANCE=1 to run
+test release_acceptance_lane_report ... ok
+
+test result: ok. 1 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 3 tests
+test manifest_matches_independent_rehash ... ok
+test untracked_under_declared_root_refuses ... ok
+test manifest_parses_renames_spaces_and_unicode ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.45s
+
+
+running 8 tests
+test schema_states_archive_and_snapshot_rules ... ok
+test append_only_log_growth_is_preservation ... ok
+test complete_authorized_move_is_preservation ... ok
+test complete_deferred_restoration_is_preservation ... ok
+test line_ending_normalization_is_not_mutation ... ok
+test active_issue_lifecycle_moves_are_preservation ... ok
+test mutation_partial_and_inplace_edits_fail ... ok
+test invalid_deferred_restorations_fail ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.93s
+
+
+running 6 tests
+test non_utf8_diagnostic_renders_lossily ... ok
+test diagnostic_is_bounded ... ok
+test diagnostic_is_captured ... ok
+test silent_guard_states_no_diagnostic ... ok
+test guard_death_reports_partial_and_releases_lock ... ok
+test repeated_refusal_is_identical ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.88s
+
+
+running 6 tests
+test recorded_pin_survives_a_crashed_run ... ok
+test pin_is_recorded ... ok
+test pin_refusal_carries_identity_and_diagnostic_framing ... ok
+test build_at_evaluation_rejected_probe_exempt ... ok
+test symlink_and_directory_programs_refuse ... ok
+test tamper_refuses_and_restore_proceeds ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.81s
+
+
+running 5 tests
+test freeze_is_post_integration ... ok
+test interrupted_freeze_leaves_readable_state ... ok
+test drift_and_pin_tamper_are_both_reported ... ok
+test drift_refuses_and_revert_clears ... ok
+test added_and_removed_goal_files_are_drift ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.63s
+
+
+running 5 tests
+test every_help_route_prints_one_usage ... ok
+test no_active_surface_retains_retired_wording ... ok
+test surfaces_agree_and_audit_is_sensitive ... ok
+test step_refusal_behavior_is_unchanged ... ok
+test engine_gains_no_caller_state ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
+
+
+running 8 tests
+test cli_surface_survives_the_new_entry_point ... ok
+test doctor_survives_corrupt_state_and_held_lock ... ok
+test doctor_rejects_extra_arguments ... ok
+test doctor_reports_complete_engine_fingerprint_and_is_write_free ... ok
+test bootstrap_refuses_pin_mismatch ... ok
+test doctor_is_actionable_and_write_free ... ok
+test bootstrap_writes_only_declared_build_output ... ok
+test bootstrap_resolves_offline ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.69s
+
+
+running 4 tests
+test violation_fails_and_wording_is_labelled ... ok
+test role_transcripts_are_behavioral ... ok
+test malformed_transcripts_refuse ... ok
+test every_check_carries_an_evidence_kind ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 7 tests
+test ownership_audit_is_sensitive ... ok
+test no_scheduler_owned_path_in_any_instruction ... ok
+test the_completion_and_sensitivity_gates_pass_beside_a_retired_runs_receipts ... ok
+test truncated_receipt_is_rejected ... ok
+test unknown_planned_test_id_refuses ... ok
+test sensitivity_receipt_required ... ok
+test digest_binds_receipt_to_output ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.94s
+
+
+running 18 tests
+test the_merge_gate_rule_names_the_fixture_with_a_past ... ok
+test gates_declared_in_a_child_class_count_as_mechanized ... ok
+test age_is_never_a_free_pass ... ok
+test the_intake_gate_passes_on_a_tree_with_a_past ... ok
+test broken_five_file_shape_refuses ... ok
+test archived_links_are_frozen_but_deferred_links_are_live ... ok
+test a_record_may_cite_a_working_authority_requirement ... ok
+test no_vacuous_satisfaction ... ok
+test a_rejudged_archived_record_refuses_until_it_moves_back ... ok
+test dependency_cycle_is_named ... ok
+test stale_frozen_revision_refuses ... ok
+test every_contract_gate_states_its_verdict_on_this_repository ... ok
+test the_record_gate_passes_on_this_repository_as_it_stands ... ok
+test an_archived_record_cites_its_own_freeze_and_a_live_one_cites_todays ... ok
+test active_and_archived_residuals_form_one_namespace ... ok
+test deferred_issue_location_and_dispositions_verified ... ok
+test intake_contract_verified ... ok
+test record_contract_verified ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.18s
+
+
+running 5 tests
+test interrupted_verification_passes_nothing ... ok
+test missing_hidden_lane_receipt_refuses ... ok
+test undeclarable_command_refuses ... ok
+test stale_receipt_rejected ... ok
+test completion_requires_receipts ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.66s
+
+
+running 7 tests
+test runbook_swap_before_hold_state_write_refuses_without_a_half_route ... ok
+test held_with_blocker_routes_onward ... ok
+test unauthorized_or_unlinked_refuses ... ok
+test blocker_reference_must_stay_beneath_project_root ... ok
+test interrupted_hold_leaves_no_half_route ... ok
+test held_ticket_cannot_be_passed ... ok
+test unresolvable_blocker_refuses ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.74s
+
+
+running 6 tests
+test authorized_abandon_retires_run ... ok
+test unauthorized_abandon_refuses_atomically ... ok
+test near_miss_confirmation_refuses_before_write ... ok
+test fresh_run_after_abandonment_records_its_own_pin ... ok
+test leftover_lock_files_do_not_wedge_fresh_invocation ... ok
+test interrupted_retirement_completes_idempotently ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.38s
+
+
+running 11 tests
+test status_smoke_in_this_checkout ... ok
+test rollback_never_deletes_a_moved_ref ... ok
+test clean_start_creates_branch_and_worktree ... ok
+test start_rolls_back_completely ... ok
+test rollback_removes_only_the_new_branch ... ok
+test status_is_read_only_preview ... ok
+test start_from_inside_a_trial_worktree_refuses ... ok
+test base_cannot_be_overridden ... ok
+test numbering_is_deterministic ... ok
+test dirty_or_colliding_start_refused ... ok
+test malformed_slugs_refuse_before_any_write ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 25.81s
+
+
+running 8 tests
+test containment_holds ... ok
+test locked_worktree_refuses_without_force ... ok
+test archive_tag_restores_the_branch ... ok
+test finish_order_and_recovery ... ok
+test interrupted_finish_resumes ... ok
+test template_matches_the_validator ... ok
+test log_validation_is_strict ... ok
+test finish_refusals_are_safe ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.49s
+
+
+running 6 tests
+test interface_is_closed_and_offline ... ok
+test no_forbidden_operation_reaches_the_script ... ok
+test conflicted_sync_stays_visible ... ok
+test ownership_and_windows_rule_enforced ... ok
+test sync_leaves_live_trials_alone ... ok
+test sync_is_merge_only ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.09s
+
+
+running 9 tests
+test a_second_enumeration_fails_the_authority_check ... ok
+test decided_behavior_is_back_referenced ... ok
+test ownership_paths_match_canonical_run_residency ... ok
+test invented_kind_fails_the_agreement_check ... ok
+test guard_kind_vocabulary_matches_the_engine ... ok
+test ownership_rules_name_their_enforcer ... ok
+test specification_is_routed_and_states_the_shape ... ok
+test schema_is_defined_in_exactly_one_place ... ok
+test specification_is_tracked ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+
+running 14 tests
+test decided_refusals_are_unchanged ... ok
+test every_authored_guard_survives_the_parse ... ok
+test hostile_runbooks_refuse_without_panic ... ok
+test per_kind_fields_are_validated_at_parse_time ... ok
+test the_typed_vocabulary_is_the_specifications ... ok
+test the_projects_own_runbook_parses_typed ... ok
+test the_runbook_has_exactly_one_reader ... ok
+test an_unreadable_runbook_is_not_an_absent_one ... ok
+test doctor_ownership_audit_reuses_the_typed_class ... ok
+test unknown_guard_kind_is_a_parse_error ... ok
+test a_retained_guard_still_refuses_a_real_step ... ok
+test freeze_blocked_route_and_pinning_survive_the_typed_path ... ok
+test absent_runbook_refuses_by_name ... ok
+test refusal_under_a_live_run_mutates_nothing ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.31s
+
+
+running 12 tests
+test a_blocked_route_confers_no_reachability ... ok
+test ownership_violations_surface_through_the_doctor ... ok
+test parse_refusal_is_rendered_as_a_finding ... ok
+test json_output_is_parsable_and_deterministic ... ok
+test the_projects_own_runbook_passes_its_own_doctor ... ok
+test hostile_arguments_refuse_by_name ... ok
+test exit_codes_are_differentiated ... ok
+test arbitrary_path_is_diagnosed_read_only ... ok
+test every_invocation_is_write_free ... ok
+test the_environment_report_survives_the_deepening ... ok
+test emitted_codes_and_documented_codes_are_one_set ... ok
+test each_defect_class_reports_its_code ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.23s
+
+
+running 10 tests
+test repair_table_covers_exactly_the_engine_codes ... ok
+test the_command_surface_survives_the_new_subcommand ... ok
+test instructions_define_no_schema ... ok
+test every_documented_code_is_seeded_and_repaired ... ok
+test scaffolding_creates_exactly_one_file ... ok
+test a_refused_scaffold_leaves_no_trace ... ok
+test scaffold_output_is_doctor_clean ... ok
+test the_scaffold_is_a_runnable_machine ... ok
+test scaffold_refuses_every_hostile_path ... ok
+test seeded_defects_are_repaired_by_code ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.47s
+
+
+running 4 tests
+test requirements_trace_to_seed_and_research ... ok
+test runs_reside_under_the_plural_path ... ok
+test run_addressing_is_always_required ... ok
+test run_addressing_refuses_noncanonical_or_escaping_values ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.16s
+
+
+running 3 tests
+test pin_is_hash_only_with_no_per_run_copy ... ok
+test flat_layout_residue_refuses_and_instructs ... ok
+test hold_applies_residue_and_runbook_pin_preflight ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.80s
+
+
+running 3 tests
+test invalid_input_contracts_refuse_with_stable_codes ... ok
+test typed_input_contract_is_retained ... ok
+test selection_is_input_only_and_prompt_discloses_values ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.28s
+
+
+running 2 tests
+test no_active_run_cap_is_enforced ... ok
+test abandoned_ids_are_never_reissued ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.02s
+
+
+running 4 tests
+test empty_slot_and_straight_line_contract ... ok
+test valid_verdict_is_archived_before_state_advance ... ok
+test interruption_windows_preserve_consume_then_advance ... ok
+test invalid_or_missing_verdict_refuses_unchanged ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.61s
+
+
+running 4 tests
+test terminal_initial_state_is_passed_on_start ... ok
+test guard_refusal_is_non_terminal_and_failed_is_never_written ... ok
+test abandonment_records_event_before_state_retirement ... ok
+test step_into_terminal_state_writes_passed ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.75s
+
+
+running 3 tests
+test composed_declaration_parses_and_is_doctor_clean ... ok
+test blocked_route_spelling_stays_canonical ... ok
+test malformed_composition_refuses_by_stable_code ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.63s
+
+
+running 3 tests
+test abandon_phrase_names_the_run_id ... ok
+test spawn_is_ordinary_checked_motion_without_phrase ... ok
+test respawn_requires_phrase_naming_the_run_id ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.58s
+
+
+running 3 tests
+test spawn_appends_one_ledger_entry_with_the_recorded_fields ... ok
+test join_reads_the_ledger_and_refuses_naming_the_missing_child ... ok
+test abandon_flips_only_the_mark_and_respawn_appends_the_successor ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.45s
+
+
+running 2 tests
+test unguarded_cycle_fails_naming_states_and_class ... ok
+test guarded_cycle_passes_termination ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+
+running 2 tests
+test child_spawn_refuses_naming_the_cap ... ok
+test top_level_parents_spawn_freely ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.12s
+
+
+running 2 tests
+test no_witnessed_verdict_verb_exists ... ok
+test child_reviews_and_parent_routes_without_courier ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.13s
+
+
+running 7 tests
+test non_git_checkout_uses_its_current_root ... ok
+test engine_root_holds_runtime_and_never_writes_arca ... ok
+test separate_git_dir_uses_worktree_engine_root ... ok
+test ambient_git_dir_and_work_tree_do_not_divert_non_git_checkout ... ok
+test linked_worktree_shares_primary_runtime_but_reads_its_own_class ... ok
+test git_tracks_class_and_receipts_but_ignores_runtime ... ok
+test bare_repository_worktrees_share_a_non_bare_engine_root ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.48s
+
+
+running 2 tests
+test mint_record_never_reissues_a_deleted_run_id ... ok
+test run_created_in_primary_is_addressable_from_linked_worktree ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.20s
+
+
+running 1 test
+test per_run_motion_serializes_without_blocking_other_runs_or_root_work ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.00s
+
+
+running 2 tests
+test parallel_sibling_receipts_are_run_scoped_and_merge_cleanly ... ok
+test spawn_records_canonical_or_inherited_workspace_and_uses_it ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.66s
+
+
+running 3 tests
+test partial_append_recovery_is_local_to_the_writer ... ok
+test hold_and_abandon_surface_the_shared_fragment_refusal ... ok
+test scheduler_writes_only_ratmac_transition_log ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.19s
+
+
+running 2 tests
+test source_scan_pins_the_one_named_legacy_exception ... ok
+test roots_table_validates_named_paths_with_distinct_diagnostics ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.87s
+
+
+running 6 tests
+test direct_scaffold_preflights_project_above_engine_directory ... ok
+test open_run_preflights_residue_before_invalid_run_address ... ok
+test doctor_preflights_addressed_external_project ... ok
+test linked_worktree_refuses_each_primary_only_residue ... ok
+test every_entry_point_refuses_each_presplit_artifact_without_mutation ... ok
+test every_public_entry_point_preflights_its_addressed_project has been running for over 60 seconds
+test every_public_entry_point_preflights_its_addressed_project ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 148.69s
+
+
+running 1 test
+test status_and_doctor_report_the_actual_resolved_engine_root ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.91s
+
+
+running 9 tests
+test no_engine_source_renders_a_path_by_hand ... ok
+test no_engine_source_renders_a_path_with_the_standard_renderer ... ok
+test only_one_module_implements_the_renderer ... ok
+test a_refusing_report_command_spells_its_path_one_way ... ok
+test a_report_quotes_a_backslash_identifier_verbatim ... ok
+test a_reported_stored_binding_reaches_the_reader_in_one_spelling ... ok
+test an_authored_guard_path_is_quoted_as_the_runbook_spells_it ... ok
+test the_whole_doctor_report_renders_paths_one_way ... ok
+test reported_engine_root_is_spelled_one_way ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.77s
+
+
+running 2 tests
+test the_child_class_and_its_spawn_are_read_from_the_states_tables ... ok
+test a_states_runbook_parses_passes_the_doctor_and_runs ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.67s
+
+
+running 1 test
+test a_started_run_writes_run_toml_with_a_state_field ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.34s
+
+
+running 3 tests
+test the_documented_table_equals_the_engine_table ... ok
+test a_precutover_runbook_refuses_by_its_own_code ... ok
+test every_entry_point_refuses_precutover_records ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+
+running 2 tests
+test three_names_are_defined_separately ... ok
+test caller_surfaces_name_the_position_state ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+
+running 1 test
+test the_live_surface_audit_is_enumerated_and_sharp ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.14s
+
+
+running 1 test
+test the_rename_changed_names_only ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.13s
+
+
+running 4 tests
+test no_two_build_targets_write_one_file ... ok
+test a_planted_duplicate_target_fails_by_name ... ok
+test the_shipped_command_keeps_its_name_and_stays_pause_free ... ok
+test a_test_launches_the_build_it_was_compiled_against ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.18s
+
+
+running 2 tests
+test the_engine_names_no_work_item_document ... ok
+test hold_records_the_pause_in_engine_state_alone ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.94s
+
+
+running 2 tests
+test an_undeclared_authority_resolves_nothing ... ok
+test intake_resolves_a_requirement_in_either_authority ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+
+running 3 tests
+test a_guard_declaring_both_forms_or_neither_refuses_at_parse ... ok
+test an_unsupplied_binding_refuses_at_dispatch_without_writing ... ok
+test a_bound_gate_grades_each_child_against_its_own_receipts ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.86s
+
+
+running 1 test
+test the_damage_step_refuses_until_the_tree_is_committed ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.54s
+
+
+running 1 test
+test open_items_are_computed_from_the_tree ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+
+running 2 tests
+test the_doctor_is_clean_on_the_shipped_machine_class ... ok
+test the_cycle_runs_from_intake_to_rest ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.04s
+
+
+running 1 test
+test the_live_run_names_the_stage_and_the_lookup_is_a_fallback ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.42s
+
+
+running 4 tests
+test the_shipped_cycle_declares_the_edition_guard ... ok
+test a_refused_close_writes_nothing ... ok
+test the_close_step_refuses_until_an_edition_is_cut ... ok
+test the_guard_reads_version_control_not_the_tree ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.27s
+
+
+running 2 tests
+test every_edition_is_annotated_documented_and_reachable ... ok
+test the_sequence_has_no_holes_and_no_edition_has_moved ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.30s
+
+
+running 3 tests
+test a_provenance_mismatch_refuses_and_updates_nothing ... ok
+test the_bootstrap_resolves_stable_from_the_ledger ... ok
+test the_doctor_names_an_off_pin_engine_under_a_live_run ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.09s
+
+
+running 1 test
+test stable_resolves_from_the_invoking_checkout_and_builds_the_tagged_tree ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.71s
+
+
+running 2 tests
+test status_names_what_each_guard_reads ... ok
+test every_outcome_ends_in_one_truthful_next_line ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.87s
+
+
+running 2 tests
+test the_skill_subcommand_writes_once_and_never_overwrites ... ok
+test the_skill_teaches_invariants_and_drives_a_run_to_terminal ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.64s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Compiling ratmac v0.1.0 (E:\repos\projs\skill-dev\ratmac-t-104)
+   Compiling ratmac-qa v0.1.0 (E:\repos\projs\skill-dev\ratmac-t-104\test\qa)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.40s
+     Running unittests src\lib.rs (target\debug\deps\ratmac-cfb7a86b39d0bfc5.exe)
+     Running unittests src\bin\rtm.rs (target\debug\deps\rtm-dc490434ae1eb179.exe)
+     Running unittests src\lib.rs (target\debug\deps\ratmac_qa-9b74147be14094b1.exe)
+     Running unittests src\bin\guard_probe.rs (target\debug\deps\guard_probe-b4ead658b8ccd073.exe)
+     Running unittests src\bin\lock_barrier.rs (target\debug\deps\lock_barrier-373bac5e8b04bb91.exe)
+     Running unittests ..\..\src\bin\rtm.rs (target\debug\deps\rtm_qa-f1c266b5b9f8a738.exe)
+     Running unittests src\bin\snapshot_manifest.rs (target\debug\deps\snapshot_manifest-ac4595ec30ad6cce.exe)
+     Running tests\t011_r021.rs (target\debug\deps\t011_r021-ef2d8f378d2c3513.exe)
+     Running tests\t014_r024.rs (target\debug\deps\t014_r024-073fb5dce74bf7cc.exe)
+     Running tests\t015_r027.rs (target\debug\deps\t015_r027-6875b867652abf87.exe)
+     Running tests\t016_r005.rs (target\debug\deps\t016_r005-345e97b4c90e8fd2.exe)
+     Running tests\t017_r006.rs (target\debug\deps\t017_r006-a61756894762f542.exe)
+     Running tests\t018_r017.rs (target\debug\deps\t018_r017-63da34851e94da09.exe)
+     Running tests\t019_r018.rs (target\debug\deps\t019_r018-4f6a3f761486dfa9.exe)
+     Running tests\t020_r019.rs (target\debug\deps\t020_r019-5fddc6ba1542b525.exe)
+     Running tests\t021_r020.rs (target\debug\deps\t021_r020-7c672bf7747363f7.exe)
+     Running tests\t022_r026.rs (target\debug\deps\t022_r026-97850ea10e1cea43.exe)
+     Running tests\t023_r015.rs (target\debug\deps\t023_r015-1a3d36fe735a3302.exe)
+     Running tests\t024_r028.rs (target\debug\deps\t024_r028-495258e97043d2de.exe)
+     Running tests\t025_r029.rs (target\debug\deps\t025_r029-5d388484048d8fa7.exe)
+     Running tests\t026_r030.rs (target\debug\deps\t026_r030-1a0764d822e8714b.exe)
+     Running tests\t027_r012.rs (target\debug\deps\t027_r012-222f8b0dd370eb4d.exe)
+     Running tests\t028_r016.rs (target\debug\deps\t028_r016-69c23393dc78f5ce.exe)
+     Running tests\t029_r007.rs (target\debug\deps\t029_r007-51caec80262376eb.exe)
+     Running tests\t030_r008.rs (target\debug\deps\t030_r008-268bf48633d64db0.exe)
+     Running tests\t031_rat002.rs (target\debug\deps\t031_rat002-a5446064edcb9e91.exe)
+     Running tests\t032_rat003.rs (target\debug\deps\t032_rat003-b9f5d52531751e8d.exe)
+     Running tests\t033_rat004.rs (target\debug\deps\t033_rat004-2c574c97f705df5d.exe)
+     Running tests\t034_rat005.rs (target\debug\deps\t034_rat005-99dbf4e3b324db74.exe)
+     Running tests\t035_rat006.rs (target\debug\deps\t035_rat006-38c49cd5899254f1.exe)
+     Running tests\t036_rat007.rs (target\debug\deps\t036_rat007-670eadd5b31bf878.exe)
+     Running tests\t037_rat008.rs (target\debug\deps\t037_rat008-eccd23c8330345f9.exe)
+     Running tests\t038_ext_identity.rs (target\debug\deps\t038_ext_identity-42fb72b850a84870.exe)
+     Running tests\t039_snapshot_audit.rs (target\debug\deps\t039_snapshot_audit-5e8d0a8aa953c2bb.exe)
+     Running tests\t040_archive_oracle.rs (target\debug\deps\t040_archive_oracle-074afa8938823f56.exe)
+     Running tests\t041_guard_diagnostics.rs (target\debug\deps\t041_guard_diagnostics-50a03a4b519724b9.exe)
+     Running tests\t042_gate_pin.rs (target\debug\deps\t042_gate_pin-f0a11960f82c145b.exe)
+     Running tests\t043_goal_freeze.rs (target\debug\deps\t043_goal_freeze-d421d7c047929184.exe)
+     Running tests\t044_start_policy.rs (target\debug\deps\t044_start_policy-23be9731e9fe8b31.exe)
+     Running tests\t045_bootstrap_doctor.rs (target\debug\deps\t045_bootstrap_doctor-6a66b66fdacf6b80.exe)
+     Running tests\t046_role_behavior.rs (target\debug\deps\t046_role_behavior-be17436d1830091f.exe)
+     Running tests\t047_receipts.rs (target\debug\deps\t047_receipts-bbd0ec59ee5cae39.exe)
+     Running tests\t048_contract_gates.rs (target\debug\deps\t048_contract_gates-c797f3046aee4fc7.exe)
+     Running tests\t049_completion_gate.rs (target\debug\deps\t049_completion_gate-1a35e15b94728028.exe)
+     Running tests\t050_blocked_route.rs (target\debug\deps\t050_blocked_route-eede6d2bbac0009a.exe)
+     Running tests\t051_abandon.rs (target\debug\deps\t051_abandon-b5bfcd7f7488f10f.exe)
+     Running tests\t052_trial_start.rs (target\debug\deps\t052_trial_start-2e281fd02e2a29ed.exe)
+     Running tests\t053_trial_finish.rs (target\debug\deps\t053_trial_finish-6b127411e3547bdd.exe)
+     Running tests\t054_trial_sync.rs (target\debug\deps\t054_trial_sync-0d0181fe9c6c8cb9.exe)
+     Running tests\t055_runbook_spec.rs (target\debug\deps\t055_runbook_spec-ef533843f79e96a5.exe)
+     Running tests\t056_typed_parser.rs (target\debug\deps\t056_typed_parser-614aca688f5ab2aa.exe)
+     Running tests\t057_deep_doctor.rs (target\debug\deps\t057_deep_doctor-17ebfa1fd6935300.exe)
+     Running tests\t058_authoring_loop.rs (target\debug\deps\t058_authoring_loop-29ed370d68b61f92.exe)
+     Running tests\t059_run_residency.rs (target\debug\deps\t059_run_residency-22e1eb9d8bc54030.exe)
+     Running tests\t060_runbook_pin.rs (target\debug\deps\t060_runbook_pin-3bd7633ce70db2e7.exe)
+     Running tests\t061_input_routing.rs (target\debug\deps\t061_input_routing-e94d50d15edb4c3c.exe)
+     Running tests\t061_uncapped_runs.rs (target\debug\deps\t061_uncapped_runs-e92322465aa3b3c3.exe)
+     Running tests\t062_verdict_delivery.rs (target\debug\deps\t062_verdict_delivery-ece26bdd277091fb.exe)
+     Running tests\t063_run_completion.rs (target\debug\deps\t063_run_completion-63cd4e0d8bbfd1f6.exe)
+     Running tests\t064_composition_format.rs (target\debug\deps\t064_composition_format-b66592647f907dfd.exe)
+     Running tests\t065_motion_authorization.rs (target\debug\deps\t065_motion_authorization-445103b956b7c7f4.exe)
+     Running tests\t066_spawn_ledger.rs (target\debug\deps\t066_spawn_ledger-80f875ce2db58710.exe)
+     Running tests\t067_cycle_termination.rs (target\debug\deps\t067_cycle_termination-390e55371df1276b.exe)
+     Running tests\t068_recursion_cap.rs (target\debug\deps\t068_recursion_cap-d8c5bb77af91497a.exe)
+     Running tests\t069_child_reviewer.rs (target\debug\deps\t069_child_reviewer-4b9d3622d1e59c77.exe)
+     Running tests\t071_engine_root.rs (target\debug\deps\t071_engine_root-d7dacb2e61748215.exe)
+     Running tests\t072_repository_namespace.rs (target\debug\deps\t072_repository_namespace-72dc95400d9f9f7f.exe)
+     Running tests\t073_lock_split.rs (target\debug\deps\t073_lock_split-9ae43991352a5b02.exe)
+     Running tests\t074_child_workspace.rs (target\debug\deps\t074_child_workspace-909bfe65cfdc4650.exe)
+     Running tests\t075_engine_transition_log.rs (target\debug\deps\t075_engine_transition_log-0331e1b5e47f9ed2.exe)
+     Running tests\t076_roots_table.rs (target\debug\deps\t076_roots_table-5182c321065b2797.exe)
+     Running tests\t077_presplit_residue.rs (target\debug\deps\t077_presplit_residue-1b6ce177d3af8a49.exe)
+     Running tests\t078_resolved_root_reporting.rs (target\debug\deps\t078_resolved_root_reporting-a120c5dad785b775.exe)
+     Running tests\t079_root_spelling.rs (target\debug\deps\t079_root_spelling-a1c4ca470dccfbc0.exe)
+     Running tests\t080_states_table.rs (target\debug\deps\t080_states_table-aefd6129fef31cd9.exe)
+     Running tests\t081_run_record.rs (target\debug\deps\t081_run_record-1ebf6d422c85ec47.exe)
+     Running tests\t082_precutover_residue.rs (target\debug\deps\t082_precutover_residue-f238ca3dceb157db.exe)
+     Running tests\t083_state_surfaces.rs (target\debug\deps\t083_state_surfaces-03a8c66127850cea.exe)
+     Running tests\t084_state_audit.rs (target\debug\deps\t084_state_audit-58d273dac6ca833e.exe)
+     Running tests\t085_rename_is_behavior_free.rs (target\debug\deps\t085_rename_is_behavior_free-252846b8bcb5b88e.exe)
+     Running tests\t086_single_engine_binary.rs (target\debug\deps\t086_single_engine_binary-add6640e0a4a1f66.exe)
+     Running tests\t087_no_work_item.rs (target\debug\deps\t087_no_work_item-7513a3bdbdf996ac.exe)
+     Running tests\t088_intake_authority.rs (target\debug\deps\t088_intake_authority-356159db1cbc9eda.exe)
+     Running tests\t089_bound_address.rs (target\debug\deps\t089_bound_address-c197b5dc60aea297.exe)
+     Running tests\t090_damage_checkpoint.rs (target\debug\deps\t090_damage_checkpoint-25a3163a5560eeae.exe)
+     Running tests\t091_open_work_item.rs (target\debug\deps\t091_open_work_item-dca636fb014b1ba0.exe)
+     Running tests\t092_plan_build_runbook.rs (target\debug\deps\t092_plan_build_runbook-04c38e92485d3c2c.exe)
+     Running tests\t093_stage_answer.rs (target\debug\deps\t093_stage_answer-c6dc065a7cfe5b24.exe)
+     Running tests\t094_edition_guard.rs (target\debug\deps\t094_edition_guard-9c19f2cd9c7ff779.exe)
+     Running tests\t095_edition_audit.rs (target\debug\deps\t095_edition_audit-7b3b3d3812b3b60d.exe)
+     Running tests\t101_engine_channels.rs (target\debug\deps\t101_engine_channels-8ce3bb7f1f643e00.exe)
+     Running tests\t102_stable_bootstrap.rs (target\debug\deps\t102_stable_bootstrap-27e6f2338bd8fe8e.exe)
+     Running tests\t103_self_describing_cli.rs (target\debug\deps\t103_self_describing_cli-fe461240413ecc74.exe)
+     Running tests\t104_operator_skill.rs (target\debug\deps\t104_operator_skill-318997673d6a422b.exe)
+   Doc-tests ratmac
+   Doc-tests ratmac_qa
+'''

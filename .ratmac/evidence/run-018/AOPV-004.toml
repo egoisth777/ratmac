@@ -1,0 +1,33 @@
+planned-test-id = "AOPV-004"
+ticket-id = "t-104"
+kind = "baseline-failure"
+command = "cargo test -p ratmac-qa --test t104_operator_skill the_skill_teaches_invariants_and_drives_a_run_to_terminal -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t104_operator_skill.rs"
+test-name = "the_skill_teaches_invariants_and_drives_a_run_to_terminal"
+exit-status = 101
+output-sha256 = "8877b02f08202f39c85e3e82ff49aab0fc306d9cd8ec3b6ccebfc6f450fecdd8"
+output = '''
+
+running 1 test
+test the_skill_teaches_invariants_and_drives_a_run_to_terminal ... FAILED
+
+failures:
+
+---- the_skill_teaches_invariants_and_drives_a_run_to_terminal stdout ----
+
+thread 'the_skill_teaches_invariants_and_drives_a_run_to_terminal' (33092) panicked at test\qa\tests\t104_operator_skill.rs:417:5:
+AOPV-004: rtm skill writes the skill to scan: rtm: unsupported command or option: skill
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    the_skill_teaches_invariants_and_drives_a_run_to_terminal
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.05s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests\t104_operator_skill.rs (target\debug\deps\t104_operator_skill-318997673d6a422b.exe)
+error: test failed, to rerun pass `-p ratmac-qa --test t104_operator_skill`
+'''

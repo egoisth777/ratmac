@@ -1,0 +1,25 @@
+ticket-id = "t-103"
+check-id = "HT-103-06"
+kind = "hidden-lane"
+command = "cargo test --offline ht_103_06"
+working-dir = "."
+exit-status = 0
+output-sha256 = "0379b60caa8d948d5d7715f75a161f49a26a2a5258e254c20a3f80d5d004e6c4"
+tree-roots = ["src", "test/qa", "tools", "test-hidden/t-103"]
+tree-sha256 = "2f07bbde25fc6cdfb97d4f49df186b0aa82a64e6c0af82d4a7ba873769dad1ce"
+output = '''
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+test ht_103_06_cross_feature_one_rename_moves_rendering_and_verdict ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.30s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running unittests src\lib.rs (target\debug\deps\ratmac_t103_hidden-072c7ca9a9c1e7d3.exe)
+     Running tests\hidden.rs (target\debug\deps\hidden-2b3c6bca762cd673.exe)
+'''

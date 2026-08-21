@@ -1,0 +1,19 @@
+ticket-id = "t-104"
+check-id = "AOPV-004"
+kind = "focused"
+command = "cargo test -p ratmac-qa --test t104_operator_skill the_skill_teaches_invariants_and_drives_a_run_to_terminal -- --exact"
+working-dir = "."
+exit-status = 0
+output-sha256 = "f060edfad7669e02e538f391ae33d0a3a0947bebdc642dc01ff4b59e152c405e"
+tree-roots = ["src", "test/qa", "tools", "test-hidden/t-104"]
+tree-sha256 = "5cf75f3b52a7ff7a0b62c80ebd68c8ba853d9c741528ba9e240844bb1c7bf8fc"
+output = '''
+
+running 1 test
+test the_skill_teaches_invariants_and_drives_a_run_to_terminal ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.66s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests\t104_operator_skill.rs (target\debug\deps\t104_operator_skill-318997673d6a422b.exe)
+'''

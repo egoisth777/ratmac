@@ -1,0 +1,33 @@
+planned-test-id = "AOPV-003"
+ticket-id = "t-104"
+kind = "baseline-failure"
+command = "cargo test -p ratmac-qa --test t104_operator_skill the_skill_subcommand_writes_once_and_never_overwrites -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t104_operator_skill.rs"
+test-name = "the_skill_subcommand_writes_once_and_never_overwrites"
+exit-status = 101
+output-sha256 = "7f6ca3595ce07b2d47ea161642af5793daa643f73a90050741974bd5de08102f"
+output = '''
+
+running 1 test
+test the_skill_subcommand_writes_once_and_never_overwrites ... FAILED
+
+failures:
+
+---- the_skill_subcommand_writes_once_and_never_overwrites stdout ----
+
+thread 'the_skill_subcommand_writes_once_and_never_overwrites' (13156) panicked at test\qa\tests\t104_operator_skill.rs:324:5:
+AOPV-003: rtm skill at a fresh path exits 0: rtm: unsupported command or option: skill
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    the_skill_subcommand_writes_once_and_never_overwrites
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.14s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running tests\t104_operator_skill.rs (target\debug\deps\t104_operator_skill-318997673d6a422b.exe)
+error: test failed, to rerun pass `-p ratmac-qa --test t104_operator_skill`
+'''

@@ -1,0 +1,19 @@
+ticket-id = "t-105"
+check-id = "CGDV-001"
+kind = "focused"
+command = "cargo test -p ratmac-qa --test t105_ticket_check_tags the_checker_reads_tags_and_ignores_prose -- --exact"
+working-dir = "."
+exit-status = 0
+output-sha256 = "21e90d88b74b23912827f6b536533479185ebf0fb4dd9d47f1439b09cde9e72f"
+tree-roots = ["src", "test/qa", "tools", "test-hidden/t-105"]
+tree-sha256 = "82b750b976f579ba952e30eb577afbb479da43ca20bf4a8d4160c45f00c7d6bd"
+output = '''
+
+running 1 test
+test the_checker_reads_tags_and_ignores_prose ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running tests\t105_ticket_check_tags.rs (target\debug\deps\t105_ticket_check_tags-c6de1d1f1e4399f8.exe)
+'''

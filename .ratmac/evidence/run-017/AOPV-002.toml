@@ -1,0 +1,48 @@
+planned-test-id = "AOPV-002"
+ticket-id = "t-103"
+kind = "baseline-failure"
+command = "cargo test -p ratmac-qa --test t103_self_describing_cli every_outcome_ends_in_one_truthful_next_line -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t103_self_describing_cli.rs"
+test-name = "every_outcome_ends_in_one_truthful_next_line"
+exit-status = 101
+output-sha256 = "49f8bb32fec405fe0b666e199e3256899c1e6ba90c57a139e057cbbbe286cb4d"
+output = '''
+
+running 1 test
+test every_outcome_ends_in_one_truthful_next_line ... FAILED
+
+failures:
+
+---- every_outcome_ends_in_one_truthful_next_line stdout ----
+
+thread 'every_outcome_ends_in_one_truthful_next_line' (46604) panicked at test\qa\tests\t103_self_describing_cli.rs:262:5:
+assertion `left == right` failed: AOPV-002: status on a live Run must end in exactly one next: line: Engine root: C:/Users/egois/AppData/Local/Temp/ratmac-t103-outcomes-40728-1787307411038414800/project/.ratmac
+State: prepare
+Status: planned
+Goal revision: 
+Input revision: 
+Output revision: 
+Active refs: 
+Blocker: 
+pending guard: files_exact
+
+Place the handoff artifact.
+
+Exit Guards:
+- files_exact path="handoff/proof.txt"
+
+  left: 0
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    every_outcome_ends_in_one_truthful_next_line
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.20s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests\t103_self_describing_cli.rs (target\debug\deps\t103_self_describing_cli-fe461240413ecc74.exe)
+error: test failed, to rerun pass `-p ratmac-qa --test t103_self_describing_cli`
+'''

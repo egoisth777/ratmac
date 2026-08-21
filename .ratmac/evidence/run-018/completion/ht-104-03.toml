@@ -1,0 +1,37 @@
+ticket-id = "t-104"
+check-id = "HT-104-03"
+kind = "hidden-lane"
+command = "cargo test --offline ht_104_03"
+working-dir = "."
+exit-status = 0
+output-sha256 = "804375cdf93a3f1fd33cf220a87900e4b9a4f399c31fdb4715b9ca1665f770ed"
+tree-roots = ["src", "test/qa", "tools", "test-hidden/t-104"]
+tree-sha256 = "5cf75f3b52a7ff7a0b62c80ebd68c8ba853d9c741528ba9e240844bb1c7bf8fc"
+output = '''
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+test ht_104_03_lifecycle_write_once_refuses_rewrite_and_writes_siblings_clean ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.27s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running unittests src\lib.rs (target\debug\deps\ratmac_t104_hidden-ab70c6957031139a.exe)
+     Running unittests src\bin\skill_probe.rs (target\debug\deps\skill_probe-3be65ee66f6f3ff0.exe)
+     Running unittests src\bin\skill_probe_variant.rs (target\debug\deps\skill_probe_variant-d40bfb51f9a0c65c.exe)
+     Running tests\hidden.rs (target\debug\deps\hidden-a4fdfb87e23446cf.exe)
+'''

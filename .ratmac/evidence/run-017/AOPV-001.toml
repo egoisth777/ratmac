@@ -1,0 +1,46 @@
+planned-test-id = "AOPV-001"
+ticket-id = "t-103"
+kind = "baseline-failure"
+command = "cargo test -p ratmac-qa --test t103_self_describing_cli status_names_what_each_guard_reads -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t103_self_describing_cli.rs"
+test-name = "status_names_what_each_guard_reads"
+exit-status = 101
+output-sha256 = "3361a853aa948cfbde85f0e6ba966666d167a539b6e438579e86b11008a9b409"
+output = '''
+
+running 1 test
+test status_names_what_each_guard_reads ... FAILED
+
+failures:
+
+---- status_names_what_each_guard_reads stdout ----
+
+thread 'status_names_what_each_guard_reads' (48352) panicked at test\qa\tests\t103_self_describing_cli.rs:387:9:
+AOPV-001: the pending stock guard must render its declared reads as "pending guard: files_exact root=\"work\" path=\"release\" entries=[\"proof.txt\"]": Engine root: C:/Users/egois/AppData/Local/Temp/ratmac-t103-guards-47040-1787307410753830200/project/.ratmac
+State: stock
+Status: executing
+Goal revision: goal-r1
+Input revision: input-r1
+Output revision: output-r0
+Active refs: 
+Blocker: 
+pending guard: files_exact
+
+Place the declared files.
+
+Exit Guards:
+- files_exact root="work" path="release" entries=["proof.txt"]
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    status_names_what_each_guard_reads
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.19s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests\t103_self_describing_cli.rs (target\debug\deps\t103_self_describing_cli-fe461240413ecc74.exe)
+error: test failed, to rerun pass `-p ratmac-qa --test t103_self_describing_cli`
+'''

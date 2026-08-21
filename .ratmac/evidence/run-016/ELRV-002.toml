@@ -1,0 +1,36 @@
+planned-test-id = "ELRV-002"
+ticket-id = "t-102"
+kind = "baseline-failure"
+command = "cargo test -p ratmac-qa --test t102_stable_bootstrap stable_resolves_from_the_invoking_checkout_and_builds_the_tagged_tree -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t102_stable_bootstrap.rs"
+test-name = "stable_resolves_from_the_invoking_checkout_and_builds_the_tagged_tree"
+exit-status = 101
+output-sha256 = "1b970e4e683cb460f1039b85ab3533350a486600d36d005672818b45896cb8d7"
+output = '''
+
+running 1 test
+test stable_resolves_from_the_invoking_checkout_and_builds_the_tagged_tree ... FAILED
+
+failures:
+
+---- stable_resolves_from_the_invoking_checkout_and_builds_the_tagged_tree stdout ----
+
+thread 'stable_resolves_from_the_invoking_checkout_and_builds_the_tagged_tree' (12276) panicked at test\qa\tests\t102_stable_bootstrap.rs:194:9:
+ELR-002: invoked at B with -Channel stable the bootstrap must resolve edition-001 from B's ledger, build the tagged commit in a separate clean checkout, and succeed; it refused at resolution inside the invoking tree instead:
+bootstrap refused: stable: HEAD is 010a738af71c01ab3ca45b96ade9832745b7119e but stable is edition-001 at 123ee70d24ab73f4a3ca7516557a1c32bdd8c911; a stable engine is built from the stable commit, never from the tree under judgment
+  git -c advice.detachedHead=false checkout 123ee70d24ab73f4a3ca7516557a1c32bdd8c911
+  pwsh -File tools/rtm.ps1 -Channel stable
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    stable_resolves_from_the_invoking_checkout_and_builds_the_tagged_tree
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.26s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running tests\t102_stable_bootstrap.rs (target\debug\deps\t102_stable_bootstrap-27e6f2338bd8fe8e.exe)
+error: test failed, to rerun pass `-p ratmac-qa --test t102_stable_bootstrap`
+'''

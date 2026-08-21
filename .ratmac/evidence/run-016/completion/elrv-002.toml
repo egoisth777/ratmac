@@ -1,0 +1,19 @@
+ticket-id = "t-102"
+check-id = "ELRV-002"
+kind = "focused"
+command = "cargo test -p ratmac-qa --test t102_stable_bootstrap stable_resolves_from_the_invoking_checkout_and_builds_the_tagged_tree -- --exact"
+working-dir = "."
+exit-status = 0
+output-sha256 = "970e352ebc0f562c5659693856bc7e295ea3e4654b53674f1890fc2d730630c8"
+tree-roots = ["src", "test/qa", "tools", "test-hidden/t-102"]
+tree-sha256 = "e60012f44c19ebcdebbcfd22994cca203af04654c6497d19c30f578ca0ce5229"
+output = '''
+
+running 1 test
+test stable_resolves_from_the_invoking_checkout_and_builds_the_tagged_tree ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.19s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests\t102_stable_bootstrap.rs (target\debug\deps\t102_stable_bootstrap-27e6f2338bd8fe8e.exe)
+'''
