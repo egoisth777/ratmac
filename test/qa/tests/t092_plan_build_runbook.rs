@@ -413,6 +413,39 @@ fn the_cycle_runs_from_intake_to_rest() {
         cycle.root.join(".arca/ticket/archive/t-100.md"),
     )
     .expect("archive the finished item");
+    // `LNR-003`: the wired close guard reads the lane sweep's verdict, so the
+    // fixture carries the sweep tool, a one-crate roster, and a genuinely
+    // swept report in which every rostered lane passes.
+    fs::create_dir_all(cycle.root.join("tools")).expect("create fixture tools");
+    fs::copy(
+        repo_root().join("tools/sweep_lanes.py"),
+        cycle.root.join("tools/sweep_lanes.py"),
+    )
+    .expect("ship the sweep beside the fixture runbook");
+    cycle.write(
+        ".ratmac/lanes.toml",
+        "[roots]\nlanes = \"test-hidden\"\nreport = \".ratmac/evidence/lane-sweep/report.md\"\nroster = [\"t-900\"]\n",
+    );
+    cycle.write(
+        "test-hidden/t-900/Cargo.toml",
+        "[package]\nname = \"t900-hidden\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    cycle.write("test-hidden/t-900/src/main.rs", "fn main() {}\n");
+    cycle.write(
+        "test-hidden/t-900/tests/hidden.rs",
+        "#[test]\nfn ht_900_01_passes() {}\n",
+    );
+    let swept = Command::new("python")
+        .arg(cycle.root.join("tools/sweep_lanes.py"))
+        .arg("sweep")
+        .current_dir(&cycle.root)
+        .output()
+        .expect("invoke the fixture sweep");
+    assert!(
+        swept.status.success(),
+        "the fixture sweep passes its one rostered lane: {}",
+        combined(&swept)
+    );
     // `EDN-002`: the closing State may not be left unmarked. The traversal ends
     // its turn on an edition, exactly as this repository's own sprints do.
     cycle.commit("the turn's green landing");

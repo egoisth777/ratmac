@@ -736,16 +736,18 @@ fn the_close_guard_refuses_only_a_red_unexpired_verdict() {
         diff.contains("sweep_lanes.py") && diff.contains("expected = 0"),
         "the prepared diff carries the guard it exists to add: {diff}"
     );
-    // The tracked runbook itself is untouched: a live Run pins it (FDC-005),
-    // so the wiring waits for the cycle boundary.
+    // The boundary arrived: the tracked runbook carries the wired sweep
+    // guard exactly once (it was wired after the pinning Run rested). The
+    // prepared-diff properties are proven from the reconstructed pre-wiring
+    // base: the diff reverse-applies off the wired runbook and
+    // forward-applies back onto that base.
     let runbook = fs::read_to_string(root.join(".ratmac/ratmac.toml")).unwrap();
-    assert!(
-        !runbook.contains("sweep_lanes.py"),
-        "the prepared guard is not applied to the tracked runbook yet: {runbook}"
+    assert_eq!(
+        runbook.matches("sweep_lanes.py").count(),
+        1,
+        "the tracked runbook carries the wired sweep guard exactly once: {runbook}"
     );
 
-    // The diff applies cleanly to the tracked runbook and adds exactly one
-    // command_exit guard beside the edition guard - nothing else.
     let apply_root = std::env::temp_dir().join(format!(
         "ratmac-t108-apply-{}-{}",
         std::process::id(),
@@ -756,6 +758,25 @@ fn the_close_guard_refuses_only_a_red_unexpired_verdict() {
     ));
     fs::create_dir_all(apply_root.join(".ratmac")).expect("create apply fixture");
     fs::write(apply_root.join(".ratmac/ratmac.toml"), &runbook).expect("copy the runbook");
+    // Git cannot open Windows verbatim (`\\?\`) paths from the canonicalized
+    // repository root, so the fixture applies the diff from its own tree.
+    fs::copy(&diff_path, apply_root.join("close-guard.diff"))
+        .expect("stage the prepared diff in the apply fixture");
+    let reversed = Command::new("git")
+        .args(["apply", "-R", "close-guard.diff"])
+        .current_dir(&apply_root)
+        .output()
+        .expect("invoke git apply -R");
+    assert!(
+        reversed.status.success(),
+        "the wired guard reverse-applies to reconstruct the pre-wiring base: {}",
+        combined(&reversed)
+    );
+    let runbook = fs::read_to_string(apply_root.join(".ratmac/ratmac.toml")).unwrap();
+    assert!(
+        !runbook.contains("sweep_lanes.py"),
+        "the pre-wiring base carries no sweep guard: {runbook}"
+    );
     assert!(git_in(&apply_root, &["init", "--quiet"]).status.success());
     assert!(git_in(&apply_root, &["add", "-A"]).status.success());
     assert!(
