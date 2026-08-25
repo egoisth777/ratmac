@@ -32,6 +32,7 @@ pub mod targets;
 pub mod tempgit;
 pub mod ticket_tags;
 pub mod trial;
+pub mod turn;
 
 #[cfg(test)]
 mod tests {
