@@ -1,0 +1,33 @@
+planned-test-id = "LNRV-005"
+ticket-id = "t-108"
+kind = "baseline-failure"
+command = "cargo test -p ratmac-qa --test t108_lane_sweep a_sweep_changes_only_the_report_and_a_marker_changes_only_its_own_bytes -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t108_lane_sweep.rs"
+test-name = "a_sweep_changes_only_the_report_and_a_marker_changes_only_its_own_bytes"
+exit-status = 101
+output-sha256 = "cf24c3c53e68fc46aa24b165c251180e58972f83d011e90a83163f1eaad35130"
+output = '''
+
+running 1 test
+test a_sweep_changes_only_the_report_and_a_marker_changes_only_its_own_bytes ... FAILED
+
+failures:
+
+---- a_sweep_changes_only_the_report_and_a_marker_changes_only_its_own_bytes stdout ----
+
+thread 'a_sweep_changes_only_the_report_and_a_marker_changes_only_its_own_bytes' (33240) panicked at test\qa\tests\t108_lane_sweep.rs:942:5:
+the full sweep completes: python: can't open file '\\\\?\\E:\\repos\\projs\\skill-dev\\ratmac-red108\\tools\\sweep_lanes.py': [Errno 2] No such file or directory
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    a_sweep_changes_only_the_report_and_a_marker_changes_only_its_own_bytes
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.15s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests\t108_lane_sweep.rs (target\debug\deps\t108_lane_sweep-103810ec467db676.exe)
+error: test failed, to rerun pass `-p ratmac-qa --test t108_lane_sweep`
+'''

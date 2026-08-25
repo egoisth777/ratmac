@@ -1,0 +1,19 @@
+ticket-id = "t-108"
+check-id = "LNRV-004"
+kind = "focused"
+command = "cargo test -p ratmac-qa --test t108_lane_sweep the_close_guard_refuses_only_a_red_unexpired_verdict -- --exact"
+working-dir = "."
+exit-status = 0
+output-sha256 = "39c0609e9f76e4b258cefdf74bc78183e1d85a254410b01fa8d911a9c362552a"
+tree-roots = ["src", "test/qa", "tools", "test-hidden/t-108"]
+tree-sha256 = "cf14e94d45ff13da16c1d67ef3139fc386bdb3e80af82e7443ae6c352ef16749"
+output = '''
+
+running 1 test
+test the_close_guard_refuses_only_a_red_unexpired_verdict ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 6.71s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests\t108_lane_sweep.rs (target\debug\deps\t108_lane_sweep-103810ec467db676.exe)
+'''

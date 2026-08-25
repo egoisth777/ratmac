@@ -1,0 +1,19 @@
+ticket-id = "t-108"
+check-id = "LNRV-003"
+kind = "focused"
+command = "cargo test -p ratmac-qa --test t108_lane_sweep an_expiry_marker_moves_a_lane_out_of_both_counts_naming_its_edition -- --exact"
+working-dir = "."
+exit-status = 0
+output-sha256 = "f9f502335d7d21f621b78e92c906d346581a3412ea495aa26aaaaa1020750a45"
+tree-roots = ["src", "test/qa", "tools", "test-hidden/t-108"]
+tree-sha256 = "cf14e94d45ff13da16c1d67ef3139fc386bdb3e80af82e7443ae6c352ef16749"
+output = '''
+
+running 1 test
+test an_expiry_marker_moves_a_lane_out_of_both_counts_naming_its_edition ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 2.26s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests\t108_lane_sweep.rs (target\debug\deps\t108_lane_sweep-103810ec467db676.exe)
+'''

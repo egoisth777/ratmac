@@ -1,0 +1,31 @@
+ticket-id = "t-108"
+check-id = "HT-108-02"
+kind = "hidden-lane"
+command = "cargo test --offline ht_108_02"
+working-dir = "."
+exit-status = 0
+output-sha256 = "cb91956e2819570d8f6a5b5c9377ae16f2d63795b7af14a6bae1379dbe77f137"
+tree-roots = ["src", "test/qa", "tools", "test-hidden/t-108"]
+tree-sha256 = "cf14e94d45ff13da16c1d67ef3139fc386bdb3e80af82e7443ae6c352ef16749"
+output = '''
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+test ht_108_02_input_routing_each_shape_judged_by_its_own_rule ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 2.78s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running unittests src\lib.rs (target\debug\deps\ratmac_t108_hidden-f3878420fbbb5a48.exe)
+     Running unittests ..\..\src\bin\rtm.rs (target\debug\deps\rtm-eb5ef85e476ed1ca.exe)
+     Running tests\hidden.rs (target\debug\deps\hidden-4db3449ea7155f2b.exe)
+'''
