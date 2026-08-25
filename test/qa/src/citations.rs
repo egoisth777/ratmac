@@ -838,14 +838,12 @@ fn deepen_relative_links(text: &str) -> String {
             return out;
         };
         let target = &rest[..close];
-        let deepened = if target.starts_with('#')
-            || target.starts_with('/')
-            || target.contains("://")
-        {
-            target.to_owned()
-        } else {
-            format!("../{target}")
-        };
+        let deepened =
+            if target.starts_with('#') || target.starts_with('/') || target.contains("://") {
+                target.to_owned()
+            } else {
+                format!("../{target}")
+            };
         out.push_str(&deepened);
         out.push(')');
         rest = &rest[close + 1..];
