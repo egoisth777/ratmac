@@ -12,20 +12,20 @@
 
 ## Goal/Test File Traces
 
-Statuses describe the tree at filing; the P1 pass that decides each ask
-updates them.
+Statuses describe the tree after the 2026-08-24 P1 integration.
 
 | Goal/Test File | Status | Reverse Issue Refs |
 | :--- | :--- | :--- |
-| `.arca/goal/index.md` | unaffected | - |
-| `.arca/goal/ubi-lang.md` | unaffected | - |
-| `.arca/goal/spec.md` | unaffected | - |
-| `.arca/goal/design.md` | unaffected | - |
-| `.arca/goal/test-list.md` | unaffected | - |
+| `.arca/goal/index.md` | updated | Integrated landed-lane-runnability section at P1 |
+| `.arca/goal/ubi-lang.md` | updated | Sweep, expiry marker, last-good edition |
+| `.arca/goal/spec.md` | updated | LNR-001..LNR-003 |
+| `.arca/goal/design.md` | updated | ADR-0020 records the marker-home, schedule, and sweep-owner decisions |
+| `.arca/goal/test-list.md` | updated | LNRV-001..LNRV-005 |
 
 ## Contributor Authority/Schema Traces
 
 | Authority or Schema Artifact | Status | Integration and Reverse Refs |
 | :--- | :--- | :--- |
 | `AGENTS.md` | unaffected | - |
-| `.arca/schema.md` | unaffected | - |
+| `.arca/schema.md` | unaffected at integration | the close wiring is a runbook edit the ticket lands (`ADR-0020`) |
+| `.arca/steering.md` | updated | Current sprint regenerated at P1 close; this issue advances the Every-boundary-machine-checked Ideal-shape property |

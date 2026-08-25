@@ -13,16 +13,17 @@
 
 | Goal/Test File | Status | Reverse Issue Refs |
 | :--- | :--- | :--- |
-| `.arca/goal/index.md` | unaffected | - |
-| `.arca/goal/ubi-lang.md` | unaffected | - |
-| `.arca/goal/spec.md` | unaffected | - |
-| `.arca/goal/design.md` | unaffected | - |
-| `.arca/goal/test-list.md` | unaffected | - |
+| `.arca/goal/index.md` | updated | Integrated turn housekeeping section at P1 |
+| `.arca/goal/ubi-lang.md` | updated | Item turn, carried lanes, only-copy refusal, trunk |
+| `.arca/goal/spec.md` | updated | THK-001..THK-004 |
+| `.arca/goal/design.md` | updated | ADR-0018 records the boundary decisions |
+| `.arca/goal/test-list.md` | updated | THKV-001..THKV-004 |
 
 ## Contributor Authority/Schema Traces
 
 | Authority or Schema Artifact | Status | Integration and Reverse Refs |
 | :--- | :--- | :--- |
 | `AGENTS.md` | unaffected | - |
-| `.arca/schema.md` | unaffected at filing | The prose duty at [Units and git](../../schema.md#units-and-git) is the order `THK-002` mechanizes; if P1 accepts, the section's revision resolves there and the trial-worktree ownership wording ([Trial worktrees](../../schema.md#trial-worktrees)) gains its turn-lifecycle sibling. |
+| `.arca/schema.md` | unaffected at integration | P1 resolved `THK-001`-`THK-004` as goal rows (`ADR-0018`); the Units-and-git prose revision and the trial-worktree ownership sibling land with the tickets that prove them |
 | `.arca/wishlist.md` | carrier | The 2026-08-03 housekeeping wish stays until a landing fulfills it; this bundle is its intake carrier. |
+| `.arca/steering.md` | updated | Current sprint regenerated at P1 close; this issue advances the Every-boundary-machine-checked and Self-hosted Ideal-shape properties |

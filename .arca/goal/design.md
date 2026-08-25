@@ -483,3 +483,71 @@ the tagged commit's own stale ledger is expected, not a defect. The build checko
 must match the tagged commit exactly, so a workaround that overlays files into it is a
 refusal - the class of trust leak the 2026-08-21 sprint setup exposed.
 
+
+## The turn lifecycle is shop tooling beside the trial lifecycle (ADR-0018)
+
+**Decision.** The turn-housekeeping commands ship as one repo-local lifecycle
+entry point beside the trial lifecycle - `open` and `close` verbs with a
+`status` dry run - not an Engine subcommand and not a runbook-declared
+lifecycle the Engine drives, per the 2026-08-24 planning pass confirming the
+bundle's proposal: the choreography mutates Git plumbing and untracked lanes
+the Engine never owns, the work item stays the opaque binding string a Run
+already carries (`PCR-007`, `NRR-001`), and the trial lifecycle proves the
+shape on this repository (`TWL-001`-`TWL-010`). Recovery when an interrupted
+close cannot resume cleanly belongs to the invoking human or Main-Agent from
+the primary checkout (`TWL-010`'s ownership table): the close refuses naming
+the completed steps and prints the recovery commands; a Subagent invokes no
+lifecycle verb.
+
+**Consequences.** The Engine stays free of work-item and Git-worktree
+knowledge, and any project reuses the mechanism by declaring its lanes root,
+trunk branch, skip list, stamp field, and landing log as runbook data (the
+`[roots]` table shape). The prose duty in the schema's Units-and-git rules
+becomes the specification the close mechanizes, so that section's revision
+lands with the tickets that prove `THK-001`-`THK-004`; the fixed order -
+merge, verified copy-back, stamp, log line, removal, trunk rerun - is
+enforced exactly where a slip is destructive, with removal last behind the
+only-copy refusal.
+
+## The citation check ships in the qa crate; reachability is any ref (ADR-0019)
+
+**Decision.** The resolving-citation check (`RCR-002`) is carried by the qa
+crate walking this repository - the checker that already learns a ticket's
+checks from its tags - not by the Engine's `record_contract` gate:
+`implementation-revision`'s `git:` citation convention is this shop's
+working-file contract, while the engine gate stays generic over parseable
+citations. Reachability binds any ref, not `HEAD` alone - an edition tag
+holds its commit reachable by design, so a record citing a tagged edition
+commit must not fail for not sitting on `HEAD`'s first-parent line. The
+stamp-landing order (`RCR-001`) is confirmed as the working rule the stamp
+step and the turn close (`THK-002`) mechanize.
+
+**Consequences.** The check runs where the records live and refuses at the
+archive move (`RCR-003`); the eleven rotted citations found at filing seed
+the enumerated allowlist, each row naming its record, hash, and reason, and
+a row that matches nothing fails as stale. Post-rule records get no allowlist
+path - the archive move is where a new citation is proved. The Engine's
+record contract is untouched, so a project without git-hash citations is
+unaffected.
+
+## Landed lanes sweep on demand and expire by in-crate marker (ADR-0020)
+
+**Decision.** The sweep is shop-lane tooling under `tools/`, in the shape of
+`tools/check_links.py` - one command enumerating `test-hidden/t-*/` in id
+order and writing one report artifact under a declared root; the Engine
+learns nothing about lanes and no new build target is minted. The expiry
+marker lives inside the crate it marks - the wish's own words, an expiry
+marker a lane carries - so it travels with the copy-back discipline and dies
+with the crate; a tracked summary may cite it but never replaces it. The
+sweep runs on demand, with no standing cadence, and the close wiring is what
+makes it load-bearing: one `command_exit`-class guard (`LNR-003`) beside
+`EDN-002`'s, refusing only on a `red`, unexpired verdict. Expired lanes are
+skipped by default, with an explicit verify mode that runs them anyway so a
+marker cannot quietly outlive its lane's recovery.
+
+**Consequences.** Rot becomes a dated, visible fact instead of a silent
+class confusion: `red` always means a live regression, `expired` names the
+last-good edition, and the pre-split crates become the first visible
+decision the marker exists to hold. A runbook that declines to read the
+verdict stays legal - the wiring is permissive; the verdict's meaning when
+read is what binds.

@@ -3,7 +3,7 @@
 ```yaml
 issue-id: "i-037-landed-lanes-stay-runnable"
 provenance: "Wishlist, `Keep a landed ticket's private lanes runnable, or mark them expired` - Billy's shop, filed 2026-08-10; re-evidenced at filing: the 2026-08-21 sprint landed t-102..t-105 into a `test-hidden/` that now holds t-058..t-105 with no runner"
-status: "pending"
+status: "integrated"
 ```
 
 ## Summary
@@ -48,3 +48,6 @@ nobody ran (`LNR-003`).
 
 - 2026-08-24: filed from the wishlist by the DESIGNER; dispositions are the
   author's proposal, P1 confirms or revises at integration.
+- 2026-08-24: P1 integrated all three asks as accepted goal rows
+  LNR-001..LNR-003; the marker-home, schedule, and sweep-owner choices are
+  recorded at ADR-0020 in the goal design.

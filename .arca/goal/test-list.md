@@ -301,3 +301,30 @@ Behavior checks derived from [spec.md](spec.md). Each is a testable one-liner.
 |---|---|---|
 |ELRV-002|On a fixture repository whose tagged edition commit carries a stale ledger row while the invoking checkout's row agrees with the tag, the stable bootstrap resolves, builds in a clean checkout, and stamps provenance; the same invocation refuses on an invoking-checkout ledger/tag disagreement, and refuses when the build checkout's tree differs from the tagged commit.|ELR-002|
 
+## Integrated turn-housekeeping verification
+
+|ID|Check|Requirement|
+|---|---|---|
+|THKV-001|On a fixture repository, `open` creates the item-named branch with its registered sibling worktree and the lanes root copied in, each lane's build output skipped. A dirty trunk, a colliding branch, a colliding worktree registration, and a missing lanes root each refuse with a named reason, and refs, index, both working trees, and worktree registrations are byte-identical before and after each refusal.|THK-001|
+|THKV-002|On a fixture repository with a green turn open, `close` completes merge, verified copy-back, stamp, log line, removal, branch delete, and trunk rerun in order, each observable after the command. With one step forced to fail (an unmergable trunk; a copy-back whose verification cannot pass), the command refuses at that step, later steps do not run, and a re-invocation after repairing the cause resumes from the refusal without repeating a landed mutation — proven by the merge commit and log line counting exactly once.|THK-002|
+|THKV-003|A worktree holding an untracked crate absent from the primary checkout refuses removal naming the crate and its copy-back; a force-flag variant of the same removal refuses identically; after a verified copy-back the removal proceeds. The t-076 shape — removal invoked before copy-back — is replayed as the red case: the guard refuses, and the crate survives.|THK-003|
+|THKV-004|The dry run prints each mutating verb's planned mutations and recovery commands; refs, index, working trees, tags, and worktree registrations are byte-identical before and after. An invocation from inside the turn worktree refuses by name with the `cd` that fixes it; no code path kills a process or forces a removal.|THK-004|
+
+## Integrated records-cite-resolving-commits verification
+
+|ID|Check|Requirement|
+|---|---|---|
+|RCRV-001|The working rules state the stamp-landing order (stamp landing follows the merged green landing; the hash is derived by resolving the landed tip), and a scan finds no live rule instructing a record to carry the hash of a commit it lands inside.|RCR-001|
+|RCRV-002|On this repository: before the allowlist the check refuses naming exactly the rotted citations (11 at filing — res-116/117, res-124/125, res-147..153); with the enumerated allowlist it passes; every allowlist row matches a real record, and deleting a matched row's record fails that row as stale.|RCR-002|
+|RCRV-003|A fixture repository: a record citing a commit that a later amend orphans refuses, naming the record and the hash; the same record citing the amended (reachable) commit passes; a record citing a hash that never existed refuses; a record citing a commit held only by a tag passes.|RCR-002|
+|RCRV-004|A fixture amend after stamping: one stamp step re-derives the record's `implementation-revision` and the ticket's `landed-commit` in the same change; the residual archive move refuses while either cites an unresolvable commit outside the allowlist and passes once re-pointed.|RCR-003|
+
+## Integrated landed-lane-runnability verification
+
+|ID|Check|Requirement|
+|---|---|---|
+|LNRV-001|The sweep over this repository reports one verdict per crate for `t-058`..`t-105` plus a total, and names a crate removed from the folder rather than silently skipping it.|LNR-001|
+|LNRV-002|The first sweep run separates the 2026-08-21 crates from the 2026-08-10 findings: `t-102`..`t-105` read `pass` against today's Engine, and every other verdict is `red` with lane ids or `expired` with an edition - never a bare, unexplained failure.|LNR-001|
+|LNRV-003|A crate whose lanes refuse with no marker reads `red`; writing a marker naming an edition flips its verdict to `expired` and moves it out of both the pass count and the red count; `t-078` and `t-079` read `expired` once marked, never `red`.|LNR-002|
+|LNRV-004|A close whose report names a red, unexpired lane refuses; the same close passes once the lane is green or marked; the Machine Class diff that wires it adds a `command_exit`-class guard and nothing else.|LNR-003|
+|LNRV-005|A tree snapshot around a full sweep is byte-identical apart from the report artifact; marking and un-marking change exactly the marker's own bytes.|LNR-001`, `LNR-002|

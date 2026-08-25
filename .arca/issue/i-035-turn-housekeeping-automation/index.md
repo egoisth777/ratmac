@@ -3,7 +3,7 @@
 ```yaml
 issue-id: "i-035-turn-housekeeping-automation"
 provenance: "Wishlist 'Automate ticket and cycle housekeeping end to end' (Advisor, 2026-08-03), plus recurrence evidence from the 2026-08-21 sprint: git worktree remove --force again destroyed a green turn's only hidden-lane crate (t-102's gitignored test-hidden/t-102/, before copy-back; recovered only because the authoring context was still alive) - the same loss class as t-076 (.arca/log.md:310) under a rule that already fixes the order in prose (.arca/schema.md, Units and git: cycle-end git discipline)"
-status: "pending"
+status: "integrated"
 ```
 
 ## Summary
@@ -54,3 +54,6 @@ concept.
 - 2026-08-24: filed from the wishlist by the DESIGNER, carrying the
   2026-08-21 t-102 recurrence as fresh evidence. Dispositions are the
   author's proposal; P1 confirms or revises at integration.
+- 2026-08-24: P1 integrated all four asks as accepted goal rows
+  THK-001..THK-004; the command-boundary, lifecycle-home, and
+  recovery-ownership choices are recorded at ADR-0018 in the goal design.

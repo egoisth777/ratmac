@@ -121,4 +121,13 @@ Glossary of ubiquitous language. One term, one meaning. Terms not listed here mu
 | Agent operator protocol | The generic, project-independent instructions an agent needs to be driven by any runbook: orient, read the state prompt, work, place artifacts, step, branch on refusal codes, never write run state. |
 | Operator skill | The thin static skill folder (`SKILL.md` plus references) the engine writes to teach the operating loop to skill-aware harnesses; invariant behavior only, no flag enumeration, stamped with the writing engine's identity. |
 | Recording landing | The landing immediately after an edition is tagged, whose whole job is appending that edition's ledger row citing the tagged commit's full hash; the row is immutable from then on. |
+| Item turn | One build turn over one work item: a linked worktree on a branch named after the item, opened at turn start and closed at green. The 2026-08-21 sprint's t-102 through t-105 were four item turns run by hand. |
+| Carried lanes | The untracked lanes root that travels with a turn — copied into the worktree at open (build output skipped), authored there, copied back to the primary checkout before any removal. In this repository `test-hidden/`. Because it is gitignored and committed nowhere, a worktree holding it holds its only copy. |
+| Only-copy refusal | The guard that refuses a destructive removal while the worktree holds an artifact that exists nowhere else, naming the artifact and the copy-back that would release it. No flag bypasses it; a named declaration of obsolescence clears it. |
+| Trunk | The primary checkout's main branch, which a green turn merges into. `main` here; declared runbook data, not a hardcoded name. |
+| Resolving citation | A `git:` hash in a record's `implementation-revision` that names a commit reachable from the repository's refs. A hash that exists only as a dangling object is not resolving: `git cat-file` answering is not resolution. |
+| Stamp landing | The landing after the merged green landing where a satisfied record's `implementation-revision` and its ticket's `landed-commit` are written, the hash derived from the repository at that moment. The gap-record counterpart of ELR-001's recording landing. |
+| Sweep | The one shop-lane command that runs every crate under `test-hidden/` from the primary checkout, outside any ticket turn, and reports one verdict per crate: `pass`, `expired`, or `red` with lane ids. |
+| Expiry marker | The explicit record a lane carries when it can no longer run green, naming the edition it last passed at, the date, and the reason; written by an explicit act, never by silence. |
+| Last-good edition | The edition an expiry marker names: the newest edition against which the crate's lanes ran green. |
 

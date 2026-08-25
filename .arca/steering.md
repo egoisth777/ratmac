@@ -174,21 +174,32 @@ Derived record. Regenerated wholesale at P1 close from the signed issue set;
 never hand-edited, never a progress report. Stage lives in the tree.
 
 Freeze stamp: `git:03eacee` +
-`goal-sha256:5d03d8cd5a62dc1f7849d4debee3022d20f0d137bade7c4173876153f393eb4e`
-- the P1 integration HEAD and the canonical goal revision recorded by the
-Engine at the run-013 freeze. P1 opened and closed 2026-08-21 on one signed
-batch of three: the agent-operator-protocol issue (`i-033`, accepted), the
-revised completion-gate issue (`i-032`, `CGD-001`/`CGD-002` accepted,
-`CGD-003` deferred), and the edition-ledger-recording issue (`i-034`,
-accepted). The gap check and every ticket are cut against this stamp.
+`goal-sha256:69d76bc6001de4765ff25358cd3cc181ea84a8880edf49f673b148ec45424fd9`
+- the last landed goal HEAD at regeneration and the canonical goal revision
+computed by `src/goal.rs::revision` over the integrated goal bundle; the P1
+landing restamps the git half with its own short hash. P1 opened and closed
+2026-08-24 on one signed batch of three: the turn-housekeeping issue
+(`i-035`, accepted), the records-cite-resolving-commits issue (`i-036`,
+accepted), and the landed-lanes-stay-runnable issue (`i-037`, accepted) -
+the safety-debt sprint: the turn lifecycle stops eating its own artifacts.
+The gap check and every ticket are cut against this stamp.
 
 Route - ordered dependencies of the signed sprint, one why per edge:
 
-1. The self-describing CLI (`AOP-001`, `AOP-002`, from `i-033`) precedes the
-   operator skill (`AOP-003`, `AOP-004`, same issue) - the skill points at
-   the CLI's own output for everything current, so the output it points at
-   must exist first.
-2. The stable-bootstrap split (`ELR-002`, from `i-034`) depends on nothing in
-   this sprint and unblocks every future sprint's driver build.
-3. The tag-reading ticket checker (`CGD-001`, `CGD-002`, from `i-032`)
-   depends on nothing in this sprint; its tag format landed at integration.
+1. The stamp-landing order (`RCR-001`, from `i-036`) precedes the mechanized
+   close (`THK-002`, from `i-035`) - the close's stamp step derives the
+   landed-commit hash after the merge, so the order it mechanizes must be
+   fixed first or the mechanism bakes in the self-reference `RCR-001`
+   retires.
+2. The resolving-citation check (`RCR-002`, from `i-036`) precedes the
+   re-derivation duty (`RCR-003`, same issue) - the archive-move refusal and
+   the re-stamp discharge are proved by that check; without it the duty is
+   hand discipline again.
+3. The open verb (`THK-001`, from `i-035`) precedes the close, the only-copy
+   refusal, and the dry run (`THK-002`-`THK-004`, same issue) - close
+   resumes steps recorded against the turn open created, the refusal guards
+   the removal inside close, and the dry run previews verbs that must exist.
+4. The sweep (`LNR-001`, from `i-037`) precedes the expiry marker and the
+   close wiring (`LNR-002`, `LNR-003`, same issue) - a marker's verdict and
+   the guard's read both consume the sweep's report; nothing else in this
+   sprint feeds them.

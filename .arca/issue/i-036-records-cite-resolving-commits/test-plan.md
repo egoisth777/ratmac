@@ -13,15 +13,16 @@
 
 | Goal/Test File | Status | Reverse Issue Refs |
 | :--- | :--- | :--- |
-| `.arca/goal/index.md` | unaffected | |
-| `.arca/goal/ubi-lang.md` | unaffected | |
-| `.arca/goal/spec.md` | unaffected | |
-| `.arca/goal/design.md` | unaffected | |
-| `.arca/goal/test-list.md` | unaffected | |
+| `.arca/goal/index.md` | updated | Integrated records-cite-resolving-commits section at P1 |
+| `.arca/goal/ubi-lang.md` | updated | Resolving citation, stamp landing |
+| `.arca/goal/spec.md` | updated | RCR-001..RCR-003 |
+| `.arca/goal/design.md` | updated | ADR-0019 records the carrier and reachability decisions |
+| `.arca/goal/test-list.md` | updated | RCRV-001..RCRV-004 |
 
 ## Contributor Authority/Schema Traces
 
 | Authority or Schema Artifact | Status | Integration and Reverse Refs |
 | :--- | :--- | :--- |
 | `AGENTS.md` | unaffected | |
-| `none` | unaffected | |
+| `.arca/schema.md` | unaffected at integration | `RCR-001`'s stamp-landing order lands as working-rules text with the ticket that proves it (`ADR-0019`) |
+| `.arca/steering.md` | updated | Current sprint regenerated at P1 close; this issue advances the Every-boundary-machine-checked Ideal-shape property |

@@ -3,7 +3,7 @@
 ```yaml
 issue-id: "i-036-records-cite-resolving-commits"
 provenance: "Wishlist, 'A gap record must never cite a commit that no longer resolves' — Billy's shop, filed 2026-08-10; fresh evidence from the 2026-08-21 sprint close: res-147..res-153 cite four 'green landing' hashes that survive only as dangling objects"
-status: "pending"
+status: "integrated"
 ```
 
 ## Summary
@@ -41,6 +41,9 @@ citation, so the stamp is proved at closure instead of remembered.
   record ids for the four hand corrections (`res-121`, `res-127`, `res-128`,
   `res-134`) do not match the log's stamp events; this bundle cites the
   verified events at `.arca/log.md:300`, `:342`, `:344`, and `:410`.
+- 2026-08-24: P1 integrated all three asks as accepted goal rows
+  RCR-001..RCR-003; the check-carrier and reachability choices are recorded
+  at ADR-0019 in the goal design.
 
 ## Routes
 
