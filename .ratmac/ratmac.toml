@@ -94,6 +94,18 @@ guards = [
     "--match",
     "edition-*",
   ], expected = 0 },
+  # LNR-003 (t-108, i-037): the lanes this close leaves behind are runnable
+  # or visibly expired. Exit 0 is one lane sweep report in which every
+  # rostered crate reads pass or expired; the check refuses a red, unexpired
+  # verdict, a crate the roster expects and the folder lacks, and a missing
+  # or partial report. Read-only: the Engine learns nothing about lanes from
+  # it. Prepared beside the runbook because a live Run pins the runbook
+  # (FDC-005); wire it with `git apply .ratmac/close-guard.diff` at the
+  # first cycle boundary where no Run is open.
+  { kind = "command_exit", program = "python", args = [
+    "tools/sweep_lanes.py",
+    "check",
+  ], expected = 0 },
 ]
 
 [states.rest]
