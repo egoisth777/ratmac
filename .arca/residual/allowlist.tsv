@@ -1,0 +1,18 @@
+# record	hash	reason
+# Enumerated rot (RCR-002): archived gap records judged under the pre-rule order,
+# whose cited commits no ref reaches any more. Each row names its record, the
+# unresolvable hash the record cites verbatim, and the reason the row exists.
+# A row that matches no record fails as stale; a record cut after the
+# resolving-citation rule (2026-08-24) gets no row - the archive move is where
+# its citation is proved.
+res-116	0231def	the t-083 green landing as first written; the sprint's main was rewritten before the merge, and the rebuilt landing orphaned the commit the record had already cited
+res-117	0231def	the t-083 green landing as first written; the sprint's main was rewritten before the merge, and the rebuilt landing orphaned the commit the record had already cited
+res-124	0770778	the t-086 safety checkpoint; a checkpoint is never a landing and is amended into the green landing by design, so no ref can ever hold it
+res-125	0770778	the t-086 safety checkpoint; a checkpoint is never a landing and is amended into the green landing by design, so no ref can ever hold it
+res-147	17f3c75	the t-103 green landing as first written; the record's evidence was stamped inside the checkpoint and the amend that folded it into the landing shifted the hash
+res-148	17f3c75	the t-103 green landing as first written; the record's evidence was stamped inside the checkpoint and the amend that folded it into the landing shifted the hash
+res-149	8cfcdec	the t-104 green landing as first written; the record's evidence was stamped inside the checkpoint and the amend that folded it into the landing shifted the hash
+res-150	8cfcdec	the t-104 green landing as first written; the record's evidence was stamped inside the checkpoint and the amend that folded it into the landing shifted the hash
+res-151	7fa79f6	the t-102 green landing; the record was stamped inside the landing it cited and the landing's amend shifted the hash - the self-cite the stamp-landing order now forbids
+res-152	b9163fd	the t-105 green landing as first written; the record's evidence was stamped inside the checkpoint and the amend that folded it into the landing shifted the hash
+res-153	b9163fd	the t-105 green landing as first written; the record's evidence was stamped inside the checkpoint and the amend that folded it into the landing shifted the hash

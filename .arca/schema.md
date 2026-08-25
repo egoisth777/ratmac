@@ -136,6 +136,22 @@ Cycle-end git discipline — three duties close every build cycle:
   push). Resting at Idle with unpushed landings is a defect. The push is a sync, never a deploy; the
   trial lifecycle stays offline as before.
 
+### RCR-001 - the stamp landing follows the green landing
+
+A gap record's `implementation-revision` is written only in a landing that
+follows the green landing it cites: the green landing merges to `main`
+first, then a stamp landing flips the record `satisfied` and derives the
+hash from the repository at that moment - the commit the landed tip
+resolves to - never from memory or prediction. A commit cannot contain
+its own hash, so the citation never rides the landing it names: this is
+the record-side twin of
+[ELR-001](#elr-001---the-recording-landing-follows-the-tag), stated for
+gap records as goal requirement
+[RCR-001](goal/spec.md#integrated-records-cite-resolving-commits-requirements).
+When the commit a citation names is later rewritten or removed, the
+re-point is one stamp step deriving the record's citation and the owning
+ticket's `landed-commit` from the repository in the same change.
+
 # The work — one straight pass, then a loop
 
 The work has two parts with different shapes:
