@@ -20,6 +20,7 @@ macro_rules! engine_bin {
 pub mod aged;
 pub mod archive;
 pub mod baseline;
+pub mod citations;
 pub mod edition;
 pub mod grown;
 pub mod json;
