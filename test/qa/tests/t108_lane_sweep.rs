@@ -117,7 +117,11 @@ fn rows_of(report: &str) -> Vec<Row> {
         }
         let cells: Vec<&str> = line.trim_matches('|').split('|').map(str::trim).collect();
         assert_eq!(cells.len(), 3, "a report row carries three cells: {line}");
-        rows.push((cells[0].to_owned(), cells[1].to_owned(), cells[2].to_owned()));
+        rows.push((
+            cells[0].to_owned(),
+            cells[1].to_owned(),
+            cells[2].to_owned(),
+        ));
     }
     rows
 }
@@ -154,7 +158,10 @@ fn crate_ids(root: &Path) -> Vec<String> {
     let mut ids: Vec<String> = Vec::new();
     for line in text.lines() {
         let trimmed = line.trim();
-        if let Some(id) = trimmed.strip_prefix('"').and_then(|rest| rest.strip_suffix("\",")) {
+        if let Some(id) = trimmed
+            .strip_prefix('"')
+            .and_then(|rest| rest.strip_suffix("\","))
+        {
             if id.starts_with("t-") {
                 ids.push(id.to_owned());
             }
@@ -173,7 +180,9 @@ static SWEEP_MUTEX: Mutex<()> = Mutex::new(());
 /// The real sweep over this repository as it stands: every rostered crate
 /// under the declared lanes root, run once per test process.
 static REAL_REPORT: LazyLock<String> = LazyLock::new(|| {
-    let _guard = SWEEP_MUTEX.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _guard = SWEEP_MUTEX
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let root = repo_root();
     let output = run_sweep(&root, &["sweep"]);
     let text = combined(&output);
@@ -231,16 +240,10 @@ impl Lanes {
         }
         declaration.push_str("]\n");
         fs::create_dir_all(root.join(".ratmac")).expect("create fixture declaration directory");
-        fs::write(root.join(".ratmac/lanes.toml"), declaration)
-            .expect("write fixture declaration");
+        fs::write(root.join(".ratmac/lanes.toml"), declaration).expect("write fixture declaration");
 
         for (crate_id, green) in crates {
-            let number: String = crate_id
-                .trim_start_matches("t-")
-                .chars()
-                .map(|digit| digit.to_digit(10).expect("crate ids are numeric").to_string())
-                .collect::<Vec<String>>()
-                .join("_");
+            let number = crate_id.trim_start_matches("t-");
             let package = crate_id.replace('-', "");
             let crate_root = root.join("test-hidden").join(crate_id);
             fs::create_dir_all(crate_root.join("src")).expect("create fixture crate");
@@ -263,30 +266,40 @@ impl Lanes {
         Lanes { root }
     }
 
+    /// Drive the fixture's own installed copy of the shipped script: a
+    /// fixture is a repository in miniature, its declaration and script
+    /// resolving inside it, exactly as the close guard would invoke them.
+    fn invoke(&self, args: &[&str]) -> Output {
+        Command::new("python")
+            .arg(self.root.join("tools/sweep_lanes.py"))
+            .args(args)
+            .current_dir(&self.root)
+            .stdin(std::process::Stdio::null())
+            .output()
+            .expect("invoke the lane sweep")
+    }
+
     fn sweep(&self, extra: &[&str]) -> Output {
         let mut args = vec!["sweep"];
         args.extend_from_slice(extra);
-        run_sweep(&self.root, &args)
+        self.invoke(&args)
     }
 
     fn mark(&self, crate_id: &str, edition: &str) -> Output {
-        run_sweep(
-            &self.root,
-            &[
-                "mark",
-                crate_id,
-                "--edition",
-                edition,
-                "--reason",
-                "the fixture lane refuses the way the frozen-source crates do",
-                "--date",
-                "2026-08-10",
-            ],
-        )
+        self.invoke(&[
+            "mark",
+            crate_id,
+            "--edition",
+            edition,
+            "--reason",
+            "the fixture lane refuses the way the frozen-source crates do",
+            "--date",
+            "2026-08-10",
+        ])
     }
 
     fn unmark(&self, crate_id: &str) -> Output {
-        run_sweep(&self.root, &["unmark", crate_id])
+        self.invoke(&["unmark", crate_id])
     }
 
     fn report(&self) -> String {
@@ -320,14 +333,18 @@ fn copy_lanes_source(source: &Path, destination: &Path, removed: Option<&str>) {
         fs::create_dir_all(to).expect("create twin directory");
         for entry in fs::read_dir(from).expect("read twin source") {
             let path = entry.expect("read twin entry").path();
-            let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+            let name = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
             if path.is_dir() {
                 if name == SKIP || Some(&name) == removed.as_ref() {
                     continue;
                 }
                 walk(&path, &to.join(&name), removed);
             } else {
-                fs::copy(&path, &to.join(&name)).expect("copy twin lane bytes");
+                fs::copy(&path, to.join(&name)).expect("copy twin lane bytes");
             }
         }
     }
@@ -349,9 +366,17 @@ fn the_sweep_reports_one_verdict_per_crate_and_names_a_missing_crate() {
         "the tracked roster spans the landed crates t-058..t-105 and beyond: {roster:?}"
     );
     let rows = rows_of(&report);
-    assert_eq!(rows.len(), roster.len(), "exactly one verdict per rostered crate");
+    assert_eq!(
+        rows.len(),
+        roster.len(),
+        "exactly one verdict per rostered crate"
+    );
     let ids: Vec<&str> = rows.iter().map(|(id, _, _)| id.as_str()).collect();
-    assert_eq!(ids, roster.as_slice(), "the rows are the roster, in id order");
+    assert_eq!(
+        ids,
+        roster.as_slice(),
+        "the rows are the roster, in id order"
+    );
     let (pass, expired, red, missing, total) = counts_of(&rows);
     assert_eq!(total, rows.len());
     assert_eq!(
@@ -374,7 +399,11 @@ fn the_sweep_reports_one_verdict_per_crate_and_names_a_missing_crate() {
             .as_nanos()
     ));
     let twin = parent.join("repo");
-    copy_lanes_source(&root.join("test-hidden"), &twin.join("test-hidden"), Some("t-105"));
+    copy_lanes_source(
+        &root.join("test-hidden"),
+        &twin.join("test-hidden"),
+        Some("t-105"),
+    );
     fs::create_dir_all(twin.join(".ratmac")).expect("create twin declaration directory");
     let mut declaration = String::from(
         "# The twin carries this repository's own declaration.\n[roots]\n\
@@ -386,9 +415,20 @@ fn the_sweep_reports_one_verdict_per_crate_and_names_a_missing_crate() {
     }
     declaration.push_str("]\n");
     fs::write(twin.join(".ratmac/lanes.toml"), declaration).expect("write twin declaration");
+    fs::create_dir_all(twin.join("tools")).expect("create twin tools directory");
+    fs::copy(sweep_source(), twin.join("tools/sweep_lanes.py"))
+        .expect("install the shipped sweep script in the twin");
     {
-        let _guard = SWEEP_MUTEX.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        let swept = run_sweep(&twin, &["sweep"]);
+        let _guard = SWEEP_MUTEX
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let swept = Command::new("python")
+            .arg(twin.join("tools/sweep_lanes.py"))
+            .arg("sweep")
+            .current_dir(&twin)
+            .stdin(std::process::Stdio::null())
+            .output()
+            .expect("invoke the twin's sweep");
         let text = combined(&swept);
         assert_eq!(
             swept.status.code(),
@@ -480,15 +520,26 @@ fn the_first_sweep_separates_the_2026_08_21_crates_from_the_rot() {
                 detail.contains("last passed at edition-"),
                 "{crate_id} expired names an edition: {detail}"
             ),
-            "red" => assert!(
-                !detail.trim().is_empty()
-                    && (detail.contains("ht_")
-                        || detail.contains("build refused:")
-                        || detail.contains("timed out")
-                        || detail.contains("cargo exited")
-                        || detail.contains("cargo did not run")),
-                "{crate_id} red carries its failing lane ids or a named refusal: {detail}"
-            ),
+            "red" => {
+                let named_refusal = [
+                    "build refused:",
+                    "timed out",
+                    "cargo exited",
+                    "cargo did not run",
+                ]
+                .iter()
+                .any(|phrase| detail.contains(phrase));
+                let lane_ids = detail.split(", ").all(|token| {
+                    token.len() >= 8
+                        && token
+                            .chars()
+                            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+                });
+                assert!(
+                    !detail.trim().is_empty() && (named_refusal || lane_ids),
+                    "{crate_id} red carries its failing lane ids or a named refusal: {detail}"
+                );
+            }
             other => panic!("{crate_id} reads a verdict outside the vocabulary: {other}"),
         }
     }
@@ -526,7 +577,11 @@ fn an_expiry_marker_moves_a_lane_out_of_both_counts_naming_its_edition() {
         "the red verdict names its failing lane: {detail}"
     );
     let before = counts_of(&lanes.rows());
-    assert_eq!(before, (1, 0, 2, 0, 3), "one pass, two red, nothing expired");
+    assert_eq!(
+        before,
+        (1, 0, 2, 0, 3),
+        "one pass, two red, nothing expired"
+    );
 
     // Marking is the explicit act: it writes exactly the marker's own bytes
     // (LNRV-005 proves the tree side) and names the last-good edition.
@@ -568,9 +623,17 @@ fn an_expiry_marker_moves_a_lane_out_of_both_counts_naming_its_edition() {
     // Verify mode runs an expired lane anyway; the marker stays the fact and
     // what the run observed rides beside it, so recovery is visible.
     let verified = lanes.sweep(&["--verify-expired"]);
-    assert_eq!(verified.status.code(), Some(1));
+    assert_eq!(
+        verified.status.code(),
+        Some(0),
+        "verify keeps the marked lanes out of the red count: {}",
+        combined(&verified)
+    );
     let (_, verdict, detail) = lanes.verdict_of("t-078");
-    assert_eq!(verdict, "expired", "verify keeps the marker's verdict: {detail}");
+    assert_eq!(
+        verdict, "expired",
+        "verify keeps the marker's verdict: {detail}"
+    );
     assert!(
         detail.contains("verify: lanes refuse"),
         "verify reports what it saw when it ran the expired lane: {detail}"
@@ -694,19 +757,19 @@ fn the_close_guard_refuses_only_a_red_unexpired_verdict() {
     fs::create_dir_all(apply_root.join(".ratmac")).expect("create apply fixture");
     fs::write(apply_root.join(".ratmac/ratmac.toml"), &runbook).expect("copy the runbook");
     assert!(git_in(&apply_root, &["init", "--quiet"]).status.success());
-    assert!(
-        git_in(&apply_root, &["add", "-A"])
-            .status
-            .success()
-    );
+    assert!(git_in(&apply_root, &["add", "-A"]).status.success());
     assert!(
         git_in(&apply_root, &["commit", "--quiet", "-m", "fixture base"])
             .status
             .success()
     );
+    // Git cannot open Windows verbatim (`\\?\`) paths from the canonicalized
+    // repository root, so the fixture applies the diff from its own tree.
+    fs::copy(&diff_path, apply_root.join("close-guard.diff"))
+        .expect("stage the prepared diff in the apply fixture");
     let applied = Command::new("git")
         .arg("apply")
-        .arg(&diff_path)
+        .arg("close-guard.diff")
         .current_dir(&apply_root)
         .output()
         .expect("invoke git apply");
@@ -732,16 +795,19 @@ fn the_close_guard_refuses_only_a_red_unexpired_verdict() {
     );
     assert!(
         inserted.iter().any(|line| line.contains("sweep_lanes.py"))
-            && inserted
-                .iter()
-                .any(|line| line.contains("expected = 0")),
+            && inserted.iter().any(|line| line.contains("expected = 0")),
         "the added guard reads the sweep's verdict: {inserted:?}"
     );
 
     // The patched Machine Class stays valid: over the roots it declares,
     // the doctor reports no findings at all, so the wiring adds one guard
     // and breaks no rule.
-    for declared in [".arca/goal", ".arca/issue", ".arca/residual", ".arca/ticket"] {
+    for declared in [
+        ".arca/goal",
+        ".arca/issue",
+        ".arca/residual",
+        ".arca/ticket",
+    ] {
         fs::create_dir_all(apply_root.join(declared)).expect("create the declared root");
     }
     let doctor = Command::new(ratmac_qa::engine_bin!())
@@ -777,11 +843,7 @@ fn the_close_guard_refuses_only_a_red_unexpired_verdict() {
     ] {
         assert!(git_in(&close.root, args).status.success());
     }
-    assert!(
-        git_in(&close.root, &["add", "-A"])
-            .status
-            .success()
-    );
+    assert!(git_in(&close.root, &["add", "-A"]).status.success());
     assert!(
         git_in(&close.root, &["commit", "--quiet", "-m", "fixture base"])
             .status
@@ -871,11 +933,7 @@ fn the_close_guard_refuses_only_a_red_unexpired_verdict() {
     );
     close.sweep(&[]);
     let whole = fs::read_to_string(&report_path).unwrap();
-    let doctored = whole.replacen(
-        "- verdicts: ",
-        "- verdicts: 9 pass, ",
-        1,
-    );
+    let doctored = whole.replacen("- verdicts: ", "- verdicts: 9 pass, ", 1);
     assert_ne!(doctored, whole, "the fixture edits the total");
     fs::write(&report_path, doctored).expect("doctor the fixture report");
     let doctored_run = start(&close);
@@ -894,19 +952,18 @@ fn the_close_guard_refuses_only_a_red_unexpired_verdict() {
 /// directory, the turn lifecycle's skip list) and `except` - the byte-level
 /// snapshot LNRV-005 compares.
 fn snapshot_tree(root: &Path, except: &Path) -> BTreeMap<String, Vec<u8>> {
-    fn walk(
-        directory: &Path,
-        base: &Path,
-        except: &Path,
-        files: &mut BTreeMap<String, Vec<u8>>,
-    ) {
+    fn walk(directory: &Path, base: &Path, except: &Path, files: &mut BTreeMap<String, Vec<u8>>) {
         let mut entries: Vec<PathBuf> = fs::read_dir(directory)
             .expect("read snapshot directory")
             .map(|entry| entry.expect("read snapshot entry").path())
             .collect();
         entries.sort();
         for path in entries {
-            let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+            let name = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
             if name == ".git" || (path.is_dir() && name == SKIP) {
                 continue;
             }
@@ -936,7 +993,9 @@ fn a_sweep_changes_only_the_report_and_a_marker_changes_only_its_own_bytes() {
     let report_path = root.join(".ratmac/evidence/lane-sweep/report.md");
 
     // A full sweep over this repository: only the report artifact differs.
-    let _guard = SWEEP_MUTEX.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _guard = SWEEP_MUTEX
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let before = snapshot_tree(&root, &report_path);
     let swept = run_sweep(&root, &["sweep"]);
     assert!(

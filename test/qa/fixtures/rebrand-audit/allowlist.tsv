@@ -49,3 +49,4 @@ test/qa/tests/t057_deep_doctor.rs	phase	The RB111 seed must plant the pre-cutove
 test/qa/tests/t058_authoring_loop.rs	phase	The RB111 seed must plant the pre-cutover table the repair renames.
 test/qa/src/baseline.rs	phase	The before-and-after comparison must spell both sides of the rename to translate between them.
 test/qa/tests/t085_rename_is_behavior_free.rs	phase	The regression proof names the position the pre-cutover runbook declared.
+.ratmac/evidence/lane-sweep/report.md	phase	The lane sweep report quotes landed lane names and compiler errors exactly as the crates emit them; the bytes are findings, not authored prose.

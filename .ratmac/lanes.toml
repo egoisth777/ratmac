@@ -1,0 +1,69 @@
+# The lane sweep declaration (tools/sweep_lanes.py) - the runbook's
+# [roots]-table shape, repo-local beside ratmac.toml and turn.toml because
+# the runbook parser owns that file's tables and refuses unknown keys.
+#
+# lanes   - the untracked root the sweep walks in id order (test-hidden/),
+#           the same root the turn lifecycle copies per turn.
+# report  - the one artifact a sweep writes; tracked, so the verdict the
+#           close guard reads is reviewable history, while the in-crate
+#           expiry markers it cites stay the markers of record.
+# roster  - the landed crates the folder must hold. A crate the roster
+#           expects and the folder lacks is named in the report, never
+#           skipped; a crate the folder holds that the roster does not
+#           declare is named as a stray entry. t-058..t-107 are the landed
+#           tickets' hidden crates at the t-108 turn.
+[roots]
+lanes = "test-hidden"
+report = ".ratmac/evidence/lane-sweep/report.md"
+roster = [
+  "t-058",
+  "t-059",
+  "t-060",
+  "t-061",
+  "t-062",
+  "t-063",
+  "t-064",
+  "t-065",
+  "t-066",
+  "t-067",
+  "t-068",
+  "t-069",
+  "t-070",
+  "t-071",
+  "t-072",
+  "t-073",
+  "t-074",
+  "t-075",
+  "t-076",
+  "t-077",
+  "t-078",
+  "t-079",
+  "t-080",
+  "t-081",
+  "t-082",
+  "t-083",
+  "t-084",
+  "t-085",
+  "t-086",
+  "t-087",
+  "t-088",
+  "t-089",
+  "t-090",
+  "t-091",
+  "t-092",
+  "t-093",
+  "t-094",
+  "t-095",
+  "t-096",
+  "t-097",
+  "t-098",
+  "t-099",
+  "t-100",
+  "t-101",
+  "t-102",
+  "t-103",
+  "t-104",
+  "t-105",
+  "t-106",
+  "t-107",
+]
