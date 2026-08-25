@@ -175,7 +175,15 @@ fn refuses_naming(source: &str, field: &str, entry: &str, what: &str) {
 fn the_checker_reads_tags_and_ignores_prose() {
     let root = ratmac_qa::grown::repo_root();
     for id in TAGGED_TICKETS {
-        let source = fs::read_to_string(root.join(".arca/ticket").join(format!("{id}.md")))
+        // GPH-003: the repository is the growing fixture - a landed ticket moves
+        // to the archive at cycle close, so resolution follows it there.
+        let active = root.join(".arca/ticket").join(format!("{id}.md"));
+        let path = if active.exists() {
+            active
+        } else {
+            root.join(".arca/ticket/archive").join(format!("{id}.md"))
+        };
+        let source = fs::read_to_string(&path)
             .unwrap_or_else(|error| panic!("read this sprint's tagged ticket {id}: {error}"));
 
         let expected = front_matter_lists(&source);

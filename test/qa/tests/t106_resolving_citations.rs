@@ -260,11 +260,13 @@ fn the_check_refuses_exactly_the_rotted_citations_and_the_allowlist_matches() {
     let records = read_records(&residual).unwrap_or_else(|refusal| {
         panic!("RCRV-002: the record namespace must read as one namespace: {refusal}")
     });
+    // At a clean close the active folder may be empty - the sweep moves
+    // every satisfied record to the archive - so presence, not folder, is
+    // the pinned fact here; the res-116 assertion below pins the archive
+    // side of the same namespace.
     assert!(
-        records
-            .iter()
-            .any(|record| record.id == "res-158" && record.folder == RecordFolder::Active),
-        "RCRV-002: the active folder feeds the namespace"
+        records.iter().any(|record| record.id == "res-158"),
+        "RCRV-002: the namespace reads res-158 from whichever folder holds it"
     );
     assert!(
         records
