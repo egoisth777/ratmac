@@ -136,6 +136,28 @@ Cycle-end git discipline — three duties close every build cycle:
   push). Resting at Idle with unpushed landings is a defect. The push is a sync, never a deploy; the
   trial lifecycle stays offline as before.
 
+The close order above is a mechanism, not memory: `tools/turn.ps1` (the trial lifecycle's sibling under
+`tools/`) runs the whole turn for an item string it treats as opaque. `open` checks every precondition —
+clean trunk, no colliding branch, no colliding worktree registration, the lanes root present — before the
+first Git write, refusing each failure with a named reason and zero mutation, then creates the item-named
+branch with its registered sibling worktree and copies the lanes root in, skipping each lane's declared
+build output. `close` runs the fixed order — merge, verified copy-back of the lanes root, the item
+record's stamp field written from the tip the landed trunk resolves to *after* the merge (RCR-001's
+order), the landing's log line, worktree removal, branch deletion, lanes rerun — each step refusing on
+its own failure and blocking every later step, and resuming an interrupted close from the first
+uncompleted step without repeating a landed mutation. A removal refuses while the worktree holds the
+only copy of an untracked artifact, naming the artifact and the copy-back that releases it; no force
+variant exists. `status` is the read-only dry run printing each mutating verb's planned mutations and
+recovery commands; every verb refuses from inside a linked worktree with the `cd` that fixes it. The
+declared data (trunk, lanes root, skip list, stamp field, landing log, rerun command) lives in the
+runbook's `[roots]`-table shape in `.ratmac/turn.toml`, repo-local beside the runbook. This mechanizes
+goal requirements
+[THK-001](goal/spec.md#integrated-turn-housekeeping-requirements),
+[THK-002](goal/spec.md#integrated-turn-housekeeping-requirements),
+[THK-003](goal/spec.md#integrated-turn-housekeeping-requirements), and
+[THK-004](goal/spec.md#integrated-turn-housekeeping-requirements) — the
+turn-housekeeping duties stated there now hold by construction.
+
 ### RCR-001 - the stamp landing follows the green landing
 
 A gap record's `implementation-revision` is written only in a landing that

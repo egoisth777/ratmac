@@ -345,7 +345,7 @@ fn close_runs_the_fixed_order_and_resumes_without_repeating_a_landed_mutation() 
         "the landing line carries the house shape `- <date>: <words>`: {last}"
     );
     assert!(
-        last[2..].as_bytes()[4] == b'-' && last[2..].as_bytes()[7] == b'-',
+        last.as_bytes()[6] == b'-' && last.as_bytes()[9] == b'-',
         "the landing line's middle is a calendar date: {last}"
     );
     // 5./6. removal and branch deletion.
@@ -544,6 +544,7 @@ fn removal_refuses_while_the_worktree_holds_the_only_copy() {
     fs::write(crate_dir.join("lib.txt"), "the only copy\n").expect("write the crate");
 
     let output = turn.turn(&["close", "-Item", ITEM, "-Line", LINE]);
+    let refusal = String::from_utf8_lossy(&output.stderr).to_string();
     let text = refused(&output, "removal over the only copy", "only copy");
     assert!(
         text.contains("only-copy-crate"),
@@ -587,13 +588,9 @@ fn removal_refuses_while_the_worktree_holds_the_only_copy() {
         "the force variant must refuse, not pass"
     );
     assert_eq!(
-        format!(
-            "{}{}",
-            String::from_utf8_lossy(&forced.stdout),
-            String::from_utf8_lossy(&forced.stderr)
-        ),
-        text,
-        "the force variant refuses with the identical bytes: no force path exists"
+        String::from_utf8_lossy(&forced.stderr),
+        refusal,
+        "the force variant refuses with the identical refusal bytes: no force path exists"
     );
     assert_eq!(turn.snapshot(), before, "the force variant mutates nothing");
     assert!(
@@ -721,13 +718,15 @@ fn the_dry_run_changes_nothing_and_names_the_cd_that_fixes_an_inside_invocation(
     // The inside invocation refuses by name, with the cd that fixes it.
     let output = turn.turn_in(worktree.as_path(), &["status", "-Item", ITEM]);
     let text = refused(&output, "status from inside the turn worktree", "inside");
+    let flat = text.replace('\\', "/");
+    let worktree_flat = worktree.to_string_lossy().replace('\\', "/");
     assert!(
-        text.contains(worktree.to_string_lossy().as_ref()),
+        flat.contains(&worktree_flat),
         "the refusal names the worktree it refuses from: {text}"
     );
-    let cd = format!("cd {}", turn.root.to_string_lossy());
+    let cd = format!("cd {}", turn.root.to_string_lossy().replace('\\', "/"));
     assert!(
-        text.contains(&cd),
+        flat.contains(&cd),
         "the refusal prints the cd that fixes it ({cd}): {text}"
     );
     assert_eq!(

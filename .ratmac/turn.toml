@@ -1,0 +1,11 @@
+# The turn lifecycle declaration (tools/turn.ps1) - the runbook's
+# [roots]-table shape, repo-local beside ratmac.toml because the runbook
+# parser owns that file's tables and refuses unknown keys.
+[roots]
+trunk = "main"                      # the branch every turn merges into
+lanes = "test-hidden"               # untracked root copied per turn, build output skipped
+item-records = ".arca/ticket"       # root holding <item>.md records
+landing-log = ".arca/log.md"        # the append-only landing log
+stamp-field = "landed-commit"       # the item record field the landed tip is stamped into
+skip = ["target"]                   # per-lane build-output directories never copied
+lanes-rerun = "cargo test --quiet"  # run once in each lane directory from the trunk
