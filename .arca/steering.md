@@ -173,33 +173,27 @@ wrote down is drift.
 Derived record. Regenerated wholesale at P1 close from the signed issue set;
 never hand-edited, never a progress report. Stage lives in the tree.
 
-Freeze stamp: `git:03eacee` +
-`goal-sha256:69d76bc6001de4765ff25358cd3cc181ea84a8880edf49f673b148ec45424fd9`
-- the last landed goal HEAD at regeneration and the canonical goal revision
-computed by `src/goal.rs::revision` over the integrated goal bundle; the P1
-landing restamps the git half with its own short hash. P1 opened and closed
-2026-08-24 on one signed batch of three: the turn-housekeeping issue
-(`i-035`, accepted), the records-cite-resolving-commits issue (`i-036`,
-accepted), and the landed-lanes-stay-runnable issue (`i-037`, accepted) -
-the safety-debt sprint: the turn lifecycle stops eating its own artifacts.
-The gap check and every ticket are cut against this stamp.
+Freeze stamp: `git:3f606d0` +
+`goal-sha256:ebb0718dc3bc5f18dcd67d84253adfb8a6ef6474b3fcb09957fd9031519cee56`
+- the last landed goal HEAD at regeneration (the archive move that repointed
+the goal's live links to the archived `i-035`..`i-037` bundles) and the
+canonical goal revision computed by `src/goal.rs::revision` over the
+integrated goal bundle, unchanged by this P1 because every accepted ask
+resolves to the working authority. P1 opened and closed 2026-09-17 on one
+signed batch of one: the red-lanes-recovered issue (`i-038`, accepted,
+`RLR-001`..`RLR-004`) - the lane-debt sprint: the close guard `i-037` wired
+gets a tree it can pass. The gap check and every ticket are cut against this
+stamp.
 
 Route - ordered dependencies of the signed sprint, one why per edge:
 
-1. The stamp-landing order (`RCR-001`, from `i-036`) precedes the mechanized
-   close (`THK-002`, from `i-035`) - the close's stamp step derives the
-   landed-commit hash after the merge, so the order it mechanizes must be
-   fixed first or the mechanism bakes in the self-reference `RCR-001`
-   retires.
-2. The resolving-citation check (`RCR-002`, from `i-036`) precedes the
-   re-derivation duty (`RCR-003`, same issue) - the archive-move refusal and
-   the re-stamp discharge are proved by that check; without it the duty is
-   hand discipline again.
-3. The open verb (`THK-001`, from `i-035`) precedes the close, the only-copy
-   refusal, and the dry run (`THK-002`-`THK-004`, same issue) - close
-   resumes steps recorded against the turn open created, the refusal guards
-   the removal inside close, and the dry run previews verbs that must exist.
-4. The sweep (`LNR-001`, from `i-037`) precedes the expiry marker and the
-   close wiring (`LNR-002`, `LNR-003`, same issue) - a marker's verdict and
-   the guard's read both consume the sweep's report; nothing else in this
-   sprint feeds them.
+1. The triage rule (`RLR-001`, from `i-038`) precedes both ports (`RLR-002`,
+   `RLR-003`, same issue) - the rule is what forbids expiring a red lane to
+   pass the guard, so it binds before any lane is touched; it mints no
+   ticket and lands with this P1.
+2. The pre-split ports (`RLR-002`) precede the roster-and-guard ask
+   (`RLR-004`) - the guard exits `0` only when every rostered crate reads
+   `pass` or `expired`, and thirteen of the twenty red rows are these crates.
+3. The post-split ports and re-sweep (`RLR-003`) precede `RLR-004` for the
+   same reason - the remaining seven red rows; the fresh sweep that proves
+   `RLR-004` is the one that records both ports' verdicts.

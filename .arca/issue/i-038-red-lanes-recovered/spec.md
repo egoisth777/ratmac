@@ -1,7 +1,9 @@
 # Issue specification
 
-Dispositions below are the author's proposal at filing; P1 confirms or
-revises them at integration. None of the four asks presumes an Engine
+Dispositions were confirmed at the 2026-09-17 planning pass (P1) under
+Billy's next-issue authorization - all four asks accepted as filed, the
+acceptance itself logged as an assumption the user may revise. None of the
+four asks presumes an Engine
 feature: the triage rule binds contributors, the ports are edits inside
 untracked hidden crates plus one qa helper, and the roster and check
 changes live in shop tooling the Engine already knows nothing about

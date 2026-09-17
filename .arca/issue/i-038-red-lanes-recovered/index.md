@@ -3,7 +3,7 @@
 ```yaml
 issue-id: "i-038-red-lanes-recovered"
 provenance: "Wishlist, `The twenty-two red landed lanes are repaired or explicitly expired so the wired close guard can pass` - the op, filed 2026-08-25; promoted 2026-09-17 on Billy's next-issue authorization, re-evidenced by a per-crate triage of every red verdict in the first sweep report"
-status: "pending"
+status: "integrated"
 ```
 
 ## Summary
@@ -59,3 +59,7 @@ repository with every marker still honest under `--verify-expired`
 - 2026-09-17: filed from the wishlist by the op on Billy's next-issue
   authorization; dispositions are the author's proposal, P1 confirms or
   revises at integration.
+- 2026-09-17: P1 integrated all four asks as accepted working-authority
+  requirements `RLR-001`..`RLR-004` (schema.md, "Landed-lane recovery");
+  the goal bundle is unchanged, so the sprint's goal revision is the one
+  edition-005 rested at.

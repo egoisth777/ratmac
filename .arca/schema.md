@@ -671,6 +671,65 @@ At least one check per contract gate runs the gate against this repository as it
 with the expected verdict recorded in the check. This repository is the one fixture whose
 past is guaranteed to keep growing; `EDNV-004` proves the pattern.
 
+## Landed-lane recovery
+
+`RLR-001`-`RLR-004` are working-authority requirements integrated from
+[issue i-038](issue/i-038-red-lanes-recovered/spec.md#requirement-records): accepted asks resolve
+to the headings below and bind at integration. `RLR-001` is a rule and mints no gap record;
+`RLR-002`-`RLR-004` carry executable deliverables and are measured by gap records and worked by
+tickets, as the edition requirements are. The sweep, the marker, and the close guard they act on are
+`LNR-001`-`LNR-003` in the goal; nothing here changes what the Engine knows (ADR-0020).
+
+### RLR-001 - triage precedes the act
+
+A red, unexpired sweep verdict is classified before any act, by cause, into exactly one **triage
+class**:
+
+- **retired contract** - the lane asserts an interface, path, record key, or wording a later
+  authorized landing replaced, and that landing is named;
+- **fixture drift** - the lane's own scaffold no longer builds what the Engine accepts, while the
+  behaviour under test is unchanged;
+- **live regression** - the Engine violates a requirement still frozen in the goal.
+
+The class fixes the act. The first two are **ported**: fixture and expectations rewritten to
+today's spelling, every lane id and the requirement it was cut for preserved. A live regression is
+fixed in the Engine under that requirement's own gap record - re-judged `partial` and moved back to
+the active folder per [Evidence and archive rules](#evidence-and-archive-rules) - and the lane's
+assertion is left as it stands. An expiry marker (`LNR-002`) is reserved for a lane whose behaviour
+under test no longer exists at all; a lane older than every edition has no last-good edition to
+name and is therefore ported, never expired. No lane is expired, deleted, or loosened to silence a
+red verdict. The ticket that does the act records, per crate, its class and the named landing.
+
+### RLR-002 - the pre-split crates are ported
+
+The thirteen pre-split crates `t-058`..`t-070` are ported to the current Engine and read `pass` in
+a fresh sweep, each keeping its six lane ids and the requirement each lane was cut for. The port
+covers the engine root (`.arca/` -> `.ratmac/`, `state.toml` -> `run.toml`, `.arca/rtm.lock` ->
+`.ratmac/locks/`), the Run Record and verdict key `phase` -> `state` with `Phase:` -> `State:` in
+reports, the blocker-based `rtm hold` in place of the retired ticket argument (`t-063`), and the
+retired public `doctor::render_json` replaced by a JSON-stability oracle over `rtm doctor --json`
+(`t-064`, `t-067`, `t-070`).
+
+### RLR-003 - the post-split crates are ported or re-swept
+
+The seven post-split crates `t-083`, `t-085`, `t-092`, `t-093`, `t-095`, `t-096`, `t-100` read
+`pass` in a fresh sweep: `t-083` and `t-085` are ported to the edition-004 command surface (the
+`next:` teach line and the `skill` verb); `t-092` and `t-093` cite the goal freeze the Engine mints
+at the step into `cut-tickets` instead of the empty pre-freeze value; the qa baseline helper's path
+comparison (`test/qa/src/baseline.rs`, `freeze_paths` through `canonical()`) stops carrying a
+trailing newline so `t-085`'s terminal-path lane compares what it lists; `t-095`, `t-096`, and
+`t-100` - green since the edition-004 tag repair - are re-swept rather than touched.
+
+### RLR-004 - the roster follows the landings and the close guard passes
+
+The sweep roster in `.ratmac/lanes.toml` names every landed hidden crate, and the landing that adds
+a hidden crate adds it to the roster in the same change - `t-108` joins now. The `check` verb
+refuses a stray entry (a crate in the folder the roster does not declare) the way it already
+refuses a missing one, so a landed crate can never be skipped silently. With the roster complete,
+`python tools/sweep_lanes.py check` exits `0` on this repository - every rostered crate `pass` or
+`expired`, no stray - and `sweep --verify-expired` shows each marker's lane (`t-078`, `t-079`)
+still refusing, so no marker outlives its lane's recovery.
+
 ## Blocked route
 
 A ticket blocked for an out-of-scope reason is held, never quietly passed. The Engine records
