@@ -13,7 +13,7 @@ on a branch named after the work item, copy the untracked lanes root in, work
 the turn, then at green — merge into `main`, copy the lanes back, remove the
 worktree and branch, stamp the item record's landed commit, append the log
 line, and re-run the lanes once from `main`. The working rules already fix
-this order in prose ([Units and git](../../schema.md#units-and-git)):
+this order in prose ([Units and git](../../../schema.md#units-and-git)):
 copy-back second, "before any removal, because the new crate is gitignored
 and committed nowhere, so removing the worktree first destroys its only
 copy", removal third, the `main` rerun last.
@@ -21,11 +21,11 @@ copy", removal third, the `main` rerun last.
 The prose has now failed twice in practice. On 2026-08-06 the t-076 turn ran
 `git worktree remove --force` before copy-back and destroyed
 `.arca-private/t-076/` — no backup survived
-([log.md:310](../../log.md)). On 2026-08-21 the same slip destroyed the
+([log.md:310](../../../log.md)). On 2026-08-21 the same slip destroyed the
 t-102 turn's `test-hidden/t-102/` crate; recovery succeeded only because the
 authoring context still held the bytes — luck, not a mechanism. That sprint
 ran four consecutive turns entirely by hand
-([log.md:433-436](../../log.md): t-102 through t-105, each ending "turn
+([log.md:433-436](../../../log.md): t-102 through t-105, each ending "turn
 passed"), so each landing was a fresh occasion for the same end-of-turn
 slip, and the log's landing lines record the merges without recording the
 steps between them — the choreography leaves no durable trace a reviewer

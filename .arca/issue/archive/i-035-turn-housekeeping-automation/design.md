@@ -6,7 +6,7 @@
    The trial lifecycle already owns its choreography end to end through one
    entry point with `status`/`start` verbs, check-before-first-write,
    compare-and-delete rollback, and printed recovery commands
-   ([tools/trial.ps1](../../../tools/trial.ps1); `TWL-001..003`, `TWL-006`,
+   ([tools/trial.ps1](../../../../tools/trial.ps1); `TWL-001..003`, `TWL-006`,
    `TWL-009`). The turn lifecycle is the same problem one lane over: propose
    `open` and `close` beside a `status` dry run, invoked from the primary
    checkout under the same ownership table (`TWL-010`). Whether this ships as

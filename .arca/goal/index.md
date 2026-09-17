@@ -140,7 +140,7 @@ schema. See [ADR-0017](design.md#the-ledger-row-records-never-predicts-adr-0017)
 
 One lifecycle command opens and closes a work item's turn so the fixed order
 cannot be skipped. Requirements are integrated from
-[i-035-turn-housekeeping-automation](../issue/i-035-turn-housekeeping-automation/index.md):
+[i-035-turn-housekeeping-automation](../issue/archive/i-035-turn-housekeeping-automation/index.md):
 `THK-001`-`THK-004`. The open verb carries the lanes in behind
 check-before-first-write refusals, the close completes merge, verified
 copy-back, stamp, log line, removal, and trunk rerun in order behind the
@@ -152,7 +152,7 @@ commands. See
 
 A gap record's commit citation is derived after the landing it cites and
 held to resolution by a machine check. Requirements are integrated from
-[i-036-records-cite-resolving-commits](../issue/i-036-records-cite-resolving-commits/index.md):
+[i-036-records-cite-resolving-commits](../issue/archive/i-036-records-cite-resolving-commits/index.md):
 `RCR-001`-`RCR-003`. The stamp landing follows the merged green landing, the
 qa check refuses a citation whose commit no ref reaches, and a rewritten
 commit is re-derived by one stamp step the archive move can verify. See
@@ -162,7 +162,7 @@ commit is re-derived by one stamp step the archive move can verify. See
 
 Landed lanes either still run green or carry a visible expiry marker.
 Requirements are integrated from
-[i-037-landed-lanes-stay-runnable](../issue/i-037-landed-lanes-stay-runnable/index.md):
+[i-037-landed-lanes-stay-runnable](../issue/archive/i-037-landed-lanes-stay-runnable/index.md):
 `LNR-001`-`LNR-003`. One sweep command reports a verdict per crate under
 `test-hidden/`, an explicit marker names the last-good edition a lane passed
 at, and the close State may refuse on a red, unexpired verdict through the
