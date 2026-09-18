@@ -173,27 +173,19 @@ wrote down is drift.
 Derived record. Regenerated wholesale at P1 close from the signed issue set;
 never hand-edited, never a progress report. Stage lives in the tree.
 
-Freeze stamp: `git:3f606d0` +
-`goal-sha256:ebb0718dc3bc5f18dcd67d84253adfb8a6ef6474b3fcb09957fd9031519cee56`
-- the last landed goal HEAD at regeneration (the archive move that repointed
-the goal's live links to the archived `i-035`..`i-037` bundles) and the
-canonical goal revision computed by `src/goal.rs::revision` over the
-integrated goal bundle, unchanged by this P1 because every accepted ask
-resolves to the working authority. P1 opened and closed 2026-09-17 on one
-signed batch of one: the red-lanes-recovered issue (`i-038`, accepted,
-`RLR-001`..`RLR-004`) - the lane-debt sprint: the close guard `i-037` wired
-gets a tree it can pass. The gap check and every ticket are cut against this
-stamp.
+Freeze stamp: `git:2b2070c224b2943e86b6c1c4bfcea4c2cbee47ca` +
+`goal-sha256:e5d51d4e077be3f3ec7572e9041e90ffdffb1b271f45684ed66fea8502d24fa5`
+- the accepted turn-close expiry goal landing and the canonical goal
+revision frozen by the Engine as run-028 left intake. P1 opened and closed
+2026-09-18 on one signed batch of one: the turn-close expiry issue
+(`i-039`, accepted, `TCE-001`), selected by Billy's explicit instruction to
+fix it first. It advances Self-hosted and Every boundary machine-checked.
+The gap check and ticket are cut against this stamp.
 
-Route - ordered dependencies of the signed sprint, one why per edge:
+Route - dependencies of the signed sprint, one why per edge:
 
-1. The triage rule (`RLR-001`, from `i-038`) precedes both ports (`RLR-002`,
-   `RLR-003`, same issue) - the rule is what forbids expiring a red lane to
-   pass the guard, so it binds before any lane is touched; it mints no
-   ticket and lands with this P1.
-2. The pre-split ports (`RLR-002`) precede the roster-and-guard ask
-   (`RLR-004`) - the guard exits `0` only when every rostered crate reads
-   `pass` or `expired`, and thirteen of the twenty red rows are these crates.
-3. The post-split ports and re-sweep (`RLR-003`) precede `RLR-004` for the
-   same reason - the remaining seven red rows; the fresh sweep that proves
-   `RLR-004` is the one that records both ports' verdicts.
+1. The already-landed turn lifecycle and sweep contracts (`THK-002`,
+   `LNR-001`, `LNR-002`) precede turn-close expiry (`TCE-001`, from
+   `i-039`) because the new confirmation composes their fixed close order
+   and existing verdict policy; it creates neither a second expiry parser
+   nor an Engine mechanism. There is no dependency within this one-ask batch.
