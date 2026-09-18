@@ -551,3 +551,40 @@ last-good edition, and the pre-split crates become the first visible
 decision the marker exists to hold. A runbook that declines to read the
 verdict stays legal - the wiring is permissive; the verdict's meaning when
 read is what binds.
+
+## Turn-close verification delegates to the declared sweep (ADR-0021)
+
+**Decision.** Turn-close verification remains part of the repo-local turn
+lifecycle, not the Engine. The generic turn tool executes the declared rerun
+command and stays unaware of expiry markers. Its closed, optional
+`lanes-rerun-scope` declaration accepts `per-lane`, the existing default when
+omitted, or `root-once`, which runs the command once from the primary
+checkout. An unknown value refuses before any mutation, and the dry-run plan
+names the selected scope. Existing per-lane declarations remain valid.
+
+This repository selects `root-once` and declares a fresh sweep followed by
+the sweep's report check. Both commands use
+`--report target/turn-close-lanes.md` and both must succeed: the fresh sweep
+prevents an old report from passing, while the check refuses missing or stray
+crates and distinguishes passing, explicitly expired, and red crates. The
+report is ignored so routine close verification does not dirty the tracked
+cycle-close report. The existing sweep validator supplies the policy; turn
+close adds no marker parser, automatic expiry operation, or sweep
+implementation change.
+
+A close that reaches final verification and fails may retry verification only
+after cleanup. This branchless path requires all completed-landing evidence:
+no item branch, worktree registration, or worktree folder; an item stamp equal
+to the current trunk short tip; the supplied landing log line already present;
+and no unrelated tracked dirt. Missing or stale proof refuses by naming the
+unmet fact and the repair needed. A valid retry reruns the entire declared
+verification without repeating landing, copy-back, stamp, log, worktree
+removal, branch deletion, or adding a journal entry. Earlier copy-back and
+only-copy refusals remain in force.
+
+**Consequences.** Final close confirmation applies the sweep's established
+expiry contract without giving the lifecycle a second interpretation of lane
+state. Failures identify the declared command or missing retry proof so the
+operator can repair and repeat close safely. No Engine source or Machine Class
+change is involved.
+

@@ -168,3 +168,15 @@ Requirements are integrated from
 at, and the close State may refuse on a red, unexpired verdict through the
 existing guard vocabulary. See
 [ADR-0020](design.md#landed-lanes-sweep-on-demand-and-expire-by-in-crate-marker-adr-0020).
+
+## Integrated turn-close expiry
+
+Ticket close delegates its final confirmation to the declared sweep policy.
+Requirement [TCE-001](spec.md#integrated-turn-close-expiry-requirements) is
+integrated from
+[i-039-turn-close-expiry](../issue/i-039-turn-close-expiry/index.md): this
+repository runs a fresh root-level sweep and its report check, while existing
+per-lane declarations remain valid, and a proven completed landing can retry
+only final verification after cleanup. See
+[ADR-0021](design.md#turn-close-verification-delegates-to-the-declared-sweep-adr-0021).
+

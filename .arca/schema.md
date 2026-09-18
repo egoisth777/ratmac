@@ -130,7 +130,8 @@ Cycle-end git discipline — three duties close every build cycle:
   the branch code, never the pre-turn `main`. At green the order is fixed: merge first; copy
   `test-hidden/` back to the primary checkout second — before any removal, because the new crate is
   gitignored and committed nowhere, so removing the worktree first destroys its only copy; remove the
-  worktree and branch third; re-run the hidden lanes once from `main` last — the post-merge confirmation.
+  worktree and branch third; run the declared hidden-lane confirmation from `main` last, under its
+  declared verification scope.
 - **Sync at Idle.** A cycle is complete only when its landings are on the remote: after the clean gap
   check lands and every ticket worktree is merged, push `main` to `origin` (a plain push, never a force
   push). Resting at Idle with unpushed landings is a defect. The push is a sync, never a deploy; the
@@ -143,20 +144,32 @@ first Git write, refusing each failure with a named reason and zero mutation, th
 branch with its registered sibling worktree and copies the lanes root in, skipping each lane's declared
 build output. `close` runs the fixed order — merge, verified copy-back of the lanes root, the item
 record's stamp field written from the tip the landed trunk resolves to *after* the merge (RCR-001's
-order), the landing's log line, worktree removal, branch deletion, lanes rerun — each step refusing on
-its own failure and blocking every later step, and resuming an interrupted close from the first
-uncompleted step without repeating a landed mutation. A removal refuses while the worktree holds the
-only copy of an untracked artifact, naming the artifact and the copy-back that releases it; no force
-variant exists. `status` is the read-only dry run printing each mutating verb's planned mutations and
-recovery commands; every verb refuses from inside a linked worktree with the `cd` that fixes it. The
-declared data (trunk, lanes root, skip list, stamp field, landing log, rerun command) lives in the
-runbook's `[roots]`-table shape in `.ratmac/turn.toml`, repo-local beside the runbook. This mechanizes
-goal requirements
+order), the landing's log line, worktree removal, branch deletion, declared lane verification — each
+step refusing on its own failure and blocking every later step, and resuming an interrupted close from
+the first uncompleted step without repeating a landed mutation. The optional `lanes-rerun-scope`
+controls only that final verification: omitted or `per-lane` preserves the existing default and runs
+the declared command once in each lane; `root-once` runs the declared command once from the primary
+checkout. The turn tool executes that command without interpreting expiry markers. This repository
+declares `root-once`: its command runs a fresh sweep and then the check, both using
+`--report target/turn-close-lanes.md`. The check accepts every declared landed crate that passes or
+has a valid explicit expiry and refuses every other result. If this final verification fails, a repeated `close`
+runs only the whole verification again, never an earlier mutation, and only when the item has no
+branch, worktree registration, or worktree folder, its stamp equals the current trunk short tip, the
+supplied log line is already present, and no unrelated tracked dirt exists. A removal refuses while
+the worktree holds the only copy of an untracked artifact, naming the artifact and the copy-back that
+releases it; no force variant exists. Any other scope refuses before mutation. `status` is the
+read-only dry run printing each mutating verb's planned mutations, chosen verification scope and run
+location, and recovery commands; every verb refuses from inside a linked worktree with the
+`cd` that fixes it. The declared data (trunk, lanes root, skip list, stamp field, landing log,
+verification scope, and command) lives in the runbook's `[roots]`-table shape in `.ratmac/turn.toml`,
+repo-local beside the runbook. This mechanizes goal requirements
 [THK-001](goal/spec.md#integrated-turn-housekeeping-requirements),
 [THK-002](goal/spec.md#integrated-turn-housekeeping-requirements),
-[THK-003](goal/spec.md#integrated-turn-housekeeping-requirements), and
-[THK-004](goal/spec.md#integrated-turn-housekeeping-requirements) — the
-turn-housekeeping duties stated there now hold by construction.
+[THK-003](goal/spec.md#integrated-turn-housekeeping-requirements),
+[THK-004](goal/spec.md#integrated-turn-housekeeping-requirements), and
+[TCE-001](goal/spec.md#integrated-turn-close-expiry-requirements), accepted from
+[i-039](issue/i-039-turn-close-expiry/spec.md#requirement-records) — the duties stated there now hold
+by construction.
 
 ### RCR-001 - the stamp landing follows the green landing
 

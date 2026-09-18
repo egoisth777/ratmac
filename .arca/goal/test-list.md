@@ -328,3 +328,12 @@ Behavior checks derived from [spec.md](spec.md). Each is a testable one-liner.
 |LNRV-003|A crate whose lanes refuse with no marker reads `red`; writing a marker naming an edition flips its verdict to `expired` and moves it out of both the pass count and the red count; `t-078` and `t-079` read `expired` once marked, never `red`.|LNR-002|
 |LNRV-004|A close whose report names a red, unexpired lane refuses; the same close passes once the lane is green or marked; the Machine Class diff that wires it adds a `command_exit`-class guard and nothing else.|LNR-003|
 |LNRV-005|A tree snapshot around a full sweep is byte-identical apart from the report artifact; marking and un-marking change exactly the marker's own bytes.|LNR-001`, `LNR-002|
+
+## Integrated turn-close expiry verification
+
+| ID | Check | Requirement |
+| :--- | :--- | :--- |
+| TCEV-001 | A real fixture turn closes using the repository's declared verifier: a passing crate and a valid expired refusing crate succeed with separate report counts; an unexpired failure, malformed marker, missing crate, and stray crate each refuse by name. The verifier creates a fresh report, and marker bytes never change. | [TCE-001](spec.md#integrated-turn-close-expiry-requirements) |
+| TCEV-002 | Force the final verification to fail after cleanup, repair its input, then repeat close. Only verification runs again; landing, copy-back, stamp, log, worktree removal, and branch deletion are not repeated. Invalid or absent landing evidence cannot enter this final-only retry. | [TCE-001](spec.md#integrated-turn-close-expiry-requirements); THK-002 |
+| TCEV-003 | A generic root command runs exactly once from the primary checkout; omitted scope retains per-lane invocation. Unknown scope refuses before writes. Dry-run describes the chosen scope and changes nothing. No fixture verifier depends on this repository's marker filename. | [TCE-001](spec.md#integrated-turn-close-expiry-requirements); THK-004 |
+
