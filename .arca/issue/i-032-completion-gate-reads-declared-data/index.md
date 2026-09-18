@@ -3,7 +3,7 @@
 ```yaml
 issue-id: "i-032-completion-gate-reads-declared-data"
 provenance: "Wishlist, `The completion gate should not know what a ticket is either` - Billy's 2026-08-10 ruling applied where it was not yet carried; remainder identified after t-089 landed PCR-007"
-status: "deferred"
+status: "pending"
 ```
 
 ## Summary
@@ -27,6 +27,22 @@ work items are not markdown files cannot use the gate at all. The fix is the
 same move the rest of the Engine already made: the checks a Run must prove
 become declared data behind the one typed reader, and the prose parsers are
 deleted.
+
+## Selection
+
+Billy delegated issue selection and the next-sprint start. The remaining Engine
+cutover (`CGD-003`) was selected because the [tag-reader ticket
+(`t-105`)](../../ticket/archive/t-105.md) and its satisfied gap records
+([`res-152`](../../residual/archive/res-152.md) and
+[`res-153`](../../residual/archive/res-153.md)) prove the tag format, while
+the [turn-close ticket's implementation-run review
+(`t-111`)](../../ticket/archive/t-111.md#implementation-run-review) records
+the duplicate work of keeping the same checks in tags and prose.
+
+Proposed scope: declared checks replace prose discovery; existing receipt
+checks remain unchanged. The two sibling asks (`CGD-001` and `CGD-002`) remain
+accepted prerequisites. The cutover remains deferred pending planning sign-off;
+human disposition is still pending, and the current-sprint freeze is unchanged.
 
 ## History
 

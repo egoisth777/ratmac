@@ -632,7 +632,7 @@ new start restriction is introduced.
 
 `CGD-001`-`CGD-002` are working-authority requirements integrated from the issue about the
 completion gate reading declared data
-([i-032](issue/deferred/i-032-completion-gate-reads-declared-data/spec.md#requirement-records)),
+([i-032](issue/i-032-completion-gate-reads-declared-data/spec.md#requirement-records)),
 revised at the 2026-08-21 planning pass per Billy's 2026-08-18 ruling (steering Horizon): the
 declared-checks question is a workflow matter. The Engine-side cutover ask (`CGD-003`) is deferred
 with the bundle. Accepted asks resolve to the headings below, bind at integration, and mint no
