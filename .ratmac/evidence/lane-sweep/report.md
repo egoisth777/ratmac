@@ -1,6 +1,6 @@
 # Lane sweep report
 
-- swept: 2026-09-18T18:22:02Z
+- swept: 2026-09-18T19:27:52Z
 - lanes-root: test-hidden
 - verify-expired: yes
 - verdicts: 52 pass, 2 expired, 0 red, 0 missing - 54 crates
@@ -27,8 +27,8 @@
 | t-075 | pass | 6 lane(s) green |
 | t-076 | pass | 6 lane(s) green |
 | t-077 | pass | 6 lane(s) green |
-| t-078 | expired | last passed at edition-001 (marked 2026-08-10); verify: lanes refuse - ht_078_03_lifecycle_keeps_no_run_and_child_model_facts, ht_078_05_output_is_parseable_escaped_and_filesystem_true, ht_078_04_repeated_processes_and_race_leave_root_durable, ht_078_01_regression_preserves_established_facts, ht_078_02_routing_never_substitutes_caller_or_neighbor, ht_078_06_linked_drift_composes_with_reporting_and_validation |
-| t-079 | expired | last passed at edition-001 (marked 2026-08-10); verify: lanes refuse - ht_079_01_regression_preserves_existing_facts_and_exit_codes, ht_079_02_path_addressed_doctor_uses_fixture_addressed_root, ht_079_03_lifecycle_states_keep_one_fixture_root_spelling, ht_079_06_linked_worktree_and_no_git_keep_fixture_root_spelling, ht_079_04_repeated_reports_leave_fixture_tree_byte_identical, ht_079_05_finding_funnel_keeps_json_escape_correct |
+| t-078 | expired | last passed at edition-001 (marked 2026-08-10); verify: lanes refuse - ht_078_03_lifecycle_keeps_no_run_and_child_model_facts, ht_078_02_routing_never_substitutes_caller_or_neighbor, ht_078_01_regression_preserves_established_facts, ht_078_04_repeated_processes_and_race_leave_root_durable, ht_078_06_linked_drift_composes_with_reporting_and_validation, ht_078_05_output_is_parseable_escaped_and_filesystem_true |
+| t-079 | expired | last passed at edition-001 (marked 2026-08-10); verify: lanes refuse - ht_079_05_finding_funnel_keeps_json_escape_correct, ht_079_04_repeated_reports_leave_fixture_tree_byte_identical, ht_079_02_path_addressed_doctor_uses_fixture_addressed_root, ht_079_03_lifecycle_states_keep_one_fixture_root_spelling, ht_079_06_linked_worktree_and_no_git_keep_fixture_root_spelling, ht_079_01_regression_preserves_existing_facts_and_exit_codes |
 | t-080 | pass | 6 lane(s) green |
 | t-081 | pass | 6 lane(s) green |
 | t-082 | pass | 6 lane(s) green |

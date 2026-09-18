@@ -31,17 +31,17 @@ only answer.
 
 ## Map - how ratmac hangs together
 
-Stamped cache - describes the tree through the post-split lane-recovery ticket
-(`t-110`), surveyed 2026-09-17. The full doctor executable fingerprint first
+Stamped cache - describes the tree through the expiry-aware turn-close ticket
+(`t-111`), surveyed 2026-09-18. The full doctor executable fingerprint first
 landed in the full-doctor-fingerprint ticket (`t-070`, `3e6ee6c`). The accepted
 carrier remains `.arca/issue/archive/i-023-doctor-full-fingerprint/`; `DFP-001`
 widens only the argument-free human doctor's rendered Engine SHA-256 from a
 16-character prefix to the complete 64-character lowercase digest. That
 landing's public proof is in `test/qa/tests/t045_bootstrap_doctor.rs`, and
 `test-hidden/t-058/` through `test-hidden/t-070/` held its hidden lanes. The
-lane-recovery cycle added no `src/` changes. Every Architecture, Binary,
-Modules, and Tests row below describes this landed tree. Refresh at each cycle
-close (gap check green).
+lane-recovery cycle and expiry-aware turn-close ticket added no `src/`
+changes. Every Architecture, Binary, Modules, and Tests row below describes
+this landed tree. Refresh at each cycle close (gap check green).
 
 The state-vocabulary cutover (`SVC-001`-`SVC-010`, goal `ADR-0012`) has landed:
 every row below reads State for the machine position, `states` for the runbook
@@ -139,16 +139,17 @@ an external program to inspect repository state.
 ### Tests
 
 `test/qa/` is the public integration-test crate, with ticket suites through
-`t110_post_split_ports`. The established FDC coverage remains in
+`t111_turn_close_expiry`. The established FDC coverage remains in
 `t059_run_residency` through `t069_child_reviewer`; later coverage includes
 named workflow roots and resolved-root reporting (`t076`, `t078`), edition
 guards, audit, channels, and stable bootstrap (`t094`, `t095`, `t101`, `t102`),
 the self-describing CLI and operator skill (`t103`, `t104`), and the cycle-close
-contracts (`t105` through `t110`). DFP-001 remains proven by
+contracts (`t105` through `t111`), including root-once expiry-aware verification
+and evidence-guarded final-only retry (`t111`). DFP-001 remains proven by
 `t045_bootstrap_doctor::doctor_reports_complete_engine_fingerprint_and_is_write_free`
 plus the inherited `t045` and `t057` suites. Wording surfaces are asserted
 against `.arca/schema.md` and `AGENTS.md`. `.ratmac/lanes.toml` declares every
-landed hidden crate from `test-hidden/t-058/` through `test-hidden/t-110/`;
+landed hidden crate from `test-hidden/t-058/` through `test-hidden/t-111/`;
 `t-078` and `t-079` retain their dated `edition-001` expiry markers. Opt-in
 release lane: `RATMAC_RELEASE_ACCEPTANCE=1`.
 
