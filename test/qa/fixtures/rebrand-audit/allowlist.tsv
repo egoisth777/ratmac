@@ -49,4 +49,7 @@ test/qa/tests/t057_deep_doctor.rs	phase	The RB111 seed must plant the pre-cutove
 test/qa/tests/t058_authoring_loop.rs	phase	The RB111 seed must plant the pre-cutover table the repair renames.
 test/qa/src/baseline.rs	phase	The before-and-after comparison must spell both sides of the rename to translate between them.
 test/qa/tests/t085_rename_is_behavior_free.rs	phase	The regression proof names the position the pre-cutover runbook declared.
-.ratmac/evidence/lane-sweep/report.md	phase	The lane sweep report quotes landed lane names and compiler errors exactly as the crates emit them; the bytes are findings, not authored prose.
+.arca/issue/i-038-red-lanes-recovered/**	phase	The live red-lane recovery bundle names the retired key its triage classifies; the row retires with the archive move at the sprint close.
+.arca/residual/res-164.md	phase	The live pre-split-ports gap record cites the retired key the red lanes still spell; the row retires with the archive move at the sprint close.
+.arca/ticket/t-109.md	phase	The live pre-split-ports ticket names the retired key its class table ports; the row retires with the archive move at the sprint close.
+test/qa/tests/t109_pre_split_ports.rs	phase	The focused test freezes the thirteen pre-split crates' landed lane names, one of which spells the retired position word; a landed name is provenance and is never renamed.

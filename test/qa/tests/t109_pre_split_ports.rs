@@ -3,7 +3,7 @@
 //!
 //! The subjects are this repository's own landed crates `t-058`..`t-070`
 //! under `test-hidden/`, cut against the pre-split Engine (`.arca/` root,
-//! `state.toml`, `phase`) and refusing ever since. The port is renames and
+//! `state.toml`, the retired position key) and refusing ever since. The port is renames and
 //! scaffold rewrites only: every crate keeps exactly the lane names it was
 //! landed with (frozen below, before the port), and every lane runs green
 //! through the sweep's own per-crate command.
@@ -322,11 +322,7 @@ fn class_rows(ticket: &str) -> Vec<(String, String, String)> {
         if !in_table || !line.starts_with("| `t-") {
             continue;
         }
-        let cells: Vec<&str> = line
-            .trim_matches('|')
-            .split('|')
-            .map(str::trim)
-            .collect();
+        let cells: Vec<&str> = line.trim_matches('|').split('|').map(str::trim).collect();
         if cells.len() < 4 {
             continue;
         }
