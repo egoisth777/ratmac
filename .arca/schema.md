@@ -634,12 +634,16 @@ new start restriction is introduced.
 completion gate reading declared data
 ([i-032](issue/i-032-completion-gate-reads-declared-data/spec.md#requirement-records)),
 revised at the 2026-08-21 planning pass per Billy's 2026-08-18 ruling (steering Horizon): the
-declared-checks question is a workflow matter. The Engine-side cutover ask (`CGD-003`) is deferred
-with the bundle. Accepted asks resolve to the headings below, bind at integration, and mint no
-goal row - but like the edition requirements they carry executable, observable deliverables (a
-shape check that validates the three lists; a checker that learns a ticket's checks from its tags
-rather than its prose), so they are measured by gap records and worked by tickets, which `PCR-008`
-allows by letting an accepted ask resolve in either authority.
+declared-checks question remains a workflow matter. Billy's explicit 2026-09-18 approval during
+run-030 intake accepts the Engine-side cutover (`CGD-003`) into the
+[product goal](goal/spec.md#integrated-completion-from-declared-data-requirements) for this sprint.
+That approval does not move the sibling requirements: the Plan-Build Runbook still owns this
+workflow's `focused-tests`, `hidden-lanes`, and `quality-commands` fields and the headings below
+remain their authority. Those two accepted asks bind here and mint no goal row - but like the
+edition requirements they carry executable, observable deliverables (a shape check that validates
+the three lists; a checker that learns a ticket's checks from its tags rather than its prose), so
+they are measured by gap records and worked by tickets, which `PCR-008` allows by letting an
+accepted ask resolve in either authority.
 
 ### CGD-001 - a ticket declares its checks as tags
 

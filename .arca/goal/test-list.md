@@ -1,5 +1,4 @@
 # ratmac test list
-
 Behavior checks derived from [spec.md](spec.md). Each is a testable one-liner.
 
 | ID | Check | Req |
@@ -266,6 +265,7 @@ Behavior checks derived from [spec.md](spec.md). Each is a testable one-liner.
 | DEBV-004 | Declaring a second build target that would write an existing output path fails by name, and the failure names both declarations; removing the duplicate makes it pass again. | DEB-002 |
 
 
+
 ## Integrated namespace-row ruling verification
 
 |ID|Check|Requirement|
@@ -336,4 +336,17 @@ Behavior checks derived from [spec.md](spec.md). Each is a testable one-liner.
 | TCEV-001 | A real fixture turn closes using the repository's declared verifier: a passing crate and a valid expired refusing crate succeed with separate report counts; an unexpired failure, malformed marker, missing crate, and stray crate each refuse by name. The verifier creates a fresh report, and marker bytes never change. | [TCE-001](spec.md#integrated-turn-close-expiry-requirements) |
 | TCEV-002 | Force the final verification to fail after cleanup, repair its input, then repeat close. Only verification runs again; landing, copy-back, stamp, log, worktree removal, and branch deletion are not repeated. Invalid or absent landing evidence cannot enter this final-only retry. | [TCE-001](spec.md#integrated-turn-close-expiry-requirements); THK-002 |
 | TCEV-003 | A generic root command runs exactly once from the primary checkout; omitted scope retains per-lane invocation. Unknown scope refuses before writes. Dry-run describes the chosen scope and changes nothing. No fixture verifier depends on this repository's marker filename. | [TCE-001](spec.md#integrated-turn-close-expiry-requirements); THK-004 |
+
+## Integrated completion-from-declared-data verification
+
+`CGDV-001` and `CGDV-002` remain the landed workflow-check proofs. These five
+Engine-cutover checks begin at `CGDV-003`.
+
+| ID | Check | Requirement |
+| :--- | :--- | :--- |
+| CGDV-003 | A fixture supplies the three field selections through runbook data. Renaming those fields and moving the same list values, while renaming or removing every Markdown heading, derives the same ordered focused, hidden, and quality set and produces the same gate verdict. | [CGD-003](spec.md#integrated-completion-from-declared-data-requirements) |
+| CGDV-004 | The completion path contains no `## Merge Gate` split, `HT-` shape match, or backtick scan. Rust names the three generic receipt kinds but none of this workflow's fields; focused, hidden, and quality declarations reach the gate without a prose-parser fallback. | [CGD-003](spec.md#integrated-completion-from-declared-data-requirements) |
+| CGDV-005 | A non-list value, empty-string entry, and duplicate each refuse naming the field and entry with no mutation. An explicitly empty list for one kind is legal; absent selected fields and an entirely empty combined set both retain the existing `declares no checks` refusal rather than passing. | [CGD-003](spec.md#integrated-completion-from-declared-data-requirements) |
+| CGDV-006 | Historical contract-gate and receipt fixtures pass without archive edits. Receipt kind and format, Run-keyed path, target binding, green/self-consistency/freshness/declared checks, missing/stray/duplicate safeguards, sensitivity behavior, and every receipt-defect refusal remain byte-for-byte compatible. | [CGD-003](spec.md#integrated-completion-from-declared-data-requirements) |
+| CGDV-007 | A non-Markdown declaration carrier with no heading or backtick syntax gates successfully when its focused, hidden, and quality receipts are complete and green; deleting a required receipt still produces the existing refusal. | [CGD-003](spec.md#integrated-completion-from-declared-data-requirements) |
 

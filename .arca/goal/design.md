@@ -588,3 +588,82 @@ state. Failures identify the declared command or missing retry proof so the
 operator can repair and repeat close safely. No Engine source or Machine Class
 change is involved.
 
+## Completion fields are selected by typed runbook data (ADR-0022)
+
+**Context.** `CGD-003` requires the completion gate to derive focused,
+hidden-lane, and quality checks from declared lists without understanding a
+project's document headings or field names. The observable behavior was
+accepted before its Machine Class wire shape, narrow declaration grammar, and
+self-host migration were chosen. The earlier workflow proved a front-matter
+reader with the current ticket fields, while the Engine still hard-codes the
+legacy planned-test identity and infers hidden ids and Merge Gate commands
+from prose shape.
+
+**Decision.** The exact guard fields, diagnostics, declaration subset, and
+refusal order are owned only by the runbook specification's
+[Completion declaration mapping](../runbook-spec.md#completion-declaration-mapping).
+The mapping is typed, optional as a complete group for parse compatibility,
+and fail-closed at completion when omitted; it reuses the guard's existing
+root resolution and exact opaque literal-or-bound address rather than adding a
+path or suffix.
+
+One generic selected-string-list reader is extracted from the already-proved
+workflow QA reader. QA passes its local field selection, and the Engine passes
+the parsed runbook selection; neither gets a second parser. The reader owns
+only the documented front-matter subset and adds no YAML or other dependency.
+The Engine removes the prose-discovery path and hard-codes no project field
+name.
+
+This project's forward mapping is `focused-tests`, `hidden-lanes`, and
+`quality-commands`, in focused, hidden-lane, quality order. The older
+`planned-test-refs` identity is deliberately not the focused mapping: it
+belongs to the earlier planning and sensitivity contract and can name a
+different set. This is a forward identity cutover, not a historical rewrite.
+Archived declarations and receipts keep their original identities. A new
+fixture may use the same literal id in planned and focused lists only when it
+does so deliberately; no equality is inferred for older records.
+
+**Consequences.** Receipt kinds, files, Run scoping, freshness and
+self-consistency checks, sensitivity behavior, and receipt-defect wording do
+not change. A paused Run keeps its existing refusal precedence. An unmapped
+runbook remains parseable but a new Engine cannot take its completion guard
+and does not fall back to prose.
+
+**Rollout.** Self-hosting requires two landings, both inside the implementing
+ticket's scope. The capability landing adds the generic Engine behavior and
+the fixture ticket's three declaration tags. It also tracks an exact
+`.ratmac/completion-guard.diff` that adds the approved mapping to the two
+`completion_gate` declarations and changes nothing else: roots, States,
+transitions, the edition guard, and the lane-sweep guard stay byte-for-byte
+unchanged. Proof applies that patch to the tracked runbook bytes and then
+reverses it back to the byte-identical original.
+
+Candidate traversal tests apply that reviewed patch only to their temporary
+runbook. They describe the fixture as the *prepared cutover*, not as the exact
+shipped Machine Class, and assert separately that the actual tracked runbook
+remains unmapped. The fixture ticket's focused, hidden-lane, and quality tags
+land with this capability, so the later activation needs only a fixture-source
+switch. The candidate also proves two boundaries against the tracked unmapped
+runbook: completion refuses for the missing mapping before reading the
+addressed artifact, while `rtm doctor` reports no missing-mapping lint.
+`RB113`'s Diagnostics-table row and matching runbook-authoring repair row
+land with the Engine source that emits the code, preserving the documented and
+emitted diagnostic-code parity.
+
+Stable `edition-007` remains unchanged and drives the actual, unchanged
+Machine Class through the rest of `run-030`. The candidate must not be
+described as able to complete that unmapped runbook, and the existing Run pin
+evidence is never rewritten. The next recording landing's edition-ledger claim
+is limited to Engine capability at the tagged revision; it does not claim that
+this repository's runbook is already wired.
+
+After `run-030` reaches rest, the activation landing applies the already
+tested patch to the tracked Machine Class, removes the temporary patch path and
+unmapped assertion from the traversal test, and restores traversal over the
+exact shipped bytes. The earlier fixture-tag addition means this landing makes
+only the runbook activation and test-source switch; it adds no Engine behavior.
+If worktree and recording-landing order requires a direct primary-checkout
+landing, the ticket records that conflict resolution in the log. The newly
+recorded stable Engine is bootstrapped before another Run starts, while the
+completed Run's pin evidence remains untouched.
+

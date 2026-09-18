@@ -104,7 +104,6 @@ name so it stops overwriting the shipped one, tests launch the build they were c
 against, and a check over the package manifests refuses a future collision by name. No Engine
 behaviour changes; see [ADR-0013](design.md#one-engine-binary-per-build-target-adr-0013).
 
-
 ## Integrated Plan-Build Runbook
 
 The engine runs this repository's own plan-build cycle. Requirements are integrated from
@@ -179,4 +178,19 @@ repository runs a fresh root-level sweep and its report check, while existing
 per-lane declarations remain valid, and a proven completed landing can retry
 only final verification after cleanup. See
 [ADR-0021](design.md#turn-close-verification-delegates-to-the-declared-sweep-adr-0021).
+
+## Integrated completion from declared data
+
+Completion declarations become runbook data rather than prose shape.
+Requirement [CGD-003](spec.md#integrated-completion-from-declared-data-requirements) is
+integrated from
+[i-032-completion-gate-reads-declared-data](../issue/i-032-completion-gate-reads-declared-data/index.md):
+the generic gate consumes focused, hidden, and quality lists whose field names
+come from runbook data, while receipt behavior stays intact. This workflow's
+fields are `focused-tests`, `hidden-lanes`, and `quality-commands`; none is
+Rust vocabulary. The exact Machine Class grammar and migration mechanism await
+the goal design decision, and implementation remains unproven. The carrying
+Ideal-shape properties are **Generic engine** and **Every boundary
+machine-checked**: project names stay in data, and a guard reads declarations
+rather than guessing from prose.
 

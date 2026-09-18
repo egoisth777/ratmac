@@ -3,7 +3,7 @@
 ```yaml
 issue-id: "i-032-completion-gate-reads-declared-data"
 provenance: "Wishlist, `The completion gate should not know what a ticket is either` - Billy's 2026-08-10 ruling applied where it was not yet carried; remainder identified after t-089 landed PCR-007"
-status: "pending"
+status: "integrated"
 ```
 
 ## Summary
@@ -25,7 +25,7 @@ both directions: a renamed heading silently declares nothing (and only the
 prose becomes a check the worker must now evidence. A generic runner whose
 work items are not markdown files cannot use the gate at all. The fix is the
 same move the rest of the Engine already made: the checks a Run must prove
-become declared data behind the one typed reader, and the prose parsers are
+come from explicit lists named by the runbook, and the prose parsers are
 deleted.
 
 ## Selection
@@ -39,12 +39,22 @@ the [turn-close ticket's implementation-run review
 (`t-111`)](../../ticket/archive/t-111.md#implementation-run-review) records
 the duplicate work of keeping the same checks in tags and prose.
 
-Proposed scope: declared checks replace prose discovery; existing receipt
-checks remain unchanged. The two sibling asks (`CGD-001` and `CGD-002`) remain
-accepted prerequisites. The cutover remains deferred pending planning sign-off;
-human disposition is still pending, and the current-sprint freeze is unchanged.
+At run-030 intake on 2026-09-18, Billy explicitly approved the remaining
+Engine cutover. `CGD-003` is accepted and integrated into the
+[forward product goal](../../goal/spec.md#integrated-completion-from-declared-data-requirements):
+declared checks replace prose discovery while the existing receipt contract
+stays unchanged. The two sibling asks (`CGD-001` and `CGD-002`) remain accepted
+working-authority prerequisites. This planning integration makes no
+implementation claim; parser removal, generic field selection, and preserved
+receipt behavior remain to be proved.
 
 ## History
 
 - 2026-08-13: filed from the wishlist by the DESIGNER; dispositions are the
   author's proposal, P1 confirms or revises at integration.
+- 2026-08-21: P1 accepted `CGD-001` and `CGD-002` into the working authority
+  and deferred the Engine cutover in `CGD-003`.
+- 2026-09-18: after the declared-tag workflow landed and was used on real
+  turns, the complete deferred bundle returned to intake for run-030.
+- 2026-09-18: Billy explicitly approved `CGD-003`; P1 accepted it into the
+  product goal without changing the two earlier accepted dispositions.

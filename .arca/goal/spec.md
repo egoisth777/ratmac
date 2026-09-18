@@ -1,5 +1,4 @@
 # ratmac specification
-
 Requirement records distilled from the accepted decisions. Sources cite the decision anchors in [design.md](design.md).
 
 | Req ID | Requirement | Source |
@@ -231,6 +230,7 @@ Requirement records distilled from the accepted decisions. Sources cite the deci
 | DEB-002 | A build-output collision cannot come back silently. A check reads every package manifest in the repository and fails by name, naming both declarations, when two build targets resolve to one output path. | [issue DEB-002](../issue/archive/i-027-duplicate-engine-binary/spec.md#requirement-records) |
 
 
+
 ## Integrated namespace-row ruling requirements
 
 | Req ID | Requirement | Source |
@@ -310,4 +310,14 @@ Requirement records distilled from the accepted decisions. Sources cite the deci
 | Req ID | Requirement | Source |
 | :--- | :--- | :--- |
 | TCE-001 | After merge, verified lane copy-back, stamping, logging, and worktree and branch removal, this repository's ticket-close confirmation freshly checks every declared landed crate using the sweep's existing expiry rules. It succeeds only when every crate passes or carries a valid explicit expiry marker, reports those outcomes separately, and refuses an unexpired failure, missing or stray crate, malformed marker, or verification error. It never creates, renews, or removes an expiry marker. Existing per-lane declarations remain compatible. A failed final confirmation can be retried without repeating completed close mutations, with completed landing evidence required before a branchless retry. | [issue TCE-001](../issue/archive/i-039-turn-close-expiry/spec.md#requirement-records) |
+
+## Integrated completion-from-declared-data requirements
+
+This P1 integration fixes observable behavior only. The exact Machine Class
+grammar and migration mechanism await the goal design decision, and no
+implementation proof is claimed here.
+
+| Req ID | Requirement | Source |
+| :--- | :--- | :--- |
+| CGD-003 | The implementation-completion gate derives its check set only from three explicit declared lists selected by runbook data. Their receipt kinds remain focused, hidden, and quality; this workflow currently maps them to `focused-tests`, `hidden-lanes`, and `quality-commands`, but Rust hard-codes none of those field names. The gate performs no Markdown-heading, `HT-`-shape, or backtick inference and works with heading-free and non-Markdown declaration carriers. If the selected declaration fields are absent, the existing `declares no checks` refusal remains. Each explicit list may be empty, but an entirely empty combined set keeps that refusal rather than passing vacuously. A malformed list, empty-string entry, or duplicate refuses naming the field and entry and makes no mutation. Receipt format, the Run-keyed evidence path, target binding, and the green, self-consistency, freshness, declared-set, missing, stray, and duplicate safeguards — including receipt-defect wording — remain unchanged. The sensitivity gate and archives remain unchanged. | [issue CGD-003](../issue/i-032-completion-gate-reads-declared-data/spec.md#requirement-records) |
 

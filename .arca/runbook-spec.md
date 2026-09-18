@@ -116,7 +116,7 @@ is not listed for the selected kind is `RB107`; a missing required field is
 | `file_contains` | A substring is present in a file. | `path`, `contains` | `root` (declared role) |
 | `command_exit` | A spawned program's exit code equals `expected`. The child's stderr is captured and rendered as a bounded diagnostic on refusal, or its stdout when stderr is silent - labelled `diagnostic (stdout)` so the reader knows which channel spoke (ETB-002). Unless `exempt`, the program must resolve to a pinnable regular file whose hash is recorded in Run evidence (ETB-001). | `program`, `expected` | `args` (array of strings), `exempt` (boolean; marks a toolchain probe that reads no project state) |
 | `sensitivity_receipts` | Every planned test the addressed ticket declares has a sensitivity receipt under `.ratmac/evidence/` (PGE-003). | exactly one of `ticket`, `ticket-binding` | `root` (declared role) |
-| `completion_gate` | Every check the addressed ticket declares has a green, fresh completion receipt (PGE-005). | exactly one of `ticket`, `ticket-binding` | `root` (declared role) |
+| `completion_gate` | Every check the addressed ticket declares has a green, fresh completion receipt (PGE-005). | exactly one of `ticket`, `ticket-binding` | `root` (declared role); the all-or-none declaration mapping `declaration-format`, `focused-field`, `hidden-lane-field`, `quality-field` |
 | `intake_contract` | The fixed `goal` and `issue` roles provide the goal authority and intake/deferred/archive issue namespace. The guard parses each ask's exact `accepted\|rejected\|duplicate\|deferred` disposition from `spec.md`, never from status alone; enforces the deferred and archived bundle rules, accepted requirement IDs, and live links (PGE-001). | none | none |
 | `join` | FDC-009/FDC-011: the composition join. Satisfied only when the spawn ledger's live children carry Engine-written terminal `passed` facts - at least `min` of them. Until a ledger records children, a join guard honestly refuses. `require` accepts only `"all_passed"`; any other value is `RB506`, as is `min` below 1. | `require` | `min` (integer >= 1; default 1) |
 | `record_contract` | The fixed `goal`, `residual`, and `ticket` roles provide the records for one residual per frozen requirement, evidence behind every `satisfied`, one owning ticket per gap, acyclic ticket dependencies, and complete ticket sections (PGE-002). | none | none |
@@ -135,6 +135,98 @@ resolved item address beneath that declared root. Without `root`, the address re
 the Run workspace. Contract guards have no path fields: `intake_contract`
 requires `goal` and `issue`; `record_contract` requires `goal`, `residual`,
 and `ticket`.
+
+### Completion declaration mapping
+
+A `completion_gate` keeps the existing exact, opaque `ticket` or
+`ticket-binding` address and its existing optional `root`. The addressed
+artifact itself is the declaration carrier: the mapping adds no path field,
+file-name suffix, or second root resolution.
+
+The optional mapping is one typed group:
+
+- `declaration-format` is a string and must be exactly
+  `"front-matter-string-lists"`.
+- `focused-field` is a string naming the declaration's top-level field for
+  checks whose receipt kind is `focused`.
+- `hidden-lane-field` is a string naming the declaration's top-level field
+  for checks whose receipt kind is `hidden-lane`.
+- `quality-field` is a string naming the declaration's top-level field for
+  checks whose receipt kind is `quality`.
+
+All four fields are present together or absent together. One to three present
+fields is `RB105`, naming the first missing field in the order listed above;
+this group-completeness check takes precedence over checking the values that
+were present. With all four present, a non-string value is `RB110`. Only
+after all four values have the right type does value validation run: an
+unknown `declaration-format`, an empty mapped field name, or one declaration
+field name mapped to more than one receipt kind is `RB113`. A field foreign
+to `completion_gate` remains `RB107` under the general guard rule.
+
+All four fields absent remains a valid Machine Class shape so an existing
+runbook still parses. It does not enable the old prose inference. For an
+unpaused Run, a new Engine refuses that guard before reading the addressed
+artifact; the diagnostic names `completion_gate`, names all four mapping
+fields, and tells the operator to add the mapping.
+
+`front-matter-string-lists` is a deliberately narrow text format, not YAML.
+The data region opens only when line one is `---` and ends at the first later
+`---` line; trailing whitespace on a fence is ignored, but leading
+whitespace is not. A missing opening fence means that none of the selected
+fields is declared. An opening fence without a closing fence is malformed.
+Only an exact mapped name at column one, immediately followed by `:`, selects
+a field. Unrelated fields inside the region and every byte after the closing
+fence are irrelevant.
+
+A selected field accepts only either of these forms:
+
+```text
+<mapped-name>:
+  - "<opaque non-empty string>"
+  - "<opaque non-empty string>"
+
+<mapped-name>: []
+```
+
+In the block form, an entry begins with one or more ASCII spaces, then `- `,
+then a double-quoted string. An indented bare `-` is an empty entry and
+refuses. Blank lines and indented comments are ignored; any column-one line
+closes the open block before it is considered as another selected or unrelated
+field. The reader removes the outer quotes and otherwise preserves the entry
+verbatim; it does not apply YAML typing, escaping, anchors, or flow-list rules.
+`[]` is the only inline list form and means an explicit empty list. Any other
+scalar, inline list, or list-entry shape is malformed.
+
+If any selected field appears, all three selected fields must appear. The
+reader returns the three complete lists or one defect, never a partial result.
+An empty entry, a repeated entry within one list or across the three lists, a
+missing selected field, a malformed list, or truncated data refuses with the
+selected field and offending entry; where no entry exists, the entry is the
+empty string. A truncation names the selected field whose block was open, when
+there is one. Exact entry equality defines a duplicate. Unrelated fields do
+not participate.
+
+The completed lists preserve entry order and are combined in receipt-kind
+order: focused, hidden-lane, then quality. Three absent selected fields and
+three present-but-empty lists both reach the existing `declares no checks`
+refusal, so completion never passes vacuously; one empty kind beside a
+non-empty kind is valid.
+
+One generic selected-string-list reader owns this subset. The workflow QA
+checker supplies its local field names to that reader, and the Engine supplies
+the names parsed from this mapping; the Engine has no project field-name
+constants and the reader adds no YAML or other parsing dependency. A
+declaration defect is reported before receipt loading and leaves all state and
+files untouched. Receipt paths, kinds, formats, freshness and consistency
+checks, and every `sensitivity_receipts` behavior remain unchanged.
+
+Runbook parse errors (`RB105`, `RB110`, `RB113`) necessarily precede
+runtime guard evaluation. For a parsed guard, normal address and root
+resolution still run first. The existing paused-Run refusal then keeps
+precedence over both an omitted mapping and declaration reading. For an
+unpaused Run, the order is omitted-mapping refusal, declaration reading and
+shape refusal, the existing `declares no checks` refusal, then receipt
+verification.
 
 Guard evaluation never compiles or fetches project source (ETB-001), and a
 failing guard refuses, reports, and leaves State and Status untouched (R-017).
@@ -225,6 +317,7 @@ the decision and the statement above that preserves it.
 | `ETB-003` | Transitions: `freeze = "goal"` marks the one recognised freeze boundary; `RB109`. |
 | `PGE-003` | Guard kinds: `sensitivity_receipts` reads the ticket's planned-test receipts. |
 | `PGE-005` | Guard kinds: `completion_gate` reads the ticket's completion receipts. |
+| `CGD-003` | Guard kinds and Completion declaration mapping: `completion_gate` selects three declared string lists through typed runbook data, never prose shape, and preserves the existing receipt contract. |
 | `PGE-006` | Transitions: `blocked-route = true` is the human-authorized escape `rtm step` never takes. |
 | `FDC-001` | States and Transitions: a branch declares closed `inputs`, ordinary edges carry unique covering `input` values, straight lines remain unlabelled, and blocked routes remain outside selection; `RB208`–`RB213`. |
 | `FDC-008` | Guard kinds and Transitions: every State on an ordinary-edge cycle carries a receipt- (`sensitivity_receipts`, `completion_gate`) or contract-class (`intake_contract`, `record_contract`) guarded out-edge, checked by kind membership alone; `RB214`. |
