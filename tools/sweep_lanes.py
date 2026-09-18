@@ -309,6 +309,12 @@ def check(config):
         deny(f"the lane sweep report {path} is unreadable: {error}")
     rows = {match.group(1): (match.group(2), match.group(3)) for match in ROW.finditer(text)}
     refusals = []
+    stray_prefix = "stray entries (in the folder, not in the roster):"
+    for line in text.splitlines():
+        if line.startswith(stray_prefix):
+            entries = line[len(stray_prefix):].strip()
+            if entries:
+                refusals.append(f"stray entries not declared by the roster: {entries}")
     for crate in config["roster"]:
         if crate not in rows:
             refusals.append(f"partial report: no verdict row for {crate}")

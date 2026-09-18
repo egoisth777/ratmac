@@ -1,9 +1,9 @@
 # Lane sweep report
 
-- swept: 2026-09-18T05:05:29Z
+- swept: 2026-09-18T06:24:32Z
 - lanes-root: test-hidden
 - verify-expired: no
-- verdicts: 44 pass, 2 expired, 4 red, 0 missing - 50 crates
+- verdicts: 51 pass, 2 expired, 0 red, 0 missing - 53 crates
 
 | crate | verdict | detail |
 | :--- | :--- | :--- |
@@ -32,17 +32,17 @@
 | t-080 | pass | 6 lane(s) green |
 | t-081 | pass | 6 lane(s) green |
 | t-082 | pass | 6 lane(s) green |
-| t-083 | red | ht_083_02_the_state_prompt_carries_prose_guards_and_inputs |
+| t-083 | pass | 6 lane(s) green |
 | t-084 | pass | 6 lane(s) green |
-| t-085 | red | ht_085_05_exit_codes_and_receipts_match_the_baseline, ht_085_03_every_terminal_path_ends_the_run_as_before, ht_085_06_a_spawned_child_joins_exactly_as_before |
+| t-085 | pass | 6 lane(s) green |
 | t-086 | pass | 6 lane(s) green |
 | t-087 | pass | 6 lane(s) green |
 | t-088 | pass | 6 lane(s) green |
 | t-089 | pass | 6 lane(s) green |
 | t-090 | pass | 6 lane(s) green |
 | t-091 | pass | 6 lane(s) green |
-| t-092 | red | ht_092_05_output_a_traversal_writes_nothing_of_its_own, ht_092_06_cross_feature_every_consumed_feature_fires_in_its_own_stage |
-| t-093 | red | ht_093_06_cross_feature_every_run_answers_for_itself |
+| t-092 | pass | 11 lane(s) green |
+| t-093 | pass | 7 lane(s) green |
 | t-094 | pass | 6 lane(s) green |
 | t-095 | pass | 6 lane(s) green |
 | t-096 | pass | 6 lane(s) green |
@@ -57,5 +57,6 @@
 | t-105 | pass | 6 lane(s) green |
 | t-106 | pass | 6 lane(s) green |
 | t-107 | pass | 6 lane(s) green |
-
-stray entries (in the folder, not in the roster): t-108 (a crate id the roster does not declare), t-109 (a crate id the roster does not declare)
+| t-108 | pass | 6 lane(s) green |
+| t-109 | pass | 6 lane(s) green |
+| t-110 | pass | 6 lane(s) green |

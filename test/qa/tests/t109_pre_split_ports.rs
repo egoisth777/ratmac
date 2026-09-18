@@ -349,6 +349,11 @@ fn the_class_table_licenses_a_port_and_never_an_expiry() {
         "the working rules carry the triage rule as a requirement-ID heading"
     );
     let ticket_path = root.join(".arca/ticket/t-109.md");
+    let ticket_path = if ticket_path.exists() {
+        ticket_path
+    } else {
+        root.join(".arca/ticket/archive/t-109.md")
+    };
     let ticket = fs::read_to_string(&ticket_path)
         .unwrap_or_else(|error| panic!("read {}: {error}", ticket_path.display()));
     let rows = class_rows(&ticket);

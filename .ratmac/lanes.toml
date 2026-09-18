@@ -10,8 +10,8 @@
 # roster  - the landed crates the folder must hold. A crate the roster
 #           expects and the folder lacks is named in the report, never
 #           skipped; a crate the folder holds that the roster does not
-#           declare is named as a stray entry. t-058..t-107 are the landed
-#           tickets' hidden crates at the t-108 turn.
+#           declare is named as a stray entry and refuses the close check.
+#           Every landing that adds a hidden crate adds its roster entry.
 [roots]
 lanes = "test-hidden"
 report = ".ratmac/evidence/lane-sweep/report.md"
@@ -66,4 +66,7 @@ roster = [
   "t-105",
   "t-106",
   "t-107",
+  "t-108",
+  "t-109",
+  "t-110",
 ]

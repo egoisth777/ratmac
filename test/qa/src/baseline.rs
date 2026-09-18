@@ -319,6 +319,28 @@ pub fn normalize(text: &str, root: &Path, engine: &Path) -> String {
         if line.starts_with("next: ") {
             continue;
         }
+        // AOP-001 (t-103) added these fixtures' guard arguments to the label.
+        // Accept only that exact addition; changed policy or minimum counts
+        // must remain visible to the comparison.
+        if line == "pending guard: join require=\"all_passed\" min=1" {
+            cleaned.push_str("pending guard: join\n");
+            continue;
+        }
+        if line == "pending guard: files_exact root=\"ticket\" path=\"done\" entries=[\"done.txt\"]"
+        {
+            cleaned.push_str("pending guard: files_exact\n");
+            continue;
+        }
+        // AOP-003 (t-104): the `skill` verb joined the usage roster after the
+        // freeze; a verb the freeze never had is a new surface, not a
+        // rewording, so exactly that entry is set aside on the roster line.
+        if let Some(verbs) = line.strip_prefix("Commands: ") {
+            let kept: Vec<&str> = verbs.split(", ").filter(|verb| *verb != "skill").collect();
+            cleaned.push_str("Commands: ");
+            cleaned.push_str(&mask_hex(&kept.join(", ")));
+            cleaned.push('\n');
+            continue;
+        }
         cleaned.push_str(&mask_hex(line));
         cleaned.push('\n');
     }
@@ -793,9 +815,12 @@ impl Pair {
     /// A lane uses this to prove its scenarios actually built something, so a
     /// comparison of two empty trees can never read as a passing proof.
     pub fn freeze_paths(&self) -> Vec<String> {
+        // `canonical` is line-oriented and closes every line, so a path run
+        // through it comes back newline-tipped; a listing entry is one path,
+        // trimmed, or a lane comparing it against a bare path never matches.
         tree(&self.freeze_root)
             .keys()
-            .map(|path| canonical(path))
+            .map(|path| canonical(path).trim_end().to_owned())
             .collect()
     }
 

@@ -188,19 +188,42 @@ fn every_post_split_crate_passes_and_the_baseline_helper_trims_entries() {
     let root = repo_root();
     let engine = root.join("target/debug/rtm-qa");
     let normalize = |text: &str| baseline::normalize(text, &root, &engine);
-    assert_eq!(normalize("pending guard: join require=\"all_passed\" min=1\n"),
-        normalize("pending guard: join\n"));
-    for changed in ["pending guard: join require=\"all_passed\" min=2\n",
-        "pending guard: join require=\"any_passed\" min=1\n"] {
-        assert_ne!(normalize(changed), normalize("pending guard: join\n"),
-            "changed guard arguments must not disappear");
+    assert_eq!(
+        normalize("pending guard: join require=\"all_passed\" min=1\n"),
+        normalize("pending guard: join\n")
+    );
+    for changed in [
+        "pending guard: join require=\"all_passed\" min=2\n",
+        "pending guard: join require=\"any_passed\" min=1\n",
+    ] {
+        assert_ne!(
+            normalize(changed),
+            normalize("pending guard: join\n"),
+            "changed guard arguments must not disappear"
+        );
     }
-    assert_eq!(normalize("Commands: start, scaffold, skill\n"),
-        normalize("Commands: start, scaffold\n"));
-    assert_ne!(normalize("Commands: start, scaffold, invented\n"),
-        normalize("Commands: start, scaffold\n"));
+    assert_eq!(
+        normalize("Commands: start, scaffold, skill\n"),
+        normalize("Commands: start, scaffold\n")
+    );
+    assert_ne!(
+        normalize("Commands: start, scaffold, invented\n"),
+        normalize("Commands: start, scaffold\n")
+    );
     let report = fs::read_to_string(root.join(".ratmac/evidence/lane-sweep/report.md"))
         .expect("read the tracked sweep report");
+    assert_eq!(
+        normalize(
+            "pending guard: files_exact root=\"ticket\" path=\"done\" entries=[\"done.txt\"]\n"
+        ),
+        normalize("pending guard: files_exact\n")
+    );
+    assert_ne!(
+        normalize(
+            "pending guard: files_exact root=\"ticket\" path=\"other\" entries=[\"done.txt\"]\n"
+        ),
+        normalize("pending guard: files_exact\n")
+    );
     let rows = rows_of(&report);
     for (crate_id, count) in POST_SPLIT.into_iter().zip([6, 6, 11, 7, 6, 6, 6]) {
         let (_, verdict, detail) = row(&rows, crate_id);
@@ -208,8 +231,11 @@ fn every_post_split_crate_passes_and_the_baseline_helper_trims_entries() {
             verdict, "pass",
             "RLRV-002: {crate_id} reads pass in the tracked report: {detail}"
         );
-        assert_eq!(detail, &format!("{count} lane(s) green"),
-            "RLRV-002: {crate_id} preserves every landed test");
+        assert_eq!(
+            detail,
+            &format!("{count} lane(s) green"),
+            "RLRV-002: {crate_id} preserves every landed test"
+        );
     }
 
     let pair = Pair::new(
@@ -302,14 +328,19 @@ fn the_roster_is_complete_and_the_check_refuses_strays() {
 fn verify_expired_runs_the_marked_twins_and_reports_them_red() {
     let root = repo_root();
     let roster = declared_roster(&root);
-    assert_eq!(roster.iter().cloned().collect::<BTreeSet<_>>(),
+    assert_eq!(
+        roster.iter().cloned().collect::<BTreeSet<_>>(),
         crate_folders(&root.join("test-hidden")),
-        "RLRV-004: expiry verification must cover the complete real roster");
-    let markers: Vec<_> = MARKED.iter().map(|id| {
-        let path = root.join("test-hidden").join(id).join("EXPIRED.toml");
-        let bytes = fs::read(&path).expect("read original marker");
-        (path, bytes)
-    }).collect();
+        "RLRV-004: expiry verification must cover the complete real roster"
+    );
+    let markers: Vec<_> = MARKED
+        .iter()
+        .map(|id| {
+            let path = root.join("test-hidden").join(id).join("EXPIRED.toml");
+            let bytes = fs::read(&path).expect("read original marker");
+            (path, bytes)
+        })
+        .collect();
     for crate_id in MARKED {
         assert!(
             root.join("test-hidden")
@@ -326,8 +357,15 @@ fn verify_expired_runs_the_marked_twins_and_reports_them_red() {
 
     let verified = sweep_tool(&scratch.root, &["sweep", "--verify-expired"]);
     let text = combined(&verified);
-    assert_eq!(verified.status.code(), Some(0), "full verification sweep passes: {text}");
-    assert!(!scratch.report().contains("stray entries"), "verification skips no crate");
+    assert_eq!(
+        verified.status.code(),
+        Some(0),
+        "full verification sweep passes: {text}"
+    );
+    assert!(
+        !scratch.report().contains("stray entries"),
+        "verification skips no crate"
+    );
     let rows = rows_of(&scratch.report());
     for crate_id in MARKED {
         let (_, verdict, detail) = row(&rows, crate_id);
@@ -339,9 +377,12 @@ fn verify_expired_runs_the_marked_twins_and_reports_them_red() {
             detail.contains("last passed at edition-") && detail.contains("verify: lanes refuse"),
             "RLRV-004: {crate_id} was run and still refuses beside its marker: {detail}\n{text}"
         );
-        assert!(!detail.contains("build refused:") && !detail.contains("timed out")
-            && !detail.contains("cargo did not run"),
-            "expiry evidence must come from actual failing tests: {detail}");
+        assert!(
+            !detail.contains("build refused:")
+                && !detail.contains("timed out")
+                && !detail.contains("cargo did not run"),
+            "expiry evidence must come from actual failing tests: {detail}"
+        );
     }
 
     scratch.declare(&lanes.to_string_lossy(), &MARKED);
@@ -365,7 +406,10 @@ fn verify_expired_runs_the_marked_twins_and_reports_them_red() {
         );
     }
     for (path, original) in markers {
-        assert_eq!(fs::read(path).expect("read marker after verification"), original,
-            "both sweep modes preserve marker bytes");
+        assert_eq!(
+            fs::read(path).expect("read marker after verification"),
+            original,
+            "both sweep modes preserve marker bytes"
+        );
     }
 }
