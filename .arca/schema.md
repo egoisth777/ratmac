@@ -674,7 +674,7 @@ past is guaranteed to keep growing; `EDNV-004` proves the pattern.
 ## Landed-lane recovery
 
 `RLR-001`-`RLR-004` are working-authority requirements integrated from
-[issue i-038](issue/i-038-red-lanes-recovered/spec.md#requirement-records): accepted asks resolve
+[issue i-038](issue/archive/i-038-red-lanes-recovered/spec.md#requirement-records): accepted asks resolve
 to the headings below and bind at integration. `RLR-001` is a rule and mints no gap record;
 `RLR-002`-`RLR-004` carry executable deliverables and are measured by gap records and worked by
 tickets, as the edition requirements are. The sweep, the marker, and the close guard they act on are

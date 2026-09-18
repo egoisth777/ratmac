@@ -31,16 +31,17 @@ only answer.
 
 ## Map - how ratmac hangs together
 
-Stamped cache - describes the tree through the full doctor executable
-fingerprint landing (`t-070`, `3e6ee6c`), surveyed 2026-08-04. The accepted
-carrier is `.arca/issue/archive/i-023-doctor-full-fingerprint/`; `DFP-001`
+Stamped cache - describes the tree through the post-split lane-recovery ticket
+(`t-110`), surveyed 2026-09-17. The full doctor executable fingerprint first
+landed in the full-doctor-fingerprint ticket (`t-070`, `3e6ee6c`). The accepted
+carrier remains `.arca/issue/archive/i-023-doctor-full-fingerprint/`; `DFP-001`
 widens only the argument-free human doctor's rendered Engine SHA-256 from a
-16-character prefix to the complete 64-character lowercase digest. The fresh
-public proof is in `test/qa/tests/t045_bootstrap_doctor.rs`; inherited public
-behavior remains green, and `test-hidden/t-058/` through
-`test-hidden/t-070/` hold the current hidden lanes. Every Architecture,
-Binary, Modules, and Tests row below describes this landed tree. Refresh at
-each cycle close (gap check green).
+16-character prefix to the complete 64-character lowercase digest. That
+landing's public proof is in `test/qa/tests/t045_bootstrap_doctor.rs`, and
+`test-hidden/t-058/` through `test-hidden/t-070/` held its hidden lanes. The
+lane-recovery cycle added no `src/` changes. Every Architecture, Binary,
+Modules, and Tests row below describes this landed tree. Refresh at each cycle
+close (gap check green).
 
 The state-vocabulary cutover (`SVC-001`-`SVC-010`, goal `ADR-0012`) has landed:
 every row below reads State for the machine position, `states` for the runbook
@@ -77,44 +78,51 @@ flowchart LR
 ### Binary
 
 `rtm` - hand-rolled CLI (`src/cli.rs`, no clap): `start`, `status`, `step`,
-`hold`, `abandon`, `spawn`, `respawn`, `doctor`, `scaffold`. `start` takes no
-Run id and mints the next roster member; `status` and `step` require a
+`hold`, `abandon`, `spawn`, `respawn`, `doctor`, `scaffold`, `skill`. `start`
+takes no Run id and mints the next roster member; `status` and `step` require a
 canonical exact `--run <id>`, `hold` binds through the same `open_run`
 preflight, and retiring a live Run requires its roster id. `spawn` creates a
 declared child from a parent's spawning State as ordinary checked motion;
 `respawn` and live-run `abandon` demand `--confirm` phrases naming the run id
-(FDC-007). Only leftover-lock retirement may be unaddressed;
-missing or unknown addresses report the `.ratmac/runs/` roster. `doctor` is
-read-only and deep: its argument-free human report identifies the exact
-running Engine with the complete 64-character lowercase SHA-256, then reports
-parse, graph, guard-lint, and ownership findings over `MachineClass`; `--json`
-remains the finding list only, with exit `0`/`1`/`2` for clean, warnings, and
-errors. `rtm doctor <path>` diagnoses any runbook file - an unreadable path is
-the finding `RB101`, not a usage error. `rtm scaffold <path>` writes the one
-runbook that starts clean.
+(FDC-007). Only leftover-lock retirement may be unaddressed; missing or unknown
+addresses report the resolved Engine root's `.ratmac/runs/` roster. `doctor` is
+read-only and deep: its argument-free human report identifies the exact running
+Engine with the complete 64-character lowercase SHA-256, its build channel and
+source commit, the local stable-edition resolution or refusal, off-pin live
+Runs, and the resolved Engine root before the parse, graph, guard-lint, and
+ownership findings over `MachineClass`. `--json` emits an object containing
+`engine_root` and the `findings` array, with exit `0`/`1`/`2` for clean,
+warnings, and errors. `rtm doctor <path>` diagnoses any runbook file - an
+unreadable path is finding `RB101`, not a usage error. `rtm scaffold <path>`
+writes the one runbook that starts clean. `rtm skill <path>` atomically writes
+the identity-stamped operator-skill folder at a new path and never overwrites.
 
 ### Modules (src/)
 
 | Module | Role |
 | :--- | :--- |
-| `cli.rs` | Hand-rolled parsing of nine verbs and exit codes. `start` is unaddressed; `status`/`step` validate a canonical roster address, `hold` resolves through `open_run`, live-Run `abandon` requires a roster id, and `spawn`/`respawn` address the parent and superseded run. Argument-free human `doctor` renders the complete SHA-256 of the exact current executable; executable selection and hashing remain unchanged. It contains no graph or guard policy. |
+| `cli.rs` | Hand-rolled parsing of ten verbs and exit codes. It dispatches the addressed lifecycle commands plus `doctor`, `scaffold`, and `skill`; argument-free human `doctor` renders the executable's full SHA-256, channel/source provenance, stable-edition resolution, and resolved Engine root, while JSON carries `engine_root` and `findings`. It contains no graph or guard policy. |
 | `graph.rs` | `State`, `Transition`, `MachineGraph` - graph position without lifecycle. `transition_for_input` selects the unique ordinary edge whose optional `input` exactly matches; `None` selects an unlabelled straight edge. `has_ordinary_outgoing` is the one structural terminal predicate (blocked routes excluded). Declaration order and guards never select, and blocked routes remain hold-only. |
-| `machine.rs` | `MachineClass::from_toml` - the whole runbook schema boundary and its only reader, hand-rolled over `toml::Value`. It retains typed `GuardKind`, closed State `inputs`, and Transition `input`; RB208-RB213 reject malformed branch contracts, and inline `classes`, per-State `spawns`, and the `join` guard kind parse one level deep with RB501-RB506 rejecting malformed composition (FDC-009). |
+| `machine.rs` | `MachineClass::from_toml` - the whole runbook schema boundary and its only reader, hand-rolled over `toml::Value`. It retains the top-level named `roots`, typed `GuardKind`, closed State `inputs`, Transition `input`, inline `classes`, per-State `spawns`, and the `join` guard; malformed declarations are rejected by their stable `RB*` codes. |
+| `roots.rs` | Parses and validates the Machine Class's optional `[roots]` role-to-repository-relative-path declarations, rejecting malformed, missing, escaping, or Engine-overlapping roots before lifecycle use. |
 | `scheduler.rs` | Project/Run binding and ordinary execution. `open` has no Run; `open_run` binds one canonical live roster member. `open`/`open_run` and `start` refuse flat residue, while pinned reads reject runbook drift. `start` mints an uncapped never-reused id and writes `passed` when the initial State is terminal; `step` refuses a passed Run by name, evaluates guards before verdict routing/consumption, and writes `passed` beside a terminal successor in one replacement; `status` reloads and reports read-only. `resolve_state_scope` reads a child Run through its own class's view for step and status alike (FDC-010/FDC-011); `spawn` mints a declared child as an ordinary flat Run and appends its ledger entry, refusing any parent that is itself a recorded child (FDC-012); `respawn` supersedes by confirmed phrase; the `join` guard reads the ledger's live children's terminal facts. |
 | `ledger.rs` | The Scheduler-owned per-run spawn ledger (FDC-011): append at spawn, successor entries at respawn, abandoned-mark flips at retirement - never rewritten; strict read refuses malformed entries by name. |
 | `verdict.rs` | Strict Run-local transition-input delivery. A branch validates exact `state`/`input`/`rationale`; a straight State requires an absent live slot. Valid bytes rename to monotonic `verdicts/NNNNNN.toml` evidence before Run Record advance; refusals consume nothing. |
 | `model.rs` | `Run`, `RunArtifacts`, plural `Runs`, and serde `RunState`/`Status`; persisted state belongs to `.ratmac/runs/<run-id>/run.toml`. |
 | `state.rs` | Strictly parses and atomically replaces the addressed `.ratmac/runs/<run-id>/run.toml`. The write path is crate-private, centralizing Engine writes without filesystem-enforcing ownership, and it renders the report behind `rtm status`. |
-| `pin.rs` | Run evidence: stable Engine identity, gate-artifact pins, goal baseline/freeze, and the hash-only SHA-256 pin of canonical `.ratmac/ratmac.toml`. Non-exempt command guards run pinned code. |
+| `root.rs` | Resolves the invoking checkout and the shared Engine runtime root: a linked worktree uses the primary checkout's `.ratmac/`, while runbook bytes remain in the invoking checkout; no usable Git falls back locally. It owns the one displayed path spelling. |
+| `pin.rs` | Run evidence: Engine path and SHA-256 plus build channel and source-commit provenance, gate-artifact pins, goal baseline/freeze, and the hash-only SHA-256 pin of canonical `.ratmac/ratmac.toml`. A path, digest, channel, or provenance mismatch refuses; non-exempt command guards run pinned code. |
+| `channel.rs` | Offline Engine-channel resolution. `stable` is the newest edition recorded in `.arca/editions.md` only when its tag still names the recorded commit; `nightly` is the current `HEAD`. It also reports live Runs whose pinned Engine provenance is off stable. |
 | `receipt.rs` | Sensitivity receipts; digests re-derived, self-verifying. |
 | `completion.rs` | Completion gate: green + fresh via tree digest. |
-| `contract.rs` | Intake/record contract gates; the intake gate parses ask dispositions across intake, deferred, and archive as one issue-id namespace, while the record gate receives the addressed Run id for frozen-goal evidence. Project-specific `.arca/issue`, `.arca/residual`, `.arca/ticket`, and `.arca/goal` paths remain R-016 debt. |
+| `contract.rs` | Intake/record contract gates. They resolve required `goal`, `issue`, `residual`, and `ticket` roles, plus optional `authority`, from the runbook's validated `[roots]` table before reading records; intake spans intake, deferred, and archive as one issue-id namespace, and the record gate receives the addressed Run id for frozen-goal evidence. |
 | `goal.rs` | Goal freeze and drift check (content hash of `.arca/goal/`). |
 | `blocked.rs` | Plans and applies an always-addressed human-confirmed hold: ticket/blocker checks, `open_run` residue/pin preflight, declared blocked route, then all-or-none named-Run state, history, and ticket updates. A passed Run refuses the hold before any route lookup (FDC-002). |
 | `abandon.rs` | Human-confirmed retirement. A live Run requires `--run`; class/pin/residue checks are intentionally bypassed so broken Runs remain retireable. One terminal event naming the addressed Run durably precedes retirement of that Run's state/evidence plus any leftover lock, all-or-none; its directory remains to reserve the id. A ledger-recorded child's confirmed retirement also flips its entry's abandoned mark. |
 | `ownership.rs` | PGE-004 ownership lint over prompts and guard contracts; the doctor's fourth pass. |
-| `doctor.rs` | DRD-001..007: findings as data. Diagnoses through `machine.rs` and never walks runbook TOML itself; owns the graph, guard-lint, and cycle-termination passes (FDC-008: every cycle carries a guard-kind-checked out-edge), JSON rendering, and exit-code mapping. |
+| `doctor.rs` | Findings as data: stable code, severity, location, and message. Diagnosis goes through `machine.rs`, owns graph, guard-lint, and cycle-termination passes, pairs findings with the exact resolved Engine root, renders JSON as `{ engine_root, findings }`, and maps clean/warning/error to exit `0`/`1`/`2`. |
 | `scaffold.rs` | AAL-002: the smallest doctor-clean runbook, written at a path that does not exist yet. One file, no options, never overwrites. |
+| `skill.rs` | AOP-003/AOP-004: atomically writes one non-overwriting `ratmac-operator` skill folder whose `SKILL.md` carries the writing Engine's identity stamp and whose references teach invariant operating rules. |
 
 ### Runbook shape (`.ratmac/ratmac.toml`)
 
@@ -130,26 +138,30 @@ an external program to inspect repository state.
 
 ### Tests
 
-`test/qa/` cargo crate, public integration suites through `t070`. Current FDC
-coverage is `t059_run_residency` (4 tests), `t060_runbook_pin` (3),
-`t061_uncapped_runs` (2), `t061_input_routing` (3), `t062_verdict_delivery`
-(4), `t063_run_completion` (4), `t064_composition_format` (3),
-`t065_motion_authorization` (3), `t066_spawn_ledger` (3),
-`t067_cycle_termination` (2), `t068_recursion_cap` (2), and
-`t069_child_reviewer` (2). DFP-001 is proven by
+`test/qa/` is the public integration-test crate, with ticket suites through
+`t110_post_split_ports`. The established FDC coverage remains in
+`t059_run_residency` through `t069_child_reviewer`; later coverage includes
+named workflow roots and resolved-root reporting (`t076`, `t078`), edition
+guards, audit, channels, and stable bootstrap (`t094`, `t095`, `t101`, `t102`),
+the self-describing CLI and operator skill (`t103`, `t104`), and the cycle-close
+contracts (`t105` through `t110`). DFP-001 remains proven by
 `t045_bootstrap_doctor::doctor_reports_complete_engine_fingerprint_and_is_write_free`
-plus the inherited `t045` and `t057` suites. Wording surfaces (caller policy,
-schema rules) are asserted against `.arca/schema.md` and `AGENTS.md`. Hidden
-lanes `test-hidden/t-058/` through `t-070/` contain
-6/6/6/5/6/6/6/6/6/5/6/6/6 tests. Opt-in release lane:
-`RATMAC_RELEASE_ACCEPTANCE=1`.
+plus the inherited `t045` and `t057` suites. Wording surfaces are asserted
+against `.arca/schema.md` and `AGENTS.md`. `.ratmac/lanes.toml` declares every
+landed hidden crate from `test-hidden/t-058/` through `test-hidden/t-110/`;
+`t-078` and `t-079` retain their dated `edition-001` expiry markers. Opt-in
+release lane: `RATMAC_RELEASE_ACCEPTANCE=1`.
 
 ### Known limitations / deferred debt (steering.md)
 
 - Findings carry a location (`state "build" guard 0`), never a line or span:
   an agent repairs by name, not by cursor position.
-- R-016 remains deferred: `contract.rs`/`blocked.rs`/`goal.rs` bake
-  project-specific `.arca/issue|ticket|residual|goal` paths into Rust.
+- The zero-project-knowledge requirement (`R-016`) has narrower debt in these
+  modules: `contract.rs` still fixes this project's workflow role names and
+  record layout beneath them, though their directories resolve through the
+  runbook's `[roots]`; `blocked.rs` ranges over every declared root and
+  `goal.rs` hashes an already-resolved path. None hard-codes an `.arca`
+  workflow root.
 
 ## Read next
 
