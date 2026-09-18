@@ -127,11 +127,13 @@ they select nothing.
 4. **Ticket tags in the runbook's ticket format** - promoted and integrated
    at the 2026-08-21 planning pass as the revised completion-gate issue
    (`i-032`, `CGD-001`/`CGD-002` accepted into the working authority,
-   `CGD-003` deferred with the bundle): the ticket blank and the schema's
-   Ticket check tags rules carry the three tag lists, and the sprint measures
-   the two executable clauses (a tag-reading checker; a malformed-list
-   refusal). The Engine-side cutover remains the deferred ask, selectable at
-   a later planning pass once the format is proven on real tickets.
+   initially leaving `CGD-003` deferred): the ticket blank and the schema's
+   Ticket check tags rules carry the three tag lists, proven by the tag-reader
+   landing and used on later tickets. Billy approved the remaining Engine
+   cutover at the 2026-09-18 planning pass. It advances Generic engine and
+   Every boundary machine-checked: the runbook supplies the selected field
+   names, while receipt safeguards stay unchanged. Its route is now measured
+   in the signed sprint below rather than forecast here.
 5. **The edition ledger recording order** - minted and integrated in the same
    pass as `i-034` (`ELR-001`-`ELR-003`) after the stable engine refused to
    build at its own tagged commit: the recording landing follows the tag, the
@@ -173,19 +175,25 @@ wrote down is drift.
 Derived record. Regenerated wholesale at P1 close from the signed issue set;
 never hand-edited, never a progress report. Stage lives in the tree.
 
-Freeze stamp: `git:2b2070c224b2943e86b6c1c4bfcea4c2cbee47ca` +
-`goal-sha256:e5d51d4e077be3f3ec7572e9041e90ffdffb1b271f45684ed66fea8502d24fa5`
-- the accepted turn-close expiry goal landing and the canonical goal
-revision frozen by the Engine as run-028 left intake. P1 opened and closed
-2026-09-18 on one signed batch of one: the turn-close expiry issue
-(`i-039`, accepted, `TCE-001`), selected by Billy's explicit instruction to
-fix it first. It advances Self-hosted and Every boundary machine-checked.
-The gap check and ticket are cut against this stamp.
+Freeze stamp: `git:a738bdeef819a8d8f3e938498104430415ae47f9` +
+`goal-sha256:6bd2a98c74d82b6611990267af3471ff24c01851fd5a6425e2fc0c1aba8cbeba`
+- the accepted declared-data completion goal landing and the canonical goal
+revision frozen by the Engine as run-030 left intake. P1 opened and closed
+2026-09-18 on one signed batch of one: the completion-from-declared-data
+issue (`i-032`, accepted, `CGD-003`). Billy delegated its selection after
+the previous sprint, then explicitly approved the remaining cutover. It
+advances Generic engine and Every boundary machine-checked. The two earlier
+workflow requirements (`CGD-001`, `CGD-002`) are landed prerequisites, not
+new sprint scope. The gap check and ticket are cut against this stamp.
 
 Route - dependencies of the signed sprint, one why per edge:
 
-1. The already-landed turn lifecycle and sweep contracts (`THK-002`,
-   `LNR-001`, `LNR-002`) precede turn-close expiry (`TCE-001`, from
-   `i-039`) because the new confirmation composes their fixed close order
-   and existing verdict policy; it creates neither a second expiry parser
-   nor an Engine mechanism. There is no dependency within this one-ask batch.
+1. The proven workflow tag format (`CGD-001`, `CGD-002`) precedes the
+   declared-data completion cutover (`CGD-003`, from `i-032`) because the
+   Engine must consume explicit, validated check lists rather than invent
+   project vocabulary or infer checks from prose.
+2. The existing stable-driver and runbook-pin contracts (`ECP-003`,
+   `FDC-005`) constrain activation of `CGD-003`: prove the new Engine and
+   prepared mapping while the current Run keeps its pinned runbook, then
+   activate that tested mapping only after rest. This ordering changes no
+   receipt guarantee and adds no second ask to the signed batch.
