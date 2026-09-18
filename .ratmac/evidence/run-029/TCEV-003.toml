@@ -1,0 +1,73 @@
+planned-test-id = "TCEV-003"
+ticket-id = "t-111"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t111_turn_close_expiry declared_scope_is_generic_compatible_and_checked_before_writes -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t111_turn_close_expiry.rs"
+test-name = "declared_scope_is_generic_compatible_and_checked_before_writes"
+exit-status = 101
+output-sha256 = "b4c7f944e226fb9e6ed99e47c63ecfecf9946785b5251ed003342ebabf244729"
+output = '''
+   Compiling ratmac-qa v0.1.0 (E:\repos\projs\skill-dev\ratmac-t-111\test\qa)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.50s
+     Running tests\t111_turn_close_expiry.rs (target\debug\deps\t111_turn_close_expiry-50c1bb441fa960f9.exe)
+
+running 1 test
+test declared_scope_is_generic_compatible_and_checked_before_writes ... FAILED
+
+failures:
+
+---- declared_scope_is_generic_compatible_and_checked_before_writes stdout ----
+
+thread 'declared_scope_is_generic_compatible_and_checked_before_writes' (6252) panicked at test\qa\tests\t111_turn_close_expiry.rs:911:5:
+the omitted scope is named as the per-lane default: turn status (read-only; nothing below has been applied)
+
+declared data (.ratmac/turn.toml):
+  trunk:         main
+  lanes root:    lanes
+  item records:  items/<item>.md
+  landing log:   landlog.md
+  stamp field:   landed-commit
+  skip list:     target
+  lanes rerun:   New-Item -ItemType File -Force -Path rerun.marker | Out-Null
+
+checked out:      main
+working tree:     dirty (2 entries)
+primary checkout: C:/Users/egois/AppData/Local/Temp/ratmac-t107-tcev3-default-61996-1789752200588798600/repo
+
+live turns (registered sibling worktrees):
+  (none)
+
+open plan:
+  git worktree add -b <item> C:/Users/egois/AppData/Local/Temp/ratmac-t107-tcev3-default-61996-1789752200588798600/repo-<item> main
+  copy lanes -> C:/Users/egois/AppData/Local/Temp/ratmac-t107-tcev3-default-61996-1789752200588798600/repo-<item>/lanes, skipping: target
+  recovery if it fails midway:
+    git worktree remove C:/Users/egois/AppData/Local/Temp/ratmac-t107-tcev3-default-61996-1789752200588798600/repo-<item>
+    git update-ref -d refs/heads/<item> <trunk-tip>
+  blocked by:
+    the working tree is not clean
+
+close plan (in this order; a failing step refuses it and every later step):
+  1. merge <item> into main (fast-forward when the trunk has not moved, else one merge commit)
+  2. copy-back: C:/Users/egois/AppData/Local/Temp/ratmac-t107-tcev3-default-61996-1789752200588798600/repo-<item>/lanes -> C:/Users/egois/AppData/Local/Temp/ratmac-t107-tcev3-default-61996-1789752200588798600/repo/lanes, verified byte for byte
+  3. stamp: write the landed main tip into items/<item>.md field landed-commit
+  4. log line: append '- <date>: <words>' to landlog.md (pass -Line '<words>')
+  5. remove the worktree C:/Users/egois/AppData/Local/Temp/ratmac-t107-tcev3-default-61996-1789752200588798600/repo-<item> (refuses while it holds the only copy of any artifact)
+  6. delete the branch <item> (only once main holds it)
+  7. re-run the lanes once from the trunk: New-Item -ItemType File -Force -Path rerun.marker | Out-Null, in each directory under lanes
+  recovery / resume (continues from the first uncompleted step):
+    pwsh -File tools/turn.ps1 close -Item <item> -Line '<words>'
+  a conflicted merge is left exactly as Git left it: resolve, git add <file> && git commit, then resume.
+  the stamp edits the close leaves in the trunk are committed by you as the stamp landing.
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    declared_scope_is_generic_compatible_and_checked_before_writes
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 6.31s
+
+error: test failed, to rerun pass `-p ratmac-qa --test t111_turn_close_expiry`
+'''

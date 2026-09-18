@@ -35,12 +35,19 @@
     has not moved, otherwise one merge commit), verified copy-back of the
     lanes root, stamp of the landed tip into the item record's declared
     field, the landing's line appended to the declared landing log, worktree
-    removal, branch deletion, and the lanes rerun from the trunk. Per-step
+    removal, branch deletion, and the final lanes verification - the declared
+    lanes-rerun command run per the declared lanes-rerun-scope. Per-step
     completion is recorded in the repository state itself - the trunk
     containing the item, the lanes digests agreeing, the stamp field, the
     log line, the registration, the ref - and read back on resume, so an
     interrupted close resumes from the first uncompleted step and never
-    repeats a landed mutation. A removal refuses while the worktree holds
+    repeats a landed mutation. A final verification that failed after the
+    cleanup retries the same close branchlessly: once no item branch,
+    worktree registration, or worktree folder remains, the stamp equals the
+    current trunk tip, the landing line is already in the log, and no
+    unrelated dirt exists, the repeated close proves those facts and runs
+    only the final verification again, refusing by naming any missing proof.
+    A removal refuses while the worktree holds
     the only copy of any artifact, naming the artifact and the copy-back
     that would release it; the one explicit release beside a verified
     copy-back is obsolete-by-name declaration. The stamp edits (item record
@@ -64,8 +71,11 @@
     the runbook parser owns ratmac.toml's tables and refuses unknown keys.
     The tool reads: trunk (branch), lanes (untracked root copied per turn),
     item-records (root holding <item>.md), landing-log, stamp-field,
-    skip (per-lane build-output directory names), lanes-rerun (the command
-    run once in each lane directory from the trunk).
+    skip (per-lane build-output directory names), lanes-rerun (the declared
+    verification command), and the optional lanes-rerun-scope: `per-lane`
+    (the default) runs the command once in each lane directory from the
+    trunk, `root-once` runs it exactly once from the primary checkout, and
+    any other value refuses before the first write.
 #>
 
 [CmdletBinding()]
@@ -214,6 +224,25 @@ function Get-Declaration {
         }
     }
 
+    # The closed optional scope for the final verification (ADR-0021):
+    # omitted keeps the per-lane default; anything but the two known values
+    # refuses here, before any verb writes anything.
+    $rerunScope = 'per-lane'
+    if ($values.ContainsKey('lanes-rerun-scope')) {
+        $declaredScope = $values['lanes-rerun-scope']
+        if ($declaredScope -isnot [string] -or [string]::IsNullOrEmpty($declaredScope)) {
+            Deny -Reason "the declared lanes-rerun-scope must be one non-empty quoted string: 'per-lane' or 'root-once'" -Guidance @(
+                'a list or an empty string is not a scope; omit the key to keep the per-lane default.'
+            )
+        }
+        if ($declaredScope -cne 'per-lane' -and $declaredScope -cne 'root-once') {
+            Deny -Reason "the declared lanes-rerun-scope '$declaredScope' is unknown" -Guidance @(
+                "the scope is one of: 'per-lane', 'root-once'; omit the key to keep the per-lane default."
+            )
+        }
+        $rerunScope = $declaredScope
+    }
+
     [pscustomobject]@{
         Trunk       = [string]$values['trunk']
         Lanes       = [string]$values['lanes']
@@ -222,6 +251,7 @@ function Get-Declaration {
         StampField  = [string]$values['stamp-field']
         Skip        = @([string[]]$values['skip'])
         LanesRerun  = [string]$values['lanes-rerun']
+        RerunScope  = $rerunScope
     }
 }
 
@@ -625,8 +655,21 @@ function Get-TurnState {
         $merged = (Invoke-Git -Arguments @('merge-base', '--is-ancestor', "refs/heads/$BranchItem", "refs/heads/$($Decl.Trunk)")).Ok
     }
 
+    $expectedWorktreePath = "$($Facts.Parent)/$($Facts.RepoName)-$BranchItem"
+    # Independent of the branch-based registration below: any registration
+    # - detached, prunable, or on another branch - squatting on the expected
+    # sibling path is a fact of its own, so a stale registration at the turn's
+    # path is caught while unrelated worktrees are left alone.
+    $registeredAtExpected = $false
+    foreach ($registration in @($Facts.Registrations)) {
+        if ($registration.StartsWith('worktree ') -and (Resolve-PathText $registration.Substring('worktree '.Length)) -eq $expectedWorktreePath) {
+            $registeredAtExpected = $true
+            break
+        }
+    }
+
     $worktreePath = Find-WorktreeFor -Facts $Facts -Branch $BranchItem
-    if (-not $worktreePath) { $worktreePath = "$($Facts.Parent)/$($Facts.RepoName)-$BranchItem" }
+    if (-not $worktreePath) { $worktreePath = $expectedWorktreePath }
     $worktreeExists = Test-Path -LiteralPath $worktreePath -PathType Container
     $worktreeDirty = @()
     if ($worktreeExists) {
@@ -677,6 +720,8 @@ function Get-TurnState {
         WorktreeExists  = $worktreeExists
         WorktreeDirty   = $worktreeDirty
         Registered      = ((Find-WorktreeFor -Facts $Facts -Branch $BranchItem) -ne '')
+        ExpectedWorktreePath = $expectedWorktreePath
+        RegisteredAtExpected = $registeredAtExpected
         ItemRecordPath  = $itemRecordPath
         LandingLogPath  = $landingLogPath
         StampValue      = [string]$stampValue
@@ -734,6 +779,139 @@ function Get-OnlyCopyArtifacts {
 
 # --- close -------------------------------------------------------------------
 
+# Step 7, shared by the ordinary close and the branchless final-only retry:
+# the final lanes verification, run per the declared lanes-rerun-scope.
+# `per-lane` keeps the legacy behavior - the declared command once in each
+# lane directory from the trunk; `root-once` runs it exactly once from the
+# primary checkout, its output streamed so a failure names the crate or
+# marker it died on. The command's meaning stays the command's own: this
+# tool parses no expiry marker.
+function Invoke-LanesVerification {
+    param(
+        [Parameter(Mandatory)] $Facts,
+        [Parameter(Mandatory)] $Decl,
+        [Parameter(Mandatory)][AllowEmptyString()][string] $Resume
+    )
+
+    if ($Decl.RerunScope -eq 'root-once') {
+        Push-Location $Facts.RepoRoot
+        try {
+            & pwsh -NoProfile -Command $Decl.LanesRerun
+            $code = $LASTEXITCODE
+        }
+        finally {
+            Pop-Location
+        }
+        if ($code -ne 0) {
+            Deny -Reason "the final verification failed from the primary checkout (exit $code; scope root-once)" -Guidance @(
+                "the verification command was: $($Decl.LanesRerun)",
+                "it ran once from $($Facts.RepoRoot)",
+                'the turn is closed and the landing stands; repair the reported failure, then repeat the same close:',
+                "  $Resume"
+            )
+        }
+        Write-Report 'step 7/7 lanes rerun: ran once from the primary checkout (scope root-once)'
+        return
+    }
+
+    $lanesRoot = Join-Path $Facts.RepoRoot $Decl.Lanes
+    $laneDirs = @()
+    if (Test-Path -LiteralPath $lanesRoot -PathType Container) {
+        $laneDirs = @(Get-ChildItem -LiteralPath $lanesRoot -Directory | Where-Object { $Decl.Skip -notcontains $_.Name })
+    }
+    if ($laneDirs.Count -eq 0) {
+        Write-Report "step 7/7 lanes rerun: no lane directories under $($Decl.Lanes)"
+        return
+    }
+    foreach ($lane in $laneDirs) {
+        Push-Location $lane.FullName
+        try {
+            & pwsh -NoProfile -Command $Decl.LanesRerun | Out-Null
+            $code = $LASTEXITCODE
+        }
+        finally {
+            Pop-Location
+        }
+        if ($code -ne 0) {
+            Deny -Reason "the lanes rerun failed in $($lane.FullName) (exit $code)" -Guidance @(
+                "the rerun command was: $($Decl.LanesRerun)",
+                'everything else is done: the turn is closed and the landing stands; rerun the lanes yourself and judge the failure.'
+            )
+        }
+    }
+    Write-Report "step 7/7 lanes rerun: ran in $($laneDirs.Count) lane director$(if ($laneDirs.Count -eq 1) { 'y' } else { 'ies' }) under $($Decl.Lanes)"
+}
+
+# The close's tail report, shared by the ordinary close and the branchless
+# final-only retry.
+function Write-ClosedReport {
+    param(
+        [Parameter(Mandatory)][string] $BranchItem,
+        [Parameter(Mandatory)] $Decl,
+        [string[]] $ObsoleteNames = @()
+    )
+    Write-Report ''
+    Write-Report "the turn for $BranchItem is closed"
+    Write-Report "  the stamped item record and the appended landing line sit uncommitted on $($Decl.Trunk):"
+    Write-Report '  commit them as the stamp landing - the record flips that ride it are yours.'
+    if ($ObsoleteNames.Count -gt 0) {
+        Write-Report "  declared obsolete this close: $($ObsoleteNames -join ', ')"
+    }
+}
+
+# TCE-001's final-only retry: the item branch is gone, so every close
+# mutation is behind; the close may run only the final verification, and
+# only once every completed-landing fact is proven. Each refusal names the
+# missing proof, not merely the absent branch. An item branch that still
+# exists never reaches here - THK-002's ordinary interrupted-close resume
+# owns that case.
+function Invoke-FinalOnlyRetry {
+    param(
+        [Parameter(Mandatory)] $Facts,
+        [Parameter(Mandatory)] $Decl,
+        [Parameter(Mandatory)] $State,
+        [Parameter(Mandatory)][AllowEmptyString()][string] $Resume,
+        [string[]] $Excused = @()
+    )
+
+    $missing = @()
+    if ($State.RegisteredAtExpected) {
+        $missing += "no worktree registration at the expected path - one is still registered at $($State.ExpectedWorktreePath) (detached or on another branch); remove it: git worktree remove $($State.ExpectedWorktreePath)"
+    }
+    if ($State.WorktreeExists) {
+        $missing += "no worktree folder at the expected path - the directory $($State.ExpectedWorktreePath) still exists; inspect it and take it away yourself (the retry deletes no directory)"
+    }
+    if (-not $State.TrunkShort -or $State.StampValue -ne $State.TrunkShort) {
+        $missing += "the $($Decl.StampField) stamp equal to the current $($Decl.Trunk) tip - it reads '$($State.StampValue)', the trunk tip is '$($State.TrunkShort)'"
+    }
+    if ([string]::IsNullOrEmpty($Line)) {
+        $missing += "the landing's -Line - the retry proves the log line is already present, so it needs the words to look for"
+    }
+    elseif (-not $State.LogLinePresent) {
+        $missing += "the landing line '$Line' already present in $($Decl.LandingLog) - the log does not carry it"
+    }
+    if ($missing.Count -gt 0) {
+        Deny -Reason "no branch $Item exists, and the final-only retry of the final verification lacks its completed-landing proof" -Guidance (
+            @('the branchless retry requires, each proven or refused by name:') +
+            @($missing | ForEach-Object { "  missing: $_" }) +
+            @('an item branch that still exists resumes the ordinary close order instead.', $Resume)
+        )
+    }
+
+    Write-Report "closing $Item into $($Decl.Trunk)"
+    Write-Report ''
+    if ($Excused.Count -gt 0) {
+        Write-Report 'note: the stamp edits from the landed close sit uncommitted in the trunk (the stamp landing is yours to commit):'
+        foreach ($entry in $Excused) { Write-Report "  $entry" }
+        Write-Report ''
+    }
+    Write-Report 'final-only retry: the landing already stands and every close mutation is proven complete,'
+    Write-Report 'so only the final verification runs - no merge, copy-back, stamp, log line, removal, or branch deletion is repeated.'
+    Invoke-LanesVerification -Facts $Facts -Decl $Decl -Resume $Resume
+    Write-ClosedReport -BranchItem $Item -Decl $Decl -ObsoleteNames $Obsolete
+    exit 0
+}
+
 function Invoke-Close {
     param(
         [Parameter(Mandatory)] $Facts,
@@ -778,12 +956,15 @@ function Invoke-Close {
         Deny -Reason "the trunk $($Decl.Trunk) is not clean" -Guidance $entries
     }
 
-    if (-not (Test-RefExists -Ref "refs/heads/$Item")) {
-        Deny -Reason "no branch $Item exists to close"
-    }
-
     $state = Get-TurnState -Facts $Facts -Decl $Decl -BranchItem $Item
     $resume = "pwsh -File tools/turn.ps1 close -Item $Item$(if ($Line) { " -Line '$Line'" })"
+
+    if (-not $state.BranchTip) {
+        # No item branch: either nothing was ever opened, or the landing is
+        # fully complete - the final-only retry sorts those two apart, naming
+        # every missing proof.
+        Invoke-FinalOnlyRetry -Facts $Facts -Decl $Decl -State $state -Resume $resume -Excused $excused
+    }
 
     if (-not $state.Registered -and -not $state.WorktreeExists -and -not $state.Merged) {
         # Nothing was ever opened and nothing ever landed: there is no turn
@@ -1036,42 +1217,10 @@ function Invoke-Close {
         Write-Report "step 6/7 branch: $Item deleted (preserved by $($Decl.Trunk))"
     }
 
-    # Step 7: the lanes rerun, once, from the trunk.
-    $lanesRoot = Join-Path $Facts.RepoRoot $Decl.Lanes
-    $laneDirs = @()
-    if (Test-Path -LiteralPath $lanesRoot -PathType Container) {
-        $laneDirs = @(Get-ChildItem -LiteralPath $lanesRoot -Directory | Where-Object { $Decl.Skip -notcontains $_.Name })
-    }
-    if ($laneDirs.Count -eq 0) {
-        Write-Report "step 7/7 lanes rerun: no lane directories under $($Decl.Lanes)"
-    }
-    else {
-        foreach ($lane in $laneDirs) {
-            Push-Location $lane.FullName
-            try {
-                & pwsh -NoProfile -Command $Decl.LanesRerun | Out-Null
-                $code = $LASTEXITCODE
-            }
-            finally {
-                Pop-Location
-            }
-            if ($code -ne 0) {
-                Deny -Reason "the lanes rerun failed in $($lane.FullName) (exit $code)" -Guidance @(
-                    "the rerun command was: $($Decl.LanesRerun)",
-                    'everything else is done: the turn is closed and the landing stands; rerun the lanes yourself and judge the failure.'
-                )
-            }
-        }
-        Write-Report "step 7/7 lanes rerun: ran in $($laneDirs.Count) lane director$(if ($laneDirs.Count -eq 1) { 'y' } else { 'ies' }) under $($Decl.Lanes)"
-    }
+    # Step 7: the final lanes verification, per the declared scope.
+    Invoke-LanesVerification -Facts $Facts -Decl $Decl -Resume $resume
 
-    Write-Report ''
-    Write-Report "the turn for $Item is closed"
-    Write-Report "  the stamped item record and the appended landing line sit uncommitted on $($Decl.Trunk):"
-    Write-Report "  commit them as the stamp landing - the record flips that ride it are yours."
-    if ($Obsolete.Count -gt 0) {
-        Write-Report "  declared obsolete this close: $($Obsolete -join ', ')"
-    }
+    Write-ClosedReport -BranchItem $Item -Decl $Decl -ObsoleteNames $Obsolete
     exit 0
 }
 
@@ -1093,6 +1242,9 @@ function Invoke-Status {
     Write-Report "  stamp field:   $($Decl.StampField)"
     Write-Report "  skip list:     $($Decl.Skip -join ', ')"
     Write-Report "  lanes rerun:   $($Decl.LanesRerun)"
+    # The scope's execution location, stated where the declared data sits.
+    $scopeWhere = if ($Decl.RerunScope -eq 'root-once') { "once from the primary checkout ($($Facts.RepoRoot))" } else { "once in each lane directory under $($Decl.Lanes)" }
+    Write-Report "  rerun scope:   $($Decl.RerunScope) - the command runs $scopeWhere"
     $clean = if ($Facts.Porcelain.Count -eq 0) { 'clean' } else { "dirty ($($Facts.Porcelain.Count) entries)" }
     Write-Report ''
     Write-Report "checked out:      $($Facts.CurrentBranch)"
@@ -1164,9 +1316,12 @@ function Invoke-Status {
     Write-Report "  4. log line: append '- <date>: <words>' to $($Decl.LandingLog) (pass -Line '<words>')"
     Write-Report "  5. remove the worktree $worktreePath (refuses while it holds the only copy of any artifact)"
     Write-Report "  6. delete the branch $itemLabel (only once $($Decl.Trunk) holds it)"
-    Write-Report "  7. re-run the lanes once from the trunk: $($Decl.LanesRerun), in each directory under $($Decl.Lanes)"
+    Write-Report "  7. re-run the lanes (scope $($Decl.RerunScope)): $($Decl.LanesRerun), $scopeWhere"
     Write-Report '  recovery / resume (continues from the first uncompleted step):'
     Write-Report '    pwsh -File tools/turn.ps1 close -Item <item> -Line ''<words>'''
+    Write-Report '  a failed final verification retries the same close once the landing proof holds'
+    Write-Report '    (no item branch, registration, or worktree folder; the stamp equals the trunk tip;'
+    Write-Report '    the landing line already in the log; no unrelated dirt) - the retry verifies only.'
     Write-Report '  a conflicted merge is left exactly as Git left it: resolve, git add <file> && git commit, then resume.'
     Write-Report '  the stamp edits the close leaves in the trunk are committed by you as the stamp landing.'
     Write-Report ''

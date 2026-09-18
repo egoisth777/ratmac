@@ -1,0 +1,23 @@
+# Supplementary suite proof; the runtime consumes the three planned-check receipts.
+ticket-id = "t-111"
+check-id = "test/qa/tests/t111_turn_close_expiry.rs"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test t111_turn_close_expiry"
+working-dir = "."
+exit-status = 0
+output-sha256 = "3d66c969df8eac15dc69d2f4b774c2c4198e9519abdd0f3507d20095a8623d4b"
+tree-roots = ["src", "test/qa", "tools", "test-hidden", ".ratmac/turn.toml", ".ratmac/lanes.toml", ".ratmac/ratmac.toml", "Cargo.toml", "Cargo.lock"]
+tree-sha256 = "827198b9ff41b65f9de84dd324e9b15ab1f9e494676e40d7e5c48ab33ebfa424"
+output = '''
+    Blocking waiting for file lock on build directory
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.37s
+     Running tests\t111_turn_close_expiry.rs (target\debug\deps\t111_turn_close_expiry-50c1bb441fa960f9.exe)
+
+running 3 tests
+test failed_final_verification_resumes_without_replaying_close ... ok
+test declared_scope_is_generic_compatible_and_checked_before_writes ... ok
+test configured_close_uses_fresh_sweep_and_preserves_expiry ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 24.85s
+
+'''

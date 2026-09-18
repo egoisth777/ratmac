@@ -1,0 +1,36 @@
+ticket-id = "t-111"
+check-id = "cargo clippy --workspace --all-targets"
+kind = "quality"
+command = "cargo clippy --workspace --all-targets"
+working-dir = "."
+exit-status = 0
+output-sha256 = "ed35a98a01d580aebcabc3a749b5c1327ac1945818a78969514da2fcf94ec6f3"
+tree-roots = ["src", "test/qa", "tools", "test-hidden", ".ratmac/turn.toml", ".ratmac/lanes.toml", ".ratmac/ratmac.toml", "Cargo.toml", "Cargo.lock"]
+tree-sha256 = "827198b9ff41b65f9de84dd324e9b15ab1f9e494676e40d7e5c48ab33ebfa424"
+output = '''
+    Checking typenum v1.20.1
+    Checking hashbrown v0.17.1
+    Checking equivalent v1.0.2
+    Checking winnow v0.7.15
+    Checking toml_write v0.1.2
+    Checking cpufeatures v0.2.17
+    Checking cfg-if v1.0.4
+    Checking serde_core v1.0.229
+    Checking windows_x86_64_msvc v0.52.6
+    Checking windows-targets v0.52.6
+    Checking windows-sys v0.59.0
+    Checking indexmap v2.14.0
+    Checking generic-array v0.14.7
+    Checking block-buffer v0.10.4
+    Checking crypto-common v0.1.7
+    Checking digest v0.10.7
+    Checking sha2 v0.10.9
+    Checking serde v1.0.229
+    Checking serde_spanned v0.6.9
+    Checking toml_datetime v0.6.11
+    Checking toml_edit v0.22.27
+    Checking toml v0.8.23
+    Checking ratmac v0.1.0 (E:\repos\projs\skill-dev\ratmac-t-111)
+    Checking ratmac-qa v0.1.0 (E:\repos\projs\skill-dev\ratmac-t-111\test\qa)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.19s
+'''

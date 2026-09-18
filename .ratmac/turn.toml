@@ -8,4 +8,7 @@ item-records = ".arca/ticket"       # root holding <item>.md records
 landing-log = ".arca/log.md"        # the append-only landing log
 stamp-field = "landed-commit"       # the item record field the landed tip is stamped into
 skip = ["target"]                   # per-lane build-output directories never copied
-lanes-rerun = "cargo test --quiet"  # run once in each lane directory from the trunk
+# TCE-001: one fresh sweep and its completeness check; expiry stays sweep policy.
+# The ignored report leaves the tracked cycle-close report unchanged.
+lanes-rerun-scope = "root-once"    # absent scope still means per-lane
+lanes-rerun = "python tools/sweep_lanes.py sweep --report target/turn-close-lanes.md && python tools/sweep_lanes.py check --report target/turn-close-lanes.md"

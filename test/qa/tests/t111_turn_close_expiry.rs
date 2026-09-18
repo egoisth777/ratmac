@@ -121,7 +121,10 @@ fn combined(output: &Output) -> String {
 /// A refused invocation must exit non-zero; its combined text comes back.
 fn refused(output: &Output, what: &str) -> String {
     let text = combined(output);
-    assert!(!output.status.success(), "TCEV: {what} must refuse, not pass");
+    assert!(
+        !output.status.success(),
+        "TCEV: {what} must refuse, not pass"
+    );
     text
 }
 
@@ -150,9 +153,8 @@ fn report_path(root: &Path) -> PathBuf {
 }
 
 fn read_report(turn: &Turn) -> String {
-    fs::read_to_string(report_path(&turn.root)).unwrap_or_else(|error| {
-        panic!("the close's verification wrote its report: {error}")
-    })
+    fs::read_to_string(report_path(&turn.root))
+        .unwrap_or_else(|error| panic!("the close's verification wrote its report: {error}"))
 }
 
 fn delete_report(turn: &Turn) {
@@ -325,7 +327,9 @@ fn declare_verification(root: &Path, scope: &str, command: &str) {
          lanes-rerun = \"{command}\"\n\
          lanes-rerun-scope = \"{scope}\"\n"
     );
-    let parsed: toml::Value = declaration.parse().expect("the fixture declaration is valid TOML");
+    let parsed: toml::Value = declaration
+        .parse()
+        .expect("the fixture declaration is valid TOML");
     let round = parsed
         .get("roots")
         .and_then(toml::Value::as_table)
@@ -376,7 +380,11 @@ fn sweep_turn(label: &str, roster: &[&str], crates: &[(&str, bool)]) -> Turn {
     let (scope, command) = shipped_verification();
     declare_verification(&turn.root, &scope, &command);
     turn.git(&["add", "-A"]);
-    turn.git(&["commit", "-m", "fixture: the shipped close-verification profile"]);
+    turn.git(&[
+        "commit",
+        "-m",
+        "fixture: the shipped close-verification profile",
+    ]);
     turn
 }
 
@@ -416,7 +424,12 @@ fn log_path(turn: &Turn) -> PathBuf {
 fn branch_exists(turn: &Turn, item: &str) -> bool {
     turn.git_in(
         &turn.root,
-        &["rev-parse", "--verify", "--quiet", &format!("refs/heads/{item}")],
+        &[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("refs/heads/{item}"),
+        ],
     )
     .status
     .success()
@@ -478,7 +491,10 @@ fn configured_close_uses_fresh_sweep_and_preserves_expiry() {
     assert_eq!(verdict, "pass", "the green crate reads pass: {report}");
     let (row, verdict, detail) = row_of(&report, "t-902");
     assert_eq!(row, "t-902");
-    assert_eq!(verdict, "expired", "the marked crate reads expired: {report}");
+    assert_eq!(
+        verdict, "expired",
+        "the marked crate reads expired: {report}"
+    );
     assert!(
         detail.contains("last passed at edition-037"),
         "the expired verdict names the marker's edition: {detail}"
@@ -608,7 +624,10 @@ fn configured_close_uses_fresh_sweep_and_preserves_expiry() {
     let report = read_report(&turn);
     let (row, verdict, detail) = row_of(&report, "t-903");
     assert_eq!(row, "t-903");
-    assert_eq!(verdict, "missing", "the absent crate is named, not skipped: {report}");
+    assert_eq!(
+        verdict, "missing",
+        "the absent crate is named, not skipped: {report}"
+    );
     assert!(
         detail.contains("the roster expects this crate and the folder lacks it"),
         "the missing verdict says what is missing: {detail}"
@@ -676,8 +695,14 @@ fn failed_final_verification_resumes_without_replaying_close() {
     );
 
     // The failure follows the cleanup: steps one through six are done.
-    assert!(!worktree.exists(), "the worktree is removed before verification");
-    assert!(!branch_exists(&turn, ITEM), "the branch is deleted before verification");
+    assert!(
+        !worktree.exists(),
+        "the worktree is removed before verification"
+    );
+    assert!(
+        !branch_exists(&turn, ITEM),
+        "the branch is deleted before verification"
+    );
     let tip = turn.head_of(TRUNK);
     let short = turn.short_of(TRUNK);
     assert_eq!(
@@ -737,7 +762,11 @@ fn failed_final_verification_resumes_without_replaying_close() {
     delete_report(&turn);
     let output = turn.turn(&["close", "-Item", ITEM]);
     let text = refused(&output, "the final-only retry without -Line");
-    names_any(&text, "the refusal names the missing line", &["line", "log"]);
+    names_any(
+        &text,
+        "the refusal names the missing line",
+        &["line", "log"],
+    );
     assert!(
         !report_path(&turn.root).exists(),
         "the refused retry never entered the declared verification"
@@ -761,8 +790,17 @@ fn failed_final_verification_resumes_without_replaying_close() {
     // owns branch-present states, so this twin refuses purely on the
     // branchless retry's registration fact: a worktree registered at the
     // expected path, detached from any item branch.
-    let sibling = turn.sibling(ITEM).to_string_lossy().into_owned();
-    turn.git(&["worktree", "add", "--detach", sibling.as_str(), tip.as_str()]);
+    let sibling = turn
+        .sibling(ITEM)
+        .to_string_lossy()
+        .replace(std::path::MAIN_SEPARATOR, "/");
+    turn.git(&[
+        "worktree",
+        "add",
+        "--detach",
+        sibling.as_str(),
+        tip.as_str(),
+    ]);
     assert!(
         !branch_exists(&turn, ITEM),
         "the twin squats a registration without resurrecting the item branch"
@@ -774,7 +812,9 @@ fn failed_final_verification_resumes_without_replaying_close() {
     );
     let registrations = turn.git_text(&["worktree", "list", "--porcelain"]);
     assert!(
-        registrations.contains(sibling.as_str()),
+        registrations
+            .lines()
+            .any(|line| line.strip_prefix("worktree ") == Some(sibling.as_str())),
         "the refused retry removes no registration itself: {registrations}"
     );
     assert!(
@@ -785,7 +825,11 @@ fn failed_final_verification_resumes_without_replaying_close() {
 
     // Unrelated tracked dirt cannot enter it.
     fs::write(turn.root.join("README.md"), "# fixture\ndirtied\n").expect("dirty the trunk");
-    retry(&turn, "the retry over unrelated tracked dirt", &["clean", "dirt", "readme"]);
+    retry(
+        &turn,
+        "the retry over unrelated tracked dirt",
+        &["clean", "dirt", "readme"],
+    );
     turn.git(&["checkout", "--", "README.md"]);
 
     // The repair, then the identical close: only the verification runs.
@@ -813,7 +857,10 @@ fn failed_final_verification_resumes_without_replaying_close() {
         "the retry appends no second landing line"
     );
     assert!(!worktree.exists(), "the retry resurrects no worktree");
-    assert!(!branch_exists(&turn, ITEM), "the retry resurrects no branch");
+    assert!(
+        !branch_exists(&turn, ITEM),
+        "the retry resurrects no branch"
+    );
     let report = read_report(&turn);
     let (_, verdict, _detail) = row_of(&report, "t-911");
     assert_eq!(
@@ -864,7 +911,10 @@ fn append_declaration(turn: &Turn, line: &str) {
 /// The declared rerun marker must exist in one lane directory.
 fn lane_marker(turn: &Turn, lane: &str) {
     let path = turn.root.join(LANES).join(lane).join(RERUN_MARKER);
-    assert!(path.is_file(), "the per-lane rerun reached lane {lane}: {path:?}");
+    assert!(
+        path.is_file(),
+        "the per-lane rerun reached lane {lane}: {path:?}"
+    );
 }
 
 /// A second lane directory in the primary's untracked lanes root, so the
@@ -898,7 +948,10 @@ fn declared_scope_is_generic_compatible_and_checked_before_writes() {
     );
     lane_marker(&turn, "crate-a");
     lane_marker(&turn, "crate-b");
-    assert!(!worktree.exists(), "the default close still removes the worktree");
+    assert!(
+        !worktree.exists(),
+        "the default close still removes the worktree"
+    );
     assert!(
         !turn.root.join(RERUN_MARKER).exists(),
         "the default rerun never runs at the primary root"
@@ -931,7 +984,10 @@ fn declared_scope_is_generic_compatible_and_checked_before_writes() {
     );
     lane_marker(&turn, "crate-a");
     lane_marker(&turn, "crate-b");
-    assert!(!worktree.exists(), "the per-lane close still removes the worktree");
+    assert!(
+        !worktree.exists(),
+        "the per-lane close still removes the worktree"
+    );
     assert!(
         !turn.root.join(RERUN_MARKER).exists(),
         "an explicit per-lane rerun never runs at the primary root"
@@ -970,10 +1026,18 @@ fn declared_scope_is_generic_compatible_and_checked_before_writes() {
         "the root command ran exactly once, not once per lane: {ran_text:?}"
     );
     assert_eq!(ran_text.trim(), "ran", "the single run's output is intact");
-    assert!(!worktree.exists(), "the root-once close still removes the worktree");
+    assert!(
+        !worktree.exists(),
+        "the root-once close still removes the worktree"
+    );
     for lane in ["crate-a", "crate-b"] {
         assert!(
-            !turn.root.join(LANES).join(lane).join(".root-ran.txt").exists(),
+            !turn
+                .root
+                .join(LANES)
+                .join(lane)
+                .join(".root-ran.txt")
+                .exists(),
             "the root command did not run in lane {lane}"
         );
         assert!(

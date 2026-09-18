@@ -1,0 +1,32 @@
+planned-test-id = "TCEV-002"
+ticket-id = "t-111"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t111_turn_close_expiry failed_final_verification_resumes_without_replaying_close -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t111_turn_close_expiry.rs"
+test-name = "failed_final_verification_resumes_without_replaying_close"
+exit-status = 101
+output-sha256 = "07d1d6acb97729e6f446e3b8c999e85a4c1a6ac601324a086aa7c85b6adcc775"
+output = '''
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running tests\t111_turn_close_expiry.rs (target\debug\deps\t111_turn_close_expiry-50c1bb441fa960f9.exe)
+
+running 1 test
+test failed_final_verification_resumes_without_replaying_close ... FAILED
+
+failures:
+
+---- failed_final_verification_resumes_without_replaying_close stdout ----
+
+thread 'failed_final_verification_resumes_without_replaying_close' (44504) panicked at test\qa\tests\t111_turn_close_expiry.rs:214:13:
+the shipped declaration selects lanes-rerun-scope (ADR-0021): {"item-records": String(".arca/ticket"), "landing-log": String(".arca/log.md"), "lanes": String("test-hidden"), "lanes-rerun": String("cargo test --quiet"), "skip": Array([String("target")]), "stamp-field": String("landed-commit"), "trunk": String("main")}
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    failed_final_verification_resumes_without_replaying_close
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.33s
+
+error: test failed, to rerun pass `-p ratmac-qa --test t111_turn_close_expiry`
+'''

@@ -1,0 +1,19 @@
+ticket-id = "t-111"
+check-id = "TCEV-001"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test t111_turn_close_expiry configured_close_uses_fresh_sweep_and_preserves_expiry -- --exact"
+working-dir = "."
+exit-status = 0
+output-sha256 = "aef891eb90528934b118b7133ae32eb8ee65fd63af0f05e7bc4b44d5a5b13a1d"
+tree-roots = ["src", "test/qa", "tools", "test-hidden", ".ratmac/turn.toml", ".ratmac/lanes.toml", ".ratmac/ratmac.toml", "Cargo.toml", "Cargo.lock"]
+tree-sha256 = "827198b9ff41b65f9de84dd324e9b15ab1f9e494676e40d7e5c48ab33ebfa424"
+output = '''
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running tests\t111_turn_close_expiry.rs (target\debug\deps\t111_turn_close_expiry-50c1bb441fa960f9.exe)
+
+running 1 test
+test configured_close_uses_fresh_sweep_and_preserves_expiry ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 18.98s
+
+'''

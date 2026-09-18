@@ -1,0 +1,19 @@
+ticket-id = "t-111"
+check-id = "TCEV-002"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test t111_turn_close_expiry failed_final_verification_resumes_without_replaying_close -- --exact"
+working-dir = "."
+exit-status = 0
+output-sha256 = "61e5ea1a3181a471c696a68b1d7f0095b64527b3b140cb1cd88c74fb21e0a127"
+tree-roots = ["src", "test/qa", "tools", "test-hidden", ".ratmac/turn.toml", ".ratmac/lanes.toml", ".ratmac/ratmac.toml", "Cargo.toml", "Cargo.lock"]
+tree-sha256 = "827198b9ff41b65f9de84dd324e9b15ab1f9e494676e40d7e5c48ab33ebfa424"
+output = '''
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests\t111_turn_close_expiry.rs (target\debug\deps\t111_turn_close_expiry-50c1bb441fa960f9.exe)
+
+running 1 test
+test failed_final_verification_resumes_without_replaying_close ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 10.70s
+
+'''

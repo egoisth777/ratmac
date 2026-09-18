@@ -1,0 +1,19 @@
+ticket-id = "t-111"
+check-id = "TCEV-003"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test t111_turn_close_expiry declared_scope_is_generic_compatible_and_checked_before_writes -- --exact"
+working-dir = "."
+exit-status = 0
+output-sha256 = "951c099578dedf87e42224c65d40ac7b5fe192960dd1dad9b19ae9fc11d0df4c"
+tree-roots = ["src", "test/qa", "tools", "test-hidden", ".ratmac/turn.toml", ".ratmac/lanes.toml", ".ratmac/ratmac.toml", "Cargo.toml", "Cargo.lock"]
+tree-sha256 = "827198b9ff41b65f9de84dd324e9b15ab1f9e494676e40d7e5c48ab33ebfa424"
+output = '''
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests\t111_turn_close_expiry.rs (target\debug\deps\t111_turn_close_expiry-50c1bb441fa960f9.exe)
+
+running 1 test
+test declared_scope_is_generic_compatible_and_checked_before_writes ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 17.57s
+
+'''

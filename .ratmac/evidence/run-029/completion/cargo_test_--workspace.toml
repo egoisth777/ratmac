@@ -1,0 +1,280 @@
+ticket-id = "t-111"
+check-id = "cargo test --workspace"
+kind = "quality"
+command = "cargo test --workspace"
+working-dir = "."
+exit-status = 0
+output-sha256 = "c05d6a2fd9b1485b798696ccf8c2536c4d10dc1310d5edaa9330f82ecad46359"
+tree-roots = ["src", "test/qa", "tools", "test-hidden", ".ratmac/turn.toml", ".ratmac/lanes.toml", ".ratmac/ratmac.toml", "Cargo.toml", "Cargo.lock"]
+tree-sha256 = "827198b9ff41b65f9de84dd324e9b15ab1f9e494676e40d7e5c48ab33ebfa424"
+output = '''
+on ... ok
+test every_public_entry_point_preflights_its_addressed_project has been running for over 60 seconds
+test every_public_entry_point_preflights_its_addressed_project ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 174.38s
+
+     Running tests\t078_resolved_root_reporting.rs (target\debug\deps\t078_resolved_root_reporting-a120c5dad785b775.exe)
+
+running 1 test
+test status_and_doctor_report_the_actual_resolved_engine_root ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.89s
+
+     Running tests\t079_root_spelling.rs (target\debug\deps\t079_root_spelling-a1c4ca470dccfbc0.exe)
+
+running 9 tests
+test no_engine_source_renders_a_path_by_hand ... ok
+test no_engine_source_renders_a_path_with_the_standard_renderer ... ok
+test only_one_module_implements_the_renderer ... ok
+test a_refusing_report_command_spells_its_path_one_way ... ok
+test a_report_quotes_a_backslash_identifier_verbatim ... ok
+test a_reported_stored_binding_reaches_the_reader_in_one_spelling ... ok
+test an_authored_guard_path_is_quoted_as_the_runbook_spells_it ... ok
+test the_whole_doctor_report_renders_paths_one_way ... ok
+test reported_engine_root_is_spelled_one_way ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.07s
+
+     Running tests\t080_states_table.rs (target\debug\deps\t080_states_table-aefd6129fef31cd9.exe)
+
+running 2 tests
+test the_child_class_and_its_spawn_are_read_from_the_states_tables ... ok
+test a_states_runbook_parses_passes_the_doctor_and_runs ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.76s
+
+     Running tests\t081_run_record.rs (target\debug\deps\t081_run_record-1ebf6d422c85ec47.exe)
+
+running 1 test
+test a_started_run_writes_run_toml_with_a_state_field ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.41s
+
+     Running tests\t082_precutover_residue.rs (target\debug\deps\t082_precutover_residue-f238ca3dceb157db.exe)
+
+running 3 tests
+test the_documented_table_equals_the_engine_table ... ok
+test a_precutover_runbook_refuses_by_its_own_code ... ok
+test every_entry_point_refuses_precutover_records ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests\t083_state_surfaces.rs (target\debug\deps\t083_state_surfaces-03a8c66127850cea.exe)
+
+running 2 tests
+test three_names_are_defined_separately ... ok
+test caller_surfaces_name_the_position_state ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.58s
+
+     Running tests\t084_state_audit.rs (target\debug\deps\t084_state_audit-58d273dac6ca833e.exe)
+
+running 1 test
+test the_live_surface_audit_is_enumerated_and_sharp ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.96s
+
+     Running tests\t085_rename_is_behavior_free.rs (target\debug\deps\t085_rename_is_behavior_free-252846b8bcb5b88e.exe)
+
+running 1 test
+test the_rename_changed_names_only ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.29s
+
+     Running tests\t086_single_engine_binary.rs (target\debug\deps\t086_single_engine_binary-add6640e0a4a1f66.exe)
+
+running 4 tests
+test a_planted_duplicate_target_fails_by_name ... ok
+test no_two_build_targets_write_one_file ... ok
+test the_shipped_command_keeps_its_name_and_stays_pause_free ... ok
+test a_test_launches_the_build_it_was_compiled_against ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.21s
+
+     Running tests\t087_no_work_item.rs (target\debug\deps\t087_no_work_item-7513a3bdbdf996ac.exe)
+
+running 2 tests
+test the_engine_names_no_work_item_document ... ok
+test hold_records_the_pause_in_engine_state_alone ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.97s
+
+     Running tests\t088_intake_authority.rs (target\debug\deps\t088_intake_authority-356159db1cbc9eda.exe)
+
+running 2 tests
+test an_undeclared_authority_resolves_nothing ... ok
+test intake_resolves_a_requirement_in_either_authority ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+     Running tests\t089_bound_address.rs (target\debug\deps\t089_bound_address-c197b5dc60aea297.exe)
+
+running 3 tests
+test a_guard_declaring_both_forms_or_neither_refuses_at_parse ... ok
+test an_unsupplied_binding_refuses_at_dispatch_without_writing ... ok
+test a_bound_gate_grades_each_child_against_its_own_receipts ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.86s
+
+     Running tests\t090_damage_checkpoint.rs (target\debug\deps\t090_damage_checkpoint-25a3163a5560eeae.exe)
+
+running 1 test
+test the_damage_step_refuses_until_the_tree_is_committed ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.04s
+
+     Running tests\t091_open_work_item.rs (target\debug\deps\t091_open_work_item-dca636fb014b1ba0.exe)
+
+running 1 test
+test open_items_are_computed_from_the_tree ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+     Running tests\t092_plan_build_runbook.rs (target\debug\deps\t092_plan_build_runbook-04c38e92485d3c2c.exe)
+
+running 2 tests
+test the_doctor_is_clean_on_the_shipped_machine_class ... ok
+test the_cycle_runs_from_intake_to_rest ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.09s
+
+     Running tests\t093_stage_answer.rs (target\debug\deps\t093_stage_answer-c6dc065a7cfe5b24.exe)
+
+running 1 test
+test the_live_run_names_the_stage_and_the_lookup_is_a_fallback ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.65s
+
+     Running tests\t094_edition_guard.rs (target\debug\deps\t094_edition_guard-9c19f2cd9c7ff779.exe)
+
+running 4 tests
+test the_shipped_cycle_declares_the_edition_guard ... ok
+test a_refused_close_writes_nothing ... ok
+test the_close_step_refuses_until_an_edition_is_cut ... ok
+test the_guard_reads_version_control_not_the_tree ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.48s
+
+     Running tests\t095_edition_audit.rs (target\debug\deps\t095_edition_audit-7b3b3d3812b3b60d.exe)
+
+running 2 tests
+test the_sequence_has_no_holes_and_no_edition_has_moved ... ok
+test every_edition_is_annotated_documented_and_reachable ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.82s
+
+     Running tests\t101_engine_channels.rs (target\debug\deps\t101_engine_channels-8ce3bb7f1f643e00.exe)
+
+running 3 tests
+test a_provenance_mismatch_refuses_and_updates_nothing ... ok
+test the_bootstrap_resolves_stable_from_the_ledger ... ok
+test the_doctor_names_an_off_pin_engine_under_a_live_run ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.45s
+
+     Running tests\t102_stable_bootstrap.rs (target\debug\deps\t102_stable_bootstrap-27e6f2338bd8fe8e.exe)
+
+running 1 test
+test stable_resolves_from_the_invoking_checkout_and_builds_the_tagged_tree ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.95s
+
+     Running tests\t103_self_describing_cli.rs (target\debug\deps\t103_self_describing_cli-fe461240413ecc74.exe)
+
+running 2 tests
+test status_names_what_each_guard_reads ... ok
+test every_outcome_ends_in_one_truthful_next_line ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.58s
+
+     Running tests\t104_operator_skill.rs (target\debug\deps\t104_operator_skill-318997673d6a422b.exe)
+
+running 2 tests
+test the_skill_subcommand_writes_once_and_never_overwrites ... ok
+test the_skill_teaches_invariants_and_drives_a_run_to_terminal ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.79s
+
+     Running tests\t105_ticket_check_tags.rs (target\debug\deps\t105_ticket_check_tags-c6de1d1f1e4399f8.exe)
+
+running 2 tests
+test a_malformed_tag_list_refuses_naming_field_and_entry ... ok
+test the_checker_reads_tags_and_ignores_prose ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\t106_resolving_citations.rs (target\debug\deps\t106_resolving_citations-1874c1d69bece66e.exe)
+
+running 4 tests
+test the_working_rules_state_the_stamp_landing_order_and_no_live_rule_self_cites ... ok
+test a_repoint_is_one_stamp_step_and_the_archive_move_refuses_until_it_resolves ... ok
+test reachability_binds_any_ref_and_dangling_is_a_refusal ... ok
+test the_check_refuses_exactly_the_rotted_citations_and_the_allowlist_matches ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.24s
+
+     Running tests\t107_turn_lifecycle.rs (target\debug\deps\t107_turn_lifecycle-d6d5c0eeada202b4.exe)
+
+running 4 tests
+test the_dry_run_changes_nothing_and_names_the_cd_that_fixes_an_inside_invocation ... ok
+test open_creates_the_turn_and_every_precondition_refuses_with_zero_mutation ... ok
+test removal_refuses_while_the_worktree_holds_the_only_copy ... ok
+test close_runs_the_fixed_order_and_resumes_without_repeating_a_landed_mutation ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.64s
+
+     Running tests\t108_lane_sweep.rs (target\debug\deps\t108_lane_sweep-103810ec467db676.exe)
+
+running 5 tests
+test an_expiry_marker_moves_a_lane_out_of_both_counts_naming_its_edition ... ok
+test the_close_guard_refuses_only_a_red_unexpired_verdict ... ok
+test a_sweep_changes_only_the_report_and_a_marker_changes_only_its_own_bytes has been running for over 60 seconds
+test the_first_sweep_separates_the_2026_08_21_crates_from_the_rot has been running for over 60 seconds
+test the_sweep_reports_one_verdict_per_crate_and_names_a_missing_crate has been running for over 60 seconds
+test a_sweep_changes_only_the_report_and_a_marker_changes_only_its_own_bytes ... ok
+test the_first_sweep_separates_the_2026_08_21_crates_from_the_rot ... ok
+test the_sweep_reports_one_verdict_per_crate_and_names_a_missing_crate ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 957.15s
+
+     Running tests\t109_pre_split_ports.rs (target\debug\deps\t109_pre_split_ports-8acf96272a29a230.exe)
+
+running 2 tests
+test the_class_table_licenses_a_port_and_never_an_expiry ... ok
+test every_pre_split_crate_passes_keeping_its_lanes ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 49.67s
+
+     Running tests\t110_post_split_ports.rs (target\debug\deps\t110_post_split_ports-54d750c9db594365.exe)
+
+running 3 tests
+test every_post_split_crate_passes_and_the_baseline_helper_trims_entries ... ok
+test the_roster_is_complete_and_the_check_refuses_strays ... ok
+test verify_expired_runs_the_marked_twins_and_reports_them_red has been running for over 60 seconds
+test verify_expired_runs_the_marked_twins_and_reports_them_red ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 251.34s
+
+     Running tests\t111_turn_close_expiry.rs (target\debug\deps\t111_turn_close_expiry-50c1bb441fa960f9.exe)
+
+running 3 tests
+test failed_final_verification_resumes_without_replaying_close ... ok
+test declared_scope_is_generic_compatible_and_checked_before_writes ... ok
+test configured_close_uses_fresh_sweep_and_preserves_expiry ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.00s
+
+   Doc-tests ratmac
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests ratmac_qa
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+'''
