@@ -174,7 +174,7 @@ existing guard vocabulary. See
 Ticket close delegates its final confirmation to the declared sweep policy.
 Requirement [TCE-001](spec.md#integrated-turn-close-expiry-requirements) is
 integrated from
-[i-039-turn-close-expiry](../issue/i-039-turn-close-expiry/index.md): this
+[i-039-turn-close-expiry](../issue/archive/i-039-turn-close-expiry/index.md): this
 repository runs a fresh root-level sweep and its report check, while existing
 per-lane declarations remain valid, and a proven completed landing can retry
 only final verification after cleanup. See

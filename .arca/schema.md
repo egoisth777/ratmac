@@ -168,7 +168,7 @@ repo-local beside the runbook. This mechanizes goal requirements
 [THK-003](goal/spec.md#integrated-turn-housekeeping-requirements),
 [THK-004](goal/spec.md#integrated-turn-housekeeping-requirements), and
 [TCE-001](goal/spec.md#integrated-turn-close-expiry-requirements), accepted from
-[i-039](issue/i-039-turn-close-expiry/spec.md#requirement-records) — the duties stated there now hold
+[i-039](issue/archive/i-039-turn-close-expiry/spec.md#requirement-records) — the duties stated there now hold
 by construction.
 
 ### RCR-001 - the stamp landing follows the green landing

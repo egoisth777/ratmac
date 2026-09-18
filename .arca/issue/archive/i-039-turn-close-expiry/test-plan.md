@@ -11,8 +11,8 @@
 ## Goal/Test File Traces
 
 Integrated at the 2026-09-18 planning pass. The accepted forward authority
-is [TCE-001](../../goal/spec.md#integrated-turn-close-expiry-requirements);
-the mechanism is [ADR-0021](../../goal/design.md#turn-close-verification-delegates-to-the-declared-sweep-adr-0021).
+is [TCE-001](../../../goal/spec.md#integrated-turn-close-expiry-requirements);
+the mechanism is [ADR-0021](../../../goal/design.md#turn-close-verification-delegates-to-the-declared-sweep-adr-0021).
 
 | Goal/Test File | Status | Reverse Issue Refs |
 | :--- | :--- | :--- |
