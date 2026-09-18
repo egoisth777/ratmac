@@ -1,0 +1,95 @@
+planned-test-id = "RLRV-001"
+ticket-id = "t-109"
+kind = "baseline-failure"
+command = "cargo test -p ratmac-qa --test t109_pre_split_ports every_pre_split_crate_passes_keeping_its_lanes -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t109_pre_split_ports.rs"
+test-name = "every_pre_split_crate_passes_keeping_its_lanes"
+exit-status = 101
+output-sha256 = "56da504c883b4c077aa82880cdf543b021c215425d6447cc0c248d7cd5815c6a"
+output = '''
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.59s
+     Running tests\t109_pre_split_ports.rs (target\debug\deps\t109_pre_split_ports-8acf96272a29a230.exe)
+
+running 1 test
+test every_pre_split_crate_passes_keeping_its_lanes ... FAILED
+
+failures:
+
+---- every_pre_split_crate_passes_keeping_its_lanes stdout ----
+
+thread 'every_pre_split_crate_passes_keeping_its_lanes' (37120) panicked at test\qa\tests\t109_pre_split_ports.rs:269:5:
+RLRV-001: t-058 must run green against today's Engine; cargo exited Some(101):
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 6 tests
+test ht_058_03_lifecycle ... FAILED
+test ht_058_01_regression ... FAILED
+test ht_058_02_input_routing ... FAILED
+test ht_058_05_output_filesystem ... FAILED
+test ht_058_06_cross_feature ... FAILED
+test ht_058_04_durability ... FAILED
+
+failures:
+
+---- ht_058_03_lifecycle stdout ----
+
+thread 'ht_058_03_lifecycle' (13440) panicked at src\lib.rs:80:9:
+start must succeed: start: refusing to run: pre-split Engine residue C:/Users/egois/AppData/Local/Temp/ratmac-ht058-lifecycle-55628-4/.arca/ratmac.toml exists; migrate or remove it, then retry; nothing was modified
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- ht_058_01_regression stdout ----
+
+thread 'ht_058_01_regression' (46488) panicked at src\lib.rs:80:9:
+start must succeed: start: refusing to run: pre-split Engine residue C:/Users/egois/AppData/Local/Temp/ratmac-ht058-regression-55628-0/.arca/ratmac.toml exists; migrate or remove it, then retry; nothing was modified
+
+---- ht_058_02_input_routing stdout ----
+
+thread 'ht_058_02_input_routing' (21268) panicked at src\lib.rs:80:9:
+start must succeed: start: refusing to run: pre-split Engine residue C:/Users/egois/AppData/Local/Temp/ratmac-ht058-routing-55628-1/.arca/ratmac.toml exists; migrate or remove it, then retry; nothing was modified
+
+---- ht_058_05_output_filesystem stdout ----
+
+thread 'ht_058_05_output_filesystem' (20152) panicked at src\lib.rs:80:9:
+start must succeed: start: refusing to run: pre-split Engine residue C:/Users/egois/AppData/Local/Temp/ratmac-ht058-output-55628-2/.arca/ratmac.toml exists; migrate or remove it, then retry; nothing was modified
+
+---- ht_058_06_cross_feature stdout ----
+
+thread 'ht_058_06_cross_feature' (27296) panicked at src\lib.rs:80:9:
+start must succeed: start: refusing to run: pre-split Engine residue C:/Users/egois/AppData/Local/Temp/ratmac-ht058-cross-55628-5/.arca/ratmac.toml exists; migrate or remove it, then retry; nothing was modified
+
+---- ht_058_04_durability stdout ----
+
+thread 'ht_058_04_durability' (32144) panicked at src\lib.rs:80:9:
+start must succeed: start: refusing to run: pre-split Engine residue C:/Users/egois/AppData/Local/Temp/ratmac-ht058-durability-55628-3/.arca/ratmac.toml exists; migrate or remove it, then retry; nothing was modified
+
+
+failures:
+    ht_058_01_regression
+    ht_058_02_input_routing
+    ht_058_03_lifecycle
+    ht_058_04_durability
+    ht_058_05_output_filesystem
+    ht_058_06_cross_feature
+
+test result: FAILED. 0 passed; 6 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running unittests src\lib.rs (\\?\E:\repos\projs\skill-dev\ratmac-t-109\target\lanes\debug\deps\ratmac_t058_hidden-a41d3ba343887b5c.exe)
+     Running tests\hidden.rs (\\?\E:\repos\projs\skill-dev\ratmac-t-109\target\lanes\debug\deps\hidden-0b0210bb9527b717.exe)
+error: test failed, to rerun pass `--test hidden`
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    every_pre_split_crate_passes_keeping_its_lanes
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.18s
+
+error: test failed, to rerun pass `-p ratmac-qa --test t109_pre_split_ports`
+'''

@@ -1,0 +1,25 @@
+ticket-id = "t-109"
+check-id = "HT-109-04"
+kind = "hidden-lane"
+command = "cargo test --offline ht_109_04"
+working-dir = "test-hidden/t-109"
+exit-status = 0
+output-sha256 = "74f1b8b844598ead0fe74c0bd202afdd0454d1d03f31df5854f926d0fe3ed0ea"
+tree-roots = ["src", "test/qa", "tools", "test-hidden/t-109", "test-hidden/t-058", "test-hidden/t-059", "test-hidden/t-060", "test-hidden/t-061", "test-hidden/t-062", "test-hidden/t-063", "test-hidden/t-064", "test-hidden/t-065", "test-hidden/t-066", "test-hidden/t-067", "test-hidden/t-068", "test-hidden/t-069", "test-hidden/t-070", "test-hidden/t-107"]
+tree-sha256 = "f6ef2c975efec0cbfd0196c68c126f4367d573c0f382618674c4b02499eebfe1"
+output = '''
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running unittests src\lib.rs (target\debug\deps\ratmac_t109_hidden-0ed6128d6d627b0e.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\hidden.rs (target\debug\deps\hidden-9dd8d0f1fab2818d.exe)
+
+running 1 test
+test ht_109_04_durability_a_port_builds_cold ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 9.98s
+
+'''
