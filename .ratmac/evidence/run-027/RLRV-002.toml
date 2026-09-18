@@ -1,0 +1,35 @@
+planned-test-id = "RLRV-002"
+ticket-id = "t-110"
+kind = "baseline-failure"
+command = "cargo test -p ratmac-qa --test t110_post_split_ports every_post_split_crate_passes_and_the_baseline_helper_trims_entries -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t110_post_split_ports.rs"
+test-name = "every_post_split_crate_passes_and_the_baseline_helper_trims_entries"
+exit-status = 101
+output-sha256 = "e969639895f43a39cfb0e765665d7715e94d72b720d83cbca81fca1875b6f2ad"
+output = '''
+   Compiling ratmac-qa v0.1.0 (E:\repos\projs\skill-dev\ratmac-t-110\test\qa)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.93s
+     Running tests\t110_post_split_ports.rs (target\debug\deps\t110_post_split_ports-54d750c9db594365.exe)
+
+running 1 test
+test every_post_split_crate_passes_and_the_baseline_helper_trims_entries ... FAILED
+
+failures:
+
+---- every_post_split_crate_passes_and_the_baseline_helper_trims_entries stdout ----
+
+thread 'every_post_split_crate_passes_and_the_baseline_helper_trims_entries' (58004) panicked at test\qa\tests\t110_post_split_ports.rs:207:9:
+assertion `left == right` failed: RLRV-002: t-083 reads pass in the tracked report: ht_083_02_the_state_prompt_carries_prose_guards_and_inputs
+  left: "red"
+ right: "pass"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    every_post_split_crate_passes_and_the_baseline_helper_trims_entries
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p ratmac-qa --test t110_post_split_ports`
+'''

@@ -1,0 +1,34 @@
+planned-test-id = "RLRV-004"
+ticket-id = "t-110"
+kind = "baseline-failure"
+command = "cargo test -p ratmac-qa --test t110_post_split_ports verify_expired_runs_the_marked_twins_and_reports_them_red -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t110_post_split_ports.rs"
+test-name = "verify_expired_runs_the_marked_twins_and_reports_them_red"
+exit-status = 101
+output-sha256 = "3878cc4e7bd6a2c848ef7534e55b93f5f498bff7caf9ae301c06dca53d135700"
+output = '''
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests\t110_post_split_ports.rs (target\debug\deps\t110_post_split_ports-54d750c9db594365.exe)
+
+running 1 test
+test verify_expired_runs_the_marked_twins_and_reports_them_red ... FAILED
+
+failures:
+
+---- verify_expired_runs_the_marked_twins_and_reports_them_red stdout ----
+
+thread 'verify_expired_runs_the_marked_twins_and_reports_them_red' (54068) panicked at test\qa\tests\t110_post_split_ports.rs:305:5:
+assertion `left == right` failed: RLRV-004: expiry verification must cover the complete real roster
+  left: {"t-058", "t-059", "t-060", "t-061", "t-062", "t-063", "t-064", "t-065", "t-066", "t-067", "t-068", "t-069", "t-070", "t-071", "t-072", "t-073", "t-074", "t-075", "t-076", "t-077", "t-078", "t-079", "t-080", "t-081", "t-082", "t-083", "t-084", "t-085", "t-086", "t-087", "t-088", "t-089", "t-090", "t-091", "t-092", "t-093", "t-094", "t-095", "t-096", "t-097", "t-098", "t-099", "t-100", "t-101", "t-102", "t-103", "t-104", "t-105", "t-106", "t-107"}
+ right: {"t-058", "t-059", "t-060", "t-061", "t-062", "t-063", "t-064", "t-065", "t-066", "t-067", "t-068", "t-069", "t-070", "t-071", "t-072", "t-073", "t-074", "t-075", "t-076", "t-077", "t-078", "t-079", "t-080", "t-081", "t-082", "t-083", "t-084", "t-085", "t-086", "t-087", "t-088", "t-089", "t-090", "t-091", "t-092", "t-093", "t-094", "t-095", "t-096", "t-097", "t-098", "t-099", "t-100", "t-101", "t-102", "t-103", "t-104", "t-105", "t-106", "t-107", "t-108", "t-109", "t-110"}
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    verify_expired_runs_the_marked_twins_and_reports_them_red
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p ratmac-qa --test t110_post_split_ports`
+'''

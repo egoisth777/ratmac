@@ -1,0 +1,11 @@
+ticket-id = "t-110"
+check-id = "cargo fmt --check"
+kind = "quality"
+command = "cargo fmt --check"
+working-dir = "."
+exit-status = 0
+output-sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+tree-roots = ["src", "test/qa", "tools", "test-hidden", ".ratmac/lanes.toml", ".ratmac/ratmac.toml"]
+tree-sha256 = "e39d40cb5d6935d881f9ff6c12a4ff797a0b8d9b887bc62e6b080ef1e65f2293"
+output = '''
+'''

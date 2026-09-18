@@ -1,0 +1,32 @@
+planned-test-id = "RLRV-003"
+ticket-id = "t-110"
+kind = "baseline-failure"
+command = "cargo test -p ratmac-qa --test t110_post_split_ports the_roster_is_complete_and_the_check_refuses_strays -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t110_post_split_ports.rs"
+test-name = "the_roster_is_complete_and_the_check_refuses_strays"
+exit-status = 101
+output-sha256 = "cf05764ec309a8ec55d93a3b4f2cbf04f53899160eee7feb3baa1754cb32f381"
+output = '''
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests\t110_post_split_ports.rs (target\debug\deps\t110_post_split_ports-54d750c9db594365.exe)
+
+running 1 test
+test the_roster_is_complete_and_the_check_refuses_strays ... FAILED
+
+failures:
+
+---- the_roster_is_complete_and_the_check_refuses_strays stdout ----
+
+thread 'the_roster_is_complete_and_the_check_refuses_strays' (24700) panicked at test\qa\tests\t110_post_split_ports.rs:242:5:
+RLRV-003: the roster names t-108: ["t-058", "t-059", "t-060", "t-061", "t-062", "t-063", "t-064", "t-065", "t-066", "t-067", "t-068", "t-069", "t-070", "t-071", "t-072", "t-073", "t-074", "t-075", "t-076", "t-077", "t-078", "t-079", "t-080", "t-081", "t-082", "t-083", "t-084", "t-085", "t-086", "t-087", "t-088", "t-089", "t-090", "t-091", "t-092", "t-093", "t-094", "t-095", "t-096", "t-097", "t-098", "t-099", "t-100", "t-101", "t-102", "t-103", "t-104", "t-105", "t-106", "t-107"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    the_roster_is_complete_and_the_check_refuses_strays
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p ratmac-qa --test t110_post_split_ports`
+'''

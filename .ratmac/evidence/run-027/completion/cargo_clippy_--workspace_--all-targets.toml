@@ -1,0 +1,13 @@
+ticket-id = "t-110"
+check-id = "cargo clippy --workspace --all-targets"
+kind = "quality"
+command = "cargo clippy --workspace --all-targets"
+working-dir = "."
+exit-status = 0
+output-sha256 = "634d7e036a1a2597bd75f42202d3138050c6a4970feb19c8ca58e747ac965198"
+tree-roots = ["src", "test/qa", "tools", "test-hidden", ".ratmac/lanes.toml", ".ratmac/ratmac.toml"]
+tree-sha256 = "e39d40cb5d6935d881f9ff6c12a4ff797a0b8d9b887bc62e6b080ef1e65f2293"
+output = '''
+    Checking ratmac-qa v0.1.0 (E:\repos\projs\skill-dev\ratmac-t-110\test\qa)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.19s
+'''

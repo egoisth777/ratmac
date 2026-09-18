@@ -1,0 +1,20 @@
+ticket-id = "t-110"
+check-id = "RLRV-004"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test t110_post_split_ports verify_expired_runs_the_marked_twins_and_reports_them_red -- --exact"
+working-dir = "."
+exit-status = 0
+output-sha256 = "643812b116d9573cad993f5cc00346412e91e1800b7c792c0d79c2c6e3d69fb6"
+tree-roots = ["src", "test/qa", "tools", "test-hidden", ".ratmac/lanes.toml", ".ratmac/ratmac.toml"]
+tree-sha256 = "e39d40cb5d6935d881f9ff6c12a4ff797a0b8d9b887bc62e6b080ef1e65f2293"
+output = '''
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests\t110_post_split_ports.rs (target\debug\deps\t110_post_split_ports-54d750c9db594365.exe)
+
+running 1 test
+test verify_expired_runs_the_marked_twins_and_reports_them_red has been running for over 60 seconds
+test verify_expired_runs_the_marked_twins_and_reports_them_red ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 195.55s
+
+'''

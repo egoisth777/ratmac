@@ -1,0 +1,19 @@
+ticket-id = "t-110"
+check-id = "RLRV-003"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test t110_post_split_ports the_roster_is_complete_and_the_check_refuses_strays -- --exact"
+working-dir = "."
+exit-status = 0
+output-sha256 = "c9e7f4b12b817cfb94ee8b1a30ea5c6d95d2375a7309698d685a0c43c2587921"
+tree-roots = ["src", "test/qa", "tools", "test-hidden", ".ratmac/lanes.toml", ".ratmac/ratmac.toml"]
+tree-sha256 = "e39d40cb5d6935d881f9ff6c12a4ff797a0b8d9b887bc62e6b080ef1e65f2293"
+output = '''
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests\t110_post_split_ports.rs (target\debug\deps\t110_post_split_ports-54d750c9db594365.exe)
+
+running 1 test
+test the_roster_is_complete_and_the_check_refuses_strays ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.70s
+
+'''

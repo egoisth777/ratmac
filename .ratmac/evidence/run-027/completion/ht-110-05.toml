@@ -1,0 +1,25 @@
+ticket-id = "t-110"
+check-id = "HT-110-05"
+kind = "hidden-lane"
+command = "cargo test --offline --manifest-path test-hidden/t-110/Cargo.toml ht_110_05"
+working-dir = "."
+exit-status = 0
+output-sha256 = "e19d7638cb02cb659e215629ecc3b51792b06425ca32f83f9db28f650ba892d7"
+tree-roots = ["src", "test/qa", "tools", "test-hidden", ".ratmac/lanes.toml", ".ratmac/ratmac.toml"]
+tree-sha256 = "e39d40cb5d6935d881f9ff6c12a4ff797a0b8d9b887bc62e6b080ef1e65f2293"
+output = '''
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running unittests src\lib.rs (test-hidden\t-110\target\debug\deps\ratmac_t110_hidden-48d2d8ff27f74bd0.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\hidden.rs (test-hidden\t-110\target\debug\deps\hidden-97689a70341ed419.exe)
+
+running 1 test
+test ht_110_05_output_filesystem_the_roster_is_complete_and_src_is_untouched ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.06s
+
+'''
