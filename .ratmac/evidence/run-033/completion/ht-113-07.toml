@@ -1,0 +1,33 @@
+ticket-id = "t-113"
+check-id = "HT-113-07"
+kind = "hidden-lane"
+command = "cargo test --offline --test reopened_work_items ht_113_07_regression -- --exact"
+working-dir = "test-hidden/t-113"
+exit-status = 101
+output-sha256 = "6f9cd807dc3e805d6a8043f71e7f0c1f535efcd2bed8d58868a1fef50df9fb5f"
+tree-roots = ["src", "test/qa", "Cargo.toml", "Cargo.lock", "test-hidden/t-113"]
+tree-sha256 = "d2e0c7618e095d8179d4398aba8b49dd6ee49c1bfae339fbad6b71cd17d38c33"
+output = '''
+   Compiling ratmac-t113-hidden v0.1.0 (E:\repos\projs\skill-dev\ratmac-t-113\test-hidden\t-113)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.78s
+     Running tests\reopened_work_items.rs (target\debug\deps\reopened_work_items-7881a78d6bf65ac3.exe)
+
+running 1 test
+test ht_113_07_regression ... FAILED
+
+failures:
+
+---- ht_113_07_regression stdout ----
+
+thread 'ht_113_07_regression' (55904) panicked at tests\reopened_work_items.rs:259:10:
+a reopened gap with a current owner keeps its history landed: [ContractDefect { artifact: "C:/Users/egois/AppData/Local/Temp/ratmac-ht113-reopened-07-reopened-66116-1789800533846927800/tickets/archive/t-700.md", reason: "took the archive move while gap res-501 is still unproven" }]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    ht_113_07_regression
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `--test reopened_work_items`
+'''

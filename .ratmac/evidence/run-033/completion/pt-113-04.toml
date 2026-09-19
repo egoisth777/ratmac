@@ -1,0 +1,19 @@
+ticket-id = "t-113"
+check-id = "PT-113-04"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test t113_snapshot_integrity declared_file_root_is_included_alone_and_with_overlap -- --exact"
+working-dir = "."
+exit-status = 0
+output-sha256 = "eb0e17cfe808ddbe614698ba25fd65cab009b3bd1511f9ea345dbd6381545a87"
+tree-roots = ["src", "test/qa", "Cargo.toml", "Cargo.lock"]
+tree-sha256 = "2719720e8dcfb0d8e1424d54f7a8c58129a3f740e34a8b311e7b21ba734730e7"
+output = '''
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running tests\t113_snapshot_integrity.rs (target\debug\deps\t113_snapshot_integrity-7e46b53c19124cdf.exe)
+
+running 1 test
+test declared_file_root_is_included_alone_and_with_overlap ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.57s
+
+'''

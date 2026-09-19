@@ -6,9 +6,10 @@ working-dir = "."
 test-file = "test/qa/tests/t113_snapshot_integrity.rs"
 test-name = "ignored_file_is_never_tracked"
 exit-status = 101
-output-sha256 = "52e350a9595fe9919c62a9913016ec3e46c4f609cb5f2391b5daf07c8ecc1dea"
+output-sha256 = "b95e7dd01a7e3e35c061ce769cf78b47fc2ca34e158e6631e77c5e143513478b"
 output = '''
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+   Compiling ratmac-qa v0.1.0 (E:\repos\projs\skill-dev\ratmac-t-113\test\qa)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.60s
      Running tests\t113_snapshot_integrity.rs (target\debug\deps\t113_snapshot_integrity-7e46b53c19124cdf.exe)
 
 running 1 test
@@ -18,15 +19,17 @@ failures:
 
 ---- ignored_file_is_never_tracked stdout ----
 
-thread 'ignored_file_is_never_tracked' (44152) panicked at test\qa\tests\t113_snapshot_integrity.rs:101:10:
-ignored content is untracked and must refuse, not pass as clean: SnapshotManifest { roots: ["src"], rows: [ManifestRow { path: "src/ignored.bin", tracking: Tracked, digest: "9b2cadc04db3cb7f2c4c183be1fc11ffeb3fbcbc03db3a8585378a8b27791759" }, ManifestRow { path: "src/main.rs", tracking: Tracked, digest: "536e506bb90914c243a12b397b9a998f85ae2cbd9ba02dfd03a9e155ca5ca0f4" }] }
+thread 'ignored_file_is_never_tracked' (58052) panicked at test\qa\tests\t113_snapshot_integrity.rs:162:5:
+assertion `left == right` failed: parent components preserve file identity
+  left: "evidence/loose.bin"
+ right: "evidence/../loose.bin"
 note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 
 
 failures:
     ignored_file_is_never_tracked
 
-test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.44s
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4 filtered out; finished in 1.10s
 
 error: test failed, to rerun pass `-p ratmac-qa --test t113_snapshot_integrity`
 '''

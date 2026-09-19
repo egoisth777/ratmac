@@ -1,0 +1,32 @@
+ticket-id = "t-113"
+check-id = "HT-113-12"
+kind = "hidden-lane"
+command = "cargo test --offline --test reopened_work_items ht_113_12_cross_feature -- --exact"
+working-dir = "test-hidden/t-113"
+exit-status = 101
+output-sha256 = "4a6380b1de9c5c277a47ed21e1889b774c7bdf8ff26db9b911e1760ca032d18f"
+tree-roots = ["src", "test/qa", "Cargo.toml", "Cargo.lock", "test-hidden/t-113"]
+tree-sha256 = "d2e0c7618e095d8179d4398aba8b49dd6ee49c1bfae339fbad6b71cd17d38c33"
+output = '''
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests\reopened_work_items.rs (target\debug\deps\reopened_work_items-7881a78d6bf65ac3.exe)
+
+running 1 test
+test ht_113_12_cross_feature ... FAILED
+
+failures:
+
+---- ht_113_12_cross_feature stdout ----
+
+thread 'ht_113_12_cross_feature' (17532) panicked at tests\reopened_work_items.rs:718:10:
+the classifier accepts sole current ownership of a reopened gap: [ContractDefect { artifact: "C:/Users/egois/AppData/Local/Temp/ratmac-ht113-reopened-12-agreement-67504-1789800534732239000/tickets/archive/t-750.md", reason: "took the archive move while gap res-551 is still unproven" }]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    ht_113_12_cross_feature
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `--test reopened_work_items`
+'''

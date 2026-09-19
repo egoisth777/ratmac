@@ -1,0 +1,33 @@
+planned-test-id = "PT-113-06"
+ticket-id = "t-113"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t113_reopened_work_items reopened_gap_keeps_history_landed_and_requires_current_owner -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t113_reopened_work_items.rs"
+test-name = "reopened_gap_keeps_history_landed_and_requires_current_owner"
+exit-status = 101
+output-sha256 = "d99aa1796d4514648aebd1119edb00cfc0df2c0b4383ced30f623a4524617952"
+output = '''
+   Compiling ratmac-qa v0.1.0 (E:\repos\projs\skill-dev\ratmac-t-113\test\qa)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.68s
+     Running tests\t113_reopened_work_items.rs (target\debug\deps\t113_reopened_work_items-32c8f1443141688a.exe)
+
+running 1 test
+test reopened_gap_keeps_history_landed_and_requires_current_owner ... FAILED
+
+failures:
+
+---- reopened_gap_keeps_history_landed_and_requires_current_owner stdout ----
+
+thread 'reopened_gap_keeps_history_landed_and_requires_current_owner' (39556) panicked at test\qa\tests\t113_reopened_work_items.rs:271:9:
+a valid reopen classifies without defect: C:/Users/egois/AppData/Local/Temp/ratmac-t113-reopened-proof-38796-1789800532776390300/.arca/ticket/archive/t-771.md: took the archive move while gap res-777 is still unproven
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    reopened_gap_keeps_history_landed_and_requires_current_owner
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+error: test failed, to rerun pass `-p ratmac-qa --test t113_reopened_work_items`
+'''

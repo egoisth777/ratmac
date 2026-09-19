@@ -1,0 +1,19 @@
+ticket-id = "t-113"
+check-id = "HT-113-02"
+kind = "hidden-lane"
+command = "cargo test --offline --test hidden ht_113_02_input_routing -- --exact"
+working-dir = "test-hidden/t-113"
+exit-status = 0
+output-sha256 = "eb17319a1bf2fc43be3c688c362ab95712d154a4f754e4a660627d14d99a2c0d"
+tree-roots = ["src", "test/qa", "Cargo.toml", "Cargo.lock", "test-hidden/t-113"]
+tree-sha256 = "e4d0d67044a83e6901561f6a5ae1ba6dcc3cf4e54ca61ca61f3f019fec8b4288"
+output = '''
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running tests\hidden.rs (target\debug\deps\hidden-c37700feb46775fa.exe)
+
+running 1 test
+test ht_113_02_input_routing ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.59s
+
+'''

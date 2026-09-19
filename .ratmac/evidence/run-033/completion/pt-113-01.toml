@@ -1,0 +1,19 @@
+ticket-id = "t-113"
+check-id = "PT-113-01"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test t113_snapshot_integrity ignored_file_is_never_tracked -- --exact"
+working-dir = "."
+exit-status = 0
+output-sha256 = "29de311d9bf928de37c82eacc2fd5c83c6fb4f3b03a79b735b6a5b5cfb89fcc7"
+tree-roots = ["src", "test/qa", "Cargo.toml", "Cargo.lock"]
+tree-sha256 = "2719720e8dcfb0d8e1424d54f7a8c58129a3f740e34a8b311e7b21ba734730e7"
+output = '''
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running tests\t113_snapshot_integrity.rs (target\debug\deps\t113_snapshot_integrity-7e46b53c19124cdf.exe)
+
+running 1 test
+test ignored_file_is_never_tracked ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 1.19s
+
+'''

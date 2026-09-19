@@ -1,0 +1,49 @@
+ticket-id = "t-113"
+check-id = "cargo clippy --offline --workspace --all-targets"
+kind = "quality"
+command = "cargo clippy --offline --workspace --all-targets"
+working-dir = "."
+exit-status = 0
+output-sha256 = "f7595c99768b202406db49b65bf345f597636ad1fea2fa89e6faf9fa01ccdfb7"
+tree-roots = ["src", "test/qa", "Cargo.toml", "Cargo.lock", "test-hidden", "tools", ".arca/goal", ".arca/runbook-spec.md", ".arca/runbook-authoring.md", ".ratmac/ratmac.toml", ".ratmac/turn.toml", ".ratmac/lanes.toml", ".ratmac/close-guard.diff"]
+tree-sha256 = "d5eda97f21640210f2d1b11476b65b56b3806197d2f153276989f3ee042f6494"
+output = '''
+    Checking ratmac-qa v0.1.0 (E:\repos\projs\skill-dev\ratmac-t-113\test\qa)
+warning: useless use of `vec!`
+   --> test\qa\tests\t113_snapshot_integrity.rs:306:20
+    |
+306 |       let expected = vec![
+    |  ____________________^
+307 | |         format!(
+308 | |             "data/notes spaced.txt\tuntracked\t{}\texception",
+309 | |             digest("data/notes spaced.txt")
+...   |
+322 | |         ),
+323 | |     ];
+    | |_____^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#useless_vec
+    = note: `#[warn(clippy::useless_vec)]` on by default
+help: you can use an array directly
+    |
+306 ~     let expected = [format!(
+307 +             "data/notes spaced.txt\tuntracked\t{}\texception",
+308 +             digest("data/notes spaced.txt")
+309 +         ),
+310 +         format!(
+311 +             "data/notes spaced.txt.bak\ttracked\t{}",
+312 +             digest("data/notes spaced.txt.bak")
+313 +         ),
+314 +         format!(
+315 ~             "data/wîngs ✈ extra.txt\ttracked\t{}",
+316 ~             digest("data/wîngs ✈ extra.txt")
+317 +         ),
+318 +         format!(
+319 ~             "data/wîngs ✈.txt\tuntracked\t{}\texception",
+320 ~             digest("data/wîngs ✈.txt")
+321 ~         )];
+    |
+
+warning: `ratmac-qa` (test "t113_snapshot_integrity") generated 1 warning (run `cargo clippy --fix --test "t113_snapshot_integrity" -p ratmac-qa -- ` to apply 1 suggestion)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.32s
+'''
