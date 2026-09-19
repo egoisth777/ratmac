@@ -1,0 +1,22 @@
+diff --git a/.ratmac/ratmac.toml b/.ratmac/ratmac.toml
+index 4f067fe..e551a93 100644
+--- a/.ratmac/ratmac.toml
++++ b/.ratmac/ratmac.toml
+@@ -166,7 +166,7 @@ Commit the green work before going on - the next stage breaks the tree on
+ purpose and has to have something to restore.
+ """
+ guards = [
+-  { kind = "completion_gate", ticket-binding = "item", root = "ticket" },
++  { kind = "completion_gate", ticket-binding = "item", root = "ticket", declaration-format = "front-matter-string-lists", focused-field = "focused-tests", hidden-lane-field = "hidden-lanes", quality-field = "quality-commands" },
+   # PCR-009: the safety commit is a machine check, not prose. Exit 0 is a
+   # working tree with no uncommitted change to a tracked file.
+   { kind = "command_exit", program = "git", args = [
+@@ -187,7 +187,7 @@ A mutation that survives is a hole in the tests, not a win.
+ # completion gate re-derives every receipt against the tree as it stands, so a
+ # tree left damaged cannot pass.
+ guards = [
+-  { kind = "completion_gate", ticket-binding = "item", root = "ticket" },
++  { kind = "completion_gate", ticket-binding = "item", root = "ticket", declaration-format = "front-matter-string-lists", focused-field = "focused-tests", hidden-lane-field = "hidden-lanes", quality-field = "quality-commands" },
+ ]
+ 
+ [classes.ticket.states.done]

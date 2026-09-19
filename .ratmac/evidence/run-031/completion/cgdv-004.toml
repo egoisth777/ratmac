@@ -1,0 +1,19 @@
+ticket-id = "t-112"
+check-id = "CGDV-004"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test t112_completion_declared_data completion_has_no_prose_discovery_boundary -- --exact"
+working-dir = "."
+exit-status = 0
+output-sha256 = "6ec620823841974a0ef107564e0c15e17ac092620ac7f01a970a862bcfefbcd7"
+tree-roots = ["src", "test/qa", "test-hidden", "tools", "Cargo.toml", "Cargo.lock", ".arca/goal", ".arca/runbook-spec.md", ".arca/runbook-authoring.md", ".ratmac/ratmac.toml", ".ratmac/completion-guard.diff", ".ratmac/lanes.toml"]
+tree-sha256 = "cb916bc807fea89026ef186e20e85f5528192f1d43345dc0c24a83c88cbe5e3a"
+output = '''
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests\t112_completion_declared_data.rs (target\debug\deps\t112_completion_declared_data-dcabcdc1117e4c59.exe)
+
+running 1 test
+test completion_has_no_prose_discovery_boundary ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.67s
+
+'''

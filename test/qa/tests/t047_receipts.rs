@@ -11,6 +11,7 @@
 //! receipt per executed check. The P4 gate reads receipts, never prose; prompts
 //! and gate contracts never hand an agent a Scheduler-owned file.
 
+use ratmac::declaration::{CompletionDeclaration, DeclarationFormat};
 use ratmac::machine::MachineClass;
 use ratmac::ownership::{
     audit_ownership, runbook_instructions, template_instructions, Instruction, SCHEDULER_OWNED,
@@ -65,6 +66,10 @@ impl Fixture {
              ticket-id: t-900\n\
              planned-test-refs:\n\
              \x20 - \"PT-900-01\"\n\
+             focused-tests:\n\
+             \x20 - \"PT-900-01\"\n\
+             hidden-lanes:\n\
+             quality-commands:\n\
              status: \"approved\"\n\
              ---\n\
              \n\
@@ -423,6 +428,18 @@ fn unknown_planned_test_id_refuses() {
     );
 }
 
+/// The mapping the fixture ticket is cut to (i-032 / CGD-003): the shop's
+/// three fields by name, so the completion gate judges exactly the one
+/// focused check this fixture records.
+fn mapping() -> CompletionDeclaration {
+    CompletionDeclaration {
+        format: DeclarationFormat::FrontMatterStringLists,
+        focused_field: "focused-tests".to_owned(),
+        hidden_lane_field: "hidden-lanes".to_owned(),
+        quality_field: "quality-commands".to_owned(),
+    }
+}
+
 /// GPHV-001 (t-098): the sensitivity and completion gates on a tree carrying
 /// receipts from an earlier, retired run beside the addressed run's own. The
 /// retired run's receipts are history the addressed gate never consumes - and
@@ -502,6 +519,7 @@ fn the_completion_and_sensitivity_gates_pass_beside_a_retired_runs_receipts() {
         "run-new",
         &ticket,
         ".arca/ticket/t-900.md",
+        Some(&mapping()),
     );
     assert!(
         verdict.is_ok(),

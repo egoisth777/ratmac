@@ -273,6 +273,7 @@ when any finding is an error.
 | `RB110` | error | A key carries a value of the wrong type. |
 | `RB111` | error | The runbook declares a pre-cutover `phases` table instead of `states`; the loader refuses before any further parse or run work, naming the runbook file and the repair (rename the table to `states`), and this refusal takes precedence over the generic unknown-key `RB103`. |
 | `RB112` | error | A per-item guard (`sensitivity_receipts`, `completion_gate`) declares both address forms, neither, or an empty one: exactly one of `ticket` and `ticket-binding` names the item it judges. |
+| `RB113` | error | A `completion_gate` declaration mapping is invalid: `declaration-format` is not a supported format, a mapped field name is empty, or one field name is mapped to more than one receipt kind. |
 | `RB601` | error | The `roots` table is malformed: it is not a table, has an empty role, a non-string or empty path, an absolute path, or a path that lexically escapes the repository. |
 | `RB602` | error | A guard names a root role the runbook does not declare, including a fixed contract role. |
 | `RB603` | error | A declared root role names a path that does not exist or cannot be read when the runbook loads. |

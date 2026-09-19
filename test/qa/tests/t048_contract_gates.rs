@@ -12,9 +12,13 @@
 //! records themselves - issue shape, requirement IDs, links, residual
 //! evidence, ticket ownership, and dependency order.
 
+use ratmac::completion::CompletionDefect;
 use ratmac::contract::{gate_intake, gate_records, unproven_mechanization, ContractDefect};
+use ratmac::declaration::{CompletionDeclaration, DeclarationFormat};
+use ratmac::machine::{GuardKind, MachineClass};
+use ratmac::receipt::sha256_text;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 struct Tree {
@@ -1126,6 +1130,24 @@ fn the_merge_gate_rule_names_the_fixture_with_a_past() {
 /// - completion (same run): deterministic from the tree - pass while the
 ///   receipt roots are untouched since the run, a stale-tree refusal once
 ///   later landings edited them; never any other refusal class.
+///
+/// The completion mapping is the one the checked-out project runbook arms
+/// its completion gates with, read typed from the tracked Machine Class
+/// (GPH-003: the repository is the growing fixture, so the audit follows the
+/// runbook as it stands). While the tracked runbook is the intentionally
+/// unmapped pre-activation one, the audit falls back to the explicit
+/// historical selector below: the archived carriers it judges were cut
+/// before the completion-declaration cutover (i-032 / CGD-003), their
+/// focused work named by `planned-test-refs` while their lanes and commands
+/// were already tagged - the one legacy selection a historical fixture may
+/// make explicitly, never a production default, never derived from the
+/// receipts it finds, and never by editing the archive's bytes. Either way
+/// the selector names front-matter fields the carrier itself declares, so
+/// the audit needs no second source landing when activation maps the
+/// tracked guards (the cutover ticket holds equal planned and focused ids).
+/// The one refusal the audit admits beside staleness is the post-rest
+/// removal of the prepared completion-guard patch, recorded by
+/// [`admitted_patch_removal`] for the cutover carrier alone.
 #[test]
 fn every_contract_gate_states_its_verdict_on_this_repository() {
     let root = ratmac_qa::grown::repo_root();
@@ -1161,19 +1183,319 @@ fn every_contract_gate_states_its_verdict_on_this_repository() {
         sensitivity.err()
     );
 
-    // Completion: pass or a stale-tree refusal, never anything else.
+    // Completion: pass or a stale-tree refusal, never anything else - with
+    // the one approved cutover-transition exception recorded below.
+    let shipped = runbook_mapping(&root);
+    let mapping = shipped.clone().unwrap_or_else(historical_mapping);
+    let cutover_carrier = carrier_name(&run.ticket_rel) == "t-112.md";
     if let Err(defects) = ratmac::completion::gate_completion_at(
         &root,
         &engine_root,
         &run.run_id,
         &ticket,
         &run.ticket_rel,
+        Some(&mapping),
     ) {
+        if !admitted_patch_removal(
+            &defects,
+            cutover_carrier,
+            shipped.is_some(),
+            !root.join(".ratmac/completion-guard.diff").exists(),
+        ) {
+            let text = format!("{defects:?}");
+            assert!(
+                text.contains("tree") || text.contains("stale"),
+                "run {}: the only allowed refusal is the staleness the gate exists to catch: {text}",
+                run.run_id
+            );
+        }
+    }
+}
+
+/// The mapping the archived carriers are cut to: their explicit
+/// `planned-test-refs`, `hidden-lanes`, and `quality-commands` front-matter
+/// lists name exactly the checks their runs recorded receipts for.
+fn historical_mapping() -> CompletionDeclaration {
+    CompletionDeclaration {
+        format: DeclarationFormat::FrontMatterStringLists,
+        focused_field: "planned-test-refs".to_owned(),
+        hidden_lane_field: "hidden-lanes".to_owned(),
+        quality_field: "quality-commands".to_owned(),
+    }
+}
+
+/// The completion mapping the checked-out project runbook arms its
+/// completion gates with, when it arms one: the first mapped `completion_gate`
+/// guard's authored declaration, read typed through the one runbook reader.
+/// Both tracked completion guards carry the same mapping, and None while
+/// the runbook is the intentionally unmapped pre-activation one.
+fn runbook_mapping(root: &Path) -> Option<CompletionDeclaration> {
+    let source = fs::read_to_string(root.join(".ratmac/ratmac.toml")).ok()?;
+    let class = MachineClass::from_toml(&source).ok()?;
+    let armed = |guard: &GuardKind| match guard {
+        GuardKind::CompletionGate {
+            declaration: Some(mapping),
+            ..
+        } => Some(mapping.clone()),
+        _ => None,
+    };
+    class
+        .states()
+        .values()
+        .flat_map(|state| state.guards())
+        .chain(
+            class
+                .classes()
+                .values()
+                .flat_map(|child| child.states().values().flat_map(|state| state.guards())),
+        )
+        .find_map(armed)
+}
+
+/// `tree_digest`'s own refusal when a receipt claims the prepared
+/// completion-guard patch as a source root - kept verbatim so whole-reason
+/// equality, never matching, decides the one approved admission below.
+const MISSING_PREPARED_DIFF: &str =
+    "declared source root .ratmac/completion-guard.diff does not exist";
+
+/// The file-name component of a resolved ticket address.
+fn carrier_name(ticket_rel: &str) -> &str {
+    ticket_rel.rsplit('/').next().unwrap_or(ticket_rel)
+}
+
+/// The one approved two-landing transition (i-032): activation deletes the
+/// tracked `.ratmac/completion-guard.diff` after the recording landing
+/// proved it, so the cutover carrier t-112's receipts - which bound the
+/// tested patch by tree-roots - then honestly name a root that no longer
+/// exists. Exactly that refusal is admitted, and only when every condition
+/// holds: the addressed carrier is t-112, the checked-out runbook is the
+/// activated (mapped) one, the prepared patch is really gone, and the
+/// nonempty refusal is nothing but the exact missing-patch message - every
+/// defect's whole reason equal to it. Any other carrier, root, or shape
+/// falls through to the unchanged historical assertion: this records one
+/// transition, never a general missing-data escape.
+fn admitted_patch_removal(
+    defects: &[CompletionDefect],
+    carrier_is_cutover: bool,
+    shipped_mapping_present: bool,
+    prepared_diff_absent: bool,
+) -> bool {
+    carrier_is_cutover
+        && shipped_mapping_present
+        && prepared_diff_absent
+        && !defects.is_empty()
+        && defects
+            .iter()
+            .all(|defect| defect.reason == MISSING_PREPARED_DIFF)
+}
+
+/// The patch-removal allowance admits exactly the approved cutover
+/// transition and nothing else. Every case builds a real tree - a carrier
+/// ticket in the cutover shape (its checks in both the legacy planned field
+/// and the tagged lists, ids equal), one green self-consistent receipt bound
+/// to the case's tree roots, and a runbook whose completion gate is mapped
+/// or not - asks the real completion gate, and feeds the real refusal to the
+/// pure predicate beside the unchanged historical wording.
+#[test]
+fn the_patch_removal_allowance_admits_only_the_exact_cutover_transition() {
+    struct Case {
+        label: &'static str,
+        carrier: &'static str,
+        mapped_runbook: bool,
+        diff_present: bool,
+        tree_roots: &'static [&'static str],
+        second_check_unreceipted: bool,
+        admitted: bool,
+    }
+    let cases = [
+        Case {
+            label: "the exact transition is admitted",
+            carrier: "t-112",
+            mapped_runbook: true,
+            diff_present: false,
+            tree_roots: &[".ratmac/completion-guard.diff"],
+            second_check_unreceipted: false,
+            admitted: true,
+        },
+        Case {
+            label: "another carrier is refused",
+            carrier: "t-113",
+            mapped_runbook: true,
+            diff_present: false,
+            tree_roots: &[".ratmac/completion-guard.diff"],
+            second_check_unreceipted: false,
+            admitted: false,
+        },
+        Case {
+            label: "the unmapped pre-activation runbook is refused",
+            carrier: "t-112",
+            mapped_runbook: false,
+            diff_present: false,
+            tree_roots: &[".ratmac/completion-guard.diff"],
+            second_check_unreceipted: false,
+            admitted: false,
+        },
+        Case {
+            label: "a still-present patch is refused",
+            carrier: "t-112",
+            mapped_runbook: true,
+            diff_present: true,
+            tree_roots: &[".ratmac/completion-guard.diff"],
+            second_check_unreceipted: false,
+            admitted: false,
+        },
+        Case {
+            label: "another missing root is refused",
+            carrier: "t-112",
+            mapped_runbook: true,
+            diff_present: false,
+            tree_roots: &[".ratmac/other-missing.toml"],
+            second_check_unreceipted: false,
+            admitted: false,
+        },
+        Case {
+            label: "mixed defects are refused",
+            carrier: "t-112",
+            mapped_runbook: true,
+            diff_present: false,
+            tree_roots: &[".ratmac/completion-guard.diff"],
+            second_check_unreceipted: true,
+            admitted: false,
+        },
+    ];
+
+    for (index, case) in cases.into_iter().enumerate() {
+        let root = std::env::temp_dir().join(format!(
+            "ratmac-t048-removal-{index}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock after epoch")
+                .as_nanos()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        let ticket_rel = format!(".arca/ticket/archive/{}.md", case.carrier);
+        for dir in [
+            ".arca/ticket/archive",
+            ".ratmac/evidence/run-001/completion",
+        ] {
+            fs::create_dir_all(root.join(dir)).expect("create the case tree");
+        }
+        if case.diff_present {
+            fs::write(
+                root.join(".ratmac/completion-guard.diff"),
+                "the prepared mapping of both completion guards\n",
+            )
+            .expect("write the prepared patch");
+        }
+
+        // The carrier ticket, cut the cutover way: the same check ids in the
+        // legacy planned field and in the tagged lists.
+        let mut planned = String::from("  - \"PT-900-01\"\n");
+        let mut focused = planned.clone();
+        if case.second_check_unreceipted {
+            planned.push_str("  - \"PT-900-02\"\n");
+            focused.push_str("  - \"PT-900-02\"\n");
+        }
+        fs::write(
+            root.join(&ticket_rel),
+            format!(
+                "---\nticket-id: {}\nresidual-ids:\n  - \"res-900\"\n\
+                 planned-test-refs:\n{planned}focused-tests:\n{focused}\
+                 hidden-lanes:\nquality-commands:\nstatus: \"executing\"\n---\n\n\
+                 # Ticket: {}\n",
+                case.carrier, case.carrier
+            ),
+        )
+        .expect("write the carrier ticket");
+
+        // One green, self-consistent receipt bound to the case's tree roots;
+        // the recorded digest never decides (the root is missing, or the
+        // digest mismatches into the stale class the oracle already allows).
+        let output = "test result: ok. 1 passed\n";
+        let roots = case
+            .tree_roots
+            .iter()
+            .map(|name| format!("{name:?}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        fs::write(
+            root.join(".ratmac/evidence/run-001/completion/pt-900-01.toml"),
+            format!(
+                "ticket-id = \"{}\"\ncheck-id = \"PT-900-01\"\nkind = \"focused\"\n\
+                 command = \"cargo test --test t900\"\nworking-dir = \".\"\n\
+                 exit-status = 0\noutput-sha256 = \"{}\"\n\
+                 tree-roots = [{roots}]\ntree-sha256 = \"{}\"\n\
+                 output = \"\"\"\n{output}\"\"\"\n",
+                case.carrier,
+                sha256_text(output),
+                "0".repeat(64)
+            ),
+        )
+        .expect("write the bound receipt");
+
+        // The runbook the case's shipped-mapping answer is really read from.
+        let declaration = if case.mapped_runbook {
+            ", declaration-format = \"front-matter-string-lists\", \
+             focused-field = \"focused-tests\", hidden-lane-field = \"hidden-lanes\", \
+             quality-field = \"quality-commands\""
+        } else {
+            ""
+        };
+        fs::write(
+            root.join(".ratmac/ratmac.toml"),
+            format!(
+                "[states.build]\nprompt = \"Build it.\"\n\
+                 guards = [{{ kind = \"completion_gate\", ticket = \"{ticket_rel}\"{declaration} }}]\n"
+            ),
+        )
+        .expect("write the case runbook");
+
+        let shipped = runbook_mapping(&root);
+        let mapping = shipped.clone().unwrap_or_else(historical_mapping);
+        let defects = ratmac::completion::gate_completion_at(
+            &root,
+            &root.join(".ratmac"),
+            "run-001",
+            &root.join(&ticket_rel),
+            &ticket_rel,
+            Some(&mapping),
+        )
+        .expect_err("the case's receipt state refuses");
         let text = format!("{defects:?}");
-        assert!(
-            text.contains("tree") || text.contains("stale"),
-            "run {}: the only allowed refusal is the staleness the gate exists to catch: {text}",
-            run.run_id
+        let decided = admitted_patch_removal(
+            &defects,
+            carrier_name(&ticket_rel) == "t-112.md",
+            shipped.is_some(),
+            !root.join(".ratmac/completion-guard.diff").exists(),
         );
+        assert_eq!(
+            decided, case.admitted,
+            "{}: the allowance decides this case wrongly: {text}",
+            case.label
+        );
+        if case.admitted {
+            assert!(
+                !defects.is_empty()
+                    && defects
+                        .iter()
+                        .all(|defect| defect.reason == MISSING_PREPARED_DIFF),
+                "{}: the admitted refusal is nothing but the exact missing-patch message: {text}",
+                case.label
+            );
+        } else if case.diff_present {
+            assert!(
+                text.contains("tree") && text.contains("stale"),
+                "{}: a still-present patch degenerates to the stale class the unchanged assertion already allows: {text}",
+                case.label
+            );
+        } else {
+            assert!(
+                !text.contains("tree") && !text.contains("stale"),
+                "{}: the refusal carries no stale-tree wording, so the unchanged historical assertion is what must fail it: {text}",
+                case.label
+            );
+        }
+        let _ = fs::remove_dir_all(&root);
     }
 }

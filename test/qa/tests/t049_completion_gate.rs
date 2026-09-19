@@ -12,6 +12,7 @@
 //! work it claims.
 
 use ratmac::completion::{declared_checks, gate_completion, CompletionDefect};
+use ratmac::declaration::{CompletionDeclaration, DeclarationFormat};
 use ratmac::receipt::sha256_text;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -31,6 +32,18 @@ const TICKET: &str = "t-900";
 const TICKET_PATH: &str = ".arca/ticket/t-900.md";
 const RUN_ID: &str = "run-001";
 const GREEN: &str = "test result: ok. 3 passed; 0 failed\n";
+
+/// The mapping the fixture ticket is cut to (i-032 / CGD-003): the shop's
+/// three fields selected by name - never inferred from prose or from the
+/// old planned fields.
+fn mapping() -> CompletionDeclaration {
+    CompletionDeclaration {
+        format: DeclarationFormat::FrontMatterStringLists,
+        focused_field: "focused-tests".to_owned(),
+        hidden_lane_field: "hidden-lanes".to_owned(),
+        quality_field: "quality-commands".to_owned(),
+    }
+}
 
 impl Fixture {
     fn new(label: &str) -> Self {
@@ -53,17 +66,26 @@ impl Fixture {
     }
 
     /// A ticket declaring one focused test, one hidden lane, and the given
-    /// quality commands.
+    /// quality commands: the same ids in the declaration mapping's selected
+    /// front-matter lists. The prose keeps its historical shape; the reader
+    /// never sees it.
     fn write_ticket(&self, quality: &[&str]) {
         let lines: String = quality
             .iter()
             .map(|command| format!("- Quality: `{command}` passes.\n"))
             .collect();
+        let quality_list: String = quality
+            .iter()
+            .map(|command| format!("  - \"{command}\"\n"))
+            .collect();
         fs::write(
             self.root.join(TICKET_PATH),
             format!(
                 "---\nticket-id: t-900\nresidual-ids:\n  - \"res-900\"\n\
-                 planned-test-refs:\n  - \"PT-900-01\"\nstatus: \"executing\"\n---\n\n\
+                 planned-test-refs:\n  - \"PT-900-01\"\n\
+                 focused-tests:\n  - \"PT-900-01\"\n\
+                 hidden-lanes:\n  - \"HT-900-01\"\n\
+                 quality-commands:\n{quality_list}status: \"executing\"\n---\n\n\
                  # Ticket: t-900\n\n## P5 Hidden Test Public Coverage Manifest\n\n\
                  | Hidden ID | Lane |\n|---|---|\n| `HT-900-01` | `Regression` |\n\n\
                  ## Merge Gate\n\n{lines}"
@@ -117,7 +139,11 @@ impl Fixture {
             self.root.join(".ratmac/ratmac.toml"),
             format!(
                 "[states.implement]\nprompt = \"Implement the ticket.\"\n\
-                 guards = [{{ kind = \"completion_gate\", ticket = \"{TICKET_PATH}\" }}]\n\n\
+                 guards = [{{ kind = \"completion_gate\", ticket = \"{TICKET_PATH}\", \
+                 declaration-format = \"front-matter-string-lists\", \
+                 focused-field = \"focused-tests\", \
+                 hidden-lane-field = \"hidden-lanes\", \
+                 quality-field = \"quality-commands\" }}]\n\n\
                  [states.done]\nprompt = \"Finish.\"\n\n\
                  [[transitions]]\nfrom = \"implement\"\nto = \"done\"\n"
             ),
@@ -145,7 +171,13 @@ impl Fixture {
     }
 
     fn gate(&self) -> Result<(), Vec<CompletionDefect>> {
-        gate_completion(&self.root, &self.root.join(".ratmac"), RUN_ID, TICKET_PATH)
+        gate_completion(
+            &self.root,
+            &self.root.join(".ratmac"),
+            RUN_ID,
+            TICKET_PATH,
+            Some(&mapping()),
+        )
     }
 }
 
@@ -178,7 +210,9 @@ fn completion_requires_receipts() {
 
     // The ticket's declared work is discovered, not guessed.
     let source = fs::read_to_string(fixture.root.join(TICKET_PATH)).expect("read ticket");
-    let checks = declared_checks(&source);
+    let checks = declared_checks(&source, &mapping()).unwrap_or_else(|refusal| {
+        panic!("the fixture ticket declares its checks from its lists: {refusal}")
+    });
     let ids: Vec<&str> = checks.iter().map(|check| check.id.as_str()).collect();
     assert_eq!(
         ids,
@@ -402,14 +436,21 @@ fn undeclarable_command_refuses() {
         "the refusal names the undeclarable command: {text}"
     );
 
-    // An unparsable declaration refuses too, rather than being skipped.
+    // An unparsable declaration refuses too, rather than being skipped: a
+    // blank entry is refused naming its field and the empty entry - never
+    // silently dropped into the declared checks.
     let fixture = Fixture::new("empty-command");
-    fixture.write_ticket(&["   "]);
+    fixture.write_ticket(&[""]);
     let source = fs::read_to_string(fixture.root.join(TICKET_PATH)).expect("read ticket");
-    assert!(
-        declared_checks(&source)
-            .iter()
-            .all(|check| !check.id.trim().is_empty()),
+    let refusal = declared_checks(&source, &mapping())
+        .expect_err("a blank declaration refuses rather than declaring");
+    assert_eq!(
+        (
+            refusal.field.as_str(),
+            refusal.entry.as_str(),
+            refusal.reason.as_str()
+        ),
+        ("quality-commands", "", "an empty entry"),
         "a blank declaration is never treated as a declared check"
     );
 }

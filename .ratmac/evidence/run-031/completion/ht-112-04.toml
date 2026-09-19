@@ -1,0 +1,19 @@
+ticket-id = "t-112"
+check-id = "HT-112-04"
+kind = "hidden-lane"
+command = "cargo test --offline --test hidden ht_112_04_durability_recovery -- --exact"
+working-dir = "test-hidden/t-112"
+exit-status = 0
+output-sha256 = "0775f81aab7f8b2ff96cebd1537ba896bd3c57ba6984f74ea235b3d515ab33f9"
+tree-roots = ["src", "test/qa", "test-hidden", "tools", "Cargo.toml", "Cargo.lock", ".arca/goal", ".arca/runbook-spec.md", ".arca/runbook-authoring.md", ".ratmac/ratmac.toml", ".ratmac/completion-guard.diff", ".ratmac/lanes.toml"]
+tree-sha256 = "cb916bc807fea89026ef186e20e85f5528192f1d43345dc0c24a83c88cbe5e3a"
+output = '''
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests\hidden.rs (target\debug\deps\hidden-225ab0a54aec9b09.exe)
+
+running 1 test
+test ht_112_04_durability_recovery ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.90s
+
+'''

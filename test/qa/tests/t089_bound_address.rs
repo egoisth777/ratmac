@@ -29,7 +29,7 @@ required = true
 
 [classes.worker.states.work]
 prompt = "Work the bound item."
-guards = [{ kind = "completion_gate", root = "ticket", ticket-binding = "item" }]
+guards = [{ kind = "completion_gate", root = "ticket", ticket-binding = "item", declaration-format = "front-matter-string-lists", focused-field = "focused-tests", hidden-lane-field = "hidden-lanes", quality-field = "quality-commands" }]
 
 [classes.worker.states.done]
 prompt = "Done."
@@ -72,7 +72,7 @@ required = false
 
 [classes.worker.states.work]
 prompt = "Work the bound item."
-guards = [{ kind = "completion_gate", root = "ticket", ticket-binding = "absent" }]
+guards = [{ kind = "completion_gate", root = "ticket", ticket-binding = "absent", declaration-format = "front-matter-string-lists", focused-field = "focused-tests", hidden-lane-field = "hidden-lanes", quality-field = "quality-commands" }]
 
 [classes.worker.states.done]
 prompt = "Done."
@@ -205,13 +205,18 @@ impl Fixture {
             .to_owned()
     }
 
-    /// A ticket declaring exactly one focused test.
+    /// A ticket declaring exactly one focused test: the same id in the
+    /// declaration mapping's selected front-matter lists.
     fn write_ticket(&self, ticket: &str, planned: &str) {
         fs::write(
             self.root.join(format!(".arca/ticket/{ticket}.md")),
             format!(
                 "---\nticket-id: {ticket}\nresidual-ids:\n  - \"res-900\"\n\
-                 planned-test-refs:\n  - \"{planned}\"\nstatus: \"executing\"\n---\n\n\
+                 planned-test-refs:\n  - \"{planned}\"\n\
+                 focused-tests:\n  - \"{planned}\"\n\
+                 hidden-lanes:\n\
+                 quality-commands:\n\
+                 status: \"executing\"\n---\n\n\
                  # Ticket: {ticket}\n\n## Merge Gate\n\n- Focused test only.\n"
             ),
         )

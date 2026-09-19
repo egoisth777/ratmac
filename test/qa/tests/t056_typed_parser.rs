@@ -534,6 +534,99 @@ to = \"review\"
     }
 }
 
+/// PT-055-02 / PT-055-04 / TRP-003 (completion-declaration cutover, i-032 /
+/// CGD-003): a completion gate's authored declaration mapping survives the
+/// parse and renders back exactly as written, and the mapping group is
+/// all-or-none: whichever key is the one left out, the refusal names it
+/// under the missing-field code, and a non-string value names the key under
+/// the type code - never a silently unmapped gate.
+#[test]
+fn a_completion_gate_maps_its_declaration_or_refuses_at_parse() {
+    // The four mapping keys in their documented order, with the values the
+    // shop's runbooks author.
+    const KEYS: [(&str, &str); 4] = [
+        ("declaration-format", "\"front-matter-string-lists\""),
+        ("focused-field", "\"focused-tests\""),
+        ("hidden-lane-field", "\"hidden-lanes\""),
+        ("quality-field", "\"quality-commands\""),
+    ];
+    let mapped = KEYS
+        .iter()
+        .map(|(key, value)| format!("{key} = {value}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    // The full group round-trips: every authored mapping field survives.
+    let source = runbook_with_guard(&format!(
+        "{{ kind = \"completion_gate\", ticket = \"t-900.md\", {mapped} }}"
+    ));
+    let class =
+        MachineClass::from_toml(&source).expect("a fully mapped completion gate is well formed");
+    let rendered = class
+        .states()
+        .get("build")
+        .expect("build state")
+        .guards()
+        .iter()
+        .flat_map(GuardKind::rendered_fields)
+        .map(|(key, value)| format!("{key}={value}"))
+        .collect::<Vec<_>>();
+    for expected in [
+        "ticket=\"t-900.md\"",
+        "declaration-format=\"front-matter-string-lists\"",
+        "focused-field=\"focused-tests\"",
+        "hidden-lane-field=\"hidden-lanes\"",
+        "quality-field=\"quality-commands\"",
+    ] {
+        assert!(
+            rendered.iter().any(|field| field == expected),
+            "TRP-004: the authored mapping field {expected} must survive: {rendered:?}"
+        );
+    }
+
+    // All-or-none: each key may be the one left out, and the refusal names
+    // it under RB105, the missing-required-field code.
+    for (missing, _) in KEYS {
+        let partial = KEYS
+            .iter()
+            .filter(|(key, _)| *key != missing)
+            .map(|(key, value)| format!("{key} = {value}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let error = MachineClass::from_toml(&runbook_with_guard(&format!(
+            "{{ kind = \"completion_gate\", ticket = \"t-900.md\", {partial} }}"
+        )))
+        .expect_err("a partial mapping group is not a runbook");
+        assert_eq!(
+            error.code(),
+            "RB105",
+            "TRP-003: {missing:?} left out refuses under the missing-field code"
+        );
+        assert!(
+            error.message().contains(missing),
+            "TRP-003: the refusal names the key that is absent: {}",
+            error.message()
+        );
+    }
+
+    // A non-string value refuses naming the key under RB110, the type code.
+    let typed = mapped.replace("focused-field = \"focused-tests\"", "focused-field = 42");
+    let error = MachineClass::from_toml(&runbook_with_guard(&format!(
+        "{{ kind = \"completion_gate\", ticket = \"t-900.md\", {typed} }}"
+    )))
+    .expect_err("a non-string mapping value is not a runbook");
+    assert_eq!(
+        error.code(),
+        "RB110",
+        "TRP-003: a non-string mapping value refuses under the type code"
+    );
+    assert!(
+        error.message().contains("focused-field"),
+        "TRP-003: the refusal names the mistyped key: {}",
+        error.message()
+    );
+}
+
 /// PT-055-05 / TRP-005: an absent runbook is a named refusal, never an empty
 /// machine that lets a command look like it worked.
 #[test]

@@ -543,6 +543,9 @@ fn held_ticket_cannot_be_passed() {
         &fixture.root.join(".ratmac"),
         &fixture.run_id,
         ".arca/ticket/t-900.md",
+        // No mapping is supplied: the pause alone must refuse this Run
+        // before any mapping question is asked (i-032 refusal ordering).
+        None,
     )
     .expect_err("a paused Run cannot be completed");
     let text = defects

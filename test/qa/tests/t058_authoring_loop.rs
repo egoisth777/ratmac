@@ -638,6 +638,13 @@ fn seeds(scaffold: &str) -> Vec<(&'static str, String)> {
                 "[states.build]\nguards = [{ kind = \"completion_gate\", ticket = \"t-047\", ticket-binding = \"item\" }]",
             ),
         ),
+        (
+            "RB113",
+            scaffold.replace(
+                "[states.build]",
+                "[states.build]\nguards = [{ kind = \"completion_gate\", ticket = \"item.data\", declaration-format = \"unsupported\", focused-field = \"alpha\", hidden-lane-field = \"beta\", quality-field = \"gamma\" }]",
+            ),
+        ),
         ("RB601", format!("[roots]\nwork = \"../outside\"\n\n{scaffold}")),
         (
             "RB602",

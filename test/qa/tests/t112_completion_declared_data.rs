@@ -64,14 +64,12 @@ impl Fixture {
         for dir in dirs {
             fs::create_dir_all(root.join(dir)).expect("create fixture tree");
         }
-        fs::write(root.join("src/lib.rs"), "pub fn fixture() {}\n")
-            .expect("write fixture source");
+        fs::write(root.join("src/lib.rs"), "pub fn fixture() {}\n").expect("write fixture source");
         Self { root }
     }
 
     fn write_runbook(&self, runbook: &str) {
-        fs::write(self.root.join(".ratmac/ratmac.toml"), runbook)
-            .expect("write fixture runbook");
+        fs::write(self.root.join(".ratmac/ratmac.toml"), runbook).expect("write fixture runbook");
     }
 
     fn write_file(&self, relative: &str, contents: &str) {
@@ -122,7 +120,10 @@ impl Fixture {
     /// One refused `rtm step`, proving the refusal happened.
     fn refuse_step(&self, run: &str) -> String {
         let text = self.text(&["step", "--run", run]);
-        assert!(text.contains("step refused"), "the step refuses; got:\n{text}");
+        assert!(
+            text.contains("step refused"),
+            "the step refuses; got:\n{text}"
+        );
         text
     }
 
@@ -738,7 +739,13 @@ fn declared_list_errors_refuse_before_any_mutation() {
             "",
             "missing",
         ),
-        ("truncated front matter", CARRIER_TRUNCATED, "", "", "truncated"),
+        (
+            "truncated front matter",
+            CARRIER_TRUNCATED,
+            "",
+            "",
+            "truncated",
+        ),
         (
             "an entirely empty combined set",
             CARRIER_ALL_EMPTY,
@@ -797,11 +804,7 @@ fn declared_list_errors_refuse_before_any_mutation() {
         "a declaration refusal precedes receipt indexing, so the stray check stays \
          unnamed; got:\n{refusal}"
     );
-    assert_eq!(
-        snapshot(&fixture.root),
-        before,
-        "the refusal wrote nothing"
-    );
+    assert_eq!(snapshot(&fixture.root), before, "the refusal wrote nothing");
 
     // The machine-shape group: partial, mistyped, and bad mapping values
     // refuse under their own codes, and the doctor writes nothing.
@@ -973,11 +976,7 @@ fn historical_receipt_contract_is_unchanged() {
             && stray.contains("claims a check the ticket does not declare"),
         "a receipt for undeclared work refuses in the existing words; got:\n{stray}"
     );
-    assert_eq!(
-        snapshot(&fixture.root),
-        before,
-        "the refusal wrote nothing"
-    );
+    assert_eq!(snapshot(&fixture.root), before, "the refusal wrote nothing");
 
     // Two receipts claiming one check refuse in the existing words.
     fixture.record_all(&dry, "t-606", CHECKS);
@@ -1052,7 +1051,10 @@ fn historical_receipt_contract_is_unchanged() {
 
     // Paused-Run precedence: a held Run cannot pass a completion gate even
     // with every receipt green.
-    let held = Fixture::create("aged-held", &[".ratmac", "src", ".arca/ticket", ".arca/issue"]);
+    let held = Fixture::create(
+        "aged-held",
+        &[".ratmac", "src", ".arca/ticket", ".arca/issue"],
+    );
     held.write_file(".arca/issue/note.md", "# an out-of-scope blocker\n");
     let guard = mapped_guard(".arca/ticket/t-606.md", "works", "lanes", "gates");
     held.write_runbook(&format!(
@@ -1180,11 +1182,7 @@ fn heading_free_non_markdown_carrier_gates() {
             )),
         "the missing receipt refuses by name at its Run-keyed path; got:\n{refusal}"
     );
-    assert_eq!(
-        snapshot(&literal.root),
-        before,
-        "the refusal wrote nothing"
-    );
+    assert_eq!(snapshot(&literal.root), before, "the refusal wrote nothing");
 
     // The bound address: the same carrier reached through a spawn binding,
     // the runbook naming no item.

@@ -171,6 +171,11 @@ fn defect_catalogue() -> Vec<(&'static str, &'static str, &'static str)> {
             "RB112",
             "[states.a]\nprompt = \"p\"\nguards = [{ kind = \"completion_gate\", ticket = \"t-047\", ticket-binding = \"item\" }]\n",
         ),
+        (
+            "rb113",
+            "RB113",
+            "[roots]\nwork = \"items\"\n[states.a]\nprompt = \"p\"\nguards = [{ kind = \"completion_gate\", root = \"work\", ticket = \"item.data\", declaration-format = \"unsupported\", focused-field = \"alpha\", hidden-lane-field = \"beta\", quality-field = \"gamma\" }]\n",
+        ),
         ("rb201", "RB201", "[states]\n"),
         (
             "rb202",

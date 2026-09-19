@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 
+use crate::declaration::{CompletionDeclaration, DeclarationFormat};
 use crate::graph::{State, Transition};
 use crate::root::Displayed;
 use crate::roots::{RootValidationError, ValidatedWorkflowRoots, WorkflowRoots};
@@ -123,6 +124,10 @@ pub enum GuardKind {
     CompletionGate {
         root: Option<String>,
         address: GuardAddress,
+        /// The optional all-or-none declaration mapping. All four fields
+        /// absent is a valid Machine Class shape; an unpaused Run then
+        /// refuses at dispatch before the addressed artifact is read.
+        declaration: Option<CompletionDeclaration>,
     },
     IntakeContract,
     RecordContract,
@@ -154,7 +159,16 @@ impl GuardKind {
             "files_exact" => &["root", "path", "entries", "files"],
             "file_contains" => &["root", "path", "contains"],
             "command_exit" => &["program", "args", "expected", "exempt"],
-            "sensitivity_receipts" | "completion_gate" => &["root", "ticket", "ticket-binding"],
+            "sensitivity_receipts" => &["root", "ticket", "ticket-binding"],
+            "completion_gate" => &[
+                "root",
+                "ticket",
+                "ticket-binding",
+                "declaration-format",
+                "focused-field",
+                "hidden-lane-field",
+                "quality-field",
+            ],
             "intake_contract" | "record_contract" => &[],
             "join" => &["require", "min"],
             _ => return None,
@@ -267,8 +281,7 @@ impl GuardKind {
                 }
                 fields
             }
-            Self::SensitivityReceipts { root, address }
-            | Self::CompletionGate { root, address } => {
+            Self::SensitivityReceipts { root, address } => {
                 let mut fields = Vec::new();
                 if let Some(root) = root {
                     fields.push(("root", string(root)));
@@ -276,6 +289,29 @@ impl GuardKind {
                 match address {
                     GuardAddress::Literal(ticket) => fields.push(("ticket", string(ticket))),
                     GuardAddress::Binding(name) => fields.push(("ticket-binding", string(name))),
+                }
+                fields
+            }
+            Self::CompletionGate {
+                root,
+                address,
+                declaration,
+            } => {
+                let mut fields = Vec::new();
+                if let Some(root) = root {
+                    fields.push(("root", string(root)));
+                }
+                match address {
+                    GuardAddress::Literal(ticket) => fields.push(("ticket", string(ticket))),
+                    GuardAddress::Binding(name) => fields.push(("ticket-binding", string(name))),
+                }
+                // The mapping renders in its documented group order, so a
+                // configured guard's label names all four authored fields.
+                if let Some(declaration) = declaration {
+                    fields.push(("declaration-format", string(declaration.format.as_str())));
+                    fields.push(("focused-field", string(&declaration.focused_field)));
+                    fields.push(("hidden-lane-field", string(&declaration.hidden_lane_field)));
+                    fields.push(("quality-field", string(&declaration.quality_field)));
                 }
                 fields
             }
@@ -1344,6 +1380,7 @@ impl MachineClass {
             "completion_gate" => GuardKind::CompletionGate {
                 root: field.optional_string("root")?,
                 address: field.address(location)?,
+                declaration: field.completion_declaration(location)?,
             },
             "intake_contract" => GuardKind::IntakeContract,
             "record_contract" => GuardKind::RecordContract,
@@ -1512,6 +1549,65 @@ impl Field<'_> {
                 Ok(GuardAddress::Binding(name))
             }
         }
+    }
+
+    /// The `completion_gate` declaration mapping: one typed, all-or-none
+    /// group. All four fields absent is the unmapped shape and still parses.
+    /// One to three present refuses with `RB105`, naming the first missing
+    /// field in `declaration-format`, `focused-field`, `hidden-lane-field`,
+    /// `quality-field` order, before any supplied value is judged. With all
+    /// four present, a non-string value is `RB110`; only then does value
+    /// validation run, where an unsupported format, a blank mapped name, or
+    /// one name mapped to two receipt kinds is `RB113`.
+    fn completion_declaration(
+        &self,
+        location: &str,
+    ) -> Result<Option<CompletionDeclaration>, MachineClassParseError> {
+        const GROUP: [&str; 4] = [
+            "declaration-format",
+            "focused-field",
+            "hidden-lane-field",
+            "quality-field",
+        ];
+        if !GROUP.iter().any(|key| self.guard.contains_key(*key)) {
+            return Ok(None);
+        }
+        if let Some(missing) = GROUP.iter().find(|key| !self.guard.contains_key(**key)) {
+            return Err(self.missing(missing));
+        }
+        let format_text = self.string("declaration-format")?;
+        let focused_field = self.string("focused-field")?;
+        let hidden_lane_field = self.string("hidden-lane-field")?;
+        let quality_field = self.string("quality-field")?;
+        let format = DeclarationFormat::parse(&format_text).ok_or_else(|| {
+            MachineClassParseError::at(
+                "RB113",
+                location.to_owned(),
+                format!(
+                    "invalid {location}: guard kind \"completion_gate\" field \
+                     \"declaration-format\" carries unsupported format {format_text:?}; the \
+                     only supported format is \"{}\"",
+                    DeclarationFormat::FrontMatterStringLists.as_str()
+                ),
+            )
+        })?;
+        let declaration = CompletionDeclaration {
+            format,
+            focused_field,
+            hidden_lane_field,
+            quality_field,
+        };
+        declaration.validate().map_err(|defect| {
+            MachineClassParseError::at(
+                "RB113",
+                location.to_owned(),
+                format!(
+                    "invalid {location}: guard kind \"completion_gate\" declaration \
+                     mapping is invalid: {defect}"
+                ),
+            )
+        })?;
+        Ok(Some(declaration))
     }
 
     fn optional_string(&self, key: &str) -> Result<Option<String>, MachineClassParseError> {

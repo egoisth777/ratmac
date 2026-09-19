@@ -1,9 +1,9 @@
 //! PGE-005: the implementation-completion gate.
 //!
 //! A ticket is passed by evidence, never by a status edit. Every check the
-//! ticket declares - its focused planned tests, its hidden lanes, and the
-//! quality commands in its Merge Gate - must resolve to a completion receipt
-//! that is:
+//! ticket's declaration names - the focused tests, hidden lanes, and quality
+//! commands of the lists its runbook mapping selects (ADR-0022) - must
+//! resolve to a completion receipt that is:
 //!
 //! - *green*: the recorded run exited zero;
 //! - *self-consistent*: the digest re-derives from the recorded output;
@@ -38,6 +38,7 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
+use crate::declaration::{read_selected_string_lists, CompletionDeclaration, StringListDefect};
 use crate::receipt::sha256_text;
 
 /// Completion receipts live below one addressed Run's evidence directory.
@@ -108,70 +109,36 @@ fn defect(check: impl Into<String>, reason: impl Into<String>) -> CompletionDefe
 }
 
 /// The checks a ticket declares, in the order completion must prove them:
-/// focused tests, then hidden lanes, then Merge Gate commands.
-pub fn declared_checks(ticket_source: &str) -> Vec<DeclaredCheck> {
+/// focused tests, then hidden lanes, then quality commands - the three
+/// lists the runbook's declaration mapping selects (CGD-003). A malformed
+/// or partial declaration refuses before any check exists; a carrier
+/// declaring none of the selected lists declares no checks, which the gate
+/// refuses as proving nothing.
+pub fn declared_checks(
+    ticket_source: &str,
+    declaration: &CompletionDeclaration,
+) -> Result<Vec<DeclaredCheck>, StringListDefect> {
+    declaration.validate()?;
+    let fields = [
+        declaration.focused_field.as_str(),
+        declaration.hidden_lane_field.as_str(),
+        declaration.quality_field.as_str(),
+    ];
+    let Some(lists) = read_selected_string_lists(ticket_source, &fields)? else {
+        return Ok(Vec::new());
+    };
+    let kinds = [
+        CheckKind::Focused,
+        CheckKind::HiddenLane,
+        CheckKind::Quality,
+    ];
     let mut checks: Vec<DeclaredCheck> = Vec::new();
-    let mut push = |id: String, kind: CheckKind| {
-        if id.trim().is_empty() || checks.iter().any(|check| check.id == id) {
-            return;
-        }
-        checks.push(DeclaredCheck { id, kind });
-    };
-
-    for planned in crate::receipt::planned_tests(ticket_source) {
-        push(planned, CheckKind::Focused);
-    }
-    for lane in hidden_lane_ids(ticket_source) {
-        push(lane, CheckKind::HiddenLane);
-    }
-    for command in merge_gate_commands(ticket_source) {
-        push(command, CheckKind::Quality);
-    }
-    checks
-}
-
-/// Hidden lane IDs (`HT-nnn-nn`) named anywhere in the ticket.
-fn hidden_lane_ids(ticket_source: &str) -> Vec<String> {
-    let mut ids: Vec<String> = Vec::new();
-    for token in backticked(ticket_source) {
-        let mut parts = token.split('-');
-        let is_lane = parts.next() == Some("HT")
-            && parts.clone().count() == 2
-            && parts.all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()));
-        if is_lane && !ids.contains(&token) {
-            ids.push(token);
+    for (ids, kind) in lists.into_iter().zip(kinds) {
+        for id in ids {
+            checks.push(DeclaredCheck { id, kind });
         }
     }
-    ids
-}
-
-/// Backticked commands inside the ticket's Merge Gate section.
-fn merge_gate_commands(ticket_source: &str) -> Vec<String> {
-    let Some(section) = ticket_source.split("## Merge Gate").nth(1) else {
-        return Vec::new();
-    };
-    let section = section.split("\n## ").next().unwrap_or(section);
-    let mut commands: Vec<String> = Vec::new();
-    for token in backticked(section) {
-        let trimmed = token.trim().to_owned();
-        // A command has a program and at least one argument; bare identifiers
-        // in prose (ticket IDs, test IDs, file names) are not commands.
-        if trimmed.contains(' ') && !trimmed.contains('\n') && !commands.contains(&trimmed) {
-            commands.push(trimmed);
-        }
-    }
-    commands
-}
-
-/// Every single-backtick span in a markdown document.
-fn backticked(text: &str) -> Vec<String> {
-    let mut spans = Vec::new();
-    for (index, part) in text.split('`').enumerate() {
-        if index % 2 == 1 && !part.is_empty() {
-            spans.push(part.to_owned());
-        }
-    }
-    spans
+    Ok(checks)
 }
 
 /// The file-name form of a check ID.
@@ -323,12 +290,15 @@ pub fn load_completion(path: &Path) -> Result<CompletionReceipt, CompletionDefec
 ///
 /// Defects are reported in declaration order, so the first one names the first
 /// missing receipt. The gate writes nothing: a refusal leaves the ticket
-/// executing and its residuals unproven.
+/// executing and its residuals unproven. The wrapper joins the addressed path
+/// but never reads it: [`gate_completion_at`] settles the paused-Run and
+/// omitted-mapping refusals before any artifact is opened.
 pub fn gate_completion(
     workflow_root: &Path,
     engine_root: &Path,
     run_id: &str,
     ticket_relative: &str,
+    declaration: Option<&CompletionDeclaration>,
 ) -> Result<(), Vec<CompletionDefect>> {
     gate_completion_at(
         workflow_root,
@@ -336,19 +306,41 @@ pub fn gate_completion(
         run_id,
         &workflow_root.join(ticket_relative),
         ticket_relative,
+        declaration,
     )
 }
 
 /// The root-routed form of [`gate_completion`]. The ticket has already been
 /// confined beneath the declared guard root; project checks still evaluate
-/// from the addressed workspace.
+/// from the addressed workspace. A paused Run refuses before the mapping is
+/// consulted; an unpaused Run whose guard carries no declaration mapping
+/// refuses before the addressed artifact is read (ADR-0022).
 pub fn gate_completion_at(
     workspace: &Path,
     engine_root: &Path,
     run_id: &str,
     ticket_path: &Path,
     ticket_address: &str,
+    declaration: Option<&CompletionDeclaration>,
 ) -> Result<(), Vec<CompletionDefect>> {
+    // ADR-0022: an omitted mapping is a configuration defect, never prose
+    // inference. A paused Run keeps its existing refusal and its precedence
+    // over the mapping; an unpaused Run gets exactly one actionable defect
+    // naming the guard and all four mapping keys, before the addressed
+    // artifact is read - even if that file is absent.
+    let Some(declaration) = declaration else {
+        if let Some(paused) = paused_defect(engine_root, run_id) {
+            return Err(vec![paused]);
+        }
+        return Err(vec![defect(
+            "",
+            "the completion_gate guard names no declaration mapping: add \
+             declaration-format, focused-field, hidden-lane-field, and \
+             quality-field to the completion_gate so completion reads the \
+             declaration lists, never prose",
+        )]);
+    };
+
     let source = fs::read_to_string(ticket_path).map_err(|error| {
         vec![defect(
             "",
@@ -361,26 +353,24 @@ pub fn gate_completion_at(
         .unwrap_or_default();
     let directory = crate::receipt::run_evidence_dir(engine_root, run_id).join(COMPLETION_DIR);
 
-    let checks = declared_checks(&source);
     let mut defects: Vec<CompletionDefect> = Vec::new();
     // PGE-006 / NRR-001: a paused Run is honestly not-passed, and completion
     // is not the route out of it. The pause lives in Engine-owned state, so
     // the gate reads the Run Record - never a contributor's document.
-    if let Ok(state) = crate::state::StateStore::for_engine_root(engine_root, run_id).load() {
-        if state.status == crate::model::Status::Blocked {
-            defects.push(defect(
-                "",
-                format!(
-                    "run {run_id} is paused against {}; a paused Run cannot pass a completion gate",
-                    if state.blocker.trim().is_empty() {
-                        "an unnamed blocker"
-                    } else {
-                        state.blocker.trim()
-                    }
-                ),
-            ));
-        }
+    if let Some(paused) = paused_defect(engine_root, run_id) {
+        defects.push(paused);
     }
+
+    // ADR-0022: a malformed, partial, or duplicated declaration refuses
+    // after the paused refusal and before receipt loading, naming the
+    // selected field and the offending entry.
+    let checks = match declared_checks(&source, declaration) {
+        Ok(checks) => checks,
+        Err(problem) => {
+            defects.push(defect("", problem.to_string()));
+            return Err(defects);
+        }
+    };
     if checks.is_empty() {
         defects.push(defect(
             "",
@@ -545,6 +535,30 @@ fn receipt_files(directory: &Path) -> Vec<PathBuf> {
         .unwrap_or_default();
     files.sort();
     files
+}
+
+/// The paused-Run refusal when the addressed Run's record shows one. The
+/// pause lives in Engine-owned state, so the gate reads the Run Record -
+/// never a contributor's document - and a paused Run cannot pass a
+/// completion gate (PGE-006 / NRR-001).
+fn paused_defect(engine_root: &Path, run_id: &str) -> Option<CompletionDefect> {
+    let state = crate::state::StateStore::for_engine_root(engine_root, run_id)
+        .load()
+        .ok()?;
+    if state.status != crate::model::Status::Blocked {
+        return None;
+    }
+    Some(defect(
+        "",
+        format!(
+            "run {run_id} is paused against {}; a paused Run cannot pass a completion gate",
+            if state.blocker.trim().is_empty() {
+                "an unnamed blocker"
+            } else {
+                state.blocker.trim()
+            }
+        ),
+    ))
 }
 
 fn shown(path: &Path) -> String {

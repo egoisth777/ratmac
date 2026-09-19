@@ -6,6 +6,7 @@ pub mod channel;
 pub mod cli;
 pub mod completion;
 pub mod contract;
+pub mod declaration;
 pub mod doctor;
 pub mod goal;
 pub mod graph;

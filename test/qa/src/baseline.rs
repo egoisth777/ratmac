@@ -502,6 +502,50 @@ pub const DECLARED_EXCEPTIONS: &[(&str, &str)] = &[
     ),
 ];
 
+/// A freeze assertion a later ticket deliberately replaced, excused only
+/// while today's suite still carries the replacement that ticket wrote.
+struct Supersession {
+    /// The suite, repository-relative, that the row applies to.
+    suite: &'static str,
+    /// The complete frozen assertion, as `assertions` reads and flattens it.
+    frozen_assertion: &'static str,
+    /// The whole bound call today's file must still contain, flattened.
+    bound_call: &'static str,
+    /// The complete assertion today's file must still make, as `assertions`
+    /// reads and flattens it.
+    replacement_assertion: &'static str,
+    /// The owning ticket and the reason the change is not a rename.
+    reason: &'static str,
+}
+
+/// Changes to a baseline check that a later ticket paired with a named
+/// replacement, each row excusing its frozen assertion only while today's
+/// file still carries that replacement whole.
+///
+/// Both macros are matched by equality against exactly what the audit
+/// reads - the frozen assertion as it stood at the freeze, the replacement
+/// as it stands today - and the bound call that produces the replacement's
+/// value must be present as one statement. A tuple or a message left
+/// anywhere else satisfies nothing, a reworded or half-removed replacement
+/// refuses exactly as the frozen check itself would have, and a row never
+/// reaches past its own suite. Unlike DECLARED_EXCEPTIONS, nothing here is
+/// set aside unconditionally.
+const DECLARED_SUPERSESSIONS: &[Supersession] = &[Supersession {
+    suite: "test/qa/tests/t049_completion_gate.rs",
+    frozen_assertion: "assert!(declared_checks(&source).iter().all(|check|!check.id.\
+                       trim().is_empty()),\"a blank declaration is never treated as a \
+                       declared check\"",
+    bound_call: "let refusal=declared_checks(&source,&mapping())\
+                 .expect_err(\"a blank declaration refuses rather than declaring\");",
+    replacement_assertion: "assert_eq!((refusal.field.as_str(),\
+                            refusal.entry.as_str(),refusal.reason.as_str()),\
+                            (\"quality-commands\",\"\",\"an empty entry\"),\
+                            \"a blank declaration is never treated as a declared check\"",
+    reason: "t-112 / CGD-003 made the declaration reader refuse malformed \
+             selected data, so the freeze's blank-scan is superseded by the \
+             refusal that names quality-commands and the empty entry",
+}];
+
 /// A file as the freeze commit holds it.
 pub fn freeze_file(repo_root: &Path, relative: &str) -> String {
     let output = Command::new("git")
@@ -638,8 +682,33 @@ pub fn inventory_differences(relative: &str, before: &str, after: &str) -> Vec<S
         .iter()
         .map(|assertion| canonical(assertion))
         .collect();
+    let today_text = flatten(after);
     for assertion in assertions(before) {
         if today_assertions.contains(&canonical(&assertion)) {
+            continue;
+        }
+        if let Some(row) = DECLARED_SUPERSESSIONS.iter().find(|row| {
+            relative == row.suite && canonical(&assertion) == canonical(row.frozen_assertion)
+        }) {
+            let replacement_present = today_assertions
+                .iter()
+                .any(|today| *today == canonical(row.replacement_assertion));
+            let mut absent = Vec::new();
+            if !today_text.contains(row.bound_call) {
+                absent.push("the bound fallible call");
+            }
+            if !replacement_present {
+                absent.push("the full replacement assertion");
+            }
+            if absent.is_empty() {
+                continue;
+            }
+            let reason = row.reason;
+            let absent = absent.join(" and ");
+            failures.push(format!(
+                "{relative}: the freeze asserted `{assertion}`; its approved \
+                 replacement ({reason}) is not intact: {absent}"
+            ));
             continue;
         }
         if DECLARED_EXCEPTIONS
@@ -916,5 +985,175 @@ fn write_project(root: &Path, runbook: &str, extra: &[(&str, &str)], today: bool
         }
         let body = if today { to_today(&body) } else { body };
         fs::write(path, body).expect("write a fixture file");
+    }
+}
+
+#[cfg(test)]
+mod supersession_audit {
+    use super::*;
+
+    const SUITE: &str = "test/qa/tests/t049_completion_gate.rs";
+    const OTHER_SUITE: &str = "test/qa/tests/t050_blocked_route.rs";
+
+    fn suite(body: &str) -> String {
+        format!("#[test]\nfn blank_is_never_declared() {{\n{body}\n}}\n")
+    }
+
+    /// The check as the freeze wrote it: the infallible reader's results
+    /// scanned for a blank declaration.
+    fn frozen_body() -> String {
+        [
+            "    let source = read_ticket();",
+            "    assert!(",
+            "        declared_checks(&source)",
+            "            .iter()",
+            "            .all(|check| !check.id.trim().is_empty()),",
+            "        \"a blank declaration is never treated as a declared check\"",
+            "    );",
+        ]
+        .join("\n")
+    }
+
+    /// The check as t-112 migrated it: the fallible reader refuses the
+    /// malformed list, and the refusal is asserted field for field.
+    fn replaced_body() -> String {
+        [
+            "    let source = read_ticket();",
+            "    let refusal = declared_checks(&source, &mapping())",
+            "        .expect_err(\"a blank declaration refuses rather than declaring\");",
+            "    assert_eq!(",
+            "        (",
+            "            refusal.field.as_str(),",
+            "            refusal.entry.as_str(),",
+            "            refusal.reason.as_str()",
+            "        ),",
+            "        (\"quality-commands\", \"\", \"an empty entry\"),",
+            "        \"a blank declaration is never treated as a declared check\"",
+            "    );",
+        ]
+        .join("\n")
+    }
+
+    fn audit(before: &str, after: &str) -> Vec<String> {
+        inventory_differences(SUITE, &suite(before), &suite(after))
+    }
+
+    #[test]
+    fn a_present_replacement_satisfies_the_freeze_check() {
+        let differences = audit(&frozen_body(), &replaced_body());
+        assert!(
+            differences.is_empty(),
+            "the paired replacement is exactly what the freeze check became: {differences:?}"
+        );
+    }
+
+    #[test]
+    fn a_removed_replacement_refuses() {
+        let differences = audit(
+            &frozen_body(),
+            "    assert!(source.contains(\"ticket\"), \"the carrier is read\");",
+        );
+        assert_eq!(differences.len(), 1, "{differences:?}");
+        assert!(
+            differences[0].contains(
+                "is not intact: the bound fallible call and the full replacement assertion"
+            ),
+            "{}",
+            differences[0]
+        );
+    }
+
+    #[test]
+    fn a_reworded_replacement_refuses() {
+        let reworded = replaced_body().replace("\"an empty entry\"", "\"an empty id\"");
+        let differences = audit(&frozen_body(), &reworded);
+        assert_eq!(differences.len(), 1, "{differences:?}");
+        assert!(
+            differences[0].contains("is not intact: the full replacement assertion"),
+            "{}",
+            differences[0]
+        );
+    }
+
+    #[test]
+    fn a_changed_compared_expression_refuses() {
+        let reordered = replaced_body().replace(
+            "refusal.field.as_str(),\n            refusal.entry.as_str(),",
+            "refusal.entry.as_str(),\n            refusal.field.as_str(),",
+        );
+        let differences = audit(&frozen_body(), &reordered);
+        assert_eq!(differences.len(), 1, "{differences:?}");
+        assert!(
+            differences[0].contains("is not intact: the full replacement assertion"),
+            "{}",
+            differences[0]
+        );
+    }
+
+    #[test]
+    fn standalone_fragments_elsewhere_refuse() {
+        let scattered = [
+            "    let carried = format!(\"{:?}\", (\"quality-commands\", \"\", \"an empty entry\"));",
+            "    assert!(",
+            "        carried.len() > 0,",
+            "        \"a blank declaration is never treated as a declared check\"",
+            "    );",
+        ]
+        .join("\n");
+        let differences = audit(&frozen_body(), &scattered);
+        assert_eq!(differences.len(), 1, "{differences:?}");
+        assert!(
+            differences[0].contains(
+                "is not intact: the bound fallible call and the full replacement assertion"
+            ),
+            "{}",
+            differences[0]
+        );
+    }
+
+    #[test]
+    fn an_unrelated_drift_still_refuses() {
+        let before = format!(
+            "{}\n    assert!(lines.len() == 3, \"the carrier holds its lists\");",
+            frozen_body()
+        );
+        let after = format!(
+            "{}\n    assert!(lines.len() == 4, \"the carrier holds its lists\");",
+            replaced_body()
+        );
+        let differences = audit(&before, &after);
+        assert_eq!(differences.len(), 1, "{differences:?}");
+        assert!(
+            differences[0].contains("no check asserts it today"),
+            "{}",
+            differences[0]
+        );
+    }
+
+    #[test]
+    fn another_suite_is_not_excused() {
+        let differences = inventory_differences(
+            OTHER_SUITE,
+            &suite(&frozen_body()),
+            &suite(&replaced_body()),
+        );
+        assert_eq!(differences.len(), 1, "{differences:?}");
+        assert!(
+            differences[0].contains("no check asserts it today"),
+            "{}",
+            differences[0]
+        );
+    }
+
+    #[test]
+    fn an_altered_frozen_macro_is_not_excused() {
+        let altered = frozen_body().replace(".is_empty()", ".is_blank()");
+        let differences = audit(&altered, &replaced_body());
+        assert_eq!(differences.len(), 1, "{differences:?}");
+        assert!(
+            differences[0].contains("no check asserts it today"),
+            "{}",
+            differences[0]
+        );
     }
 }

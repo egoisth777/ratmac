@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use sha2::{Digest, Sha256};
 
+use crate::declaration::CompletionDeclaration;
 use crate::graph::{MachineGraph, State};
 use crate::ledger::LedgerEntry;
 use crate::lock::{RootLock, RunLock};
@@ -2775,10 +2776,16 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
                 GuardKind::CompletionGate {
                     root: root_name,
                     address,
+                    declaration,
                 } => self
                     .resolve_guard_address("completion_gate", address)
                     .and_then(|ticket| {
-                        self.evaluate_completion_gate(root, root_name.as_deref(), &ticket)
+                        self.evaluate_completion_gate(
+                            root,
+                            root_name.as_deref(),
+                            &ticket,
+                            declaration.as_ref(),
+                        )
                     }),
                 GuardKind::IntakeContract => self
                     .resolve_guard_root(root, Some("goal"), "intake_contract", "goal")
@@ -3062,10 +3069,10 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
         workspace: &Path,
         root_name: Option<&str>,
         ticket: &str,
+        declaration: Option<&CompletionDeclaration>,
     ) -> Result<(), GuardFailure> {
         let ticket_root =
             self.resolve_guard_root(workspace, root_name, "completion_gate", ticket)?;
-        let ticket_path = guarded_target(&ticket_root, ticket, "completion_gate")?;
         let engine_root = self.engine_root().map_err(|error| {
             guard_failure(
                 "completion_gate",
@@ -3082,20 +3089,40 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
                 "an addressed Run",
             )
         })?;
-        crate::completion::gate_completion_at(workspace, engine_root, run_id, &ticket_path, ticket)
-            .map_err(|defects| {
-                let observed = defects
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect::<Vec<_>>()
-                    .join("; ");
-                guard_failure(
-                    "completion_gate",
+        // An unmapped guard refuses on its missing mapping before any
+        // addressed-artifact preflight can answer first: the wrapper only
+        // joins the path, and gate_completion_at judges the paused Run and
+        // the missing mapping before it reads. A mapped guard keeps the
+        // existing confinement and reads nothing extra.
+        let gated = match declaration {
+            None => {
+                crate::completion::gate_completion(&ticket_root, engine_root, run_id, ticket, None)
+            }
+            Some(declaration) => {
+                let ticket_path = guarded_target(&ticket_root, ticket, "completion_gate")?;
+                crate::completion::gate_completion_at(
+                    workspace,
+                    engine_root,
+                    run_id,
+                    &ticket_path,
                     ticket,
-                    observed,
-                    "one green, fresh completion receipt per declared check",
+                    Some(declaration),
                 )
-            })
+            }
+        };
+        gated.map_err(|defects| {
+            let observed = defects
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join("; ");
+            guard_failure(
+                "completion_gate",
+                ticket,
+                observed,
+                "one green, fresh completion receipt per declared check",
+            )
+        })
     }
     /// PGE-001, PGE-002: render a contract-gate result as a refusal that names
     /// every offending record.
