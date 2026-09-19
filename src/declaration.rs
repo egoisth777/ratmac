@@ -243,6 +243,13 @@ pub fn read_selected_string_lists(
                     territory = if is_key(text) {
                         Territory::Foreign
                     } else if let Territory::Open(index) | Territory::Sealed(index) = territory {
+                        if is_entry_shaped(text) {
+                            return Err(defect(
+                                fields[index],
+                                entry_text(text),
+                                "an entry with no open list",
+                            ));
+                        }
                         Territory::Sealed(index)
                     } else {
                         Territory::Foreign
@@ -381,7 +388,9 @@ fn quoted(content: &str) -> Option<&str> {
 /// the territory away from a selected field; a comment merely ends the
 /// open block.
 fn is_key(text: &str) -> bool {
-    let name = text.split(':').next().unwrap_or("");
+    let Some((name, _)) = text.split_once(':') else {
+        return false;
+    };
     !name.is_empty() && !name.contains(' ') && !text.starts_with('#')
 }
 

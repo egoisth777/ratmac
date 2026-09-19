@@ -4,16 +4,16 @@ kind = "focused"
 command = "cargo test --offline -p ratmac-qa --test t112_completion_declared_data runbook_selected_fields_drive_the_same_ordered_gate -- --exact"
 working-dir = "."
 exit-status = 0
-output-sha256 = "e1eb601b9bcc025822914ebdad1f849b275a9c8b37bd2dc20fde49ad99c5c0d7"
+output-sha256 = "f590190c5efddb12d051cd228bcc383e6d198c67906abaf9aff3d58cfb281a1d"
 tree-roots = ["src", "test/qa", "test-hidden", "tools", "Cargo.toml", "Cargo.lock", ".arca/goal", ".arca/runbook-spec.md", ".arca/runbook-authoring.md", ".ratmac/ratmac.toml", ".ratmac/completion-guard.diff", ".ratmac/lanes.toml"]
-tree-sha256 = "cb916bc807fea89026ef186e20e85f5528192f1d43345dc0c24a83c88cbe5e3a"
+tree-sha256 = "1a0d722b853af595438244ba158e8cf7585e7c44c5c6c545252c1d39b3363291"
 output = '''
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
      Running tests\t112_completion_declared_data.rs (target\debug\deps\t112_completion_declared_data-dcabcdc1117e4c59.exe)
 
 running 1 test
 test runbook_selected_fields_drive_the_same_ordered_gate ... ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 1.17s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 1.20s
 
 '''

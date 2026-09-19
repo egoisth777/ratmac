@@ -6,10 +6,10 @@ working-dir = "."
 test-file = "test/qa/tests/t112_completion_declared_data.rs"
 test-name = "declared_list_errors_refuse_before_any_mutation"
 exit-status = 101
-output-sha256 = "f07c65d84440ea0b86b337a1061710464f6b04b5162eaa25818db2d09768e3ac"
+output-sha256 = "6efab807ff04104e3b07edb20bdf09caa76a2653a632d1218a15a0ce424c80a1"
 output = '''
    Compiling ratmac-qa v0.1.0 (E:\repos\projs\skill-dev\ratmac-t-112\test\qa)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.56s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.63s
      Running tests\t112_completion_declared_data.rs (target\debug\deps\t112_completion_declared_data-dcabcdc1117e4c59.exe)
 
 running 1 test
@@ -19,9 +19,9 @@ failures:
 
 ---- declared_list_errors_refuse_before_any_mutation stdout ----
 
-thread 'declared_list_errors_refuse_before_any_mutation' (12084) panicked at test\qa\tests\t112_completion_declared_data.rs:783:13:
+thread 'declared_list_errors_refuse_before_any_mutation' (15560) panicked at test\qa\tests\t112_completion_declared_data.rs:797:13:
 an unindented entry in a selected block: the refusal names the selected field; got:
-rtm: step refused; completion_gate: .arca/ticket/t-905.md: observed rtm probe alpha: no completion receipt for this quality check; expected C:/Users/egois/AppData/Local/Temp/ratmac-t112-shapes-25456-1789784441811579500/.ratmac/evidence/run-002/completion/rtm_probe_alpha.toml; expected one green, fresh completion receipt per declared check
+rtm: step refused; completion_gate: .arca/ticket/t-905.md: observed rtm probe alpha: no completion receipt for this quality check; expected C:/Users/egois/AppData/Local/Temp/ratmac-t112-shapes-47796-1789785108903137700/.ratmac/evidence/run-002/completion/rtm_probe_alpha.toml; expected one green, fresh completion receipt per declared check
 next: rtm step --run run-002
 
 note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
@@ -30,7 +30,7 @@ note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 failures:
     declared_list_errors_refuse_before_any_mutation
 
-test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.93s
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.91s
 
 error: test failed, to rerun pass `-p ratmac-qa --test t112_completion_declared_data`
 '''

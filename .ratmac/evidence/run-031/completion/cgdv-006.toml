@@ -4,9 +4,9 @@ kind = "focused"
 command = "cargo test --offline -p ratmac-qa --test t112_completion_declared_data historical_receipt_contract_is_unchanged -- --exact"
 working-dir = "."
 exit-status = 0
-output-sha256 = "9757b1cd06ba7f30b5ce6811731ba2af9101f214a231c038881562b647811ed2"
+output-sha256 = "910300aeba8ad757fa0f0a1f657b22e0d8e1a5c6b43d346ea6d93329f081fc33"
 tree-roots = ["src", "test/qa", "test-hidden", "tools", "Cargo.toml", "Cargo.lock", ".arca/goal", ".arca/runbook-spec.md", ".arca/runbook-authoring.md", ".ratmac/ratmac.toml", ".ratmac/completion-guard.diff", ".ratmac/lanes.toml"]
-tree-sha256 = "cb916bc807fea89026ef186e20e85f5528192f1d43345dc0c24a83c88cbe5e3a"
+tree-sha256 = "1a0d722b853af595438244ba158e8cf7585e7c44c5c6c545252c1d39b3363291"
 output = '''
     Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
      Running tests\t112_completion_declared_data.rs (target\debug\deps\t112_completion_declared_data-dcabcdc1117e4c59.exe)
@@ -14,6 +14,6 @@ output = '''
 running 1 test
 test historical_receipt_contract_is_unchanged ... ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 3.11s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 3.90s
 
 '''

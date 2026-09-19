@@ -4,9 +4,9 @@ kind = "hidden-lane"
 command = "cargo test --offline --test hidden ht_112_02_input_routing -- --exact"
 working-dir = "test-hidden/t-112"
 exit-status = 0
-output-sha256 = "4bdf639251799e993649bb7537c4976a87eb4083ee56784b00e076f74a587642"
+output-sha256 = "90b302986343f289ac6bc49a5e032e5167d11af4d060fa867b9277ae05999151"
 tree-roots = ["src", "test/qa", "test-hidden", "tools", "Cargo.toml", "Cargo.lock", ".arca/goal", ".arca/runbook-spec.md", ".arca/runbook-authoring.md", ".ratmac/ratmac.toml", ".ratmac/completion-guard.diff", ".ratmac/lanes.toml"]
-tree-sha256 = "cb916bc807fea89026ef186e20e85f5528192f1d43345dc0c24a83c88cbe5e3a"
+tree-sha256 = "1a0d722b853af595438244ba158e8cf7585e7c44c5c6c545252c1d39b3363291"
 output = '''
     Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
      Running tests\hidden.rs (target\debug\deps\hidden-225ab0a54aec9b09.exe)
@@ -14,6 +14,6 @@ output = '''
 running 1 test
 test ht_112_02_input_routing ... ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 7.74s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 8.59s
 
 '''
