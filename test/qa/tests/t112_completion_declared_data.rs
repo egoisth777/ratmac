@@ -705,6 +705,20 @@ fn declared_list_errors_refuse_before_any_mutation() {
             "scalar",
         ),
         (
+            "an unindented entry in a selected block",
+            "---\nplanned-works:\n- \"W-905-01\"\nsecret-lanes: []\ncommands-of-record:\n  - \"rtm probe alpha\"\n---\n",
+            "planned-works",
+            "entry \"W-905-01\"",
+            "an entry with no open list",
+        ),
+        (
+            "an unindented entry after a completed selected list",
+            "---\nplanned-works: []\n- \"W-905-01\"\nsecret-lanes: []\ncommands-of-record:\n  - \"rtm probe alpha\"\n---\n",
+            "planned-works",
+            "entry \"W-905-01\"",
+            "an entry with no open list",
+        ),
+        (
             "an empty entry",
             CARRIER_EMPTY_ENTRY,
             "secret-lanes",

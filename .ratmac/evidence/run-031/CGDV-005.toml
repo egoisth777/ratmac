@@ -6,9 +6,10 @@ working-dir = "."
 test-file = "test/qa/tests/t112_completion_declared_data.rs"
 test-name = "declared_list_errors_refuse_before_any_mutation"
 exit-status = 101
-output-sha256 = "350eb0c2d631d0879faf9b0610defcc817b57db26dafa54f1e382d545d383d9c"
+output-sha256 = "f07c65d84440ea0b86b337a1061710464f6b04b5162eaa25818db2d09768e3ac"
 output = '''
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+   Compiling ratmac-qa v0.1.0 (E:\repos\projs\skill-dev\ratmac-t-112\test\qa)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.56s
      Running tests\t112_completion_declared_data.rs (target\debug\deps\t112_completion_declared_data-dcabcdc1117e4c59.exe)
 
 running 1 test
@@ -18,16 +19,10 @@ failures:
 
 ---- declared_list_errors_refuse_before_any_mutation stdout ----
 
-thread 'declared_list_errors_refuse_before_any_mutation' (63708) panicked at test\qa\tests\t112_completion_declared_data.rs:680:5:
-the mapped runbook is a valid Machine Class; got:
-Engine: E:/repos/projs/skill-dev/ratmac-t-112/target/debug/rtm-qa.exe (sha256: d585976615b24fb4dc495ad2ec257a60562f497fe077ed054b36fa7ff1b9435d)
-Engine provenance: channel=none source-commit=none
-Engine channel: stable: cannot read C:/Users/egois/AppData/Local/Temp/ratmac-t112-shapes-64696-1789776225536888400/.arca/editions.md: The system cannot find the file specified. (os error 2)
-Engine root: C:/Users/egois/AppData/Local/Temp/ratmac-t112-shapes-64696-1789776225536888400/.ratmac
-Runbook: .ratmac/ratmac.toml (INVALID: invalid state "work" guard 0: guard kind "completion_gate" does not accept field "declaration-format"; it accepts ["root", "ticket", "ticket-binding"])
-Run Record: .ratmac/runs/ (empty — no Run on the roster)
-Next: .ratmac/ratmac.toml is the human-authored Machine Class; .ratmac/runs/<id>/run.toml is Scheduler-owned runtime state created only by `rtm start`, which mints the run id. To begin a Run, invoke `rtm start`; address it afterwards with --run <id>.
-RB107 error: state "work" guard 0: invalid state "work" guard 0: guard kind "completion_gate" does not accept field "declaration-format"; it accepts ["root", "ticket", "ticket-binding"]
+thread 'declared_list_errors_refuse_before_any_mutation' (12084) panicked at test\qa\tests\t112_completion_declared_data.rs:783:13:
+an unindented entry in a selected block: the refusal names the selected field; got:
+rtm: step refused; completion_gate: .arca/ticket/t-905.md: observed rtm probe alpha: no completion receipt for this quality check; expected C:/Users/egois/AppData/Local/Temp/ratmac-t112-shapes-25456-1789784441811579500/.ratmac/evidence/run-002/completion/rtm_probe_alpha.toml; expected one green, fresh completion receipt per declared check
+next: rtm step --run run-002
 
 note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 
@@ -35,7 +30,7 @@ note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 failures:
     declared_list_errors_refuse_before_any_mutation
 
-test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.15s
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.93s
 
 error: test failed, to rerun pass `-p ratmac-qa --test t112_completion_declared_data`
 '''
