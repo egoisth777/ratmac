@@ -1,0 +1,33 @@
+planned-test-id = "CGDV-004"
+ticket-id = "t-112"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t112_completion_declared_data completion_has_no_prose_discovery_boundary -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t112_completion_declared_data.rs"
+test-name = "completion_has_no_prose_discovery_boundary"
+exit-status = 101
+output-sha256 = "195b64e9dbf428c91e3f9ced05e3b0e6974c5350796c1c859a74c940a29f03ec"
+output = '''
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running tests\t112_completion_declared_data.rs (target\debug\deps\t112_completion_declared_data-dcabcdc1117e4c59.exe)
+
+running 1 test
+test completion_has_no_prose_discovery_boundary ... FAILED
+
+failures:
+
+---- completion_has_no_prose_discovery_boundary stdout ----
+
+thread 'completion_has_no_prose_discovery_boundary' (36176) panicked at test\qa\tests\t112_completion_declared_data.rs:100:9:
+rtm start succeeds: rtm: start: parse .ratmac/ratmac.toml [RB107]: invalid state "work" guard 0: guard kind "completion_gate" does not accept field "declaration-format"; it accepts ["root", "ticket", "ticket-binding"]
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    completion_has_no_prose_discovery_boundary
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.06s
+
+error: test failed, to rerun pass `-p ratmac-qa --test t112_completion_declared_data`
+'''

@@ -1,0 +1,33 @@
+planned-test-id = "CGDV-007"
+ticket-id = "t-112"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t112_completion_declared_data heading_free_non_markdown_carrier_gates -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t112_completion_declared_data.rs"
+test-name = "heading_free_non_markdown_carrier_gates"
+exit-status = 101
+output-sha256 = "17a8f760850a5ce7032a69c9b9755301d512bdf9986df658cac549a22d2d99d2"
+output = '''
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests\t112_completion_declared_data.rs (target\debug\deps\t112_completion_declared_data-dcabcdc1117e4c59.exe)
+
+running 1 test
+test heading_free_non_markdown_carrier_gates ... FAILED
+
+failures:
+
+---- heading_free_non_markdown_carrier_gates stdout ----
+
+thread 'heading_free_non_markdown_carrier_gates' (63216) panicked at test\qa\tests\t112_completion_declared_data.rs:100:9:
+rtm start succeeds: rtm: start: parse .ratmac/ratmac.toml [RB107]: invalid state "work" guard 0: guard kind "completion_gate" does not accept field "declaration-format"; it accepts ["root", "ticket", "ticket-binding"]
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    heading_free_non_markdown_carrier_gates
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.07s
+
+error: test failed, to rerun pass `-p ratmac-qa --test t112_completion_declared_data`
+'''

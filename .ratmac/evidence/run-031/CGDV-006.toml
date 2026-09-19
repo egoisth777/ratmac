@@ -1,0 +1,33 @@
+planned-test-id = "CGDV-006"
+ticket-id = "t-112"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t112_completion_declared_data historical_receipt_contract_is_unchanged -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t112_completion_declared_data.rs"
+test-name = "historical_receipt_contract_is_unchanged"
+exit-status = 101
+output-sha256 = "4f54e88d17c5c415f0d3deb3794afa90572bb1695d5f302177681d4204951e04"
+output = '''
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests\t112_completion_declared_data.rs (target\debug\deps\t112_completion_declared_data-dcabcdc1117e4c59.exe)
+
+running 1 test
+test historical_receipt_contract_is_unchanged ... FAILED
+
+failures:
+
+---- historical_receipt_contract_is_unchanged stdout ----
+
+thread 'historical_receipt_contract_is_unchanged' (63972) panicked at test\qa\tests\t112_completion_declared_data.rs:100:9:
+rtm start succeeds: rtm: start: parse .ratmac/ratmac.toml [RB107]: invalid state "work" guard 0: guard kind "completion_gate" does not accept field "declaration-format"; it accepts ["root", "ticket", "ticket-binding"]
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    historical_receipt_contract_is_unchanged
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.06s
+
+error: test failed, to rerun pass `-p ratmac-qa --test t112_completion_declared_data`
+'''

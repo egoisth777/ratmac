@@ -1,0 +1,41 @@
+planned-test-id = "CGDV-005"
+ticket-id = "t-112"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t112_completion_declared_data declared_list_errors_refuse_before_any_mutation -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t112_completion_declared_data.rs"
+test-name = "declared_list_errors_refuse_before_any_mutation"
+exit-status = 101
+output-sha256 = "350eb0c2d631d0879faf9b0610defcc817b57db26dafa54f1e382d545d383d9c"
+output = '''
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running tests\t112_completion_declared_data.rs (target\debug\deps\t112_completion_declared_data-dcabcdc1117e4c59.exe)
+
+running 1 test
+test declared_list_errors_refuse_before_any_mutation ... FAILED
+
+failures:
+
+---- declared_list_errors_refuse_before_any_mutation stdout ----
+
+thread 'declared_list_errors_refuse_before_any_mutation' (63708) panicked at test\qa\tests\t112_completion_declared_data.rs:680:5:
+the mapped runbook is a valid Machine Class; got:
+Engine: E:/repos/projs/skill-dev/ratmac-t-112/target/debug/rtm-qa.exe (sha256: d585976615b24fb4dc495ad2ec257a60562f497fe077ed054b36fa7ff1b9435d)
+Engine provenance: channel=none source-commit=none
+Engine channel: stable: cannot read C:/Users/egois/AppData/Local/Temp/ratmac-t112-shapes-64696-1789776225536888400/.arca/editions.md: The system cannot find the file specified. (os error 2)
+Engine root: C:/Users/egois/AppData/Local/Temp/ratmac-t112-shapes-64696-1789776225536888400/.ratmac
+Runbook: .ratmac/ratmac.toml (INVALID: invalid state "work" guard 0: guard kind "completion_gate" does not accept field "declaration-format"; it accepts ["root", "ticket", "ticket-binding"])
+Run Record: .ratmac/runs/ (empty — no Run on the roster)
+Next: .ratmac/ratmac.toml is the human-authored Machine Class; .ratmac/runs/<id>/run.toml is Scheduler-owned runtime state created only by `rtm start`, which mints the run id. To begin a Run, invoke `rtm start`; address it afterwards with --run <id>.
+RB107 error: state "work" guard 0: invalid state "work" guard 0: guard kind "completion_gate" does not accept field "declaration-format"; it accepts ["root", "ticket", "ticket-binding"]
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    declared_list_errors_refuse_before_any_mutation
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.15s
+
+error: test failed, to rerun pass `-p ratmac-qa --test t112_completion_declared_data`
+'''
