@@ -6,6 +6,6 @@ working-dir = "."
 exit-status = 0
 output-sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 tree-roots = ["src", "test/qa", "Cargo.toml", "Cargo.lock"]
-tree-sha256 = "2719720e8dcfb0d8e1424d54f7a8c58129a3f740e34a8b311e7b21ba734730e7"
+tree-sha256 = "bce81282f880293fa5e3bedaed5e413715d4e4397b35a004e8d43e8e1c4a435a"
 output = '''
 '''

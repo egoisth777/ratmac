@@ -4,10 +4,11 @@ kind = "quality"
 command = "cargo clippy --offline --workspace --all-targets"
 working-dir = "."
 exit-status = 0
-output-sha256 = "f7595c99768b202406db49b65bf345f597636ad1fea2fa89e6faf9fa01ccdfb7"
+output-sha256 = "516fa3e4777fbd04dd0950a3960ad3a81fd0c4f0386ec89cb871a695263876b1"
 tree-roots = ["src", "test/qa", "Cargo.toml", "Cargo.lock", "test-hidden", "tools", ".arca/goal", ".arca/runbook-spec.md", ".arca/runbook-authoring.md", ".ratmac/ratmac.toml", ".ratmac/turn.toml", ".ratmac/lanes.toml", ".ratmac/close-guard.diff"]
-tree-sha256 = "d5eda97f21640210f2d1b11476b65b56b3806197d2f153276989f3ee042f6494"
+tree-sha256 = "33b3f0bee0cab29b84fb629a50a29fdec59feb7d2754875ab1f8c2db2dffb91f"
 output = '''
+    Checking ratmac v0.1.0 (E:\repos\projs\skill-dev\ratmac-t-113)
     Checking ratmac-qa v0.1.0 (E:\repos\projs\skill-dev\ratmac-t-113\test\qa)
 warning: useless use of `vec!`
    --> test\qa\tests\t113_snapshot_integrity.rs:306:20
@@ -45,5 +46,5 @@ help: you can use an array directly
     |
 
 warning: `ratmac-qa` (test "t113_snapshot_integrity") generated 1 warning (run `cargo clippy --fix --test "t113_snapshot_integrity" -p ratmac-qa -- ` to apply 1 suggestion)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.32s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.70s
 '''

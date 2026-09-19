@@ -3,30 +3,17 @@ check-id = "HT-113-09"
 kind = "hidden-lane"
 command = "cargo test --offline --test reopened_work_items ht_113_09_lifecycle_model -- --exact"
 working-dir = "test-hidden/t-113"
-exit-status = 101
-output-sha256 = "da7d5a4a2bec5dad1afb2cd9f3ee267527c4f2d59885bdb51361d2f291a6f934"
+exit-status = 0
+output-sha256 = "affdf00d8bd8d0b6542548debbfb9bc0124c7229499cdb4fe9bdeba3b0300532"
 tree-roots = ["src", "test/qa", "Cargo.toml", "Cargo.lock", "test-hidden/t-113"]
-tree-sha256 = "d2e0c7618e095d8179d4398aba8b49dd6ee49c1bfae339fbad6b71cd17d38c33"
+tree-sha256 = "a8d0ff431bf8b59516a54a5ac75d09588e054f3ecdee92b059f833a261bc74d4"
 output = '''
     Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
      Running tests\reopened_work_items.rs (target\debug\deps\reopened_work_items-7881a78d6bf65ac3.exe)
 
 running 1 test
-test ht_113_09_lifecycle_model ... FAILED
+test ht_113_09_lifecycle_model ... ok
 
-failures:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.02s
 
----- ht_113_09_lifecycle_model stdout ----
-
-thread 'ht_113_09_lifecycle_model' (65540) panicked at tests\reopened_work_items.rs:423:10:
-a reopened gap under a current owner keeps history landed: [ContractDefect { artifact: "C:/Users/egois/AppData/Local/Temp/ratmac-ht113-reopened-09-lifecycle-64848-1789800534215660800/tickets/archive/t-720.md", reason: "took the archive move while gap res-520 is still unproven" }]
-note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
-
-
-failures:
-    ht_113_09_lifecycle_model
-
-test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.02s
-
-error: test failed, to rerun pass `--test reopened_work_items`
 '''

@@ -4,16 +4,16 @@ kind = "hidden-lane"
 command = "cargo test --offline --test hidden ht_113_04_durability_recovery -- --exact"
 working-dir = "test-hidden/t-113"
 exit-status = 0
-output-sha256 = "2b912cceec2416c34228892d7e87a31e1ab741411603d26737379eba2397f887"
+output-sha256 = "9610a4153452200614f46b0e61a9cb1f4250afdb69c3983282dc48b33a1748e1"
 tree-roots = ["src", "test/qa", "Cargo.toml", "Cargo.lock", "test-hidden/t-113"]
-tree-sha256 = "e4d0d67044a83e6901561f6a5ae1ba6dcc3cf4e54ca61ca61f3f019fec8b4288"
+tree-sha256 = "a8d0ff431bf8b59516a54a5ac75d09588e054f3ecdee92b059f833a261bc74d4"
 output = '''
     Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
-     Running tests\hidden.rs (target\debug\deps\hidden-c37700feb46775fa.exe)
+     Running tests\hidden.rs (target\debug\deps\hidden-62798f99cd4cf191.exe)
 
 running 1 test
 test ht_113_04_durability_recovery ... ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.77s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.90s
 
 '''

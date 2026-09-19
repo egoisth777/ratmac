@@ -1,0 +1,36 @@
+ticket-id = "t-113"
+check-id = "cargo test --offline --manifest-path test-hidden/t-091/Cargo.toml"
+kind = "quality"
+command = "cargo test --offline --manifest-path test-hidden/t-091/Cargo.toml"
+working-dir = "."
+exit-status = 0
+output-sha256 = "10a5b00607d0f3cd75569f01c0073db69fa51400c5bf2e749641618ade55a0e7"
+tree-roots = ["src", "test/qa", "Cargo.toml", "Cargo.lock", "test-hidden/t-091", ".arca/ticket", ".arca/residual", ".ratmac/ratmac.toml"]
+tree-sha256 = "c3a9b482c44f9ba05c1249da54452bcac6a47d1faf09e57c4f379fd724c73f37"
+output = '''
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running unittests src\lib.rs (test-hidden\t-091\target\debug\deps\ratmac_t091_hidden-0e2c1c1ff37d95a5.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\hidden.rs (test-hidden\t-091\target\debug\deps\hidden-7c42c84d8d78794b.exe)
+
+running 6 tests
+test ht_091_05_output_the_check_writes_nothing_and_is_ordered ... ok
+test ht_091_04_durability_a_half_finished_move_is_refused ... ok
+test ht_091_03_lifecycle_a_contradiction_is_named_not_resolved ... ok
+test ht_091_02_input_routing_every_address_shape_has_a_stated_answer ... ok
+test ht_091_01_regression_every_record_gate_defect_still_reports ... ok
+test ht_091_06_cross_feature_the_two_readers_agree ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.49s
+
+   Doc-tests ratmac_t091_hidden
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+'''

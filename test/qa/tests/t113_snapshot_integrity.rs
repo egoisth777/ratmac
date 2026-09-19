@@ -147,6 +147,36 @@ fn ignored_file_is_never_tracked() {
         ".git and target stay excluded from traversal: {paths:?}"
     );
     assert_eq!(whole.roots, vec![".".to_owned()]);
+
+    // A parent component must never relabel ignored content as a tracked decoy.
+    let parent = TempRepo::new("t113-parent-identity");
+    parent.write(".gitignore", "/loose.bin\n");
+    parent.write("evidence/loose.bin", "tracked decoy\n");
+    parent.commit_all("tracked decoy");
+    parent.write("loose.bin", "ignored selected content\n");
+    let selected = "evidence/../loose.bin";
+    let manifest = record_snapshot(parent.root(), &[selected], &[selected])
+        .expect("the exact exception permits the selected ignored file");
+    assert_eq!(manifest.rows.len(), 1);
+    let row = &manifest.rows[0];
+    assert_eq!(
+        row.path, selected,
+        "parent components preserve file identity"
+    );
+    assert_eq!(row.tracking, TrackingState::Untracked);
+    assert_eq!(
+        row.digest,
+        independent_digest(&parent.root().join(&row.path))
+    );
+    assert_eq!(
+        manifest.render().lines().nth(1),
+        Some(format!("{selected}\tuntracked\t{}\texception", row.digest).as_str())
+    );
+    let violations = record_snapshot(parent.root(), &[selected], &[])
+        .expect_err("the selected ignored file still needs its exact exception");
+    assert!(violations
+        .iter()
+        .any(|violation| { violation.path == selected && violation.reason.contains("untracked") }));
 }
 
 /// PT-113-02: with only the modified path excepted, the manifest reports
@@ -158,6 +188,7 @@ fn ignored_file_is_never_tracked() {
 #[test]
 fn tracking_states_and_modified_exception_marker_remain_exact() {
     let repo = TempRepo::new("t113-states");
+    repo.write(".gitignore", "/target/\n");
     repo.write("src/clean.rs", "fn clean() {}\n");
     repo.write("src/modified.rs", "fn modified() {}\n");
     repo.commit_all("initial");
@@ -326,7 +357,7 @@ fn declared_file_root_is_included_alone_and_with_overlap() {
     repo.write("docs/other.md", "# other payload\n");
     repo.commit_all("initial");
 
-    // File-only phase: the regular file is the only declared root.
+    // File-only check: the regular file is the only declared root.
     let output = run_manifest_binary(repo.root(), &["file-only.manifest", "docs/evidence.md"]);
     assert!(
         output.status.success(),

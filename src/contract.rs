@@ -380,7 +380,12 @@ pub fn work_items_at(
     // Every gap record, active and archived, with the status it states.
     let mut proven: BTreeMap<String, bool> = BTreeMap::new();
     let mut gap_shown: BTreeMap<String, String> = BTreeMap::new();
-    let mut gap_paths = files_in(residual_root.to_path_buf(), "md");
+    // The same walk, split: `active_gaps` remembers which gap records sit
+    // in the working root. Location only - the status still comes from
+    // `proven`, so an archived `partial` record is unproven and not active.
+    let active_gap_paths = files_in(residual_root.to_path_buf(), "md");
+    let active_gaps: BTreeSet<String> = active_gap_paths.iter().map(|path| stem(path)).collect();
+    let mut gap_paths = active_gap_paths;
     gap_paths.extend(files_in(residual_root.join("archive"), "md"));
     for path in gap_paths {
         let id = stem(&path);
@@ -443,7 +448,20 @@ pub fn work_items_at(
     }
 
     let mut items = Vec::new();
-    let mut owned: BTreeSet<String> = BTreeSet::new();
+
+    // Each ticket is read exactly once, into a carrier this function owns,
+    // before any ticket is judged: current ownership is then a settled fact
+    // and cannot depend on which ticket the filesystem handed back first.
+    struct ParsedItem {
+        id: String,
+        shown: String,
+        gaps: Vec<String>,
+        has_unproven: bool,
+        archived: bool,
+    }
+    let mut parsed_items = Vec::new();
+    let mut current_owned: BTreeSet<String> = BTreeSet::new();
+
     for (_, (working, archived)) in located {
         let path = working.first().or_else(|| archived.first());
         let Some(path) = path else { continue };
@@ -472,15 +490,20 @@ pub fn work_items_at(
             continue;
         }
 
+        let is_archived = working.is_empty();
         let text = fs::read_to_string(path).unwrap_or_default();
         let gaps = yaml_list(&text, "residual-ids");
-        let mut unproven = Vec::new();
+        // Only a ticket still in the working root owns its gaps today; a
+        // citation from the archive is history and speaks for no one now.
+        if !is_archived {
+            current_owned.extend(gaps.iter().cloned());
+        }
+        let mut has_unproven = false;
         let mut unreadable = false;
         for gap in &gaps {
-            owned.insert(gap.clone());
             match proven.get(gap) {
                 Some(true) => {}
-                Some(false) => unproven.push(gap.clone()),
+                Some(false) => has_unproven = true,
                 None => {
                     unreadable = true;
                     defects.push(defect(
@@ -493,44 +516,65 @@ pub fn work_items_at(
         if unreadable {
             continue;
         }
+        parsed_items.push(ParsedItem {
+            id,
+            shown: shown_item,
+            gaps,
+            has_unproven,
+            archived: is_archived,
+        });
+    }
 
-        let state = if archived.is_empty() {
-            if gaps.is_empty() {
+    for item in parsed_items {
+        let state = if !item.archived {
+            if item.gaps.is_empty() {
                 defects.push(defect(
-                    &shown_item,
+                    &item.shown,
                     "owns no gap record, so nothing on disk says whether its work is finished",
                 ));
                 continue;
             }
-            if unproven.is_empty() {
-                WorkItemState::AwaitingArchive
-            } else {
+            if item.has_unproven {
                 WorkItemState::Open
+            } else {
+                WorkItemState::AwaitingArchive
             }
         } else {
-            if !unproven.is_empty() {
+            // A landed ticket stays landed through a legitimate reopen: every
+            // gap it still cites as unproven must be active on disk and owned
+            // by a ticket in the working root right now. One failing citation
+            // refuses the move; the refusal names all of them.
+            let invalid_unproven = item.gaps.iter().any(|gap| {
+                matches!(proven.get(gap), Some(false))
+                    && (!active_gaps.contains(gap) || !current_owned.contains(gap))
+            });
+            if invalid_unproven {
+                let unproven = item
+                    .gaps
+                    .iter()
+                    .filter(|gap| matches!(proven.get(*gap), Some(false)))
+                    .map(String::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 defects.push(defect(
-                    &shown_item,
-                    format!(
-                        "took the archive move while gap {} is still unproven",
-                        unproven.join(", ")
-                    ),
+                    &item.shown,
+                    format!("took the archive move while gap {unproven} is still unproven"),
                 ));
                 continue;
             }
             WorkItemState::Landed
         };
         items.push(WorkItem {
-            id,
+            id: item.id,
             state,
-            shown: shown_item,
+            shown: item.shown,
         });
     }
 
     // An interrupted move can also remove the item: its unproven gap is left
     // with nobody to finish it.
     for (gap, is_proven) in &proven {
-        if !*is_proven && !owned.contains(gap) {
+        if !*is_proven && !current_owned.contains(gap) {
             defects.push(defect(
                 gap_shown.get(gap).cloned().unwrap_or_else(|| gap.clone()),
                 "is unproven and no work item on disk owns it",

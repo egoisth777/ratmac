@@ -3,30 +3,17 @@ check-id = "HT-113-11"
 kind = "hidden-lane"
 command = "cargo test --offline --test reopened_work_items ht_113_11_output_filesystem -- --exact"
 working-dir = "test-hidden/t-113"
-exit-status = 101
-output-sha256 = "e55b851516342d6e90f716252e232414fe236b5af8060fd3749f1c3e4ec7631e"
+exit-status = 0
+output-sha256 = "b06d5fbd7574c2482a5ca4a44670a265c66d545c53660720e27fe5319c435106"
 tree-roots = ["src", "test/qa", "Cargo.toml", "Cargo.lock", "test-hidden/t-113"]
-tree-sha256 = "d2e0c7618e095d8179d4398aba8b49dd6ee49c1bfae339fbad6b71cd17d38c33"
+tree-sha256 = "a8d0ff431bf8b59516a54a5ac75d09588e054f3ecdee92b059f833a261bc74d4"
 output = '''
     Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
      Running tests\reopened_work_items.rs (target\debug\deps\reopened_work_items-7881a78d6bf65ac3.exe)
 
 running 1 test
-test ht_113_11_output_filesystem ... FAILED
+test ht_113_11_output_filesystem ... ok
 
-failures:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.02s
 
----- ht_113_11_output_filesystem stdout ----
-
-thread 'ht_113_11_output_filesystem' (31364) panicked at tests\reopened_work_items.rs:535:10:
-a mixed reopened tree answers whole: [ContractDefect { artifact: "C:/Users/egois/AppData/Local/Temp/ratmac-ht113-reopened-11-stable-60796-1789800534566157500/tickets/archive/t-731.md", reason: "took the archive move while gap res-541 is still unproven" }]
-note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
-
-
-failures:
-    ht_113_11_output_filesystem
-
-test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.01s
-
-error: test failed, to rerun pass `--test reopened_work_items`
 '''

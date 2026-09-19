@@ -3,30 +3,17 @@ check-id = "HT-113-10"
 kind = "hidden-lane"
 command = "cargo test --offline --test reopened_work_items ht_113_10_durability_recovery -- --exact"
 working-dir = "test-hidden/t-113"
-exit-status = 101
-output-sha256 = "a0869a45e0cad8bc5f9d8c201e3de6ec569545dfe6082c47863ec6f4fcf3092d"
+exit-status = 0
+output-sha256 = "76999329ed09c879c85b4bdfde9f7f7cdda38aef2500f53b7e8be085228a0ccf"
 tree-roots = ["src", "test/qa", "Cargo.toml", "Cargo.lock", "test-hidden/t-113"]
-tree-sha256 = "d2e0c7618e095d8179d4398aba8b49dd6ee49c1bfae339fbad6b71cd17d38c33"
+tree-sha256 = "a8d0ff431bf8b59516a54a5ac75d09588e054f3ecdee92b059f833a261bc74d4"
 output = '''
     Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
      Running tests\reopened_work_items.rs (target\debug\deps\reopened_work_items-7881a78d6bf65ac3.exe)
 
 running 1 test
-test ht_113_10_durability_recovery ... FAILED
+test ht_113_10_durability_recovery ... ok
 
-failures:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.01s
 
----- ht_113_10_durability_recovery stdout ----
-
-thread 'ht_113_10_durability_recovery' (60656) panicked at tests\reopened_work_items.rs:460:33:
-a valid reopen classifies whole: [ContractDefect { artifact: "C:/Users/egois/AppData/Local/Temp/ratmac-ht113-reopened-10-durability-60288-1789800534396682300/tickets/archive/t-730.md", reason: "took the archive move while gap res-530 is still unproven" }]
-note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
-
-
-failures:
-    ht_113_10_durability_recovery
-
-test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.01s
-
-error: test failed, to rerun pass `--test reopened_work_items`
 '''
