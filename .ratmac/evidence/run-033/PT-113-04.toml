@@ -1,0 +1,34 @@
+planned-test-id = "PT-113-04"
+ticket-id = "t-113"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t113_snapshot_integrity declared_file_root_is_included_alone_and_with_overlap -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t113_snapshot_integrity.rs"
+test-name = "declared_file_root_is_included_alone_and_with_overlap"
+exit-status = 101
+output-sha256 = "01ed79ae07f5a5105c37f635298f64ffcab7ccefdfa2f139a5d52b5043129379"
+output = '''
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests\t113_snapshot_integrity.rs (target\debug\deps\t113_snapshot_integrity-7e46b53c19124cdf.exe)
+
+running 1 test
+test declared_file_root_is_included_alone_and_with_overlap ... FAILED
+
+failures:
+
+---- declared_file_root_is_included_alone_and_with_overlap stdout ----
+
+thread 'declared_file_root_is_included_alone_and_with_overlap' (40616) panicked at test\qa\tests\t113_snapshot_integrity.rs:344:5:
+assertion `left == right` failed: the regular-file root contributes its own file, not silence: "roots: docs/evidence.md\n"
+  left: 0
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    declared_file_root_is_included_alone_and_with_overlap
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.43s
+
+error: test failed, to rerun pass `-p ratmac-qa --test t113_snapshot_integrity`
+'''

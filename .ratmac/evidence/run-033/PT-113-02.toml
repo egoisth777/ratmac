@@ -1,0 +1,34 @@
+planned-test-id = "PT-113-02"
+ticket-id = "t-113"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t113_snapshot_integrity tracking_states_and_modified_exception_marker_remain_exact -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t113_snapshot_integrity.rs"
+test-name = "tracking_states_and_modified_exception_marker_remain_exact"
+exit-status = 101
+output-sha256 = "9c88712dcd90c23b5b05b6f96e4f3d96e46f3e59ab96ca6b9d37850c70598dba"
+output = '''
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running tests\t113_snapshot_integrity.rs (target\debug\deps\t113_snapshot_integrity-7e46b53c19124cdf.exe)
+
+running 1 test
+test tracking_states_and_modified_exception_marker_remain_exact ... FAILED
+
+failures:
+
+---- tracking_states_and_modified_exception_marker_remain_exact stdout ----
+
+thread 'tracking_states_and_modified_exception_marker_remain_exact' (50412) panicked at test\qa\tests\t113_snapshot_integrity.rs:212:5:
+assertion `left == right` failed: clean and staged rows keep exactly three tab-separated fields; only the excepted modified row adds the fourth literal `exception` field: "roots: src\nsrc/clean.rs\ttracked\tacc31fa7ef668bcab19b42b95f74aec68546d55f71ba186c896da5a27de1e181\nsrc/modified.rs\tmodified\te3812e001423f034130631b72976cdf343585787ff5400885c802d03677689f1\nsrc/staged.rs\tstaged\te79866bd5f775139685df18c55201046927e045ccb2611215b1a3daac5f4faf3\n"
+  left: ["src/clean.rs\ttracked\tacc31fa7ef668bcab19b42b95f74aec68546d55f71ba186c896da5a27de1e181", "src/modified.rs\tmodified\te3812e001423f034130631b72976cdf343585787ff5400885c802d03677689f1", "src/staged.rs\tstaged\te79866bd5f775139685df18c55201046927e045ccb2611215b1a3daac5f4faf3"]
+ right: ["src/clean.rs\ttracked\tacc31fa7ef668bcab19b42b95f74aec68546d55f71ba186c896da5a27de1e181", "src/modified.rs\tmodified\te3812e001423f034130631b72976cdf343585787ff5400885c802d03677689f1\texception", "src/staged.rs\tstaged\te79866bd5f775139685df18c55201046927e045ccb2611215b1a3daac5f4faf3"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tracking_states_and_modified_exception_marker_remain_exact
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.47s
+
+error: test failed, to rerun pass `-p ratmac-qa --test t113_snapshot_integrity`
+'''
