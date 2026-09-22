@@ -172,28 +172,62 @@ wrote down is drift.
 
 ## Current sprint
 
-Derived record. Regenerated wholesale at P1 close from the signed issue set;
-never hand-edited, never a progress report. Stage lives in the tree.
+Derived at planning close on 2026-09-22 from Billy's all-wishes request and
+explicit workflow dispatch. Freeze stamp:
+`git:c86c472a1ef157cccbdbb4ba416e5d67feabf160` +
+`goal-sha256:212b80c1acf651aaf8a7f18edf49393bf5c4408153ad711649de839c7386ee28`.
+The stable edition-008 Engine froze this accepted bundle for run-034.
 
-Freeze stamp: `git:a738bdeef819a8d8f3e938498104430415ae47f9` +
-`goal-sha256:6bd2a98c74d82b6611990267af3471ff24c01851fd5a6425e2fc0c1aba8cbeba`
-- the accepted declared-data completion goal landing and the canonical goal
-revision frozen by the Engine as run-030 left intake. P1 opened and closed
-2026-09-18 on one signed batch of one: the completion-from-declared-data
-issue (`i-032`, accepted, `CGD-003`). Billy delegated its selection after
-the previous sprint, then explicitly approved the remaining cutover. It
-advances Generic engine and Every boundary machine-checked. The two earlier
-workflow requirements (`CGD-001`, `CGD-002`) are landed prerequisites, not
-new sprint scope. The gap check and ticket are cut against this stamp.
+The signed batch contains 23 accepted issues, advancing Generic engine,
+Every boundary machine-checked, One writer, append-only, and Self-hosted.
+The contributor-tools lane is a working rule effective at integration;
+all other executable outcomes require proof. Independently controlled trust
+enrollment is an external live-adoption prerequisite, not an assumed credential.
 
-Route - dependencies of the signed sprint, one why per edge:
+Accepted issue set:
 
-1. The proven workflow tag format (`CGD-001`, `CGD-002`) precedes the
-   declared-data completion cutover (`CGD-003`, from `i-032`) because the
-   Engine must consume explicit, validated check lists rather than invent
-   project vocabulary or infer checks from prose.
-2. The existing stable-driver and runbook-pin contracts (`ECP-003`,
-   `FDC-005`) constrain activation of `CGD-003`: prove the new Engine and
-   prepared mapping while the current Run keeps its pinned runbook, then
-   activate that tested mapping only after rest. This ordering changes no
-   receipt guarantee and adds no second ask to the signed batch.
+- [contributor tools lane](issue/i-040-contributor-tools-lane/index.md) (WCP-001).
+- [shared private test support](issue/i-041-shared-private-test-support/index.md) (WCP-002).
+- [selected issue completion](issue/i-042-selected-issue-completion/index.md) (WCP-003).
+- [review before proofs](issue/i-043-review-before-proofs/index.md) (WCP-004).
+- [byte verified restores](issue/i-044-byte-verified-restores/index.md) (WCP-005).
+- [checkpoint only restoration](issue/i-045-checkpoint-only-restoration/index.md) (WCP-006).
+- [distributable plan build profile](issue/i-046-distributable-plan-build-profile/index.md) (WCP-007).
+- [edition proof preflight](issue/i-047-edition-proof-preflight/index.md) (WCP-008).
+- [successor ownership](issue/i-048-successor-ownership/index.md) (WRS-001).
+- [child class hold](issue/i-049-child-class-hold/index.md) (WRS-002).
+- [cycle pause routes](issue/i-050-cycle-pause-routes/index.md) (WRS-003).
+- [rule fix recovery](issue/i-051-rule-fix-recovery/index.md) (WRS-004).
+- [descriptive run roster](issue/i-052-descriptive-run-roster/index.md) (WRS-005).
+- [terminal history status](issue/i-053-terminal-history-status/index.md) (WRS-006).
+- [abandon confirmation hints](issue/i-054-abandon-confirmation-hints/index.md) (WRS-007).
+- [portable goal fingerprints](issue/i-055-portable-goal-fingerprints/index.md) (WEB-001).
+- [engine ignore initialization](issue/i-056-engine-ignore-initialization/index.md) (WEB-002).
+- [tracked repository audits](issue/i-057-tracked-repository-audits/index.md) (WEB-003).
+- [residue refusal precedence](issue/i-058-residue-refusal-precedence/index.md) (WEB-004).
+- [single root resolution](issue/i-059-single-root-resolution/index.md) (WEB-005).
+- [safe nested invocations](issue/i-060-safe-nested-invocations/index.md) (WEB-006).
+- [deterministic trace channel](issue/i-061-deterministic-trace-channel/index.md) (WEB-007).
+- [authorized review transitions](issue/i-062-authorized-review-transitions/index.md) (WRA-001).
+
+Route — accepted issue dependencies, not progress or implementation status:
+
+- descriptive run roster follows terminal history status because it uses the named outcome's established boundary or proof mechanism.
+- residue refusal precedence follows single root resolution because it uses the named outcome's established boundary or proof mechanism.
+- engine ignore initialization follows residue refusal precedence because it uses the named outcome's established boundary or proof mechanism.
+- successor ownership follows single root resolution because it uses the named outcome's established boundary or proof mechanism.
+- checkpoint only restoration follows byte verified restores because it uses the named outcome's established boundary or proof mechanism.
+- shared private test support follows tracked repository audits because it uses the named outcome's established boundary or proof mechanism.
+- deterministic trace channel follows residue refusal precedence, successor ownership because it uses the named outcome's established boundary or proof mechanism.
+- authorized review transitions follows single root resolution, residue refusal precedence because it uses the named outcome's established boundary or proof mechanism.
+- cycle pause routes follows child class hold, authorized review transitions because it uses the named outcome's established boundary or proof mechanism.
+- review before proofs follows authorized review transitions, checkpoint only restoration because it uses the named outcome's established boundary or proof mechanism.
+- rule fix recovery follows authorized review transitions, cycle pause routes because it uses the named outcome's established boundary or proof mechanism.
+- selected issue completion follows authorized review transitions, review before proofs because it uses the named outcome's established boundary or proof mechanism.
+- safe nested invocations follows authorized review transitions, engine ignore initialization, successor ownership because it uses the named outcome's established boundary or proof mechanism.
+- distributable plan build profile follows selected issue completion, engine ignore initialization, cycle pause routes, edition proof preflight because it uses the named outcome's established boundary or proof mechanism.
+- The stable driver retains its exact pinned runbook during this batch. New fields and
+  pause routes are tested as prepared capabilities and activated only at a compatible
+  cycle boundary; no current pin is rewritten to admit a changed rule.
+- Review authentication precedes governed recovery, selected-issue completion, and
+  nested authenticated evidence because a builder cannot supply its own authority.
