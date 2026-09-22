@@ -34,7 +34,6 @@ test/qa/fixtures/rebrand-audit/allowlist.tsv	both	The audit manifest necessarily
 .arca/goal/index.md	phase	Frozen goal bundle: the integration note states which name replaced which.
 .arca/schema.md	phase	The working rules record which glossary entry was replaced.
 .arca/steering.md	phase	Direction records the promoted wish by the name it retires.
-.arca/wishlist.md	phase	The wish entry is the request to retire the word.
 .arca/runbook-spec.md	phase	The RB111 diagnostic must quote the pre-cutover table it refuses.
 .arca/runbook-authoring.md	phase	The RB111 repair row must quote the pre-cutover table it renames.
 src/machine.rs	phase	The parser's dedicated refusal names the pre-cutover key it rejects.
