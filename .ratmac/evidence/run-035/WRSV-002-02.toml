@@ -1,0 +1,10 @@
+planned-test-id = "WRSV-002-02"
+ticket-id = "t-114"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t114_child_class_hold wrsv_002_02 -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t114_child_class_hold.rs"
+test-name = "wrsv_002_02"
+exit-status = 101
+output-sha256 = "a725cda311dfcce4e2446fcbab9f3f1cb75e2cc99d5506fd5f4436cb60603b0b"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t114_child_class_hold.rs (target\\debug\\deps\\t114_child_class_hold-5335153d370397c5.exe)\n\nrunning 1 test\ntest wrsv_002_02 ... FAILED\n\nfailures:\n\n---- wrsv_002_02 stdout ----\n\nthread 'wrsv_002_02' (33964) panicked at test\\qa\\tests\\t114_child_class_hold.rs:195:9:\nassertion `left == right` failed: hold selected another class's route\n  left: \"plan\"\n right: \"prep\"\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    wrsv_002_02\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 12.91s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t114_child_class_hold`\n"

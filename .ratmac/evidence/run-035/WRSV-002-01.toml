@@ -1,0 +1,10 @@
+planned-test-id = "WRSV-002-01"
+ticket-id = "t-114"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t114_child_class_hold wrsv_002_01 -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t114_child_class_hold.rs"
+test-name = "wrsv_002_01"
+exit-status = 101
+output-sha256 = "1a5c62f284c37c1ff864ebb6607dc396a97aec75e2ace245c894de17c8b3d28f"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s\n     Running tests\\t114_child_class_hold.rs (target\\debug\\deps\\t114_child_class_hold-5335153d370397c5.exe)\n\nrunning 1 test\ntest wrsv_002_01 ... FAILED\n\nfailures:\n\n---- wrsv_002_01 stdout ----\n\nthread 'wrsv_002_01' (56220) panicked at test\\qa\\tests\\t114_child_class_hold.rs:191:14:\na route in the addressed Run's own class must produce a plan: HoldRefusal { reason: \"State \\\"work\\\" declares no blocked route; add a transition with blocked-route = true\" }\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    wrsv_002_01\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 10.22s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t114_child_class_hold`\n"
