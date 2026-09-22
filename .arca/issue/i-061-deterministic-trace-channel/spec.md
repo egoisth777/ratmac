@@ -1,0 +1,7 @@
+# Issue specification
+
+## Requirement Records
+
+| Requirement ID | Requirement | Disposition | Rationale | Accepted Forward Authority Refs |
+| :--- | :--- | :--- | :--- | :--- |
+| `WEB-007` | One module owns Engine stderr output and an environment-enabled decision trace. The trace is off by default, writes only to stderr, creates no file or persistent state, and performs no formatting or allocation per disabled event. Enabled events cover root selection, transition-input edge selection, guard refusal, lock acquisition/release order, and mint read/write decisions. Each structured record carries a stable event/diagnostic code, reusing the refusal code where one exists, and deterministic fields with no timestamps, durations, absolute host paths, arbitrary child output, secrets, or nondeterministic identifiers. The same normalized input/state/decision sequence produces identical structured trace bytes; these restrictions do not erase or rewrite the established mandatory-error text. Existing stderr sites are routed through the owning module; mandatory errors remain visible when tracing is off. No guard, gate, receipt, or hidden behavioral lane consumes trace text as evidence. | accepted | Accepted under Billy's 2026-09-22 all-wishes instruction and explicit workflow dispatch after independent contract review. | [Accepted authority](../../goal/spec.md#integrated-wishlist-fulfillment-requirements) |

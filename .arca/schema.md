@@ -108,8 +108,11 @@ before the merge, so permanent ticket-branch history keeps the identity intact (
 
 Two lanes decide what must enter the loop:
 
-- **Program lane** — anything changing what the program does (`src/`, tests, the runbook): no commit without
-  a ticket. Work enters as issue → goal → residual → ticket.
+- **Program lane** — executable behavior in `src/`, tests, the runbook, and contributor tools: no
+  implementation commit without a ticket. Work enters as issue → accepted product or working
+  authority → residual → ticket. Existing tools retain their established implementation languages.
+  A behavior change has a failing behavioral check before its implementation and a passing check
+  afterward; a behavior-preserving tool change records the narrow proof of preservation (WCP-001).
 - **Shop lane** — `.arca` docs (steering, schema, index, dict, tpl, vis): lands directly, steering first on
   pivots, one log line per landing (issue creation excepted — see "The issue folder").
 
@@ -194,8 +197,8 @@ The work has two parts with different shapes:
 - **Planning (P1 → P2 → P3)** runs **straight through, once**, each time new issues come in. It never loops.
   Many issues become one frozen goal, the goal is compared against reality, and each gap becomes one ticket.
 - **Building (P4 → P5)** is **a loop: one full turn per ticket**. This is where nearly all the time goes.
-  For each ticket: write its tests, try to poke holes in them, write the code, run everything, fix until
-  green, review, take the next ticket.
+  For each ticket: write and challenge its tests; make focused public checks green; obtain independent
+  source and test review; earn full private and quality proof; checkpoint; damage and restore; merge and verify.
 
 The two parts meet at the gap check (P2). When the last ticket is done, do the gap check again: nothing
 missing → merge any live ticket worktree, push `main` to `origin` (Units and git: cycle-end git
@@ -313,7 +316,7 @@ human to ask for it.
 | Step                            | Does                                                                                                             | Finish line                                                                          |
 | :------------------------------ | :--------------------------------------------------------------------------------------------------------------- | :----------------------------------------------------------------------------------- |
 | **P4** Write this ticket's tests | Turn the ticket's planned checks (planned-test-ID → test function, recorded in the ticket) into runnable tests; then re-read them trying to poke holes: would they catch a wrong answer, do they cover the edges, does each stand alone; run them — they should fail, since the code is not written yet | Every planned check for this ticket runs as a real test; hole-poking notes logged    |
-| **P5** Write the code           | Implement; run **every test so far** (all earlier tickets' plus this one's); run the hidden test lanes (test code in `test-hidden/`, listed in the ticket with `hidden-id`, `goal-contract-ref`, `category`, `oracle`, `owner`); fix and re-run until all green; then the deliberate-damage checks in the fixed order of [Deliberate damage and discard safety](#deliberate-damage-and-discard-safety): safety commit, each check from it, restore and verify, kills into the owning gap record, `git commit --amend` into the green landing; short review; take the next ticket | All tests green including hidden lanes, run from inside the ticket worktree; every deliberate-damage check run from the safety commit and the checkpoint amended into the green landing with its one log line; then in order: merge the ticket branch into `main`, copy `test-hidden/` back to the primary checkout, remove the worktree and branch, re-run the hidden lanes green from `main`. No tickets left → redo P2's gap check → nothing `missing|partial` → push `main` to `origin`, then Idle |
+| **P5** Write the code           | Implement and make focused public checks green; obtain independent review of the exact source and test snapshot before expensive proof; run **every test so far** (all earlier tickets' plus this one's); run the hidden test lanes (test code in `test-hidden/`, listed in the ticket with `hidden-id`, `goal-contract-ref`, `category`, `oracle`, `owner`); fix and re-run until all green; then the deliberate-damage checks in the fixed order of [Deliberate damage and discard safety](#deliberate-damage-and-discard-safety): safety commit, each check from it, restore and verify, kills into the owning gap record, `git commit --amend` into the green landing; verify the reviewed snapshot and evidence remain fresh; take the next ticket | All tests green including hidden lanes, run from inside the ticket worktree; every deliberate-damage check run from the safety commit and the checkpoint amended into the green landing with its one log line; then in order: merge the ticket branch into `main`, copy `test-hidden/` back to the primary checkout, remove the worktree and branch, re-run the hidden lanes green from `main`. No tickets left → redo P2's gap check → nothing `missing|partial` → push `main` to `origin`, then Idle |
 
 ```mermaid
 flowchart LR
@@ -322,7 +325,7 @@ flowchart LR
         P1[P1 Fold in issues] --> P2[P2 Find the gaps] --> P3[P3 Cut tickets]
     end
     subgraph BUILD["Building — one turn per ticket"]
-        P4[P4 Write this ticket's tests] --> P5[P5 Code + all tests + fix + review]
+        P4[P4 Write this ticket's tests] --> P5[P5 Public green + review + full proof + damage and restore]
         P5 -->|next ticket| P4
     end
     P3 --> P4
@@ -465,7 +468,7 @@ These are durable working rules; the goal's `AOI-001`–`AOI-003` bind the progr
   preservation failure, exactly like an edit to an archived issue file. A human contributor appends one
   line per closure. `rtm` never writes it; while a Run is active it records transitions only in
   `.ratmac/log.md`, which no agent writes.
-- **Out-of-ticket trace.** Work landed outside the ticketed system — docs, config, tooling, harness edits — still
+- **Out-of-ticket trace.** Work landed outside the ticketed system — docs and configuration with no executable behavior — still
   appends one `- YYYY-MM-DD: <what landed, where, why>` line to `.arca/log.md` before the session ends. Subsequent
   sessions read the log first instead of reconstructing changes from `git diff`/history.
 - **Release acceptance lane opt-in.** Environment-coupled release checks (live GitHub identity, exact origin, branch,
@@ -812,9 +815,11 @@ lock with no admission state is retired without a second terminal event.
 
 ## Completion gate
 
-Passing a ticket is evidence, not a status edit. `completion_gate` reads the
-ticket's declared work - its planned tests, its hidden lanes, and every
-backticked command in its Merge Gate - and requires one receipt per check for the addressed Run at
+Passing a ticket is evidence, not a status edit. `completion_gate` reads only
+the three string lists selected by its runbook declaration. This workflow
+selects `focused-tests`, `hidden-lanes`, and `quality-commands`; headings,
+identifier shapes, and backticked prose never declare a completion check.
+The gate requires one receipt per declared check for the addressed Run at
 `.ratmac/evidence/<run-id>/<ticket-id>/completion/<check>.toml`, recording the command,
 working directory, exit status, output digest, and the source roots with their
 digest at the time the check ran.
@@ -869,9 +874,9 @@ recorded output, and a SHA-256 over that output). The P4 gate
 declares to such a receipt; prose lines, filename conventions, and status
 fields satisfy nothing, and a passing run is not a sensitivity receipt.
 
-This repository's own loop runs no Run, so no gate consumes receipts here and
-none are written. The same property is carried by artifacts a reviewer can
-re-derive: every residual cites the exact test file and test names behind each
+This repository's Plan-Build Runbook drives the loop through addressed Runs;
+its sensitivity and completion guards consume the recorded receipts. Additional
+evidence remains independently reviewable: every residual cites the exact test file and test names behind each
 claim, the mutations that kill each lane, and a snapshot manifest of path,
 tracking state, and SHA-256. A claim resting on prose alone is a defect in
 either loop. The mutation kills a residual cites are produced from the safety commit after the turn's
@@ -1009,8 +1014,114 @@ User: "I want to implement the rust tests based on test/test-list.md" →
    HEAD; write one gap record per requirement) → P3 (one approved ticket per `missing|partial` record).
 2. Loop, one ticket at a time: **P4** — create the `test/qa/` cargo crate if absent; write one `#[test]` per
    TP/CT mapping recorded in the ticket; poke holes in your own tests; `cargo test` (failing is expected).
-   **P5** — write the code; `cargo test` full suite; hidden-lane pass; fix; review; next ticket.
+   **P5** — make focused public checks green; independently review source and tests; run the full
+   suite and private lanes; checkpoint green work; perform damage and exact restoration; merge and verify.
 3. No tickets left → redo the gap check → Idle.
 
 Zero questions unless something truly cannot be worked out — then one batched message while every independent
 piece keeps moving.
+
+## Wishlist fulfillment working requirements
+
+Accepted through the 2026-09-22 workflow dispatch. WCP-001 changes working ownership
+at integration and has no executable deliverable of its own. The other requirements
+below have executable deliverables, gap records, and tickets; their planned checks
+live in the goal test list without adding product requirement rows.
+
+### WCP-001 — contributor tools lane
+
+Every executable contributor-tool change has a declared owner, a carrier in the existing issue-to-ticket process, and durable evidence appropriate to its changed behavior. The working rules name the lane and apply it to existing tools and future tools regardless of implementation language. A behavior change requires a failing behavioral check before implementation and a passing check after it; a behavior-preserving change records the narrow proof that establishes preservation. Pure documentation keeps its existing shop lane.
+
+Accepted from [contributor tools lane](issue/i-040-contributor-tools-lane/spec.md#requirement-records).
+
+#### Accepted mechanics
+
+Expand the existing lane rule to name executable contributor tools and test helpers by behavior, not directory or suffix. Update the ticket guidance to identify tool ownership, changed behavior, and the narrow check. Use existing fixtures for lifecycle tools and isolated filesystem fixtures for link-checker changes. Do not create a separate tool registry or duplicate the ticket system.
+
+The mechanics implement [WCP-001](issue/i-040-contributor-tools-lane/spec.md#requirement-records) and are tested by the [verification plan](issue/i-040-contributor-tools-lane/test-plan.md#verification).
+
+
+### WCP-002 — shared private test support
+
+Current private regression lanes use one maintained support surface for fixture construction, process execution, snapshots, and fault setup, with isolated process environments and filesystem state. One aggregate runner accounts for every declared live lane or valid expiry without silent skips. A documented current-versus-history boundary preserves archived evidence and every migrated lane's identity, requirement, and assertion strength. The migration covers existing live duplication, names any retained exception, and measures full-sweep growth rather than merely adding a helper unused by current lanes.
+
+Accepted from [shared private test support](issue/i-041-shared-private-test-support/spec.md#requirement-records).
+
+#### Accepted mechanics
+
+Inventory the live roster and identify duplicated fixture/launch/snapshot/fault setup, then extract only repeated behavior into the existing test support crate. Keep per-lane assertions in their owning crates. Child process environments are built explicitly instead of changing shared parent environment. Keep unique temporary roots, restore guards, and deterministic captured output. The current runner remains the aggregate entry point; report crate count and elapsed/build reuse measurements as observations, not a brittle timing gate. Publish the migration ledger in its owning ticket/evidence and leave archived issue, ticket, and residual bytes intact.
+
+The mechanics implement [WCP-002](issue/i-041-shared-private-test-support/spec.md#requirement-records) and are tested by the [verification plan](issue/i-041-shared-private-test-support/test-plan.md#verification).
+
+
+### WCP-004 — review before proofs
+
+The build order obtains an independent review of the proposed source and tests before executing the expensive private-lane and deliberate-damage proof set. The accepted review identifies the exact reviewed snapshot. A rejected review returns to repair without running that proof set. Later source or oracle changes invalidate the affected review and proofs rather than claiming a once-only guarantee over changed bytes. A clean reviewed snapshot earns one complete private/damage proof set after review. This once-only rule applies to earning that unchanged proof, not to mandatory restored-green checks after each mutation or the declared post-merge verification from main; both remain required. Later source or oracle repair still requires renewed affected proof.
+
+Accepted from [review before proofs](issue/i-043-review-before-proofs/spec.md#requirement-records).
+
+#### Accepted mechanics
+
+Update working order, ticket template guidance, and the workflow states together when integrated. The order is: public checks green; independent source and test-oracle review accepted; full private-lane and quality checks green; safety checkpoint created from that reviewed green work; deliberate damage with checkpoint restoration and mandatory restored-green verification after each mutation; landing and merge; required post-merge verification on main. Resolve review findings and record the accepted snapshot before the private checks; a failed check returns to repair and invalidates affected review or proof. The safety checkpoint is never created before all required checks are green. Before accepting final evidence, compare it and the review against their declared source/test roots. Record command-order events in fixture execution so a wording change alone cannot certify behavioral ordering. The command trace distinguishes earning the reviewed private/damage proof from restored-green reruns after each mutation and the required post-merge verification on main. Those mandatory reruns remain intact and are never suppressed by the once-only claim.
+
+The mechanics implement [WCP-004](issue/i-043-review-before-proofs/spec.md#requirement-records) and are tested by the [verification plan](issue/i-043-review-before-proofs/test-plan.md#verification).
+
+
+### WCP-005 — byte verified restores
+
+Before deliberate damage, record the exact bytes and effective checkout conversion settings for every declared tracked mutation target. A restore is accepted only after recomputing each restored target's digest and matching its frozen digest, with index and tracked-tree state also verified. Refuse before damage when effective line-ending or checkout filters cannot reproduce those frozen bytes; never silently change global or repository Git settings. A clean Git status alone cannot pass a restore whose bytes differ, and a refusal names the affected path and corrective action.
+
+Accepted from [byte verified restores](issue/i-044-byte-verified-restores/spec.md#requirement-records).
+
+#### Accepted mechanics
+
+The supported damage/restore operation stores a frozen manifest beside ticket evidence and reads it before every restore. Derive checkpoint target bytes and effective Git attributes/configuration, prove their checkout round-trip or refuse before permitting mutation, and verify actual worktree bytes afterward. Report mismatched paths explicitly and leave unrelated work untouched. Integrate this verifier into the checkpoint-only restore mechanism instead of creating a competing restore path.
+
+The mechanics implement [WCP-005](issue/i-044-byte-verified-restores/spec.md#requirement-records) and are tested by the [verification plan](issue/i-044-byte-verified-restores/test-plan.md#verification).
+
+
+### WCP-006 — checkpoint only restoration
+
+The supported ticket damage and recovery mechanism resolves and records exactly one safety commit for the current reviewed green work, accepts only mutation targets tracked by that commit, and restores their index and worktree bytes only from that commit. Backup-copy, latest-file, implicit-index, arbitrary-revision, and inverse-edit restore modes are absent or explicitly refused before mutation. A stale checkpoint, untracked target, unsafe path, or unrelated unsaved work refuses by name. Interruption recovery uses the same recorded checkpoint and byte verifier. Historical evidence remains unchanged.
+
+Accepted from [checkpoint only restoration](issue/i-045-checkpoint-only-restoration/spec.md#requirement-records).
+
+#### Accepted mechanics
+
+Reuse turn ownership and declared roots. Bind the current item's reviewed source manifest to its safety commit and fail if the selected checkpoint does not contain that exact green snapshot. The restore verb consumes this recorded checkpoint, never a caller-supplied backup path or revision. Validate all targets and preserve unrelated work before touching any file; invoke Git restore with the explicit checkpoint for both index and worktree. Then invoke the byte-verification contract. Recovery reports the same checkpoint and exact allowed command without copy-back fallbacks.
+
+The mechanics implement [WCP-006](issue/i-045-checkpoint-only-restoration/spec.md#requirement-records) and are tested by the [verification plan](issue/i-045-checkpoint-only-restoration/test-plan.md#verification).
+
+
+### WCP-008 — edition proof preflight
+
+The supported edition-cut path validates the candidate annotation using the same proof-text contract as the edition audit, confirms the exact intended clean commit and all required successful checks against its bytes, validates edition naming/sequence and target reachability, and proves the edition rule EDN-001 rest condition at that commit before creating a tag: no pending intake, no open work item, and no unproven gap record. A missing proof phrase, failed or stale check, unfinished cycle despite green quality commands, dirty tree, moved target, existing name, or malformed input creates no tag and alters no existing tag. A valid cut creates one immutable annotated tag using the validated text and exact checked commit; ledger recording still follows tag creation. Text that merely names checks is not proof that they passed.
+
+Accepted from [edition proof preflight](issue/i-047-edition-proof-preflight/spec.md#requirement-records).
+
+#### Accepted mechanics
+
+Extract or reuse one pure annotation validator for preflight and post-creation audit. Resolve the intended commit once, require a clean proven checkout for it, execute or verify fresh declared quality-check evidence, and recheck target/tree identity immediately before tag creation. Supply annotation text through a file or structured argument without shell interpolation. Create the annotated tag only after every refusal check passes, using a non-overwriting tag creation. Leave recording the edition ledger to the subsequent existing landing rule; never repair a failed audit by rewriting a tag. Before tag creation, inspect the candidate commit's declared workflow records to establish EDN-001 rest: no pending intake bundle, no open work item, and no unproven gap. All three remain independent prerequisites even when every quality command is green; recheck them with the target/tree identity immediately before the tag write.
+
+The mechanics implement [WCP-008](issue/i-047-edition-proof-preflight/spec.md#requirement-records) and are tested by the [verification plan](issue/i-047-edition-proof-preflight/test-plan.md#verification).
+
+
+### WEB-003 — tracked repository audits
+
+Tree-scanning repository acceptance audits enumerate tracked and staged paths from the addressed repository index, read their current working-tree bytes, and never recurse into ignored or untracked directories merely because they exist. This applies to the shared retired-name audit and every acceptance check that claims to scan repository content. An intentionally untracked input is included only by a caller-supplied explicit relative file list, is reported as an extra input, and is subject to the same checks. Missing tracked inputs, invalid or escaping extra paths, unreadable inputs, and repository-listing failures are named failures, not silent omissions or a fallback directory walk. The audit declares how it handles binary inputs, reports any deliberate exclusions, and never disguises decoding failure as an unreadable-file omission. Existing historical allowlist matching and stale-entry detection remain enforced against the selected inputs.
+
+Accepted from [tracked repository audits](issue/i-057-tracked-repository-audits/spec.md#requirement-records).
+
+#### Accepted mechanics
+
+[rebrand.rs](../test/qa/src/rebrand.rs) owns collect_files and audit; its SKIPPED names exclude only .git, test-hidden, and target, while I/O failures are silently skipped. Both [active reference audit](../test/qa/tests/t034_rat005.rs) and [full rebrand acceptance](../test/qa/tests/t037_rat008.rs) call this shared audit.
+
+Assumed: use `git ls-files --cached -z` under the supplied audit root, with Git environment overrides cleared, then sort and deduplicate paths. Read working files, not committed blobs, so changes being reviewed are visible. Reject conflicts and missing indexed files unless the index itself stages their removal. Gitlinks are repository boundaries, not permission to descend into another worktree; a symlink is inspected as a tracked link and never followed outside the root.
+
+Provide an explicit extra-path slice in the audit helper; existing callers use an empty slice. Tests that intentionally build untracked fixture trees supply their exact file list or initialize a small temporary index. Extra inputs require safe repository-relative regular-file paths, no glob or directory expansion, and no link escape; duplicates collapse deterministically and missing entries refuse. Surface this list in the report so it cannot silently weaken the claimed coverage.
+
+Update all repository-tree audit callers found in the implementation inventory to use the same listing, including vocabulary and path-name checks; focused fixture walks remain valid when their scope is explicitly a fixture. Preserve the old historical-token allowlist as a separate content decision: an extra input is not an exemption from forbidden-name checks.
+
+Assumed binary policy: read each selected regular file as bytes. Valid UTF-8 without NUL bytes is checked as text with line locations; all other readable content is checked for the same forbidden ASCII token byte sequences, reporting byte offsets rather than lossy text. Path-name checks still apply to every selected path. Thus binary classification is explicit and causes no content exclusion; unreadable bytes remain a named failure. If a future audit needs a true binary exclusion, that exclusion must be explicitly declared and reported rather than inferred from a decoding error.
+
+This is contributor-test behavior, not a new Engine guard. Integrate it into the working authority with an executable deliverable and link its public test proof; do not make the generic Engine know this repository's legacy spellings.

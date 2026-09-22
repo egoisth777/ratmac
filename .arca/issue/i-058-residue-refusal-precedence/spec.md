@@ -1,0 +1,7 @@
+# Issue specification
+
+## Requirement Records
+
+| Requirement ID | Requirement | Disposition | Rationale | Accepted Forward Authority Refs |
+| :--- | :--- | :--- | :--- | :--- |
+| `WEB-004` | For every public operational command and equivalent library entry point, retired-layout residue at the invoking/shared or explicitly addressed project is refused before command-specific option validation, runbook parsing, roster reads, blocker lookup, target existence checks, joins involving runtime data, or mutation. Only the minimal command/target identification, Engine-root resolution, and filesystem inspection required to locate residue may precede that refusal. Thus a recognized command with malformed options reports residue first when residue exists; without residue it reports the ordinary option error. Only documented exact standalone-help forms and an unknown command perform no operational action and remain pure usage responses. All refusals leave the tree byte-identical. A help token mixed into an operational request cannot bypass preflight. A single maintained entry-point matrix covers every public route, including new initialization, recovery, authorization, and nested-protocol commands, and exposes a newly added uncovered operational route. | accepted | Accepted under Billy's 2026-09-22 all-wishes instruction and explicit workflow dispatch after independent contract review. | [Accepted authority](../../goal/spec.md#integrated-wishlist-fulfillment-requirements) |

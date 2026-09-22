@@ -106,3 +106,12 @@ Plain-word definitions for terms used in work with Billy. Consult this file befo
 - **Live regression**: A red verdict whose lane is right: the Engine violates a requirement still frozen in the goal. Fixed in the Engine under that requirement's own gap record, never by editing the lane.
 - **Port (of a lane)**: Rewriting a lane's fixture and expectations to today's spelling while keeping its lane id and the requirement it was cut for. Dropping a lane or weakening its oracle is not a port.
 - **Roster (of lanes)**: The declared list of landed hidden crates in `.ratmac/lanes.toml` that the sweep must find in the folder. A folder crate the roster does not name is a stray; a rostered crate the folder lacks is missing; both are refusals for the close.
+- **Wishlist contributor process (WCP)**: Requirement prefix for the 2026-09-22 contributor-tooling and proof-process wish batch. Each requirement keeps its own issue and accepted authority.
+- **Wishlist Run safety (WRS)**: Requirement prefix for the 2026-09-22 Run lifecycle, recovery, and reporting wish batch.
+- **Wishlist Engine boundaries (WEB)**: Requirement prefix for the 2026-09-22 fingerprint, initialization, audit-input, root, residue, nesting, and trace wish batch.
+- **Wishlist review authorization (WRA)**: Requirement prefix for independently enrolled review and approval of exact fresh transition intents.
+- **Trust enrollment**: An independently controlled record binding real actors to public keys, roles, project scope, and verifier identity. A builder-created name, key, or hash cannot establish its own independence.
+- **Approver**: An externally enrolled reviewer authorized to approve a transition after the required reviews. The builder and all keys belonging to the builder are excluded.
+- **Transition intent**: The canonical fresh facts an approval signs: project, Run, current and proposed State, selected input or action, sequence, current authority identities, and declared-work digest.
+
+- **Wishlist verification identifiers**: WCPV, WRSV, WEBV, and WRAV name planned checks for WCP, WRS, WEB, and WRA requirements respectively. A check identifier is not a test result.

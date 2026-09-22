@@ -131,3 +131,31 @@ Glossary of ubiquitous language. One term, one meaning. Terms not listed here mu
 | Expiry marker | The explicit record a lane carries when it can no longer run green, naming the edition it last passed at, the date, and the reason; written by an explicit act, never by silence. |
 | Last-good edition | The edition an expiry marker names: the newest edition against which the crate's lanes ran green. |
 
+## Wishlist fulfillment vocabulary
+
+Issue-specific terms keep their definitions in the accepted bundles; shared review
+and enrollment terms are in [the project glossary](../dict.md).
+
+- [contributor tools lane terms](../issue/i-040-contributor-tools-lane/ubi-lang.md).
+- [shared private test support terms](../issue/i-041-shared-private-test-support/ubi-lang.md).
+- [selected issue completion terms](../issue/i-042-selected-issue-completion/ubi-lang.md).
+- [review before proofs terms](../issue/i-043-review-before-proofs/ubi-lang.md).
+- [byte verified restores terms](../issue/i-044-byte-verified-restores/ubi-lang.md).
+- [checkpoint only restoration terms](../issue/i-045-checkpoint-only-restoration/ubi-lang.md).
+- [distributable plan build profile terms](../issue/i-046-distributable-plan-build-profile/ubi-lang.md).
+- [edition proof preflight terms](../issue/i-047-edition-proof-preflight/ubi-lang.md).
+- [successor ownership terms](../issue/i-048-successor-ownership/ubi-lang.md).
+- [child class hold terms](../issue/i-049-child-class-hold/ubi-lang.md).
+- [cycle pause routes terms](../issue/i-050-cycle-pause-routes/ubi-lang.md).
+- [rule fix recovery terms](../issue/i-051-rule-fix-recovery/ubi-lang.md).
+- [descriptive run roster terms](../issue/i-052-descriptive-run-roster/ubi-lang.md).
+- [terminal history status terms](../issue/i-053-terminal-history-status/ubi-lang.md).
+- [abandon confirmation hints terms](../issue/i-054-abandon-confirmation-hints/ubi-lang.md).
+- [portable goal fingerprints terms](../issue/i-055-portable-goal-fingerprints/ubi-lang.md).
+- [engine ignore initialization terms](../issue/i-056-engine-ignore-initialization/ubi-lang.md).
+- [tracked repository audits terms](../issue/i-057-tracked-repository-audits/ubi-lang.md).
+- [residue refusal precedence terms](../issue/i-058-residue-refusal-precedence/ubi-lang.md).
+- [single root resolution terms](../issue/i-059-single-root-resolution/ubi-lang.md).
+- [safe nested invocations terms](../issue/i-060-safe-nested-invocations/ubi-lang.md).
+- [deterministic trace channel terms](../issue/i-061-deterministic-trace-channel/ubi-lang.md).
+- [authorized review transitions terms](../issue/i-062-authorized-review-transitions/ubi-lang.md).

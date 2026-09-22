@@ -667,3 +667,476 @@ landing, the ticket records that conflict resolution in the log. The newly
 recorded stable Engine is bootstrapped before another Run starts, while the
 completed Run's pin evidence remains untouched.
 
+## Wishlist fulfillment decision (ADR-0023)
+
+The dispatch accepts these independently reviewed contracts. Archived evidence and
+original Run pins stay unchanged. The stable driver continues on its pinned runbook.
+New runbook fields and pause routes are proven against exact prepared bytes and
+activated only at a compatible cycle boundary, following the declared-completion
+rollout precedent. Capability proof never claims external enrollment was supplied.
+Legacy Runs are never silently upgraded to the new authorization contract.
+
+### WCP-003 — selected issue completion
+
+The self-development workflow binds its selected issue and requirement set to its work item, tested source snapshot, failing-before-implementation evidence, passing-after-implementation evidence, and independent review decision. Completion refuses absent, mismatched, stale, fabricated-by-the-working-agent review authority, or unrelated evidence. A writable success marker, unrelated issue's tests, or a passing child alone cannot satisfy this contract. The parent consumes only the properly bound terminal review result; the Engine remains generic and learns no issue document conventions.
+
+Accepted from [selected issue completion](../issue/i-042-selected-issue-completion/spec.md#requirement-records).
+
+#### Accepted mechanics
+
+Carry opaque selected-issue and item bindings into the governed work. Workflow-owned validation resolves them to the selected requirements and permitted check declarations. Bind the review to the exact source/evidence digest; require rejection and repair before proof completion when it changes. Use the independently authorized review contract for admission of review results, and join its Engine-written terminal result only after authority and snapshot checks. No product-specific issue parser is added to Engine source. Trial lifecycle Git operations remain outside the Run.
+
+The mechanics implement [WCP-003](../issue/i-042-selected-issue-completion/spec.md#requirement-records) and are tested by the [verification plan](../issue/i-042-selected-issue-completion/test-plan.md#verification).
+
+
+### WCP-007 — distributable plan build profile
+
+A distributable Plan-Build profile contains the Machine Class template, executable artifact schemas and validators, issue/gap/work-item blanks, required terms, and operating instructions needed by its guards. A clean repository with no .arca/schema.md and no inherited system prompt can initialize the profile and drive a complete issue-to-proven-completion sprint using only its packaged contract and Engine output. Profile fields and roots are declared data; the Engine gains no project-specific source code. Missing, malformed, or incompatible profile artifacts refuse with actionable guidance. Existing user files are never overwritten silently, and installation is deterministic and offline.
+
+Accepted from [distributable plan build profile](../issue/i-046-distributable-plan-build-profile/spec.md#requirement-records).
+
+#### Accepted mechanics
+
+Create a manifest describing profile format compatibility and its included schemas, templates, checkers, terms, and Machine Class. Export the complete bundle atomically to an absent target using existing non-overwrite behavior. Parameterize repository root roles and executable check commands through declared profile data. Ensure every shape consumed by a contract guard has one machine-readable definition shipped with the profile and no unstated dependency on this repository's schema. Prove the profile by an isolated clean-repository sprint, using explicit checks and review evidence rather than operator narration.
+
+The mechanics implement [WCP-007](../issue/i-046-distributable-plan-build-profile/spec.md#requirement-records) and are tested by the [verification plan](../issue/i-046-distributable-plan-build-profile/test-plan.md#verification).
+
+
+### WRS-001 — successor ownership
+
+A spawned replacement becomes available to public Run operations only after its owning parent ledger durably records its identity, class, bindings, workspace, and superseded Run. Concurrent step, spawn, hold, abandon, join, and roster reads must never observe an admitted successor without that ownership. Root-before-Run lock order and root-lock-free guard evaluation remain unchanged. Failed or interrupted replacement preserves the predecessor or records a complete recoverable replacement; an ambiguous write never causes deletion of potentially owned evidence, and identifiers are never reused.
+
+Accepted from [successor ownership](../issue/i-048-successor-ownership/spec.md#requirement-records).
+
+#### Accepted mechanics
+
+- Use the existing mint and ledger boundaries in `src/scheduler.rs`, `src/ledger.rs`, and `src/lock.rs`; make publication one root-locked decision instead of releasing an admitted successor before ownership is durable.
+
+- Prepare the replacement and validate the predecessor before destructive retirement. Keep any uncommitted replacement unavailable to public motion; distinguish absent, complete, and indeterminate ledger writes without guessing. Recovery must finish or safely cancel the same recorded operation rather than minting duplicates.
+
+- Retain the confirmed `respawn <run id>` contract, child workspace and binding inheritance, append-only ledger history, and the one-level spawn cap. Do not hold the root lock while running guards.
+
+#### Scope and assumptions
+
+These mechanics implement the accepted dispatch; runtime ownership and historical preservation remain binding.
+
+No dependency on another new issue. Coordinate with rule-fix recovery if it reuses replacement or publication helpers.
+
+
+### WRS-002 — child class hold
+
+Both planning and applying an addressed hold resolve the blocked route in the Run's recorded owning class. A child whose current State declares a blocked route can be held, even when its State name overlaps the parent or a sibling class; another class's route never substitutes for its own. The hold preserves Run identity, records blocked status and the opaque blocker only in Engine-owned state, and leaves the parent, siblings, workflow files, pins, and previous evidence unchanged. Confirmation, terminal refusal, containment, stale-plan checks, and write-free refusals remain enforced.
+
+Accepted from [child class hold](../issue/i-049-child-class-hold/spec.md#requirement-records).
+
+#### Accepted mechanics
+
+- Expose or reuse one owning-scope route lookup from the Scheduler instead of reading its top-level graph in `src/blocked.rs`.
+
+- Resolve from the durable ledger class during planning and revalidate under the addressed Run lock during apply. Use the child's recorded workspace for blocker containment.
+
+- A missing class, missing own route, ambiguous ownership, or forged/stale plan refuses by name before writing; do not guess from matching State names.
+
+#### Scope and assumptions
+
+These mechanics implement the accepted dispatch; runtime ownership and historical preservation remain binding.
+
+Independent Engine repair. It precedes exercising pause routes on the Plan-Build child class in the cycle-pause issue.
+
+
+### WRS-003 — cycle pause routes
+
+The shipped Plan-Build Runbook declares exactly one human-confirmed blocked route for each nonterminal cycle and ticket State, preserving that State as its pause destination. A valid hold keeps the Run address, evidence, child ownership, and pins while recording blocked status and a linked blocker in Engine-owned state. Resume verifies exact human resolution authorization bound to that Run, its currently recorded opaque blocker, held-record digest, and unique hold occurrence, together with its unchanged owning class, State, pins, and existing entry prerequisites; under a governed policy the resolution authorization must also be signed through WRA-001. The Engine verifies authorization, not whether an external cause has actually been fixed. It then atomically clears the paused fact and restores executing status without advancing, retaining the hold, blocker, and resolution authorization in history; resume refusal before publication leaves persisted records and history unchanged; an interrupted committed resume reports recovery pending and is completed before further mutation. Resume neither refreshes receipts nor approves a transition: later completion and spawning still require their normal fresh checks. Ordinary step never takes a blocked route, terminal States declare none, and no pause fabricates passing proof. Activation happens only at a compatible cycle boundary and never by rewriting a live Run's pin.
+
+Accepted from [cycle pause routes](../issue/i-050-cycle-pause-routes/spec.md#requirement-records).
+
+#### Accepted mechanics
+
+- Use a blocked self-route for each working State so the graph position survives the hold; keep blocked as a lifecycle status rather than introducing a State called blocked.
+
+- Reuse the existing confirmed hold and opaque blocker rules. A shop annotation on an affected ticket remains a contributor action, never an Engine write.
+
+- Add one addressed, explicit resume operation whose exact human resolution authorization names both the Run and its currently recorded blocker. Under a governed policy, require a signed resolution decision through WRA-001 bound to those same facts and current trusted identities. The human or authorized reviewer owns the external resolution judgment; the Engine verifies the authorization and binding, not the truth of an external cause. A generic claim, an edited issue status, or deletion of the referenced file supplies no authorization.
+
+- Reuse existing entry-prerequisite checks. Do not introduce a new guard language or issue parser to infer blocker resolution. The signed resolution purpose is exactly `ratmac-resume-v1`. Its canonical intent binds the Run identifier, current State, owning class, recorded workspace, effective pinned authority identities, exact opaque blocker, held-record digest, and hold occurrence. The human confirmation binds the same Run and blocker; under a governed policy it does not replace the signed decision.
+
+- Each committed hold receives a monotonically increasing, never-reused occurrence in the addressed Run's Engine-owned append-only `pauses/<sequence>.toml`. Sequence filenames are positive decimal integers without leading zeroes, starting at 1 and ordered numerically; an unavailable next value refuses instead of wrapping. The record preserves the exact held context and its digest. Resuming and then holding the same Run at the same State against the same blocker creates a new occurrence, so a prior signature cannot resume it. No field is added to the public seven-field Run Record.
+
+- Resume revalidates the owning class and pinned authority, takes the addressed Run lock, and compares the held State, exact blocker, record digest, and occurrence against the authorized request. Only after resolution authorization and existing entry prerequisites pass does it clear the live blocker and set executing status at the same State. Preserve the hold, blocker, and verified resolution authorization as historical facts without claiming the Engine proved an external repair. Never consume a verdict, mint a child, refresh a receipt, or advance a State during resume; ordinary operations do those jobs afterward under their existing checks.
+
+- Hold and resume use an Engine-owned operation journal under the addressed Run lock. Prepare the complete old/new Run Record bytes, pause or resolution evidence, and uniquely identified append-only history event before publication. Atomically publish the complete journal entry as the action's commit decision; unpublished temporary preparation is not an accepted action. Before any later mutation, recover an interrupted operation to its unchanged old state when no commit decision exists, or finish all outputs of the committed action exactly once. Readers never repair: while physical outputs need reconciliation, they report the pending operation instead of presenting a half-cleared pause as ordinary state. A refusal before publication leaves persisted records and history unchanged; failure after publication reports a committed action with recovery pending, never a false unchanged refusal. Committed pause records and history are never removed or rewritten during recovery.
+
+- Update the working procedure before activating the Runbook changes. Stage reviewed changes until existing pinned Runs reach a safe boundary; a current Run cannot inherit new routes by silent mutation. A rule-fix amendment preserves the paused lifecycle; it is not implicit resume permission and supplies no passing transition evidence.
+
+#### Scope and assumptions
+
+These mechanics were selected during integration under Billy's 2026-09-22 dispatch. Implementation remains ticketed and must preserve runtime ownership and historical evidence; this issue claims no completed implementation.
+
+Depends on child-class hold for ticket-stage pauses and WRA-001 for signed resolution authorization under a governed policy. Rule-fix recovery is separate and required only when continuing after a pinned rule itself changes. Its authority amendment and this capability's resume authorization remain separate decisions.
+
+
+### WRS-004 — rule fix recovery
+
+An explicitly authorized Engine recovery can continue a nonterminal Run stopped by a corrected rule without changing its Run address, owning class, bindings, workspace, or current State, deleting its proof, retiring it, or rewriting its original pins. Authorization is verified under the prior trusted policy or a previously enrolled recovery authority, never the proposed replacement policy. The signed authorization binds the Run, full old and new authority identities, and every enumerated change; a confirmation phrase alone cannot authorize replacement. Recovery cannot enroll its own approver. A Run lacking previously enrolled recovery trust requires explicit independent external enrollment before recovery is eligible. The recovery durably records the identities, affected rule, verified authorization, and evidence boundary as a forward-only amendment. It validates the corrected class and State and independently rechecks all affected prerequisites and proof; stale receipts or agent-authored claims never establish success. Missing authorization, incompatible corrections, terminal Runs, corrupt evidence, and interruption leave the old authority effective or one complete recoverable amendment, never a partial silent repin. An amendment does not resume a paused Run or approve a transition.
+
+Accepted from [rule fix recovery](../issue/i-051-rule-fix-recovery/spec.md#requirement-records).
+
+#### Accepted mechanics
+
+- Propose one addressed recovery action, separate from ordinary step and respawn, with an exact human confirmation bound to the Run and proposed corrected identities. Require a signed authority-replacement decision through WRA-001 as well: confirmation alone is insufficient. Verify signatures using the existing trusted policy or an independently pre-enrolled recovery authority, never keys or rules introduced by the candidate correction.
+
+- Bind the signature to the exact Run, current amendment-chain tip, full old and new Engine/runbook/goal/gate/policy identities where changed, current State/class, and the complete enumerated change set. Missing or extra changes refuse. Guard removal or policy replacement requires that same prior authority's explicit authorization; it cannot silently qualify as a harmless correction. Bootstrap enrollment is outside recovery, performed only by an independently authorized operator; an unenrolled legacy Run stays ineligible, with that prerequisite named.
+
+- Preserve original `evidence.toml`, Run history, receipts, and verdict archives. Each Engine-owned append-only `amendments/<sequence>.toml` is a strict version-1 record with these required fields: `version`, `sequence`, `previous-amendment-digest`, `run`, `context`, `old-authorities`, `new-authorities`, `changes`, `affected-proof-boundary`, `signed-intent`, and `signature-identities`. Context binds State, owning class, bindings, and workspace; both authority records give the complete Engine, runbook, goal, gate-artifact, policy, and enrollment identities, using explicit absence only for a historically absent authority. Changes enumerate every differing authority and affected scope. The proof boundary names the evidence invalidated by those changes. Signed intent contains the exact canonical authorized bytes; signature identities retain the verifying enrolled signers and detached signature evidence. These fields extend neither the public seven-field Run Record nor the original pin record.
+
+- Sequence filenames are positive decimal integers without leading zeroes, starting at 1, contiguous, and ordered numerically; a record's sequence must equal its filename. The first `previous-amendment-digest` is the digest of the original immutable pin record; each later value is the digest of the exact preceding final amendment bytes. Unknown or missing fields, duplicate fields or sequence numbers, gaps, noncanonical sequence names, malformed identities, a broken chain, or disagreement between signed intent and record fields refuse. Temporary files use a distinct preparation suffix and are never chain members. Readers validate the complete chain under prior trusted authorization before selecting its effective head; absence of a chain retains the original pin authority.
+
+- The minimal compatibility rule keeps the same State, class, bindings, and workspace; it refuses removed States, rebinding, terminal promotion, unverifiable old identity, or unlisted changes. No general migration language or rewind is proposed. A goal correction invalidates affected completion evidence rather than treating the old proof as fresh.
+
+- Only the Engine writes an amendment. Under the addressed Run lock, prepare the complete validated signed record, then atomically rename it to its unused final sequence path. That final rename is the authoritative commit point: before it the old head remains effective; after it the new verified head is effective even if the subsequent history append fails. Original pins remain byte-identical. Append the uniquely identified amendment history event afterward; retry reconciles a missing event once without minting another amendment or duplicating a complete event. An incomplete history fragment refuses further mutation until the existing append-only recovery boundary can reconcile it, without truncating history. A post-publication failure reports committed amendment with history pending, never claims the amendment was refused unchanged. Readers ignore temporary preparation and validate final chain members but never write repairs.
+
+- Every governed motion reads the latest verified amendment chain and demands authorization and proof bound to that effective head. Earlier receipts remain historical; an unchanged source digest alone cannot refresh evidence bound to an older authority head. Recovery changes no State or paused lifecycle. An explicit authorized resume remains separate when the Run is paused, and later motion requires fresh checks under the corrected authority. Preserve provenance for removed checks instead of laundering their stale receipts into current passing proof.
+
+#### Scope and assumptions
+
+These mechanics were selected during integration under Billy's 2026-09-22 dispatch. Implementation remains ticketed and must preserve runtime ownership and historical evidence; this issue claims no completed implementation.
+
+Requires WRA-001 in issue i-062 for independently trusted authorization of authority replacement, including prior-policy validation and external enrollment prerequisites. Keep independent from respawn and from authorized resume: recovery preserves the original Run address and paused lifecycle. Child-class hold is required only for the composed-child recovery tests.
+
+
+### WRS-005 — descriptive run roster
+
+Human-facing Run roster output identifies every canonical address together with its recorded top-level or child role, parent and class for children, recorded binding values when present, and State and lifecycle status when readable. Retired or unreadable records are labeled explicitly rather than silently omitted or guessed. Ordering is stable, metadata comes only from Engine-owned records, and a missing address still refuses instead of implicitly selecting a Run. Listing is read-only and needs no current runbook parse, guard evaluation, or pin rewrite.
+
+Accepted from [descriptive run roster](../issue/i-052-descriptive-run-roster/spec.md#requirement-records).
+
+#### Accepted mechanics
+
+- Keep the canonical identifier listing used internally separate from a human-readable roster renderer. Read the per-Run records and parent ledgers once for the report and use their stored facts, without interpreting an opaque binding as a ticket title.
+
+- Use consistent rendering in missing/invalid-address diagnostics and the roster printed by status. Show unknown or unreadable facts by path and reason; an unreadable ledger must not license describing an uncertain child as top-level.
+
+- Preserve stable ordering and escape control characters in rendered opaque values. No new persistent display name, database, external lookup, or lifecycle command is needed.
+
+#### Scope and assumptions
+
+These mechanics implement the accepted dispatch; runtime ownership and historical preservation remain binding.
+
+No new hard dependency. Shares read-only historical-record handling with terminal-history status; successor publication must not expose an ownership-free row.
+
+
+### WRS-006 — terminal history status
+
+Addressed status can report a strictly parsed persisted passed Run's identity, State, status, and recorded evidence identities even when the current runbook differs, is unavailable, or cannot parse. This historical view reports that current instructions are unavailable and never renders changed prompts or guards as the old Run's instructions. It neither evaluates guards nor mutates records, receipts, pins, ledgers, history, or locks, and never suggests retirement merely to read a completed Run. Nonterminal motion and reporting retain their existing pin checks; corrupted records still refuse by name.
+
+Accepted from [terminal history status](../issue/i-053-terminal-history-status/spec.md#requirement-records).
+
+#### Accepted mechanics
+
+- Add an explicit read-only terminal-report path before class-dependent Scheduler opening. Use recorded status rather than the changed graph to recognize completed history; validate canonical addressing and residue boundaries first.
+
+- Render persisted facts and recorded identity fields without inventing missing old prompts. Keep the hash-only pin design; this fix needs no reconstructed or per-Run runbook copy.
+
+- A completed Run cannot regain motion through this read path. Preserve existing live-Run drift refusal and terminal step/hold refusal; malformed or unavailable evidence is named and never silently described as verified.
+
+#### Scope and assumptions
+
+These mechanics implement the accepted dispatch; runtime ownership and historical preservation remain binding.
+
+Independent from rule-fix recovery: reading completed facts authorizes no new motion. Coordinate roster formatting for consistent role and uncertainty labels.
+
+
+### WRS-007 — abandon confirmation hints
+
+All live abandonment hints, examples, and malformed-option diagnostics distinguish addressed retirement from unaddressed leftover-lock cleanup. For an addressed Run they give the exact `abandon <run id>` phrase independent of option order. When an address is missing while admitted Runs exist, the diagnostic first requires `--run <id>`, shows the roster, and teaches an addressed example rather than offering a project-name phrase that cannot retire those Runs. Only a true no-admitted-Run leftover-lock path teaches the project-name phrase. No diagnostic performs retirement or chooses a Run implicitly; confirmation and refusal safety remain unchanged.
+
+Accepted from [abandon confirmation hints](../issue/i-054-abandon-confirmation-hints/spec.md#requirement-records).
+
+#### Accepted mechanics
+
+- Keep `src/abandon.rs::required_phrase` as the phrase authority and make diagnostics use validated request context. Parse addressing before generating phrase-specific option hints; do not invent an address from a single-entry roster.
+
+- Update module examples, command diagnostics, and working instructions together at implementation. Preserve the existing no-live-Run leftover-lock behavior and residue preflight precedence.
+
+- No new confirmation source, bypass flag, or automatic approval is introduced. Displaying the proper command is guidance, not evidence that a human authorized it.
+
+#### Scope and assumptions
+
+These mechanics implement the accepted dispatch; runtime ownership and historical preservation remain binding.
+
+Independent. Reuse the descriptive roster renderer if it lands first, without requiring that presentation change to fix the phrase.
+
+
+### WEB-001 — portable goal fingerprints
+
+Goal baselines and freezes for newly started Runs use one versioned, deterministic serialization: relative paths use forward slashes, path ordering is bytewise and case-sensitive, records are length-delimited, and CRLF pairs in valid UTF-8 text without NUL bytes become LF while all other content bytes retain their meaning. Identical relative paths and canonical content produce identical revisions across platforms; added, removed, renamed, or semantically edited files change the revision. Binary content is hashed unchanged. Existing unversioned fingerprints keep their original algorithm and semantics for live Runs, including a legacy baseline first frozen after the upgrade; archived stamps stay byte-identical and parseable. An unknown version or an unrepresentable path refuses by name without updating evidence. No existing pin is silently upgraded or accepted merely because it matches either of two algorithms.
+
+Accepted from [portable goal fingerprints](../issue/i-055-portable-goal-fingerprints/spec.md#requirement-records).
+
+#### Accepted mechanics
+
+[goal.rs](../../src/goal.rs) sorts displayed relative paths but hashes raw bytes with newline delimiters. [pin.rs](../../src/pin.rs) stores baseline and frozen revisions as strings; [contract.rs](../../src/contract.rs) consumes the frozen citation. Goal freeze and drift remain the authority in [goal specification](spec.md).
+
+The new revision string is exactly `v2:` followed by 64 lowercase hexadecimal SHA-256 digits. The existing compound citation carries it as `goal-sha256:v2:<digest>`; its other fields retain their existing grammar. A bare 64-digit digest selects the legacy algorithm. All revision producers, comparison consumers, working-record parsers, and proof helpers adopt this grammar together before new stamps are minted. No mandatory field is added to historical records.
+
+The hashed serialization begins with the ASCII bytes `ratmac-goal-v2` followed by one NUL byte, then an unsigned 64-bit big-endian file count. Each file entry contains, in order: an unsigned 64-bit big-endian path-byte length, the UTF-8 relative-path bytes with forward-slash separators, an unsigned 64-bit big-endian canonical-content-byte length, and those content bytes. No delimiter, terminator, padding, or other byte is added. Sort entries by their relative-path bytes in ascending bytewise order before serializing; reject unsupported path encoding instead of using lossy conversion. Preserve case and Unicode code points; do not promise equality for trees whose names differ. Reject any count or length that cannot fit the declared unsigned 64-bit field.
+
+Content is text exactly when it is valid UTF-8 and contains no NUL byte. For that text, replace each CRLF byte pair with LF and change nothing else: preserve lone CR, byte-order marks, and final-newline presence. Every other file is binary and contributes its raw bytes unchanged, including any CRLF pairs. Empty directories contribute no entries; an existing empty goal directory has the zero-file serialization, while an absent goal retains the existing absent-goal behavior. A non-regular file or link whose contents cannot be represented safely refuses rather than following a host-specific target.
+
+Use the recorded version at every drift comparison. A Run whose baseline predates the change keeps that version through its freeze; a newly started Run uses the new version. Historical goal stamps are provenance, not a request to recompute them with today's algorithm. Document how an operator starts a new portable Run without rewriting an old Run or archive.
+
+Scope includes the fingerprint producer, comparison consumers, citation parsers, and their documentation. It does not change runbook byte pins, executable hashes, receipt-output hashes, or snapshot hashes: those attest exact bytes.
+
+
+### WEB-002 — engine ignore initialization
+
+A documented, idempotent initialization command installs the Engine-root tracking policy before any Run can be admitted: runs/, mint.toml, locks/, and log.md beneath the resolved Engine root are ignored, while ratmac.toml and evidence/ remain eligible for tracking. Initialization preserves unrelated bytes and compatible operator rules, refuses an incompatible effective rule with the exact path and repair, and leaves no partial initialization on failure. Already-indexed runtime files and failures inspecting an available repository's index or effective ignore rules refuse without mutation; they are not treated as absent Git. Repeating it with the same effective policy is a byte-identical no-op. Linked worktrees protect the shared runtime root and their own tracked authoring surfaces. A fresh project's first start cannot create unprotected runtime; no command silently stages, commits, changes global Git configuration, or overwrites a runbook.
+
+Accepted from [engine ignore initialization](../issue/i-056-engine-ignore-initialization/spec.md#requirement-records).
+
+#### Accepted mechanics
+
+[scaffold.rs](../../src/scaffold.rs) deliberately creates exactly one runbook file and no directories. [root.rs](../../src/root.rs) distinguishes the invoking checkout from the shared Engine root. [schema Engine-root tracking policy](../schema.md#ens-012--engine-root-tracking-policy) requires ignoring live runtime while tracking runbook and evidence.
+
+Assumed: add a small `rtm init` command dedicated to Engine storage initialization. Keep `scaffold`'s one-file contract. Initialization creates only the necessary Engine directory and an Engine-local `.gitignore` containing anchored runtime entries; it does not create a Machine Class implicitly. Teach the next scaffold command after success.
+
+For an existing local ignore file, preserve all bytes and append only missing narrowly scoped lines after validating the resulting effective policy. Do not add blanket `.ratmac/` exclusions. An operator's broader inherited rule or a negation that makes runtime visible is a conflict, not permission to rewrite the shared repository ignore file. A refusal names the effective conflicting path and asks the operator to repair that rule. A pre-existing runtime file already in Git's index must also refuse; an ignore pattern cannot untrack it.
+
+In Git repositories, check effective ignoring for representative runtime and authoring paths, including root-level and local rules and the initialized ignore file itself. An absent Git executable or a directory established to be outside a Git repository allows local policy installation with a clear statement that repository-level conflicts cannot be verified; it must not claim to have verified Git behavior. A corrupt repository, an unexpected failed Git query, or inability to inspect its index or effective rule result refuses rather than being classified as no Git. For a linked checkout, install/check the shared root's runtime policy and ensure the invoking checkout's runbook/evidence are not excluded.
+
+Make `start` perform the same idempotent policy preflight before admission, so the existing simple first-start flow cannot bypass protection; plan and validate before mutation and roll back new ignore changes if admission fails. Initialization must serialize concurrent attempts without overwriting another writer. Include this command in residue preflight and help coverage. The accepted goal must explicitly permit this Engine-local ignore file and directory creation; no workflow-root write is needed.
+
+
+### WEB-004 — residue refusal precedence
+
+For every public operational command and equivalent library entry point, retired-layout residue at the invoking/shared or explicitly addressed project is refused before command-specific option validation, runbook parsing, roster reads, blocker lookup, target existence checks, joins involving runtime data, or mutation. Only the minimal command/target identification, Engine-root resolution, and filesystem inspection required to locate residue may precede that refusal. Thus a recognized command with malformed options reports residue first when residue exists; without residue it reports the ordinary option error. Only documented exact standalone-help forms and an unknown command perform no operational action and remain pure usage responses. All refusals leave the tree byte-identical. A help token mixed into an operational request cannot bypass preflight. A single maintained entry-point matrix covers every public route, including new initialization, recovery, authorization, and nested-protocol commands, and exposes a newly added uncovered operational route.
+
+Accepted from [residue refusal precedence](../issue/i-058-residue-refusal-precedence/spec.md#requirement-records).
+
+#### Accepted mechanics
+
+[cli.rs](../../src/cli.rs) routes doctor before the common residue preflight and parses doctor's options before resolving its target. Scaffold and skill have separate path-taking boundaries. [scheduler.rs](../../src/scheduler.rs) owns refuse_flat_residue and several workspace-specific checks; [scaffold.rs](../../src/scaffold.rs) already preflights before target existence.
+
+Assumed: the precedence order is target discovery, root resolution, residue inspection, then option and operation validation. Exact pure help forms are no arguments, a sole `--help` or `-h`, or a recognized command followed only by `--help` or `-h`; the optional leading executable name accepted by the library wrapper does not change this rule. A help token mixed with other operational arguments is not a bypass and is validated only after residue preflight. Unknown commands remain write-free usage refusals.
+
+For target-taking commands, perform a non-validating scan that identifies the first positional target without interpreting malformed options as paths. Check invoking and clearly addressed roots before reporting later argument defects; if there is no unambiguous target, check the invoking root and then report usage. Document that ambiguity rather than inventing an addressed root. Resolve each relevant project once using the context established by the single-root issue.
+
+Centralize the preflight entry boundary and require an already checked context in command handlers. Public path-taking library wrappers construct that context before any handler-specific reads. Preserve the named legacy-folder ownership exception and all existing residue classes; this issue does not introduce migration or rewrite history.
+
+Inventory the exported Engine operations and command dispatch, including initialization, recovery, review-intent or authorization operations, and the nested launch/receipt endpoint as they land. Drive one parameterized matrix over malformed options, missing addresses, occupied target paths, bad confirmations, and missing blockers, with each known residue shape independently present. Add an observer or injected operation boundary in tests to prove roster/read/parse/write handlers are not called; byte snapshots alone do not prove read ordering. The inventory must have a completeness check against the public route table so a new verb cannot omit the matrix silently.
+
+Confirmed retirement currently intentionally bypasses some live-run checks. Integrate the ruling explicitly: it may still bypass damaged runbook pins to recover a Run, but retired-layout residue remains the universal preflight and never triggers an implicit repair.
+
+
+### WEB-005 — single root resolution
+
+An Engine invocation resolves each distinct addressed project exactly once and carries that immutable result through residue checks, address selection, scheduler binding, workspace validation, command execution, and reports. The invoking checkout still supplies its own runbook; linked worktrees still share the primary runtime root. A context-bound handler cannot substitute a path-taking resolver or an independently rendered root. Public convenience entry points each establish one context and use context-taking internals. A test can count resolutions and make a second resolution return a different answer, proving every route uses the original value. Distinct explicitly addressed projects may each have one cached result; workspace membership checks must not re-resolve an already known Engine root.
+
+Accepted from [single root resolution](../issue/i-059-single-root-resolution/spec.md#requirement-records).
+
+#### Accepted mechanics
+
+[root.rs](../../src/root.rs) already defines Roots with private paths but exports both Roots::resolve and resolve. [cli.rs](../../src/cli.rs) mixes roots-taking and path-taking helpers. [scheduler.rs](../../src/scheduler.rs) repeats resolution through public opens, residue wrappers, and workspace validation; status comments admit current tests cannot detect replacing the roots-taking path.
+
+Assumed: promote the existing Roots value into the invocation's authority instead of adding a global cache. One owner at dispatch resolves it. Context-bound scheduling, diagnostic rendering, residue checking, and helpers receive a reference or owned clone; they never accept a raw root as a substitute for the context. Retain public path-taking compatibility wrappers as fresh entry points, but keep them out of the internal handler API.
+
+Restrict the production resolver's visibility to entry construction. Separate pure formatting from discovery; reports derive their path only from the same context that opened the Run. For an addressed workspace, validate canonical membership against the context's repository identity rather than starting another root search. A genuinely different explicit target gets its own context, cached per invocation by canonical project identity.
+
+Introduce a small injected resolver boundary for tests, with a call counter and scripted results. Production still uses the existing Git/fallback logic, without a dependency or runtime global. The test double returns a different root or errors if called twice; exercise full dispatch and library entry wrappers so any accidental duplicate is visible even when ordinary Git would answer identically.
+
+Coordinate first with residue precedence. Nested independent invocations get separate contexts and do not inherit the parent's runtime root; they are separate Engine entries, not extra resolutions hidden in one handler.
+
+
+### WEB-006 — safe nested invocations
+
+A declared nested invocation executes a pinned child program using a separate Engine root and returns, through the parent's dedicated captured pipe from the pinned child Engine endpoint, an Engine-produced terminal receipt bound to that invocation, child Run, class pin, Engine identity, and terminal outcome. The parent advances only on the current child's verified successful terminal receipt; process exit zero, skill-wrapper output, agent-authored receipt files or markers, stale/replayed receipts, failed/held/nonterminal Runs, and mismatched roots or identities cannot pass it. No level reads or writes another level's runtime state as its own. The Engine propagates and validates lineage across nested program boundaries; a repeated declared program/class identity, repeated canonical Engine root, malformed inherited lineage, or maximum-depth overrun refuses before invoking or admitting the child and names the offending lineage. Distinct programs with distinct roots may use the same Engine executable; its digest authenticates the executable and is not a recursion identity. This lineage boundary governs cooperating pinned programs and does not claim to prevent a hostile program from discarding its environment and launching an unrelated top-level process. Ordinary same-root spawn remains its existing one-level composition model, distinct from independently rooted program calls.
+
+Accepted from [safe nested invocations](../issue/i-060-safe-nested-invocations/spec.md#requirement-records).
+
+#### Accepted mechanics
+
+[scheduler.rs](../../src/scheduler.rs) evaluate_command_exit executes a pinned or exempt program and judges its exit code, capturing diagnostics. Its existing spawn ledger and one-level child cap cover shared-root Runs only. [root.rs](../../src/root.rs) intentionally shares runtime across Git worktrees, so a linked worktree is not an independent nested root by default.
+
+Assumed: use an explicit nested-program declaration and a narrow Engine-controlled launch/receipt interface. Do not reinterpret every command_exit process as a child Run, and do not use trace output as evidence. The child target must have a genuinely distinct resolved Engine root; another worktree of the same repository refuses this nesting mode unless the governing root policy explicitly provides isolation.
+
+The parent launches the pinned child Engine protocol endpoint directly, passing the declared program/class/root and an Engine-minted invocation address. The parent owns a dedicated captured pipe from that endpoint. A wrapper skill may drive the child's allowed work, but the endpoint redirects that driver's stdout/stderr separately and does not pass its receipt pipe to the driver or its descendants. The child Engine emits the receipt on its dedicated pipe only after persisting and reading back its own terminal fact. Neither arbitrary wrapper output nor an agent-writable receipt file is accepted as this channel's substitute.
+
+The parent verifies a strict envelope against the expected invocation, child Run, pinned Engine and class, declared root, terminal sequence, and successful outcome; malformed, duplicate, partial, and unsolicited records refuse. For governed children, bind the effective enrollment/policy and authenticated terminal-transition evidence as well, preserving the authorized-review boundary instead of treating a writable signer field as authority. Record the validated receipt under parent-owned evidence without rewriting child-owned records. Define receipt creation/consumption and crash retry so a lost response cannot mint a second child or accept an earlier invocation. Process provenance relies on the pinned endpoint and existing Engine-owned-state boundary; it is not a claim that an attacker allowed to rewrite every runtime record has been defeated.
+
+Propagate the complete lineage in the parent-controlled endpoint protocol and in the process environment inherited by the driver. Every nested endpoint requires those representations to agree before admission; missing, malformed, or truncated context cannot silently become a new top-level call. Use the declared program/class identity and canonical root identity to detect aliases, symlink spellings, and a chain returning through a different binary name. Distinct programs with distinct roots may use exactly the same Engine executable: its digest is a trust pin, never the program identity used for cycle detection. Freeze a documented finite default maximum depth, proposed 16, and allow only a tighter runbook limit. The safety boundary is cooperating pinned programs; environment propagation alone cannot stop a hostile program from discarding that environment and launching an unrelated top-level Engine. No broader security claim is made.
+
+Normal guards remain pinned and cannot rebuild code during evaluation. Parent and child locks cannot form a cycle: reject shared roots and recursion before launch, and never hold the shared root lock while waiting for a child. Parent refusal or cancellation must leave a named resumable child outcome and never invent completion.
+
+Integration must specify the Machine Class fields and terminal receipt schema in the single runbook authority, plus operator guidance for nesting; exact command spelling is a design choice, not permission to omit the black-box receipt contract.
+
+
+### WEB-007 — deterministic trace channel
+
+One module owns Engine stderr output and an environment-enabled decision trace. The trace is off by default, writes only to stderr, creates no file or persistent state, and performs no formatting or allocation per disabled event. Enabled events cover root selection, transition-input edge selection, guard refusal, lock acquisition/release order, and mint read/write decisions. Each structured record carries a stable event/diagnostic code, reusing the refusal code where one exists, and deterministic fields with no timestamps, durations, absolute host paths, arbitrary child output, secrets, or nondeterministic identifiers. The same normalized input/state/decision sequence produces identical structured trace bytes; these restrictions do not erase or rewrite the established mandatory-error text. Existing stderr sites are routed through the owning module; mandatory errors remain visible when tracing is off. No guard, gate, receipt, or hidden behavioral lane consumes trace text as evidence.
+
+Accepted from [deterministic trace channel](../issue/i-061-deterministic-trace-channel/spec.md#requirement-records).
+
+#### Accepted mechanics
+
+[scheduler.rs](../../src/scheduler.rs) contains direct stderr diagnostics around recovery and lock/fault paths; [Engine entry point](../../src/bin/rtm.rs) writes mandatory errors directly. [cli.rs](../../src/cli.rs) writes normal reports through its provided output writer. Existing compiled fault points are used for deterministic concurrency and recovery testing.
+
+Assumed: `RATMAC_TRACE=1` enables tracing; absent, empty, or `0` disables it, and another value returns a clear usage diagnostic without enabling it. Read this setting once while building invocation context. The small enabled flag is transient configuration, not persisted Engine state or a global mutable event log. The no-allocation requirement covers every disabled trace call; initialization must avoid an allocation when the variable is absent and account separately for reading an explicitly present setting.
+
+Add one module for mandatory diagnostics and optional structured events. Route existing direct stderr writes through it rather than gating away errors users currently need. This distinguishes a required error from an optional decision record while keeping one writer. Preserve established mandatory-error text, including its actionable paths; the deterministic-byte and no-absolute-host-path restrictions apply to structured trace records only. Give those records an unambiguous format so tests can separate them from mandatory diagnostics without changing either meaning. Use a fixed record schema, deterministic field order, escaping, and a fixed event vocabulary; where a refusal has no stable code yet, assign one in its owning error contract and reuse it rather than manufacturing a trace-only guess.
+
+Use root roles and repository-relative paths. Do not copy free-form error/child output, executable absolute paths, environment values, timestamps, process IDs, or lock-owner nonces into trace fields. Represent external paths by a declared role or redacted marker. Stable Run addresses and declared state/input names may appear only when the same input state determines them. Trace-write failure cannot alter a guard verdict or runtime transition; mandatory error handling retains its existing semantics.
+
+Keep compiled pause points: they control timing for fault tests, whereas trace only observes. Hidden behavioral lanes must judge real state, receipts, exits, or outputs already in the product contract, never trace prose. Dedicated public trace-format and routing tests may assert the structured record contract, including an allocation counter around a disabled event; this is output verification, not gate evidence. Guards must not inherit an Engine trace channel as their proof input, and captured child trace cannot contaminate accepted receipt channels.
+
+The implementation inventory must include every direct stderr write in src/, including binary entry points, so no parallel diagnostic owner survives.
+
+
+### WRA-001 — authorized review transitions
+
+A review-governed Run changes State only after the Engine verifies the required independent group reviews and its designated Approver's authorization of the exact fresh transition intent. Unknown signers, a group member without approval authority, a contributor's unsigned claim, missing review, changed work, altered policy, and replay all refuse before state, verdict consumption, or history mutation. Both ordinary and blocked transitions obey the same rule; reviewer roles remain distinct from mechanical guards.
+
+Accepted from [authorized review transitions](../issue/i-062-authorized-review-transitions/spec.md#requirement-records).
+
+#### Accepted mechanics
+
+Add a generic optional review-policy declaration to the single Machine Class
+parser. It describes public identities and roles, the distinct-review count,
+and the pinned signature verifier. It has no project, ticket, or issue names.
+Strict parsing and doctor findings must reject malformed policies.
+
+Those declarations select an externally enrolled policy; they do not establish
+their own trust. Enrollment is controlled outside the builder's write and
+signing authority and binds the builder's actual key identity, permitted review
+keys and roles, policy digest, and verifier executable digest. Admission checks
+the declaration against that enrollment. Relabeling the builder key, replacing
+the verifier, or supplying a self-signed policy cannot pass admission. The
+implementation must state the host mechanism that protects enrollment rather
+than claim an agent-writable file or an unkeyed hash is an authority boundary.
+
+The selected production verifier is the host's OpenSSH `ssh-keygen -Y verify`
+with Ed25519 detached signatures, exact enrolled identities, and namespaces
+`ratmac-review-v1`, `ratmac-approve-v1`, `ratmac-resume-v1`, and
+`ratmac-recover-v1`. It receives canonical
+length-framed payload bytes on standard input and is judged by exit status,
+never diagnostic prose. Verification also checks its enrolled executable path
+and digest; `check-novalidate` is not an authorization operation.
+
+An operator-controlled protected trust origin supplies the enrollment manifest.
+An external path alone is insufficient: the implementation must validate its
+protected ownership/write boundary or an independently anchored enrollment
+signature. The manifest binds project scope, builder actor and all its keys,
+reviewers, Approver, minimum count, permitted role combination, and verifier.
+Neither an environment override nor a runbook declaration may replace that
+origin. No enrollment or signer private material is supplied by this dispatch;
+live activation therefore remains an explicit external prerequisite while
+implementation and isolated verification proceed. The Engine must refuse
+missing enrollment rather than generate a substitute identity.
+
+The selected protection mechanism is the host's ownership and access control,
+not a new secret store. The explicitly addressed manifest and every ancestor
+must be protected against the actual builder operating-system identity,
+including replacement and permission changes. Unix enrollment is root-owned,
+with no builder, group, or other write permission along the path. Windows
+enrollment is owned by System or Administrators; effective builder-token access
+must exclude writing, deletion/replacement, changing ownership, and changing
+permissions along the path. Builder ownership, an elevated builder capable of
+taking ownership, reparse/symlink paths, and unverifiable protection refuse.
+The manifest explicitly binds that builder's operating-system identity and
+project scope. Its allowed-signers file is protected by the same ownership and
+access checks, pinned by digest, and passed directly to the verifier; an
+agent-writable temporary signer file is never substituted for it. Identity/key
+entries must agree exactly with the enrolled role map. Tests may inject a trust reader into an isolated verifier unit;
+the shipped command has no test override, environment bypass, or self-enroll
+command. Actual host-enrollment acceptance is never claimed from that injection.
+
+Canonical intent bytes begin with `ratmac-authorization-v1` and one NUL byte.
+Each following field is its unsigned 64-bit big-endian byte length followed by
+its UTF-8 bytes, in this fixed order: purpose, project scope, Run id, owning
+class, workspace, binding digest, next authorization sequence, hold occurrence,
+held-record digest, current State, target State, input,
+blocker, Engine identity, runbook identity, goal identity, policy digest,
+enrollment digest, builder actor, current declared-work digest, previous
+amendment digest, proposed-authority digest, change-set digest, review-set
+digest. Inapplicable fields are empty, never omitted; integers use canonical
+unsigned decimal without leading zeros. Authorization sequences are Engine-owned,
+monotonic, never reused, and bound to the addressed Run; resume also binds the
+specific committed hold occurrence. Review-set digests cover the sorted distinct
+reviewer identities and exact accepted signature bytes using the same length
+framing. Approval cannot reuse a review-purpose signature. The Engine recomputes
+the complete intent under the Run lock immediately before consumption.
+
+Expose the canonical transition intent for an external reviewer to inspect
+and sign. The scheduler derives it from authoritative Run state, the pinned
+policy, the selected transition, and explicitly declared evidence roots.
+Reading an intent is not approval. The signer writes a detached signature
+outside Engine-owned state; the Engine verifies it against declared public
+material immediately before transition consumption and mutation.
+
+Route normal and blocked movement through the same verification boundary.
+Commit accepted authorization evidence with the transition's existing
+durability discipline. Refusal, interruption, duplicate submission, and replay
+must leave a reconstructible pre-transition or completed state.
+
+Use a test verifier only in isolated fixtures, with an explicit non-production
+identity; live adoption requires an independently controlled signing identity.
+Positive and negative acceptance checks also exercise the actual production
+signature verifier with isolated, distinct fixture keys; a fake verifier is
+insufficient evidence. Enrollment/configuration tampering, same-key aliases,
+and recovery-policy replacement receive explicit negative controls.
+The workflow's selected-issue completion change consumes this authority
+contract and does not invent a separate approval format.
+
+#### Observable contract
+
+
+- Membership, approval authority, and review count are explicit, strict, pinned
+  declarations. The approver must be a group member; duplicate identities,
+  invalid verification keys, impossible counts, and unknown fields refuse.
+- The approval binds Run identity, transition sequence, source and destination,
+  selected input, frozen policy, and the declared work's current content digest.
+  Changing any bound value requires a fresh approval.
+- Missing or invalid authorization consumes nothing. Successful authorization
+  travels into immutable Run-local transition evidence with the transition.
+- Private signing material is never generated, stored, requested, or discovered
+  by the Engine. Public keys and a claimed signer name alone cannot authorize.
+- A declared review policy applies to every State change, including a hold.
+  It cannot be waived by a flag, a writable receipt, or a guard's prose.
+- An externally controlled enrollment binds the builder identity, review-group
+  public keys, approver, policy digest, and verifier executable digest before
+  the Run is admitted. A builder-authored runbook cannot enroll its own trust
+  anchor. Membership compares public-key identity as well as labels, so a
+  second name for the builder's key is still the builder.
+- Any rule or review-policy amendment requires authorization under the prior
+  trusted enrollment or its already-enrolled recovery authority, even when it
+  keeps the same State. The signed intent enumerates the old and new authority
+  identities and changed scope. Recovery cannot bootstrap or weaken trust.
+- Historical Runs and their evidence remain readable. Compatibility must be
+  explicit; an older Run must never be reported as having authenticated review.
+
+#### Assumptions and boundaries
+
+Assumed: use offline public-key signatures and a pinned verifier already
+available on the host, rather than inventing cryptography or contacting a
+service. The design must verify that verifier's supported protocol before
+choosing it. No new package is authorized merely by this proposal.
+
+Assumed: one independent review and the designated approver's signature are
+the minimum policy. A policy may require more distinct reviewers. The builder
+identity and every key enrolled to that actor cannot count toward independent
+review or act as Approver. An external Approver may also supply one independent
+review when the enrolled policy expressly permits that combination; review and
+approval remain separate signed purposes.
+
+Assumed: policy adoption is explicit and forward-only. Existing no-policy
+Runs keep their historical contract and are not retroactively called reviewed;
+the new governed workflow must actually enable the policy before this wish is
+closed. Supplying its independent trust anchor is a deployment prerequisite,
+not something an agent may fabricate to make a test or a live Run pass.
+
+Threat boundary: signing keys are controlled outside the builder's authority.
+An actor who can steal every signer's private key or replace the executable
+is outside this verification boundary. An agent-writable digest or a key
+generated by the builder is not independent authorization.
+
+Design: [proposed mechanics](../issue/i-062-authorized-review-transitions/design.md#proposed-mechanics).
+Proof: [verification checks](../issue/i-062-authorized-review-transitions/test-plan.md#verification).

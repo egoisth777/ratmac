@@ -1,0 +1,19 @@
+# Issue design
+
+## Proposed mechanics
+
+[scheduler.rs](../../../src/scheduler.rs) evaluate_command_exit executes a pinned or exempt program and judges its exit code, capturing diagnostics. Its existing spawn ledger and one-level child cap cover shared-root Runs only. [root.rs](../../../src/root.rs) intentionally shares runtime across Git worktrees, so a linked worktree is not an independent nested root by default.
+
+Assumed: use an explicit nested-program declaration and a narrow Engine-controlled launch/receipt interface. Do not reinterpret every command_exit process as a child Run, and do not use trace output as evidence. The child target must have a genuinely distinct resolved Engine root; another worktree of the same repository refuses this nesting mode unless the governing root policy explicitly provides isolation.
+
+The parent launches the pinned child Engine protocol endpoint directly, passing the declared program/class/root and an Engine-minted invocation address. The parent owns a dedicated captured pipe from that endpoint. A wrapper skill may drive the child's allowed work, but the endpoint redirects that driver's stdout/stderr separately and does not pass its receipt pipe to the driver or its descendants. The child Engine emits the receipt on its dedicated pipe only after persisting and reading back its own terminal fact. Neither arbitrary wrapper output nor an agent-writable receipt file is accepted as this channel's substitute.
+
+The parent verifies a strict envelope against the expected invocation, child Run, pinned Engine and class, declared root, terminal sequence, and successful outcome; malformed, duplicate, partial, and unsolicited records refuse. For governed children, bind the effective enrollment/policy and authenticated terminal-transition evidence as well, preserving the authorized-review boundary instead of treating a writable signer field as authority. Record the validated receipt under parent-owned evidence without rewriting child-owned records. Define receipt creation/consumption and crash retry so a lost response cannot mint a second child or accept an earlier invocation. Process provenance relies on the pinned endpoint and existing Engine-owned-state boundary; it is not a claim that an attacker allowed to rewrite every runtime record has been defeated.
+
+Propagate the complete lineage in the parent-controlled endpoint protocol and in the process environment inherited by the driver. Every nested endpoint requires those representations to agree before admission; missing, malformed, or truncated context cannot silently become a new top-level call. Use the declared program/class identity and canonical root identity to detect aliases, symlink spellings, and a chain returning through a different binary name. Distinct programs with distinct roots may use exactly the same Engine executable: its digest is a trust pin, never the program identity used for cycle detection. Freeze a documented finite default maximum depth, proposed 16, and allow only a tighter runbook limit. The safety boundary is cooperating pinned programs; environment propagation alone cannot stop a hostile program from discarding that environment and launching an unrelated top-level Engine. No broader security claim is made.
+
+Normal guards remain pinned and cannot rebuild code during evaluation. Parent and child locks cannot form a cycle: reject shared roots and recursion before launch, and never hold the shared root lock while waiting for a child. Parent refusal or cancellation must leave a named resumable child outcome and never invent completion.
+
+Integration must specify the Machine Class fields and terminal receipt schema in the single runbook authority, plus operator guidance for nesting; exact command spelling is a design choice, not permission to omit the black-box receipt contract.
+
+This file is incoming evidence. Integrated mechanics remain authoritative only in the accepted forward authority.

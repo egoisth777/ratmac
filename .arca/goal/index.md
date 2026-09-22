@@ -194,3 +194,31 @@ Ideal-shape properties are **Generic engine** and **Every boundary
 machine-checked**: project names stay in data, and a guard reads declarations
 rather than guessing from prose.
 
+## Integrated wishlist fulfillment
+
+The accepted 2026-09-22 issues follow. Gap records and owning tickets report
+implementation status; this routing list is not proof.
+
+- [contributor tools lane](../issue/i-040-contributor-tools-lane/index.md): WCP-001, working authority.
+- [shared private test support](../issue/i-041-shared-private-test-support/index.md): WCP-002, working authority.
+- [selected issue completion](../issue/i-042-selected-issue-completion/index.md): WCP-003, product requirement.
+- [review before proofs](../issue/i-043-review-before-proofs/index.md): WCP-004, working authority.
+- [byte verified restores](../issue/i-044-byte-verified-restores/index.md): WCP-005, working authority.
+- [checkpoint only restoration](../issue/i-045-checkpoint-only-restoration/index.md): WCP-006, working authority.
+- [distributable plan build profile](../issue/i-046-distributable-plan-build-profile/index.md): WCP-007, product requirement.
+- [edition proof preflight](../issue/i-047-edition-proof-preflight/index.md): WCP-008, working authority.
+- [successor ownership](../issue/i-048-successor-ownership/index.md): WRS-001, product requirement.
+- [child class hold](../issue/i-049-child-class-hold/index.md): WRS-002, product requirement.
+- [cycle pause routes](../issue/i-050-cycle-pause-routes/index.md): WRS-003, product requirement.
+- [rule fix recovery](../issue/i-051-rule-fix-recovery/index.md): WRS-004, product requirement.
+- [descriptive run roster](../issue/i-052-descriptive-run-roster/index.md): WRS-005, product requirement.
+- [terminal history status](../issue/i-053-terminal-history-status/index.md): WRS-006, product requirement.
+- [abandon confirmation hints](../issue/i-054-abandon-confirmation-hints/index.md): WRS-007, product requirement.
+- [portable goal fingerprints](../issue/i-055-portable-goal-fingerprints/index.md): WEB-001, product requirement.
+- [engine ignore initialization](../issue/i-056-engine-ignore-initialization/index.md): WEB-002, product requirement.
+- [tracked repository audits](../issue/i-057-tracked-repository-audits/index.md): WEB-003, working authority.
+- [residue refusal precedence](../issue/i-058-residue-refusal-precedence/index.md): WEB-004, product requirement.
+- [single root resolution](../issue/i-059-single-root-resolution/index.md): WEB-005, product requirement.
+- [safe nested invocations](../issue/i-060-safe-nested-invocations/index.md): WEB-006, product requirement.
+- [deterministic trace channel](../issue/i-061-deterministic-trace-channel/index.md): WEB-007, product requirement.
+- [authorized review transitions](../issue/i-062-authorized-review-transitions/index.md): WRA-001, product requirement.
