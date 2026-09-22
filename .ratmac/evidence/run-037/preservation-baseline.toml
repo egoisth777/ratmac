@@ -1,0 +1,16 @@
+kind = "preservation-baseline-only"
+completion-proof = false
+[[checks]]
+id = "WCPV-004"
+command = "cargo test --offline -p ratmac-qa --test t126_shared_private_test_support wcpv_004 -- --exact --nocapture"
+environment = "RATMAC_MIGRATION_BASELINE=1 in the command child only"
+exit-status = 0
+output-sha256 = "6a0e343ef84e4f29658f3a24d8585e112438238695e5bdeb5d8cb09bc56c8923"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t126_shared_private_test_support.rs (target\\debug\\deps\\t126_shared_private_test_support-8174a6d6a490335a.exe)\n\nrunning 1 test\npreservation baseline control only; this is not completion proof\ntest wcpv_004 ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 10.56s\n\n"
+[[checks]]
+id = "WCPV-006"
+command = "cargo test --offline -p ratmac-qa --test t126_shared_private_test_support wcpv_006 -- --exact --nocapture"
+environment = "RATMAC_MIGRATION_BASELINE=1 in the command child only"
+exit-status = 0
+output-sha256 = "a2c0a51f8578d6781211b56be7932258aa21a69ec91cd6620b3ae208c3ba37ec"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t126_shared_private_test_support.rs (target\\debug\\deps\\t126_shared_private_test_support-8174a6d6a490335a.exe)\n\nrunning 1 test\npreservation baseline control only; this is not completion proof\ntest wcpv_006 ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 1.99s\n\n"

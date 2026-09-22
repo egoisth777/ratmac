@@ -57,3 +57,4 @@ test/qa/tests/t109_pre_split_ports.rs	phase	The focused test freezes the thirtee
 .ratmac/evidence/run-036/WEBV-011.toml	phase	Observed compiled baseline output intentionally records the retired-position audit failure; exact receipt provenance.
 .ratmac/evidence/run-036/WEBV-012.toml	both	Observed compiled baseline output intentionally records the retired-token audit failure; exact receipt provenance.
 .ratmac/evidence/run-036/WEBV-012.toml	phase	Observed compiled baseline output intentionally records the retired-position audit failure; exact receipt provenance.
+.ratmac/evidence/run-037/baseline-inventory.toml	phase	The captured baseline preserves historical compiled test identities without renaming them.
