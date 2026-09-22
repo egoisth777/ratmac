@@ -1,4 +1,3 @@
-use std::fs;
 use std::path::{Path, PathBuf};
 
 fn qa_root() -> PathBuf {
@@ -8,15 +7,28 @@ fn qa_root() -> PathBuf {
 #[test]
 fn qa_uses_canonical_ratmac_rtm_identity() {
     let qa = qa_root();
-    let source = fs::read_to_string(qa.join("src/lib.rs")).expect("QA helper source must exist");
+    let repository = qa.join("../..");
+    let selected =
+        ratmac_qa::audit_files::select(&repository, &[]).expect("select indexed QA sources");
+    let source = std::str::from_utf8(
+        &selected
+            .entries
+            .iter()
+            .find(|entry| entry.path == Path::new("test/qa/src/lib.rs"))
+            .expect("QA helper source is indexed")
+            .bytes,
+    )
+    .expect("QA helper source is text");
     assert!(source.contains("use ratmac::"));
     assert!(source.contains("test_only_rtm_writes_state_file"));
     assert!(!source.contains("arca-scheduler"));
     assert!(!source.contains("run_schd"));
 
-    let tests = qa.join("tests");
-    for entry in fs::read_dir(&tests).expect("QA tests directory must exist") {
-        let path = entry.expect("QA test entry must be readable").path();
+    for entry in selected.entries {
+        let path = &entry.path;
+        if path.parent() != Some(Path::new("test/qa/tests")) {
+            continue;
+        }
         if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
             continue;
         }
@@ -35,7 +47,7 @@ fn qa_uses_canonical_ratmac_rtm_identity() {
         ) {
             continue;
         }
-        let text = fs::read_to_string(&path).expect("QA test source must be readable");
+        let text = std::str::from_utf8(&entry.bytes).expect("QA test source must be text");
         assert!(
             !text.contains("arca-scheduler"),
             "stale project identity in {name}"

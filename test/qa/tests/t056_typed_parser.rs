@@ -20,7 +20,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use ratmac::machine::{GuardKind, MachineClass};
 use ratmac::{cli, Scheduler, StepRequest};
@@ -312,11 +312,15 @@ fn sample_value(field: &str) -> String {
 /// `MachineClass`, and the Scheduler's guard work takes the typed value.
 #[test]
 fn the_runbook_has_exactly_one_reader() {
-    let src = repo_root().join("src");
     let mut raw_parsers = Vec::new();
     let mut unrouted = Vec::new();
-    for entry in fs::read_dir(&src).expect("read src/") {
-        let path = entry.expect("read src/ entry").path();
+    let selected =
+        ratmac_qa::audit_files::select(&repo_root(), &[]).expect("select indexed Engine source");
+    for entry in &selected.entries {
+        let path = &entry.path;
+        if path.parent() != Some(Path::new("src")) {
+            continue;
+        }
         if path.extension().and_then(|e| e.to_str()) != Some("rs") {
             continue;
         }
@@ -328,7 +332,7 @@ fn the_runbook_has_exactly_one_reader() {
         if name == "machine.rs" {
             continue;
         }
-        let text = fs::read_to_string(&path).expect("read module");
+        let text = std::str::from_utf8(&entry.bytes).expect("Engine module is text");
         let lines = text.lines().collect::<Vec<_>>();
         let mut reads_runbook = false;
         for (index, line) in lines.iter().enumerate() {
@@ -364,7 +368,15 @@ fn the_runbook_has_exactly_one_reader() {
         "TRP-001: every reader of the runbook must go through MachineClass; found: {unrouted:?}"
     );
 
-    let scheduler = fs::read_to_string(src.join("scheduler.rs")).expect("read scheduler.rs");
+    let scheduler = std::str::from_utf8(
+        &selected
+            .entries
+            .iter()
+            .find(|entry| entry.path == Path::new("src/scheduler.rs"))
+            .expect("scheduler.rs is indexed")
+            .bytes,
+    )
+    .expect("scheduler.rs is text");
     assert!(
         !scheduler.contains("toml::map::Map<String, toml::Value>"),
         "TRP-001: guard evaluation must take typed guards, not raw TOML tables"

@@ -193,21 +193,19 @@ fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-fn engine_source_files() -> Vec<PathBuf> {
-    fn collect(directory: &Path, files: &mut Vec<PathBuf>) {
-        for entry in fs::read_dir(directory).expect("read Engine source directory") {
-            let path = entry.expect("read Engine source entry").path();
-            if path.is_dir() {
-                collect(&path, files);
-            } else if path.extension().is_some_and(|extension| extension == "rs") {
-                files.push(path);
-            }
-        }
-    }
-    let mut files = Vec::new();
-    collect(&repo_root().join("src"), &mut files);
-    files.sort();
-    files
+fn engine_source_files() -> Vec<ratmac_qa::audit_files::Entry> {
+    ratmac_qa::audit_files::select(&repo_root(), &[])
+        .expect("select indexed Engine sources")
+        .entries
+        .into_iter()
+        .filter(|entry| {
+            entry.path.starts_with("src")
+                && entry
+                    .path
+                    .extension()
+                    .is_some_and(|extension| extension == "rs")
+        })
+        .collect()
 }
 
 /// NRRV-001: a full hold leaves every file under a workflow root
@@ -332,8 +330,9 @@ fn the_engine_names_no_work_item_document() {
     // Nowhere in the Engine is a work item held, marked, or read: the three
     // helpers that owned that knowledge are gone by name.
     let mut offenders: Vec<String> = Vec::new();
-    for path in engine_source_files() {
-        let text = fs::read_to_string(&path).expect("read Engine source file");
+    for entry in engine_source_files() {
+        let path = repo_root().join(&entry.path);
+        let text = std::str::from_utf8(&entry.bytes).expect("Engine source file is text");
         let relative = path
             .strip_prefix(repo_root())
             .unwrap_or(&path)

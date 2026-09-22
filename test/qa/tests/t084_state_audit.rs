@@ -39,16 +39,46 @@ impl Copy {
         ));
         let _ = fs::remove_dir_all(&base);
         let root = base.join("tree");
-        for path in rebrand::collect_files(source) {
-            let relative = path
-                .strip_prefix(source)
-                .expect("audited file lives under the root");
-            let destination = root.join(relative);
+        for entry in ratmac_qa::audit_files::select(source, &[])
+            .expect("select copy inputs")
+            .entries
+        {
+            assert_eq!(
+                entry.kind,
+                ratmac_qa::audit_files::EntryKind::File,
+                "this owned fixture copy supports ordinary files only: {}",
+                entry.path.display()
+            );
+            let destination = root.join(&entry.path);
             let parent = destination.parent().expect("a copied file has a parent");
             fs::create_dir_all(parent).expect("create the copied parent");
-            fs::copy(&path, &destination).expect("copy the audited file");
+            fs::write(&destination, &entry.bytes)
+                .expect("copy selected bytes without following links");
         }
-        Copy { base, root }
+        let copy = Copy { base, root };
+        copy.git(&["init"]);
+        copy.stage();
+        copy
+    }
+
+    fn git(&self, args: &[&str]) {
+        let output = std::process::Command::new("git")
+            .args(args)
+            .current_dir(&self.root)
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_INDEX_FILE")
+            .output()
+            .expect("prepare fixture index");
+        assert!(
+            output.status.success(),
+            "fixture git {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    fn stage(&self) {
+        self.git(&["add", "--force", "--all"]);
     }
 
     fn rules(&self) -> Vec<Rule> {
@@ -171,6 +201,7 @@ fn the_live_surface_audit_is_enumerated_and_sharp() {
     let renamed = Copy::of(&root, "renamed-path");
     let carrier = renamed.root.join("src").join("phase_notes.rs");
     fs::write(&carrier, "// nothing incriminating inside\n").expect("plant the named slip");
+    renamed.stage();
     let after_rename = rebrand::audit(&renamed.root, &renamed.rules());
     assert!(
         after_rename

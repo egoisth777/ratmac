@@ -1,4 +1,4 @@
-//! SVC-008: one walk and one enumerated allowlist for every retired spelling.
+//! SVC-008: one indexed input selection and one allowlist for retired spellings.
 //!
 //! The audit suite, the acceptance suite, and the state-vocabulary suite all
 //! load this module, so a row added for one is honoured by the others in the
@@ -19,9 +19,6 @@ pub const PRE_CUTOVER_POSITION: &str = concat!("ph", "ase");
 
 /// The allowlist, relative to the `test/qa` crate root.
 pub const ALLOWLIST: &str = "fixtures/rebrand-audit/allowlist.tsv";
-
-/// Directory names the walk never descends into.
-const SKIPPED: [&str; 3] = [".git", "test-hidden", "target"];
 
 /// One enumerated carrier: a path pattern, the token it may carry, and why.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,6 +49,10 @@ pub struct Report {
     pub violations: Vec<String>,
     /// `pattern (reason)` for every row that matched nothing.
     pub stale: Vec<String>,
+    /// Explicit caller-selected files, separate from content exemptions.
+    pub extra_inputs: Vec<String>,
+    /// Named repository boundaries whose contents were not traversed.
+    pub exclusions: Vec<String>,
 }
 
 impl Report {
@@ -152,43 +153,39 @@ pub fn hits(line: &str) -> Hits {
     }
 }
 
-/// Every readable file below `root`, skipping runtime and private trees.
+/// Ordinary indexed working-file paths. Use `audit_files::select` for a full
+/// inventory including link text and Gitlink boundaries, without dereferencing
+/// those links. A failed selection never returns an incomplete file list.
 pub fn collect_files(root: &Path) -> Vec<PathBuf> {
-    fn walk(path: &Path, files: &mut Vec<PathBuf>) {
-        let name = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or_default();
-        if SKIPPED.contains(&name) {
-            return;
-        }
-        let Ok(metadata) = fs::symlink_metadata(path) else {
-            return;
-        };
-        if metadata.is_dir() {
-            let Ok(entries) = fs::read_dir(path) else {
-                return;
-            };
-            let mut paths: Vec<PathBuf> = entries.flatten().map(|entry| entry.path()).collect();
-            paths.sort();
-            for entry in paths {
-                walk(&entry, files);
-            }
-        } else if metadata.is_file() {
-            files.push(path.to_owned());
-        }
-    }
-    let mut files = Vec::new();
-    walk(root, &mut files);
-    files
+    crate::audit_files::select(root, &[])
+        .unwrap_or_else(|error| panic!("audit input selection failed: {error}"))
+        .entries
+        .into_iter()
+        .filter(|entry| entry.kind == crate::audit_files::EntryKind::File)
+        .map(|entry| root.join(entry.path))
+        .collect()
 }
 
-/// Walk `root` and report every unallowlisted occurrence and every row that
+/// Select the index at `root` and report every unallowlisted occurrence and row that
 /// matched nothing. A path that spells a retired name is a carrier too, so
 /// renaming a file cannot smuggle one past the walk. The walk only reads.
 pub fn audit(root: &Path, rules: &[Rule]) -> Report {
+    audit_with_extras(root, rules, &[])
+}
+
+/// Audit the index and exactly the additional files the caller declares.
+pub fn audit_with_extras(root: &Path, rules: &[Rule], extras: &[PathBuf]) -> Report {
     let mut used = vec![false; rules.len()];
     let mut report = Report::default();
+    let selected = match crate::audit_files::select(root, extras) {
+        Ok(selected) => selected,
+        Err(error) => {
+            report.violations.push(error);
+            return report;
+        }
+    };
+    report.extra_inputs = selected.extra_inputs;
+    report.exclusions = selected.exclusions;
     let allow = |relative: &str, found: Hits, used: &mut Vec<bool>| {
         let mut allowed = false;
         for (position, rule) in rules.iter().enumerate() {
@@ -199,19 +196,49 @@ pub fn audit(root: &Path, rules: &[Rule]) -> Report {
         }
         allowed
     };
-    for path in collect_files(root) {
-        let relative = path
-            .strip_prefix(root)
-            .unwrap_or(&path)
+    for entry in selected.entries {
+        let relative = entry
+            .path
             .to_string_lossy()
-            .replace('\\', "/");
+            .replace(std::path::MAIN_SEPARATOR, "/");
         let named = hits(&relative);
         if named.any() && !allow(&relative, named, &mut used) {
             report.violations.push(format!(
                 "{relative}: the path itself names a retired spelling"
             ));
         }
-        let Ok(text) = fs::read_to_string(&path) else {
+        if entry.kind == crate::audit_files::EntryKind::Gitlink {
+            continue;
+        }
+        let text = std::str::from_utf8(&entry.bytes)
+            .ok()
+            .filter(|_| !entry.bytes.contains(&0));
+        let Some(text) = text else {
+            for (token, position) in [
+                (LEGACY_PRODUCT, false),
+                (LEGACY_COMMAND, false),
+                (PRE_CUTOVER_POSITION, true),
+            ] {
+                for (offset, window) in entry.bytes.windows(token.len()).enumerate() {
+                    if !(if position {
+                        window.eq_ignore_ascii_case(token.as_bytes())
+                    } else {
+                        window == token.as_bytes()
+                    }) {
+                        continue;
+                    }
+                    let found = Hits {
+                        product: token == LEGACY_PRODUCT,
+                        command: token == LEGACY_COMMAND,
+                        position,
+                    };
+                    if !allow(&relative, found, &mut used) {
+                        report.violations.push(format!(
+                            "{relative}:byte {offset}: retired spelling {token:?}"
+                        ));
+                    }
+                }
+            }
             continue;
         };
         for (index, line) in text.lines().enumerate() {

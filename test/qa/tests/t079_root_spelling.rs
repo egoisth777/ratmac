@@ -418,11 +418,18 @@ fn repository_root() -> PathBuf {
         .to_path_buf()
 }
 
-fn engine_sources() -> Vec<PathBuf> {
-    let sources = fs::read_dir(repository_root().join("src"))
-        .expect("the Engine source directory is listable")
-        .map(|entry| entry.expect("source entry is readable").path())
-        .filter(|path| path.extension().is_some_and(|extension| extension == "rs"))
+fn engine_sources() -> Vec<ratmac_qa::audit_files::Entry> {
+    let sources = ratmac_qa::audit_files::select(&repository_root(), &[])
+        .expect("indexed Engine source is readable")
+        .entries
+        .into_iter()
+        .filter(|entry| {
+            entry.path.parent() == Some(Path::new("src"))
+                && entry
+                    .path
+                    .extension()
+                    .is_some_and(|extension| extension == "rs")
+        })
         .collect::<Vec<_>>();
     assert!(
         sources.len() > 10,
@@ -447,13 +454,14 @@ fn engine_sources() -> Vec<PathBuf> {
 #[test]
 fn no_engine_source_renders_a_path_with_the_standard_renderer() {
     let mut offenders = Vec::new();
-    for path in engine_sources() {
+    for entry in engine_sources() {
+        let path = &entry.path;
         let name = path
             .file_name()
             .expect("a source file has a name")
             .to_string_lossy()
             .into_owned();
-        let source = fs::read_to_string(&path).expect("read Engine source");
+        let source = std::str::from_utf8(&entry.bytes).expect("Engine source is text");
         offenders.extend(
             source
                 .lines()
@@ -481,7 +489,8 @@ fn no_engine_source_renders_a_path_with_the_standard_renderer() {
 #[test]
 fn no_engine_source_renders_a_path_by_hand() {
     let mut offenders = Vec::new();
-    for path in engine_sources() {
+    for entry in engine_sources() {
+        let path = &entry.path;
         let name = path
             .file_name()
             .expect("a source file has a name")
@@ -490,7 +499,7 @@ fn no_engine_source_renders_a_path_by_hand() {
         if name == "root.rs" {
             continue;
         }
-        let source = fs::read_to_string(&path).expect("read Engine source");
+        let source = std::str::from_utf8(&entry.bytes).expect("Engine source is text");
         offenders.extend(
             source
                 .lines()
@@ -527,18 +536,15 @@ const SUBSTITUTIONS: [&str; 4] = [
 /// drift, so `src/root.rs` is the only place the substitution is written.
 #[test]
 fn only_one_module_implements_the_renderer() {
-    let sources = fs::read_dir(repository_root().join("src"))
-        .expect("the Engine source directory is listable")
-        .map(|entry| entry.expect("source entry is readable").path())
-        .filter(|path| path.extension().is_some_and(|extension| extension == "rs"))
-        .collect::<Vec<_>>();
+    let sources = engine_sources();
     assert!(
         sources.len() > 10,
         "the scan must actually see the Engine source; it found {} files",
         sources.len()
     );
 
-    for path in sources {
+    for entry in sources {
+        let path = &entry.path;
         let name = path
             .file_name()
             .expect("a source file has a name")
@@ -547,7 +553,7 @@ fn only_one_module_implements_the_renderer() {
         if name == "root.rs" {
             continue;
         }
-        let source = fs::read_to_string(&path).expect("read Engine source");
+        let source = std::str::from_utf8(&entry.bytes).expect("Engine source is text");
         // The substitution itself is the policy, whatever it is applied to:
         // a `String` that already holds a path is normalized by the same rule
         // as a `Path`, so the scan looks for the replacement and not for the

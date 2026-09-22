@@ -1,5 +1,6 @@
 //! WEB-003: repository-content audits select the index and inspect working bytes.
 
+use ratmac_qa::audit_files::{self, EntryKind};
 use ratmac_qa::rebrand::{self, Report, Rule, LEGACY_PRODUCT, PRE_CUTOVER_POSITION};
 use ratmac_qa::tempgit::TempRepo;
 use std::collections::BTreeMap;
@@ -67,6 +68,42 @@ fn audit_readonly(repo: &TempRepo, rules: &[Rule]) -> Report {
         "an audit must preserve index and all fixture bytes"
     );
     report
+}
+
+fn extras_readonly(repo: &TempRepo, extras: &[PathBuf]) -> Report {
+    let before = snapshot(repo.root());
+    let report = rebrand::audit_with_extras(repo.root(), &[], extras);
+    assert_eq!(
+        snapshot(repo.root()),
+        before,
+        "extra selection is read-only"
+    );
+    report
+}
+
+fn directory_link(target: &Path, path: &Path) {
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(target, path).expect("create isolated directory link");
+    #[cfg(windows)]
+    {
+        // Directory junctions need no symbolic-link privilege on Windows.
+        let script = path.parent().unwrap().join("make-audit-junction.ps1");
+        fs::write(&script, "param([string]$Destination, [string]$Source)\n$ErrorActionPreference = 'Stop'\nNew-Item -ItemType Junction -Path $Destination -Target $Source | Out-Null\n").unwrap();
+        let output = Command::new("pwsh")
+            .args(["-NoProfile", "-File"])
+            .arg(&script)
+            .arg("-Destination")
+            .arg(path)
+            .arg("-Source")
+            .arg(target)
+            .output()
+            .expect("create isolated directory junction");
+        assert!(
+            output.status.success(),
+            "junction fixture: {}",
+            text(&output)
+        );
+    }
 }
 
 fn named(report: &Report, path: &str) -> bool {
@@ -177,6 +214,11 @@ fn webv_009() {
         report.is_clean(),
         "ignored nested checkout must not enter either audit: {report:?}"
     );
+    let selection = audit_files::select(repo.root(), &[]).expect("indexed input set");
+    assert!(selection
+        .entries
+        .iter()
+        .all(|entry| !entry.path.starts_with("scratch")));
 
     let clean_consumers = consumer_suites(&repo);
     assert!(
@@ -252,6 +294,90 @@ fn webv_011() {
         "untracked content is invisible unless explicitly selected: {default:?}"
     );
 
+    let explicit = extras_readonly(&repo, &["extra.md".into(), "extra.md".into()]);
+    assert!(
+        named(&explicit, "extra.md"),
+        "an explicit input remains subject to the content audit"
+    );
+    assert_eq!(explicit.extra_inputs, vec!["extra.md".to_owned()]);
+    assert_eq!(
+        explicit
+            .violations
+            .iter()
+            .filter(|line| line.starts_with("extra.md:"))
+            .count(),
+        1
+    );
+    let selected = audit_files::select(repo.root(), &["extra.md".into()]).unwrap();
+    assert_eq!(
+        selected
+            .entries
+            .iter()
+            .filter(|entry| entry.path == Path::new("extra.md"))
+            .count(),
+        1
+    );
+
+    fs::create_dir(repo.root().join("directory")).unwrap();
+    for extra in [
+        PathBuf::from("missing.md"),
+        PathBuf::from("directory"),
+        repo.root().join("README.md"),
+        PathBuf::from("../README.md"),
+        PathBuf::from("directory/../../README.md"),
+    ] {
+        let report = extras_readonly(&repo, std::slice::from_ref(&extra));
+        assert!(
+            !report.is_clean(),
+            "invalid explicit input passed: {extra:?}"
+        );
+        assert!(
+            !report.violations.is_empty(),
+            "invalid input must be a named failure"
+        );
+    }
+    #[cfg(windows)]
+    for extra in [PathBuf::from("C:relative.md"), PathBuf::from(r"\rooted.md")] {
+        assert!(!extras_readonly(&repo, &[extra]).is_clean());
+    }
+
+    let outside = clean_repo("outside-extra-target");
+    directory_link(outside.root(), &repo.root().join("bridge"));
+    let outside_before = snapshot(outside.root());
+    let report = extras_readonly(&repo, &["bridge/README.md".into()]);
+    assert!(
+        !report.is_clean(),
+        "a directory link cannot turn external clean bytes into an allowed extra"
+    );
+    assert!(
+        report.violations.iter().any(|line| line.contains("bridge")),
+        "name the escaping input: {report:?}"
+    );
+    assert_eq!(snapshot(outside.root()), outside_before);
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(
+            outside.root().join("README.md"),
+            repo.root().join("file-link"),
+        )
+        .unwrap();
+        assert!(!extras_readonly(&repo, &["file-link".into()]).is_clean());
+        repo.write("ordinary.md", "An indexed regular file.\n");
+        repo.stage("ordinary.md");
+        fs::remove_file(repo.root().join("ordinary.md")).unwrap();
+        std::os::unix::fs::symlink(
+            repo.root().join("README.md"),
+            repo.root().join("ordinary.md"),
+        )
+        .unwrap();
+        assert!(
+            audit_files::select(repo.root(), &[]).is_err(),
+            "an indexed regular file cannot become a link even to an in-root target"
+        );
+    }
+    index_listing_controls();
+    index_kind_controls();
+
     // An unusable repository is an input failure, not permission for a walk.
     let unavailable = clean_repo("unavailable-index");
     fs::create_dir(unavailable.root().join("saved")).unwrap();
@@ -320,19 +446,32 @@ fn webv_012() {
                 && line.contains('2')),
         "invalid UTF-8 still exposes the ASCII token at byte offset 2: {invalid:?}"
     );
+    assert!(
+        invalid
+            .violations
+            .iter()
+            .any(|line| line.starts_with("invalid.bin:byte 2:")),
+        "the binary location is exactly zero-based byte 2: {invalid:?}"
+    );
 
     let mut nul_bytes = vec![0, b'x', b'x'];
     nul_bytes.extend_from_slice(PRE_CUTOVER_POSITION.to_ascii_uppercase().as_bytes());
-    fs::write(repo.root().join("nul.bin"), nul_bytes).unwrap();
-    repo.stage("nul.bin");
+    fs::write(repo.root().join("nul-content.bin"), nul_bytes).unwrap();
+    repo.stage("nul-content.bin");
     let nul = audit_readonly(&repo, &rules);
     assert!(
         nul.violations
             .iter()
-            .any(|line| line.starts_with("nul.bin:")
+            .any(|line| line.starts_with("nul-content.bin:")
                 && line.contains("byte")
                 && line.contains('3')),
         "NUL selects byte scanning with case-insensitive vocabulary: {nul:?}"
+    );
+    assert!(
+        nul.violations
+            .iter()
+            .any(|line| line.starts_with("nul-content.bin:byte 3:")),
+        "the NUL-containing location is exactly zero-based byte 3: {nul:?}"
     );
 
     let mut names = vec!["space name.md".to_owned()];
@@ -352,4 +491,166 @@ fn webv_012() {
             "unusual filename must survive selection: {name:?}"
         );
     }
+    #[cfg(unix)]
+    {
+        let literal_backslash = r"literal\name.md";
+        repo.write(literal_backslash, &format!("{}\n", PRE_CUTOVER_POSITION));
+        repo.stage(literal_backslash);
+        let report = audit_readonly(&repo, &rules);
+        assert!(
+            named(&report, literal_backslash),
+            "Unix backslash is filename content, not a separator"
+        );
+    }
+    selected_read_failure();
+}
+
+fn index_listing_controls() {
+    let hash = "1".repeat(40);
+    let valid = format!("100644 {hash} 0\tspace name.md\0");
+    let parsed = audit_files::parse_index_listing(valid.as_bytes()).unwrap();
+    assert_eq!(parsed.len(), 1);
+    assert_eq!(parsed[0].path, Path::new("space name.md"));
+    assert_eq!(parsed[0].kind, EntryKind::File);
+    let newline = format!("100644 {hash} 0\tline\nbreak.md\0");
+    assert_eq!(
+        audit_files::parse_index_listing(newline.as_bytes()).unwrap()[0].path,
+        Path::new("line\nbreak.md")
+    );
+    for malformed in [
+        valid.trim_end_matches('\0').to_owned(),
+        format!("100644 {hash} 0 path.md\0"),
+        format!("100644 {hash} 1\tconflicted.md\0"),
+        format!("100644 {hash} 7\tbad-stage.md\0"),
+        format!("999999 {hash} 0\tbad-mode.md\0"),
+        "100644 not-a-hash 0\tbad-id.md\0".to_owned(),
+        format!("100644 {hash} 0\t../escape.md\0"),
+        format!("100644 {hash} 0\t/absolute.md\0"),
+        format!("100644 {hash} 0\t\0"),
+        format!("{valid}{valid}"),
+    ] {
+        assert!(
+            audit_files::parse_index_listing(malformed.as_bytes()).is_err(),
+            "malformed selection accepted: {malformed:?}"
+        );
+    }
+}
+
+fn index_kind_controls() {
+    let repo = clean_repo("index-kinds");
+    repo.commit_all("Fixture repository identity");
+    let commit = repo.head();
+    checked_git(
+        &repo,
+        &[
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            "160000",
+            &commit,
+            "unpopulated",
+        ],
+    );
+    assert!(!repo.root().join("unpopulated").exists());
+    let selection =
+        audit_files::select(repo.root(), &[]).expect("unpopulated Gitlink is a boundary");
+    let boundary = selection
+        .entries
+        .iter()
+        .find(|entry| entry.path == Path::new("unpopulated"))
+        .unwrap();
+    assert_eq!(boundary.kind, EntryKind::Gitlink);
+    assert!(boundary.bytes.is_empty());
+    assert!(
+        selection
+            .exclusions
+            .iter()
+            .any(|line| line.contains("unpopulated")),
+        "a Gitlink exclusion is explicit"
+    );
+
+    checked_git(&repo, &["config", "core.symlinks", "false"]);
+    let link_text = format!("../outside/{}.md", PRE_CUTOVER_POSITION);
+    repo.write("link-text", &link_text);
+    let hashed = repo.git(&["hash-object", "-w", "--", "link-text"]);
+    assert!(
+        hashed.status.success(),
+        "write fixture link blob: {}",
+        text(&hashed)
+    );
+    let hash = String::from_utf8(hashed.stdout).unwrap();
+    checked_git(
+        &repo,
+        &[
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            "120000",
+            hash.trim(),
+            "link-text",
+        ],
+    );
+    assert!(fs::symlink_metadata(repo.root().join("link-text"))
+        .unwrap()
+        .is_file());
+    let selection =
+        audit_files::select(repo.root(), &[]).expect("regular symlink-text checkout is supported");
+    let link = selection
+        .entries
+        .iter()
+        .find(|entry| entry.path == Path::new("link-text"))
+        .unwrap();
+    assert_eq!(link.kind, EntryKind::Symlink);
+    assert_eq!(link.bytes, link_text.as_bytes());
+    assert!(
+        named(&audit_readonly(&repo, &[]), "link-text"),
+        "link text is audited rather than followed"
+    );
+}
+
+fn selected_read_failure() {
+    let repo = clean_repo("unreadable-selected-file");
+    repo.write("selected.bin", "Clean selected content.\n");
+    repo.stage("selected.bin");
+    let path = repo.root().join("selected.bin");
+    let before = snapshot(repo.root());
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        let held = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&path)
+            .unwrap();
+        assert!(
+            fs::read(&path).is_err(),
+            "selected fixture genuinely denies reads"
+        );
+        let report = rebrand::audit(repo.root(), &[]);
+        drop(held);
+        assert!(
+            named(&report, "selected.bin"),
+            "unreadable selected bytes must be a named failure: {report:?}"
+        );
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let original = fs::metadata(&path).unwrap().permissions();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0)).unwrap();
+        if fs::read(&path).is_err() {
+            let report = rebrand::audit(repo.root(), &[]);
+            fs::set_permissions(&path, original).unwrap();
+            assert!(
+                named(&report, "selected.bin"),
+                "unreadable selected bytes must be a named failure: {report:?}"
+            );
+        } else {
+            fs::set_permissions(&path, original).unwrap();
+            eprintln!(
+                "read-denial fixture unavailable under an identity that bypasses Unix permissions"
+            );
+        }
+    }
+    assert_eq!(snapshot(repo.root()), before);
 }

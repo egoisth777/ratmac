@@ -50,7 +50,9 @@ fn write(path: &Path, body: &str) {
 #[test]
 fn no_two_build_targets_write_one_file() {
     let root = repo_root();
-    let report = targets::audit(&root).expect("the repository's manifests must all read and parse");
+    let extras = targets::declared_lane_inputs(&root).expect("declare private build inputs");
+    let report = targets::audit_with_extras(&root, &extras)
+        .expect("the repository's manifests must all read and parse");
 
     assert!(
         report.targets.iter().any(|target| target.kind == Kind::Bin
@@ -81,7 +83,7 @@ fn a_test_launches_the_build_it_was_compiled_against() {
         launched.display()
     );
 
-    let report = targets::audit(&root).expect("manifests read");
+    let report = targets::audit(&root).expect("indexed manifests read");
     let shipped = report
         .targets
         .iter()
@@ -232,7 +234,7 @@ fn a_planted_duplicate_target_fails_by_name() {
     );
     write(&root.join("member/src/lib.rs"), "");
 
-    let clean = targets::audit(&root).expect("planted tree reads");
+    let clean = targets::audit_fixture(&root).expect("planted tree reads");
     assert!(
         clean.is_clean(),
         "DEBV-004: a tree with unique target names must pass:\n{}",
@@ -243,7 +245,7 @@ fn a_planted_duplicate_target_fails_by_name() {
         &root.join("member/Cargo.toml"),
         "[package]\nname = \"member\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[[bin]]\nname = \"tool\"\npath = \"../src/bin/tool.rs\"\n",
     );
-    let planted = targets::audit(&root).expect("planted tree reads");
+    let planted = targets::audit_fixture(&root).expect("planted tree reads");
     assert_eq!(
         planted.collisions.len(),
         1,
@@ -268,7 +270,7 @@ fn a_planted_duplicate_target_fails_by_name() {
         &root.join("member/Cargo.toml"),
         "[package]\nname = \"member\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
     );
-    let repaired = targets::audit(&root).expect("planted tree reads");
+    let repaired = targets::audit_fixture(&root).expect("planted tree reads");
     assert!(
         repaired.is_clean(),
         "DEBV-004: removing the duplicate must pass again:\n{}",

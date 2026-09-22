@@ -1,0 +1,10 @@
+ticket-id = "t-118"
+check-id = "WEBV-009"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test t118_tracked_repository_audits -- --test-threads=1"
+working-dir = "."
+exit-status = 0
+output-sha256 = "49565a5d996a790296a7c8750b8a4650a3f16b28fd6faeec986e61b8530b486b"
+tree-roots = ["src","test/qa","test-hidden/t-118","Cargo.toml","Cargo.lock",".gitignore"]
+tree-sha256 = "fd4a6d5df302972a0dc626f8d2a688e3b614d574630ff57dfc14ea762c8344f0"
+output = "   Compiling ratmac-qa v0.1.0 (E:\\repos\\projs\\skill-dev\\ratmac-t-118\\test\\qa)\r\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.29s\r\n     Running tests\\t118_tracked_repository_audits.rs (target\\debug\\deps\\t118_tracked_repository_audits-5396b47eba3642af.exe)\r\n\r\nrunning 4 tests\r\ntest webv_009 ... ok\r\ntest webv_010 ... ok\r\ntest webv_011 ... ok\r\ntest webv_012 ... ok\r\n\r\ntest result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.66s\r\n\r\n"

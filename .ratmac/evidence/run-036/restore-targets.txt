@@ -1,0 +1,27 @@
+# Frozen restore targets for the tracked-audit ticket
+Effective core.autocrlf: false; no checkout conversion is requested.
+Effective core.eol: unset
+
+Target: test/qa/src/audit_files.rs
+SHA-256: 010dfe97da0f3cd602dde85fcbd5073e9cb56c202a8be64fa9f75facba83cc5e
+Indexed raw-content object: 0cddde3ce256227b1a446a81d25372182bb96d0a
+test/qa/src/audit_files.rs: text: unspecified
+test/qa/src/audit_files.rs: eol: unspecified
+test/qa/src/audit_files.rs: filter: unspecified
+test/qa/src/audit_files.rs: working-tree-encoding: unspecified
+
+Target: test/qa/src/rebrand.rs
+SHA-256: d0513d27bba7ab24d4ce1f702164cee26fbc26f008678c52fb1bf4a6837e85ca
+Indexed raw-content object: 979be967b8ba00e3c9b374e3ab0bae818f5d2fe6
+test/qa/src/rebrand.rs: text: unspecified
+test/qa/src/rebrand.rs: eol: unspecified
+test/qa/src/rebrand.rs: filter: unspecified
+test/qa/src/rebrand.rs: working-tree-encoding: unspecified
+
+Target: test/qa/src/targets.rs
+SHA-256: cb37824b81cba5c1b5d44979b88836e9e8ef50d1cb15bae6890108b7c530e803
+Indexed raw-content object: 5e4fcc266958892ead85412d6d3de77c6c94d7b3
+test/qa/src/targets.rs: text: unspecified
+test/qa/src/targets.rs: eol: unspecified
+test/qa/src/targets.rs: filter: unspecified
+test/qa/src/targets.rs: working-tree-encoding: unspecified

@@ -84,6 +84,8 @@ pub struct Report {
     pub targets: Vec<Target>,
     /// One line per pair of targets that would write the same file.
     pub collisions: Vec<String>,
+    pub extra_inputs: Vec<String>,
+    pub exclusions: Vec<String>,
 }
 
 impl Report {
@@ -93,13 +95,135 @@ impl Report {
     }
 }
 
-/// Walk `root` and report every build-output collision.
+/// Read the repository index and report every selected build-output collision.
 ///
-/// Directories cargo writes into (`target`) and Git's own directory are never
-/// read. A manifest that cannot be read or parsed is an error, never a silent
-/// skip: a walk that quietly forgets a package cannot prove anything.
+/// Untracked directories are never discovered implicitly. A selected manifest
+/// that cannot be read or parsed is an error, never a silent skip. Owned
+/// synthetic trees use `audit_fixture`; ignored private inputs are explicit extras.
 pub fn audit(root: &Path) -> Result<Report, String> {
-    let mut targets = collect(root)?;
+    audit_with_extras(root, &[])
+}
+
+/// Audit indexed manifests and implicit target paths, plus exact extra files.
+pub fn audit_with_extras(root: &Path, extras: &[PathBuf]) -> Result<Report, String> {
+    let selected = crate::audit_files::select(root, extras)?;
+    for entry in &selected.entries {
+        if entry.kind != crate::audit_files::EntryKind::Symlink {
+            continue;
+        }
+        let path = &entry.path;
+        let parent = path.parent().unwrap_or(Path::new(""));
+        let direct_bin =
+            parent.ends_with("src/bin") && path.extension().is_some_and(|ext| ext == "rs");
+        let nested_bin = parent.parent().is_some_and(|dir| dir.ends_with("src/bin"))
+            && path.file_name().is_some_and(|name| name == "main.rs");
+        if path.file_name().is_some_and(|name| name == "Cargo.toml")
+            || path.ends_with("src/lib.rs")
+            || path.ends_with("src/main.rs")
+            || direct_bin
+            || nested_bin
+        {
+            return Err(format!("{}: indexed build input is a symlink; target audit inspects link text and refuses to dereference it", path.display()));
+        }
+    }
+    let files = selected
+        .entries
+        .into_iter()
+        .filter(|entry| entry.kind == crate::audit_files::EntryKind::File)
+        .map(|entry| (root.join(entry.path), entry.bytes))
+        .collect::<BTreeMap<_, _>>();
+    let manifests = files
+        .keys()
+        .filter(|path| path.file_name().is_some_and(|name| name == "Cargo.toml"))
+        .cloned()
+        .collect();
+    let mut report = report_targets(collect_from(root, manifests, Some(&files))?);
+    report.extra_inputs = selected.extra_inputs;
+    report.exclusions = selected.exclusions;
+    Ok(report)
+}
+
+/// Inspect an explicitly owned synthetic fixture tree, including untracked files.
+pub fn audit_fixture(root: &Path) -> Result<Report, String> {
+    Ok(report_targets(collect_from(
+        root,
+        fixture_manifests(root)?,
+        None,
+    )?))
+}
+
+/// Exact extra build inputs requested by this repository's private-lane
+/// declaration. The owning ticket must extend the explicit bin list when a
+/// new private source becomes relevant; ignored directories are never expanded.
+pub fn declared_lane_inputs(root: &Path) -> Result<Vec<PathBuf>, String> {
+    let selected = crate::audit_files::select(root, &[])?;
+    let declaration = selected
+        .entries
+        .iter()
+        .find(|entry| entry.path == Path::new(".ratmac/lanes.toml"))
+        .ok_or_else(|| "private target coverage needs indexed .ratmac/lanes.toml".to_owned())?;
+    if declaration.kind != crate::audit_files::EntryKind::File {
+        return Err(".ratmac/lanes.toml must be a regular declaration file".to_owned());
+    }
+    let text = std::str::from_utf8(&declaration.bytes)
+        .map_err(|error| format!("lane declaration: {error}"))?;
+    let value: toml::Value = text
+        .parse()
+        .map_err(|error| format!("lane declaration: {error}"))?;
+    let roots = value
+        .get("roots")
+        .and_then(toml::Value::as_table)
+        .ok_or_else(|| "lane declaration has no roots table".to_owned())?;
+    let lanes = roots
+        .get("lanes")
+        .and_then(toml::Value::as_str)
+        .ok_or_else(|| "lane declaration has no lanes path".to_owned())?;
+    let lanes = Path::new(lanes);
+    if lanes.as_os_str().is_empty()
+        || lanes
+            .components()
+            .any(|part| !matches!(part, std::path::Component::Normal(_)))
+    {
+        return Err("declared private lanes path must stay beneath the repository".to_owned());
+    }
+    let roster = roots
+        .get("roster")
+        .and_then(toml::Value::as_array)
+        .ok_or_else(|| "lane declaration has no roster".to_owned())?;
+    let bins = [
+        ("t-070", "src/bin/rtm.rs"),
+        ("t-073", "src/bin/hold_racer.rs"),
+        ("t-073", "src/bin/abandon_racer.rs"),
+        ("t-075", "src/bin/race_step.rs"),
+        ("t-104", "src/bin/skill_probe.rs"),
+        ("t-104", "src/bin/skill_probe_variant.rs"),
+    ];
+    let mut files = Vec::new();
+    for id in roster {
+        let id = id
+            .as_str()
+            .ok_or_else(|| "lane roster id must be text".to_owned())?;
+        if id.len() != 5
+            || !id.starts_with("t-")
+            || !id[2..].bytes().all(|byte| byte.is_ascii_digit())
+        {
+            return Err(format!("invalid declared private lane {id:?}"));
+        }
+        let crate_root = lanes.join(id);
+        files.push(crate_root.join("Cargo.toml"));
+        files.push(crate_root.join("src/lib.rs"));
+        for (owner, source) in bins {
+            if owner == id {
+                files.push(crate_root.join(source));
+            }
+        }
+    }
+    files.sort();
+    files.dedup();
+    Ok(files)
+}
+
+fn report_targets(mut targets: Vec<Target>) -> Report {
     targets.sort_by(|left, right| {
         (
             &left.workspace,
@@ -135,14 +259,44 @@ pub fn audit(root: &Path) -> Result<Report, String> {
         }
     }
 
-    Ok(Report {
+    Report {
         targets,
         collisions,
-    })
+        ..Report::default()
+    }
 }
 
-/// Every manifest under `root`, outside build output and Git directories.
+/// Indexed regular manifests. A linked manifest refuses rather than silently
+/// omitting a package or reading through a link; Gitlinks remain boundaries.
 pub fn manifests(root: &Path) -> Result<Vec<PathBuf>, String> {
+    let selected = crate::audit_files::select(root, &[])?;
+    if let Some(entry) = selected.entries.iter().find(|entry| {
+        entry.kind == crate::audit_files::EntryKind::Symlink
+            && entry
+                .path
+                .file_name()
+                .is_some_and(|name| name == "Cargo.toml")
+    }) {
+        return Err(format!(
+            "{}: indexed manifest is a symlink; refusing to dereference it",
+            entry.path.display()
+        ));
+    }
+    Ok(selected
+        .entries
+        .into_iter()
+        .filter(|entry| {
+            entry.kind == crate::audit_files::EntryKind::File
+                && entry
+                    .path
+                    .file_name()
+                    .is_some_and(|name| name == "Cargo.toml")
+        })
+        .map(|entry| root.join(entry.path))
+        .collect())
+}
+
+fn fixture_manifests(root: &Path) -> Result<Vec<PathBuf>, String> {
     let mut found = Vec::new();
     walk(root, &mut found)?;
     found.sort();
@@ -178,12 +332,19 @@ fn walk(dir: &Path, found: &mut Vec<PathBuf>) -> Result<(), String> {
     Ok(())
 }
 
-/// Resolve every target declared or discovered under `root`.
+/// Resolve every target declared or discovered in indexed repository inputs.
 pub fn collect(root: &Path) -> Result<Vec<Target>, String> {
-    let manifest_paths = manifests(root)?;
+    Ok(audit(root)?.targets)
+}
+
+fn collect_from(
+    root: &Path,
+    manifest_paths: Vec<PathBuf>,
+    selected: Option<&BTreeMap<PathBuf, Vec<u8>>>,
+) -> Result<Vec<Target>, String> {
     let workspace_roots: Vec<PathBuf> = manifest_paths
         .iter()
-        .filter(|path| match read_manifest(path) {
+        .filter(|path| match read_manifest(path, selected) {
             Ok(document) => document.get("workspace").is_some(),
             Err(_) => false,
         })
@@ -192,7 +353,7 @@ pub fn collect(root: &Path) -> Result<Vec<Target>, String> {
 
     let mut targets = Vec::new();
     for manifest in &manifest_paths {
-        let document = read_manifest(manifest)?;
+        let document = read_manifest(manifest, selected)?;
         let Some(package) = document.get("package").and_then(toml::Value::as_table) else {
             continue;
         };
@@ -208,7 +369,7 @@ pub fn collect(root: &Path) -> Result<Vec<Target>, String> {
         let workspace = relative(root, &workspace);
         let shown = relative(root, manifest);
 
-        for target in package_targets(&document, &name, dir, root)? {
+        for target in package_targets(&document, &name, dir, root, selected)? {
             targets.push(Target {
                 package: name.clone(),
                 workspace: workspace.clone(),
@@ -220,9 +381,22 @@ pub fn collect(root: &Path) -> Result<Vec<Target>, String> {
     Ok(targets)
 }
 
-fn read_manifest(path: &Path) -> Result<toml::Value, String> {
-    let text =
-        fs::read_to_string(path).map_err(|error| format!("read {}: {error}", path.display()))?;
+fn read_manifest(
+    path: &Path,
+    selected: Option<&BTreeMap<PathBuf, Vec<u8>>>,
+) -> Result<toml::Value, String> {
+    let text = match selected {
+        Some(files) => String::from_utf8(
+            files
+                .get(path)
+                .ok_or_else(|| format!("manifest {} was not selected", path.display()))?
+                .clone(),
+        )
+        .map_err(|error| format!("read {}: {error}", path.display()))?,
+        None => {
+            fs::read_to_string(path).map_err(|error| format!("read {}: {error}", path.display()))?
+        }
+    };
     text.parse::<toml::Value>()
         .map_err(|error| format!("parse {}: {error}", path.display()))
 }
@@ -244,6 +418,7 @@ fn package_targets(
     package: &str,
     dir: &Path,
     root: &Path,
+    selected: Option<&BTreeMap<PathBuf, Vec<u8>>>,
 ) -> Result<Vec<Target>, String> {
     let mut targets: Vec<Target> = Vec::new();
     let blank = |name: String, kind: Kind, source: String| Target {
@@ -267,7 +442,10 @@ fn package_targets(
             .map(|path| relative(root, &dir.join(path)))
             .unwrap_or_else(|| relative(root, &dir.join("src/lib.rs")));
         targets.push(blank(name, Kind::Lib, source));
-    } else if dir.join("src/lib.rs").is_file() {
+    } else if selected.map_or_else(
+        || dir.join("src/lib.rs").is_file(),
+        |files| files.contains_key(&dir.join("src/lib.rs")),
+    ) {
         targets.push(blank(
             package.replace('-', "_"),
             Kind::Lib,
@@ -301,7 +479,7 @@ fn package_targets(
         .and_then(toml::Value::as_bool)
         .unwrap_or(true);
     if autobins {
-        for (name, source) in discovered_bins(dir, package)? {
+        for (name, source) in discovered_bins(dir, package, selected)? {
             if targets
                 .iter()
                 .any(|target| target.kind == Kind::Bin && target.name == name)
@@ -316,9 +494,41 @@ fn package_targets(
 }
 
 /// The commands cargo finds without a manifest entry.
-fn discovered_bins(dir: &Path, package: &str) -> Result<Vec<(String, PathBuf)>, String> {
+fn discovered_bins(
+    dir: &Path,
+    package: &str,
+    selected: Option<&BTreeMap<PathBuf, Vec<u8>>>,
+) -> Result<Vec<(String, PathBuf)>, String> {
     let mut found = Vec::new();
     let main = dir.join("src/main.rs");
+    if let Some(files) = selected {
+        if files.contains_key(&main) {
+            found.push((package.to_owned(), main));
+        }
+        let bins = dir.join("src/bin");
+        for path in files.keys() {
+            let Ok(relative) = path.strip_prefix(&bins) else {
+                continue;
+            };
+            if relative.components().count() == 1
+                && relative.extension().is_some_and(|ext| ext == "rs")
+            {
+                found.push((
+                    relative.file_stem().unwrap().to_string_lossy().into_owned(),
+                    path.clone(),
+                ));
+            } else if relative.components().count() == 2
+                && relative.file_name().is_some_and(|name| name == "main.rs")
+            {
+                found.push((
+                    relative.parent().unwrap().to_string_lossy().into_owned(),
+                    path.clone(),
+                ));
+            }
+        }
+        found.sort();
+        return Ok(found);
+    }
     if main.is_file() {
         found.push((package.to_owned(), main));
     }
@@ -358,7 +568,7 @@ fn relative(root: &Path, path: &Path) -> String {
         .strip_prefix(root)
         .unwrap_or(path)
         .to_string_lossy()
-        .replace('\\', "/");
+        .replace(std::path::MAIN_SEPARATOR, "/");
     if shown.is_empty() {
         ".".to_owned()
     } else {

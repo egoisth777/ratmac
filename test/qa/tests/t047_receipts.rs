@@ -364,38 +364,35 @@ fn no_scheduler_owned_path_in_any_instruction() {
     let root = repo_root();
     let mut instructions = Vec::new();
     let mut runbooks = 0;
-    let mut stack = vec![root.clone()];
-    while let Some(dir) = stack.pop() {
-        let Ok(entries) = fs::read_dir(&dir) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if path.is_dir() {
-                if matches!(name.as_str(), "target" | ".git") {
-                    continue;
-                }
-                stack.push(path);
-            } else if name == "ratmac.toml" {
-                // Fixtures under test/fixtures/ are inputs to negative tests;
-                // the audit covers every Runbook that is not one of those.
-                if path.to_string_lossy().replace('\\', "/").contains("/test/") {
-                    continue;
-                }
-                runbooks += 1;
-                let from_runbook = typed_runbook_instructions(&path);
-                assert!(
-                    !from_runbook.is_empty(),
-                    "Runbook {} contributes no auditable prompt: it is unparseable or empty \
-                     under the current Machine Class schema",
-                    path.display()
-                );
-                instructions.extend(from_runbook);
+    for entry in ratmac_qa::audit_files::select(&root, &[])
+        .expect("select repository instruction inputs")
+        .entries
+    {
+        let path = &entry.path;
+        if path.file_name().is_some_and(|name| name == "ratmac.toml") {
+            // Fixtures under test/fixtures/ are inputs to negative tests;
+            // the audit covers every Runbook that is not one of those.
+            if path.starts_with("test") {
+                continue;
             }
+            runbooks += 1;
+            let source = std::str::from_utf8(&entry.bytes).expect("selected runbook is text");
+            let class = MachineClass::from_toml(source).expect("selected runbook parses");
+            let from_runbook = runbook_instructions(&class, &path.to_string_lossy());
+            assert!(
+                !from_runbook.is_empty(),
+                "Runbook {} contributes no auditable prompt: it is unparseable or empty \
+                     under the current Machine Class schema",
+                path.display()
+            );
+            instructions.extend(from_runbook);
+        } else if path.starts_with(".arca/tpl") && path.extension().is_some_and(|ext| ext == "md") {
+            instructions.push(Instruction {
+                source: path.to_string_lossy().into_owned(),
+                text: String::from_utf8(entry.bytes).expect("selected template is text"),
+            });
         }
     }
-    instructions.extend(template_instructions(&root.join(".arca/tpl")));
     assert!(runbooks >= 1, "at least the project Runbook is audited");
     assert!(
         instructions.len() >= 8,

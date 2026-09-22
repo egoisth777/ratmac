@@ -207,15 +207,30 @@ fn scan_legacy_workflow_exception(source: &Path) -> Result<(), ExceptionDefect> 
     let mut files = Vec::new();
     collect_source_files(source, &mut files);
     files.sort();
+    scan_legacy_workflow_inputs(
+        source,
+        files
+            .into_iter()
+            .map(|path| {
+                let bytes = fs::read(&path).expect("read owned fixture source");
+                (path, bytes)
+            })
+            .collect(),
+    )
+}
 
+fn scan_legacy_workflow_inputs(
+    source: &Path,
+    files: Vec<(PathBuf, Vec<u8>)>,
+) -> Result<(), ExceptionDefect> {
     let mut occurrences: Vec<(String, usize, String, Vec<String>)> = Vec::new();
-    for path in files {
+    for (path, bytes) in files {
         let relative = path
             .strip_prefix(source)
             .expect("Engine source file remains under the scanned root")
             .to_string_lossy()
             .replace('\\', "/");
-        let text = fs::read_to_string(&path).expect("read Engine source file");
+        let text = std::str::from_utf8(&bytes).expect("Engine source file is text");
         let lines: Vec<&str> = text.lines().collect();
         for (index, line) in lines.iter().enumerate() {
             let count = line
@@ -280,13 +295,24 @@ fn scan_legacy_workflow_exception(source: &Path) -> Result<(), ExceptionDefect> 
 fn assert_legacy_workflow_literal_exception() {
     let source =
         fs::canonicalize(repo_root().join("src")).expect("canonicalize Engine source directory");
-    if let Err(defect) = scan_legacy_workflow_exception(&source) {
+    if let Err(defect) = scan_legacy_workflow_inputs(&source, indexed_source_files(&source)) {
         panic!(
             "the shipped Engine source must satisfy the one named ENS-009 exception; \
              {} is broken: {defect:?}",
             defect.clause()
         );
     }
+}
+
+fn indexed_source_files(source: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+    let root = source.parent().expect("source has repository parent");
+    ratmac_qa::audit_files::select(root, &[])
+        .expect("select indexed Engine source")
+        .entries
+        .into_iter()
+        .filter(|entry| entry.path.starts_with("src"))
+        .map(|entry| (root.join(entry.path), entry.bytes))
+        .collect()
 }
 
 /// ENSV-009: a declared root routes its guard below that repository-relative
@@ -351,15 +377,13 @@ fn roots_table_validates_named_paths_with_distinct_diagnostics() {
 /// made against real Engine source without touching the repository.
 fn copy_source_tree(source: &Path, destination: &Path) {
     fs::create_dir_all(destination).expect("create mutated source directory");
-    for entry in fs::read_dir(source).expect("read source directory") {
-        let entry = entry.expect("read source entry");
-        let target = destination.join(entry.file_name());
-        let metadata = fs::symlink_metadata(entry.path()).expect("read source metadata");
-        if metadata.is_dir() {
-            copy_source_tree(&entry.path(), &target);
-        } else if metadata.is_file() {
-            fs::copy(entry.path(), &target).expect("copy source file");
-        }
+    for (path, bytes) in indexed_source_files(source) {
+        let target = destination.join(
+            path.strip_prefix(source)
+                .expect("selected source stays in scope"),
+        );
+        fs::create_dir_all(target.parent().unwrap()).expect("create copied source directory");
+        fs::write(target, bytes).expect("copy selected source bytes without following links");
     }
 }
 
@@ -387,7 +411,7 @@ fn source_scan_pins_the_one_named_legacy_exception() {
     let shipped =
         fs::canonicalize(repo_root().join("src")).expect("canonicalize Engine source directory");
     assert_eq!(
-        scan_legacy_workflow_exception(&shipped),
+        scan_legacy_workflow_inputs(&shipped, indexed_source_files(&shipped)),
         Ok(()),
         "the shipped Engine source must carry the one named exception, owner clause included"
     );
