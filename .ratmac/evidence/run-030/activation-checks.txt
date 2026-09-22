@@ -1,0 +1,72 @@
+Run-030 post-rest activation proof, recorded 2026-09-21
+Pinned edition-007 already reported State rest and Status passed before any activation edit.
+Commands run in order, stopping on the first nonzero exit:
+cargo fmt --all
+cargo fmt --manifest-path test-hidden/t-092/Cargo.toml
+python tools/check_links.py
+cargo test --offline -p ratmac-qa --test t092_plan_build_runbook --test t095_edition_audit
+cargo test --offline --manifest-path test-hidden/t-092/Cargo.toml
+pwsh -NoProfile -File tools/rtm.ps1 -Channel stable
+
+Output:
+intake shape check: all links resolve, all accepted requirement IDs present
+   Compiling ratmac-qa v0.1.0 (E:\repos\projs\skill-dev\ratmac\test\qa)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.73s
+     Running tests\t092_plan_build_runbook.rs (target\debug\deps\t092_plan_build_runbook-04c38e92485d3c2c.exe)
+
+running 2 tests
+test the_doctor_is_clean_on_the_shipped_machine_class ... ok
+test the_cycle_runs_from_intake_to_rest ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 13.30s
+
+     Running tests\t095_edition_audit.rs (target\debug\deps\t095_edition_audit-7b3b3d3812b3b60d.exe)
+
+running 2 tests
+test the_sequence_has_no_holes_and_no_edition_has_moved ... ok
+test every_edition_is_annotated_documented_and_reachable ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.36s
+
+   Compiling ratmac-t092-hidden v0.1.0 (E:\repos\projs\skill-dev\ratmac\test-hidden\t-092)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.61s
+     Running unittests src\lib.rs (test-hidden\t-092\target\debug\deps\ratmac_t092_hidden-cf495e0c4ff45c3f.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests ..\..\src\bin\rtm.rs (test-hidden\t-092\target\debug\deps\rtm-2bf900f5755cee8a.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\hidden.rs (test-hidden\t-092\target\debug\deps\hidden-e5c25f2607087ab3.exe)
+
+running 11 tests
+test ht_092_03_lifecycle_every_state_is_reachable ... ok
+test ht_092_03_lifecycle_exactly_one_initial_state ... ok
+test ht_092_03_lifecycle_exactly_one_terminal_state ... ok
+test ht_092_01_regression_the_retired_machine_and_its_readers_survive ... ok
+test ht_092_03_lifecycle_no_stage_is_left_only_by_refusal ... ok
+test ht_092_05_output_no_instruction_claims_an_engine_owned_file ... ok
+test ht_092_04_durability_a_changed_runbook_refuses ... ok
+test ht_092_04_durability_an_unknown_recorded_state_refuses ... ok
+test ht_092_05_output_a_traversal_writes_nothing_of_its_own ... ok
+test ht_092_02_input_routing_only_the_declared_words_route ... ok
+test ht_092_06_cross_feature_every_consumed_feature_fires_in_its_own_stage ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 28.25s
+
+   Doc-tests ratmac_t092_hidden
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+Engine: E:\repos\projs\skill-dev\ratmac-stable-edition-008\target\debug\rtm.exe
+sha256: 70332d81c4b129353914d6d34d8582ecf49687eb3cbf8b9223ad55b81868ff0a
+Pin: no pin recorded in .ratmac/evidence.toml
+Channel: stable is edition-008 at d9dfff15e586535717ad9865b13c5a0f9bde361b
+Diagnose: E:\repos\projs\skill-dev\ratmac-stable-edition-008\target\debug\rtm.exe doctor

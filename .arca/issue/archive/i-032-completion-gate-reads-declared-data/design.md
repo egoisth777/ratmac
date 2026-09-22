@@ -3,10 +3,10 @@
 ## Settled mechanism
 
 This file records incoming design evidence. The accepted behavior is
-authoritative in [goal `CGD-003`](../../goal/spec.md#integrated-completion-from-declared-data-requirements).
-The mechanism is settled by [ADR-0022](../../goal/design.md#completion-fields-are-selected-by-typed-runbook-data-adr-0022),
+authoritative in [goal `CGD-003`](../../../goal/spec.md#integrated-completion-from-declared-data-requirements).
+The mechanism is settled by [ADR-0022](../../../goal/design.md#completion-fields-are-selected-by-typed-runbook-data-adr-0022),
 while the exact grammar and diagnostics belong only to the
-[runbook specification](../../runbook-spec.md#completion-declaration-mapping).
+[runbook specification](../../../runbook-spec.md#completion-declaration-mapping).
 This summary does not redefine that schema or claim implementation proof.
 
 **1. The declaration has three runbook-selected lists.** The current workflow

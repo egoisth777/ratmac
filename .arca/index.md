@@ -44,10 +44,10 @@ lane-recovery cycle and expiry-aware turn-close ticket added no `src/`
 changes. `t-112` then landed generic typed completion-field selection, and
 `t-113` repaired review snapshots and reopened-work classification. Every
 Architecture, Binary, Modules, and Tests row below describes this landed tree.
-The typed-completion Engine capability has landed, but stable `edition-007`
-still drives `run-030` against the unchanged, unmapped tracked Plan-Build
-Runbook; activation waits until that Run has actually reached `rest`. Refresh
-at each cycle close (gap check green).
+The tracked Plan-Build Runbook now selects its three completion fields
+explicitly; stable `edition-007` drove `run-030` to `rest` before this
+activation. Future Runs use the recorded stable edition's Engine. Refresh at
+each cycle close (gap check green).
 
 The state-vocabulary cutover (`SVC-001`-`SVC-010`, goal `ADR-0012`) has landed:
 every row below reads State for the machine position, `states` for the runbook

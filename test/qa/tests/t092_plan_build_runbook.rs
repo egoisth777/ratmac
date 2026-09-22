@@ -10,16 +10,6 @@
 //! of this repository reaches the terminal rest State by starting, spawning,
 //! and stepping alone, with no rule supplied from outside the file.
 
-//! t-112 capability window (temporary, removed at the post-rest
-//! activation): the traversal below is the prepared-runbook proof. It walks
-//! the tracked runbook bytes with the tracked `.ratmac/completion-guard.diff`
-//! mapping applied inside a throwaway fixture - never the live runbook,
-//! which stays unmapped while stable edition-007 drives run-030 to rest.
-//!
-//! The activation landing applies that mapping to the tracked runbook,
-//! deletes every block marked `t-112 capability window`, and restores the
-//! exact shipped-byte traversal.
-
 use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Output};
@@ -36,74 +26,6 @@ fn repo_root() -> PathBuf {
 fn shipped_runbook() -> String {
     fs::read_to_string(repo_root().join(".ratmac/ratmac.toml"))
         .expect("read the shipped machine class")
-}
-
-// --- t-112 capability window (temporary) ------------------------------------
-//
-// Everything in this region exists only while the declared-completion
-// cutover is staged beside the live runbook. The post-rest activation
-// landing deletes this region and the proofs at the bottom of this file,
-// and points the traversal back at `shipped_runbook()`.
-
-/// A throwaway fixture carrying the tracked runbook bytes and a copy of the
-/// tracked completion-guard patch. Both are copied in - never referenced by
-/// absolute path - because Git cannot open Windows verbatim (`\\?\\`) paths
-/// from the canonicalized repository root. The `ratmac-t092-cutover-` prefix
-/// marks every fixture tree this window creates, so a crashed run leaves
-/// nothing unrecognizable behind.
-fn stage_cutover_fixture(label: &str) -> PathBuf {
-    let root = std::env::temp_dir().join(format!(
-        "ratmac-t092-cutover-{label}-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("clock after epoch")
-            .as_nanos()
-    ));
-    let _ = fs::remove_dir_all(&root);
-    fs::create_dir_all(root.join(".ratmac")).expect("create cutover fixture tree");
-    fs::write(root.join(".ratmac/ratmac.toml"), shipped_runbook())
-        .expect("copy the tracked runbook bytes");
-    fs::copy(
-        repo_root().join(".ratmac/completion-guard.diff"),
-        root.join("completion-guard.diff"),
-    )
-    .expect("stage the tracked cutover patch in the fixture");
-    // Line-ending translation would make the recovered bytes differ by
-    // platform accident rather than by what the patch changed.
-    git_in(&root, &["init", "--quiet"]);
-    git_in(&root, &["config", "core.autocrlf", "false"]);
-    root
-}
-
-/// Git in a fixture that is not a `Cycle`, applying from the fixture's own
-/// tree so no Windows verbatim path ever reaches an argument.
-fn git_in(root: &std::path::Path, args: &[&str]) -> Output {
-    let output = Command::new("git")
-        .args(args)
-        .current_dir(root)
-        .output()
-        .expect("invoke git");
-    assert!(
-        output.status.success(),
-        "git {args:?} succeeds: {}",
-        combined(&output)
-    );
-    output
-}
-
-/// The prepared cutover runbook: the tracked bytes with the staged mapping
-/// applied by Git itself inside a throwaway fixture, so the traversal proves
-/// exactly the patch the activation landing will apply to the live runbook
-/// after rest - no inlined expectation, no fallback. The fixture is removed
-/// once the bytes are read back.
-fn prepared_runbook() -> String {
-    let fixture = stage_cutover_fixture("runbook");
-    git_in(&fixture, &["apply", "completion-guard.diff"]);
-    let patched = fs::read_to_string(fixture.join(".ratmac/ratmac.toml"))
-        .expect("read the prepared cutover runbook");
-    let _ = fs::remove_dir_all(&fixture);
-    patched
 }
 
 /// The green output a receipt records for a check that passed.
@@ -126,10 +48,8 @@ impl Drop for Cycle {
 }
 
 impl Cycle {
-    /// The Machine Class the fixture carries: the prepared cutover for the
-    /// traversal, or the exact shipped bytes for the unmapped-boundary proof
-    /// (`t-112 capability window`, temporary).
-    fn create(label: &str, runbook: &str) -> Self {
+    /// The fixture carries the exact shipped Machine Class bytes.
+    fn create(label: &str) -> Self {
         let root = std::env::temp_dir().join(format!(
             "ratmac-t092-{label}-{}-{}",
             std::process::id(),
@@ -151,7 +71,7 @@ impl Cycle {
             fs::create_dir_all(root.join(dir)).expect("create fixture tree");
         }
         let cycle = Self { root };
-        cycle.write(".ratmac/ratmac.toml", runbook);
+        cycle.write(".ratmac/ratmac.toml", &shipped_runbook());
         cycle.write(".gitignore", ".ratmac/\n");
         cycle.write("src/lib.rs", "pub fn work() {}\n");
         cycle.write("test/fixture_test.rs", "fn the_planned_test() {}\n");
@@ -227,12 +147,11 @@ impl Cycle {
         );
     }
 
-    /// The work item P3 cuts for that gap. During the `t-112 capability
-    /// window` (temporary) it also carries the three declaration lists the
-    /// prepared mapping selects - `focused-tests`, `hidden-lanes`, and
-    /// `quality-commands`, matching the receipt ids `write_completion`
-    /// already records - while the legacy `planned-test-refs` list keeps
-    /// driving the sensitivity gate.
+    /// The work item P3 cuts for that gap. It also carries the three
+    /// declaration lists the completion guard selects - `focused-tests`,
+    /// `hidden-lanes`, and `quality-commands`, matching the receipt ids
+    /// `write_completion` records - while the legacy `planned-test-refs`
+    /// list keeps driving the sensitivity gate.
     fn ticket_body(&self) -> String {
         let lanes = [
             "Regression",
@@ -429,12 +348,9 @@ fn combined(output: &Output) -> String {
 /// PCRV-001: the shipped runbook is the cycle, and a Run walks it end to end.
 #[test]
 fn the_cycle_runs_from_intake_to_rest() {
-    // `t-112 capability window` (temporary): the traversal runs the prepared
-    // cutover - the tracked bytes plus the staged mapping - not the exact
-    // shipped runbook, which stays unmapped until the post-rest activation.
-    let runbook = prepared_runbook();
+    let runbook = shipped_runbook();
     let class = MachineClass::from_toml(&runbook)
-        .expect("the prepared cutover machine class parses through the one reader");
+        .expect("the shipped machine class parses through the one reader");
 
     let declared: Vec<&str> = class.states().keys().map(String::as_str).collect();
     assert_eq!(
@@ -454,7 +370,7 @@ fn the_cycle_runs_from_intake_to_rest() {
         "PCR-001: the ticket turns are a declared child class"
     );
 
-    let cycle = Cycle::create("traversal", &runbook);
+    let cycle = Cycle::create("traversal");
     let run = cycle.start();
     assert_eq!(cycle.state(&run), "intake", "a Run starts at intake");
 
@@ -481,11 +397,10 @@ fn the_cycle_runs_from_intake_to_rest() {
     cycle.step(&child);
     assert_eq!(cycle.state(&child), "implement");
 
-    // `t-112 capability window` (temporary): the mapped fixture declares
-    // exactly three non-empty checks - one focused, one hidden lane, one
-    // quality command - and the gate refuses while any of them lacks its
-    // receipt, naming the missing check. With no receipts at all the
-    // refusal names all three in declaration order.
+    // The fixture declares exactly three non-empty checks - one focused,
+    // one hidden lane, one quality command - and the gate refuses while any
+    // of them lacks its receipt, naming the missing check. With no receipts
+    // at all the refusal names all three in declaration order.
     let bare = cycle.rtm(&["step", "--run", child.as_str()]);
     let bare_text = combined(&bare);
     assert!(
@@ -662,218 +577,6 @@ fn the_doctor_is_clean_on_the_shipped_machine_class() {
     assert!(
         ratmac::ownership::audit_ownership(&instructions).is_ok(),
         "PCRV-004: the prompt-and-contract ownership audit returns no violation"
-    );
-}
-
-// --- t-112 capability window (temporary) ------------------------------------
-//
-// The staged self-host rollout proofs. The activation landing deletes this
-// region and the helper region near the top of this file, and restores the
-// exact shipped-byte traversal.
-
-/// The four-field mapping group the prepared cutover stages on each
-/// completion guard, as authored key/value pairs.
-const CUTOVER_MAPPING: [&str; 4] = [
-    "declaration-format = \"front-matter-string-lists\"",
-    "focused-field = \"focused-tests\"",
-    "hidden-lane-field = \"hidden-lanes\"",
-    "quality-field = \"quality-commands\"",
-];
-
-/// t-112 rollout condition (temporary): the tracked
-/// `.ratmac/completion-guard.diff` is the exact prepared mapping. Applied to
-/// the tracked runbook bytes inside a throwaway fixture it changes only the
-/// two `completion_gate` guards - each gaining the whole four-field mapping
-/// group - and reverse-applied it recovers the tracked bytes exactly, so the
-/// roots, States, transitions, the edition guard, and the lane-sweep guard
-/// survive the cutover untouched.
-#[test]
-fn the_prepared_completion_mapping_patches_only_the_two_completion_gates() {
-    let diff = fs::read_to_string(repo_root().join(".ratmac/completion-guard.diff"))
-        .expect("the prepared completion-guard diff lands as a tracked file");
-    for pair in CUTOVER_MAPPING {
-        assert!(
-            diff.lines()
-                .any(|line| line.starts_with('+') && line.contains(pair)),
-            "the prepared diff adds {pair} to a guard: {diff}"
-        );
-    }
-    let tracked = shipped_runbook();
-
-    let fixture = stage_cutover_fixture("apply");
-    git_in(&fixture, &["apply", "completion-guard.diff"]);
-    let patched =
-        fs::read_to_string(fixture.join(".ratmac/ratmac.toml")).expect("read the patched runbook");
-
-    // Structure: the mapping rewrites the two completion-guard lines in
-    // place and touches nothing else.
-    let before: Vec<&str> = tracked.lines().collect();
-    let after: Vec<&str> = patched.lines().collect();
-    assert_eq!(after.len(), before.len(), "the mapping adds no line");
-    let changed: Vec<usize> = before
-        .iter()
-        .zip(&after)
-        .enumerate()
-        .filter_map(|(index, (was, now))| (was != now).then_some(index))
-        .collect();
-    assert_eq!(
-        changed.len(),
-        2,
-        "exactly the two completion guards change, in place: {patched}"
-    );
-    for index in changed {
-        assert!(
-            before[index].contains("{ kind = \"completion_gate\""),
-            "the replaced line is a completion guard: {}",
-            before[index]
-        );
-        for pair in CUTOVER_MAPPING {
-            assert!(
-                after[index].contains(pair),
-                "the guard gains {pair}: {}",
-                after[index]
-            );
-        }
-    }
-    assert_eq!(
-        patched.matches("kind = \"completion_gate\"").count(),
-        tracked.matches("kind = \"completion_gate\"").count(),
-        "the runbook still carries exactly two completion guards"
-    );
-    assert_eq!(
-        patched.matches("kind = \"command_exit\"").count(),
-        tracked.matches("kind = \"command_exit\"").count(),
-        "the edition, checkpoint, and lane-sweep guards are untouched"
-    );
-    for key in [
-        "declaration-format",
-        "focused-field",
-        "hidden-lane-field",
-        "quality-field",
-    ] {
-        assert_eq!(
-            patched.matches(key).count(),
-            2,
-            "{key} appears on both completion guards only"
-        );
-        assert_eq!(
-            tracked.matches(key).count(),
-            0,
-            "the tracked runbook is unmapped"
-        );
-    }
-
-    // Reverse: the staged patch comes back off the tracked bytes exactly.
-    git_in(&fixture, &["apply", "-R", "completion-guard.diff"]);
-    let recovered = fs::read_to_string(fixture.join(".ratmac/ratmac.toml"))
-        .expect("read the recovered runbook");
-    assert_eq!(
-        recovered, tracked,
-        "reverse-applying the prepared mapping recovers the tracked bytes exactly"
-    );
-    let _ = fs::remove_dir_all(&fixture);
-}
-
-/// t-112 rollout condition (temporary): while the tracked runbook stays
-/// unmapped, the candidate Engine refuses its completion boundary before it
-/// reads the addressed item, naming the missing mapping fields - and the
-/// doctor adds no missing-mapping lint, because an unmapped runbook is
-/// statically valid. The activation landing deletes this proof together
-/// with the mapping it proves staged.
-#[test]
-fn the_unmapped_completion_boundary_refuses_before_reading_the_item() {
-    // The real tracked runbook is still unmapped: the live file carries
-    // none of the mapping the prepared diff stages.
-    let tracked = shipped_runbook();
-    for key in [
-        "front-matter-string-lists",
-        "focused-field",
-        "hidden-lane-field",
-        "quality-field",
-    ] {
-        assert!(
-            !tracked.contains(key),
-            "the tracked runbook remains unmapped until the activation landing: no {key}"
-        );
-    }
-    // No doctor lint for the absent mapping: old runbooks are statically
-    // valid, so the shipped file carries no finding at all.
-    let findings = doctor::diagnose(&repo_root().join(".ratmac/ratmac.toml"));
-    let shown: Vec<String> = findings
-        .iter()
-        .map(|finding| {
-            format!(
-                "{} {} {} {}",
-                finding.code(),
-                severity_word(finding.severity()),
-                finding.location(),
-                finding.message()
-            )
-        })
-        .collect();
-    assert!(
-        findings.is_empty(),
-        "an unmapped runbook doctors clean - no missing-mapping lint: {shown:?}"
-    );
-
-    // Drive the exact shipped (unmapped) runbook to the implement boundary
-    // of one ticket turn.
-    let cycle = Cycle::create("unmapped", &shipped_runbook());
-    let run = cycle.start();
-    cycle.step(&run);
-    let frozen = cycle.frozen(&run);
-    cycle.write_gap("missing", &frozen, &[]);
-    cycle.write_verdict(&run, "gap-check", "gaps");
-    cycle.step(&run);
-    cycle.write(".arca/ticket/t-100.md", &cycle.ticket_body());
-    cycle.step(&run);
-    let child = cycle.spawn("turn", &run, "item=t-100.md");
-    cycle.write_sensitivity(&child, "PT-100-01");
-    cycle.step(&child);
-    assert_eq!(cycle.state(&child), "implement");
-
-    // The addressed item is made unreadable and the tree committed clean,
-    // so the only boundary that can refuse is the completion gate. A
-    // mapped candidate would have to read the item to judge it; an unmapped
-    // one refuses first, naming the mapping it lacks.
-    fs::remove_file(cycle.root.join(".arca/ticket/t-100.md")).expect("remove the addressed item");
-    cycle.commit("remove the addressed item");
-    let refused = cycle.rtm(&["step", "--run", child.as_str()]);
-    let text = combined(&refused);
-    assert!(
-        text.contains("step refused"),
-        "the unmapped completion boundary refuses: {text}"
-    );
-    assert!(
-        text.contains("completion_gate"),
-        "the refusal is the completion gate's: {text}"
-    );
-    for key in [
-        "declaration-format",
-        "focused-field",
-        "hidden-lane-field",
-        "quality-field",
-    ] {
-        assert!(
-            text.contains(key),
-            "the refusal names the missing mapping field {key}: {text}"
-        );
-    }
-    assert!(
-        !text.contains("unreadable ticket"),
-        "the refusal precedes any reading of the addressed item: {text}"
-    );
-    assert_eq!(
-        cycle.state(&child),
-        "implement",
-        "the refused turn stays at the implement boundary"
-    );
-    assert!(
-        !cycle
-            .root
-            .join(format!(".ratmac/evidence/{child}/completion"))
-            .exists(),
-        "the refusal creates no completion evidence"
     );
 }
 

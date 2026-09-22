@@ -6,7 +6,7 @@ records, in the repository's own history, the commit each edition was cut at. Th
 edition audit compares every row here against the tag database, so a tag that was
 moved or deleted becomes a reported difference instead of an invisible edit.
 
-A row is written in the same landing that cuts the edition, and is never edited
+A row is written in the next landing after the edition is cut, and is never edited
 afterwards. The commit column holds a full hash because that is the field's whole
 purpose - it is the record a citation resolves against, not a name.
 
@@ -19,3 +19,4 @@ purpose - it is the record a citation resolves against, not a name.
 | `edition-005` | `c1ecb4936df24e1e60775c3c45284979b42c3d34` | The rest that closed the safety-debt sprint: gap-record citations resolve against the repository behind an enumerated allowlist with the stamp landing following the green landing (RCR-001..003), one turn lifecycle opens and closes a work item's turn in the fixed order behind named refusals (THK-001..004), and every landed lane sweeps to one verdict with dated expiry markers and a prepared close guard (LNR-001..003). |
 | `edition-006` | `38113019436c158ed735b31feb3965d54bcd8819` | The rest that closed the landed-lane recovery sprint: the old crates retain their original tests after narrow compatibility repairs, the complete roster rejects stray entries, and the wired close guard passes a fresh sweep with 51 passing crates and two verified explicit expiry markers (RLR-001..004). |
 | `edition-007` | `5fb89a1787f04086c58c8a5bf43913f8e014f043` | The rest that closed the expiry-aware turn-close sprint: final confirmation delegates to a fresh sweep and report check, preserves explicit expiry and existing per-lane callers, and retries only verification after completed-landing proof without repeating cleanup (TCE-001). The verified roster has 52 passing crates and two explicit expiries. |
+| `edition-008` | `d9dfff15e586535717ad9865b13c5a0f9bde361b` | The proven close of the declared-completion sprint: the Engine selects completion checks from typed runbook fields (CGD-003), snapshot evidence preserves file identity and complete reviewable inputs (AOI-001), and reopened gaps distinguish current ownership from historical landed work (PCR-003). The verified roster has 54 passing crates and two still-refusing explicit expiries. This tagged revision contains Engine capability; the tracked runbook is activated only in the following post-rest recording landing. |

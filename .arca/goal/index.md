@@ -184,7 +184,7 @@ only final verification after cleanup. See
 Completion declarations become runbook data rather than prose shape.
 Requirement [CGD-003](spec.md#integrated-completion-from-declared-data-requirements) is
 integrated from
-[i-032-completion-gate-reads-declared-data](../issue/i-032-completion-gate-reads-declared-data/index.md):
+[i-032-completion-gate-reads-declared-data](../issue/archive/i-032-completion-gate-reads-declared-data/index.md):
 the generic gate consumes focused, hidden, and quality lists whose field names
 come from runbook data, while receipt behavior stays intact. This workflow's
 fields are `focused-tests`, `hidden-lanes`, and `quality-commands`; none is

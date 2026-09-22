@@ -17,6 +17,6 @@
 
 | Trace | Where it lands |
 | :--- | :--- |
-| The declared-check contract | [`CGD-003`](../../goal/spec.md#integrated-completion-from-declared-data-requirements) in the goal specification |
+| The declared-check contract | [`CGD-003`](../../../goal/spec.md#integrated-completion-from-declared-data-requirements) in the goal specification |
 | Current workflow field names | `CGD-001` in `.arca/schema.md`; the generic field-selection and migration mechanism waits for the upcoming goal design decision |
 | The deleted prose parsers | `src/completion.rs`, cut in the owning ticket |

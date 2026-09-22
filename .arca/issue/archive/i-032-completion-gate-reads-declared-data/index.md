@@ -32,16 +32,16 @@ deleted.
 
 Billy delegated issue selection and the next-sprint start. The remaining Engine
 cutover (`CGD-003`) was selected because the [tag-reader ticket
-(`t-105`)](../../ticket/archive/t-105.md) and its satisfied gap records
-([`res-152`](../../residual/archive/res-152.md) and
-[`res-153`](../../residual/archive/res-153.md)) prove the tag format, while
+(`t-105`)](../../../ticket/archive/t-105.md) and its satisfied gap records
+([`res-152`](../../../residual/archive/res-152.md) and
+[`res-153`](../../../residual/archive/res-153.md)) prove the tag format, while
 the [turn-close ticket's implementation-run review
-(`t-111`)](../../ticket/archive/t-111.md#implementation-run-review) records
+(`t-111`)](../../../ticket/archive/t-111.md#implementation-run-review) records
 the duplicate work of keeping the same checks in tags and prose.
 
 At run-030 intake on 2026-09-18, Billy explicitly approved the remaining
 Engine cutover. `CGD-003` is accepted and integrated into the
-[forward product goal](../../goal/spec.md#integrated-completion-from-declared-data-requirements):
+[forward product goal](../../../goal/spec.md#integrated-completion-from-declared-data-requirements):
 declared checks replace prose discovery while the existing receipt contract
 stays unchanged. The two sibling asks (`CGD-001` and `CGD-002`) remain accepted
 working-authority prerequisites. This planning integration makes no
