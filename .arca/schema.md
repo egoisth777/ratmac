@@ -1114,7 +1114,7 @@ Accepted from [tracked repository audits](issue/i-057-tracked-repository-audits/
 
 #### Accepted mechanics
 
-[rebrand.rs](../test/qa/src/rebrand.rs) owns collect_files and audit; its SKIPPED names exclude only .git, test-hidden, and target, while I/O failures are silently skipped. Both [active reference audit](../test/qa/tests/t034_rat005.rs) and [full rebrand acceptance](../test/qa/tests/t037_rat008.rs) call this shared audit.
+The shared selector in `test/qa/src/audit_files.rs` owns indexed input selection. [rebrand.rs](../test/qa/src/rebrand.rs) applies the retired-spelling audit to those selected working bytes, and both [active reference audit](../test/qa/tests/t034_rat005.rs) and [full rebrand acceptance](../test/qa/tests/t037_rat008.rs) retain that shared audit. Repository manifest and implicit-target inventories use the same selector. Dedicated synthetic-fixture walkers remain explicitly named fixture operations; they are never a fallback when repository selection fails.
 
 Assumed: use `git ls-files --cached -z` under the supplied audit root, with Git environment overrides cleared, then sort and deduplicate paths. Read working files, not committed blobs, so changes being reviewed are visible. Reject conflicts and missing indexed files unless the index itself stages their removal. Gitlinks are repository boundaries, not permission to descend into another worktree; a symlink is inspected as a tracked link and never followed outside the root.
 

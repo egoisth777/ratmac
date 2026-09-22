@@ -49,3 +49,11 @@ test/qa/tests/t058_authoring_loop.rs	phase	The RB111 seed must plant the pre-cut
 test/qa/src/baseline.rs	phase	The before-and-after comparison must spell both sides of the rename to translate between them.
 test/qa/tests/t085_rename_is_behavior_free.rs	phase	The regression proof names the position the pre-cutover runbook declared.
 test/qa/tests/t109_pre_split_ports.rs	phase	The focused test freezes the thirteen pre-split crates' landed lane names, one of which spells the retired position word; a landed name is provenance and is never renamed.
+.ratmac/evidence/run-036/WEBV-009.toml	both	Observed compiled baseline output intentionally records the retired-token audit failure; exact receipt provenance.
+.ratmac/evidence/run-036/WEBV-009.toml	phase	Observed compiled baseline output intentionally records the retired-position audit failure; exact receipt provenance.
+.ratmac/evidence/run-036/WEBV-010.toml	both	Observed compiled baseline output intentionally records the retired-token audit failure; exact receipt provenance.
+.ratmac/evidence/run-036/WEBV-010.toml	phase	Observed compiled baseline output intentionally records the retired-position audit failure; exact receipt provenance.
+.ratmac/evidence/run-036/WEBV-011.toml	both	Observed compiled baseline output intentionally records the retired-token audit failure; exact receipt provenance.
+.ratmac/evidence/run-036/WEBV-011.toml	phase	Observed compiled baseline output intentionally records the retired-position audit failure; exact receipt provenance.
+.ratmac/evidence/run-036/WEBV-012.toml	both	Observed compiled baseline output intentionally records the retired-token audit failure; exact receipt provenance.
+.ratmac/evidence/run-036/WEBV-012.toml	phase	Observed compiled baseline output intentionally records the retired-position audit failure; exact receipt provenance.
