@@ -258,7 +258,10 @@ pub fn plan_hold(root: &Path, request: &HoldRequest) -> Result<HoldPlan, HoldRef
             }
         )));
     }
-    let Some(route) = scheduler.machine().blocked_route_for(&from_state) else {
+    let Some(to_state) = scheduler
+        .blocked_destination(&from_state)
+        .map_err(|error| refusal(error.to_string()))?
+    else {
         return Err(refusal(format!(
             "State {from_state:?} declares no blocked route; add a transition with blocked-route = true"
         )));
@@ -269,7 +272,7 @@ pub fn plan_hold(root: &Path, request: &HoldRequest) -> Result<HoldPlan, HoldRef
         run_id: run_id.to_owned(),
         from_state,
         from_status: state.status,
-        to_state: route.to().as_str().to_owned(),
+        to_state,
     })
 }
 
@@ -375,22 +378,25 @@ pub fn apply_hold(root: &Path, plan: &HoldPlan) -> Result<(), HoldRefusal> {
     }
     // Reopen while holding the mutation lock. This binds the route to the same
     // freshly pinned class that permits this write, rather than trusting
-    // public fields in a caller-supplied HoldPlan.
+    // the destination in a caller-supplied HoldPlan.
     let current_scheduler = crate::Scheduler::open_run(root, &plan.run_id)
         .map_err(|error| refusal(error.to_string()))?;
-    let Some(route) = current_scheduler.machine().blocked_route_for(&state.state) else {
+    let Some(to_state) = current_scheduler
+        .blocked_destination(&state.state)
+        .map_err(|error| refusal(error.to_string()))?
+    else {
         return Err(refusal(format!(
             "hold route changed: state {:?} no longer declares a blocked route; re-plan the hold",
             state.state
         )));
     };
-    if route.to().as_str() != plan.to_state {
+    if to_state != plan.to_state {
         return Err(refusal(format!(
             "hold route changed: planned state {:?} -> {:?}, but the declared blocked route is {:?} -> {:?}; re-plan the hold",
             plan.from_state,
             plan.to_state,
             state.state,
-            route.to().as_str()
+            to_state
         )));
     }
 

@@ -1,0 +1,10 @@
+ticket-id = "t-114"
+check-id = "WRSV-002-03"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test t114_child_class_hold"
+working-dir = "."
+exit-status = 0
+output-sha256 = "c291f6c38468eab987e655bcd0e7fc038176a566e62962c59c2afe3961f88369"
+tree-roots = ["src","test/qa","test-hidden/t-114","Cargo.toml","Cargo.lock"]
+tree-sha256 = "3ff70cd0ab61dcd6950687f0bf6da42f29c1e3d57418da9fa7e253a4e6a48a89"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s\n     Running tests\\t114_child_class_hold.rs (target\\debug\\deps\\t114_child_class_hold-5335153d370397c5.exe)\n\nrunning 4 tests\ntest wrsv_002_01 ... ok\ntest wrsv_002_02 ... ok\ntest wrsv_002_04 ... ok\ntest wrsv_002_03 ... ok\n\ntest result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 40.18s\n\n"

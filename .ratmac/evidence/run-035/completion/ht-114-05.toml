@@ -1,0 +1,10 @@
+ticket-id = "t-114"
+check-id = "HT-114-05"
+kind = "hidden-lane"
+command = "cargo test --offline --manifest-path test-hidden/t-114/Cargo.toml"
+working-dir = "."
+exit-status = 0
+output-sha256 = "80923bf5f054d31e9829fbfbb935a7d43773c8c5b620e6954ea1fb8df714bc2c"
+tree-roots = ["src","test/qa","test-hidden/t-114","Cargo.toml","Cargo.lock"]
+tree-sha256 = "3ff70cd0ab61dcd6950687f0bf6da42f29c1e3d57418da9fa7e253a4e6a48a89"
+output = "    Blocking waiting for file lock on package cache\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s\n     Running unittests src\\lib.rs (test-hidden\\t-114\\target\\debug\\deps\\ratmac_t114_hidden-164fa71b54142cbf.exe)\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n     Running tests\\hidden.rs (test-hidden\\t-114\\target\\debug\\deps\\hidden-6cc5c14b22717e48.exe)\n\nrunning 6 tests\ntest ht_114_01 ... ok\ntest ht_114_05 ... ok\ntest ht_114_03 ... ok\ntest ht_114_06 ... ok\ntest ht_114_04 ... ok\ntest ht_114_02 ... ok\n\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 14.34s\n\n   Doc-tests ratmac_t114_hidden\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n"

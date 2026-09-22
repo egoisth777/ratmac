@@ -1,0 +1,10 @@
+ticket-id = "t-114"
+check-id = "cargo test --offline --manifest-path test-hidden/t-108/Cargo.toml ht_108_04_durability_absence_never_reads_as_a_pass -- --exact"
+kind = "quality"
+command = "cargo test --offline --manifest-path test-hidden/t-108/Cargo.toml ht_108_04_durability_absence_never_reads_as_a_pass -- --exact --nocapture"
+working-dir = "."
+exit-status = 0
+output-sha256 = "d126896ef8a13c9ba1c047c0be5feed0c8df8227ba2d7d55cdd163a151a05df4"
+tree-roots = ["src","test-hidden/t-108","tools/sweep_lanes.py","Cargo.toml","Cargo.lock"]
+tree-sha256 = "a3a3fea01dde58c14ef5a8e670a843398321385dc9733e67f55f61a9f59f6f33"
+output = "   Compiling ratmac-t108-hidden v0.1.0 (E:\\repos\\projs\\skill-dev\\ratmac-t-114\\test-hidden\\t-108)\r\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.41s\r\n     Running unittests src\\lib.rs (test-hidden\\t-108\\target\\debug\\deps\\ratmac_t108_hidden-017931d244fd5e09.exe)\r\n\r\nrunning 0 tests\r\n\r\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\r\n\r\n     Running unittests ..\\..\\src\\bin\\rtm.rs (test-hidden\\t-108\\target\\debug\\deps\\rtm-bb86e262f6ffe817.exe)\r\n\r\nrunning 0 tests\r\n\r\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\r\n\r\n     Running tests\\hidden.rs (test-hidden\\t-108\\target\\debug\\deps\\hidden-18c27c08d7a7de00.exe)\r\n\r\nrunning 1 test\r\ntest ht_108_04_durability_absence_never_reads_as_a_pass ... ok\r\n\r\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 17.45s\r\n\r\n"

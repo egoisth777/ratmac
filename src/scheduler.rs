@@ -1040,6 +1040,30 @@ impl Scheduler {
         &self.machine
     }
 
+    /// Resolve a hold only in the class durably bound to the addressed Run.
+    pub(crate) fn blocked_destination(
+        &self,
+        recorded_state: &str,
+    ) -> Result<Option<String>, StateError> {
+        let snapshot = self
+            .runbook_snapshot
+            .as_ref()
+            .ok_or_else(|| StateError::new("hold route requires Scheduler::open_run"))?;
+        let class = snapshot.class();
+        // A Run without a ledger class belongs to the top-level class. Do
+        // not let the legacy state-name fallback borrow a child's route.
+        if self.child_class.is_none() && !class.states().contains_key(recorded_state) {
+            return Err(StateError::new(format!(
+                "Run Record state {recorded_state:?} is undeclared in the top-level class"
+            )));
+        }
+        let (_, machine) =
+            Self::resolve_state_scope(class, recorded_state, self.child_class.as_deref())?;
+        Ok(machine
+            .blocked_route_for(recorded_state)
+            .map(|route| route.to().as_str().to_owned()))
+    }
+
     /// Prove that the exact runbook snapshot which supplied this Scheduler's
     /// class and role mapping is still current for its addressed Run.
     pub(crate) fn verify_open_runbook_snapshot(&self) -> Result<(), StateError> {

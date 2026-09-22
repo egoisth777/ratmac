@@ -1,9 +1,9 @@
 # Lane sweep report
 
-- swept: 2026-09-22T19:26:03Z
+- swept: 2026-09-22T17:41:08Z
 - lanes-root: test-hidden
 - verify-expired: no
-- verdicts: 55 pass, 2 expired, 0 red, 0 missing - 57 crates
+- verdicts: 54 pass, 2 expired, 1 red, 0 missing - 57 crates
 
 | crate | verdict | detail |
 | :--- | :--- | :--- |
@@ -57,7 +57,7 @@
 | t-105 | pass | 6 lane(s) green |
 | t-106 | pass | 6 lane(s) green |
 | t-107 | pass | 6 lane(s) green |
-| t-108 | pass | 6 lane(s) green |
+| t-108 | red | ht_108_04_durability_absence_never_reads_as_a_pass |
 | t-109 | pass | 6 lane(s) green |
 | t-110 | pass | 6 lane(s) green |
 | t-111 | pass | 6 lane(s) green |
