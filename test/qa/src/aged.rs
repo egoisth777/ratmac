@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 /// freezes. Age is a property of the path (`.arca/residual/archive/`), never
 /// of whether a citation happens to match.
 pub struct AgedTree {
+    _owner: crate::support::TempTree,
     pub root: PathBuf,
     /// Freezes this tree has lived through, oldest first; the last entry is
     /// the current one live records must cite.
@@ -24,15 +25,9 @@ impl AgedTree {
     /// A fresh repository at its first freeze: the standard workflow roots,
     /// a one-row goal, and no history yet.
     pub fn new(label: &str, first_freeze: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "ratmac-aged-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&root);
+        let owner = crate::support::TempTree::new(&format!("aged-{label}"))
+            .expect("create owned fixture tree");
+        let root = owner.path().to_path_buf();
         for dir in [
             ".arca/goal",
             ".arca/issue",
@@ -73,6 +68,7 @@ impl AgedTree {
         )
         .expect("write goal spec");
         Self {
+            _owner: owner,
             root,
             freezes: vec![first_freeze.to_owned()],
         }
@@ -194,33 +190,29 @@ impl AgedTree {
     }
 }
 
-impl Drop for AgedTree {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
-    }
-}
-
-fn snapshot_dir(dir: &Path, into: &mut Vec<(String, Vec<u8>)>) {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            snapshot_dir(&path, into);
-        } else {
-            into.push((
-                path.to_string_lossy().into_owned(),
-                fs::read(&path).unwrap_or_default(),
-            ));
-        }
-    }
-}
-
 /// Byte-exact snapshot of a tree, for write-nothing oracles.
+/// Every file keyed by its full path under `root`, sorted; an absent root is
+/// empty. An unreadable input, a link, or a special file fails by name
+/// instead of reading as empty or being followed.
 pub fn snapshot(root: &Path) -> Vec<(String, Vec<u8>)> {
-    let mut entries = Vec::new();
-    snapshot_dir(root, &mut entries);
+    let mut entries: Vec<(String, Vec<u8>)> = crate::support::capture(
+        root,
+        crate::support::CaptureOptions {
+            missing_root_is_empty: true,
+            ..crate::support::CaptureOptions::default()
+        },
+    )
+    .and_then(crate::support::Snapshot::refuse_links)
+    .unwrap_or_else(|error| panic!("snapshot {}: {error}", root.display()))
+    .files()
+    .into_iter()
+    .map(|(relative, bytes)| {
+        let path = relative
+            .split('/')
+            .fold(root.to_path_buf(), |path, part| path.join(part));
+        (path.to_string_lossy().into_owned(), bytes)
+    })
+    .collect();
     entries.sort_by(|left, right| left.0.cmp(&right.0));
     entries
 }

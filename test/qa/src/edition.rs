@@ -13,7 +13,6 @@
 
 use std::fmt::Write as _;
 use std::path::Path;
-use std::process::Command;
 
 /// The name pattern that makes a tag a candidate edition.
 pub const EDITION_PREFIX: &str = "edition-";
@@ -53,9 +52,8 @@ impl std::fmt::Display for AuditFinding {
 /// Run a read-only version-control command, or say why the answer is
 /// unavailable. A missing answer is never silently a pass.
 pub fn git(root: &Path, args: &[&str]) -> Result<String, String> {
-    let output = Command::new("git")
+    let output = crate::support::command("git", root)
         .args(args)
-        .current_dir(root)
         .output()
         .map_err(|error| format!("git {args:?} could not run: {error}"))?;
     if !output.status.success() {
@@ -145,9 +143,8 @@ pub fn audit_editions(root: &Path) -> Result<Vec<AuditFinding>, String> {
         }
 
         let commit = edition_commit(root, &tag)?;
-        let reachable = Command::new("git")
+        let reachable = crate::support::command("git", root)
             .args(["merge-base", "--is-ancestor", &commit, &trunk])
-            .current_dir(root)
             .output()
             .map_err(|error| format!("git merge-base could not run: {error}"))?;
         if !reachable.status.success() {

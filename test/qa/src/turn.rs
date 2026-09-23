@@ -8,7 +8,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 
 use crate::trial::digest_tree;
 
@@ -40,36 +40,26 @@ pub const RERUN_COMMAND: &str = "New-Item -ItemType File -Force -Path rerun.mark
 
 /// An open turn fixture: primary checkout plus its sibling worktree.
 pub struct Turn {
-    parent: PathBuf,
+    _owner: crate::support::TempTree,
     pub root: PathBuf,
-}
-
-impl Drop for Turn {
-    fn drop(&mut self) {
-        // Registered worktrees keep no handles open once the processes that
-        // drove them have exited.
-        let _ = fs::remove_dir_all(&self.parent);
-    }
 }
 
 impl Turn {
     /// A repository whose declared trunk is checked out clean, carrying the
     /// real `tools/turn.ps1`, the declared turn data, a lanes root with one
     /// lane and its build output, one item record, and a landing log.
+    /// Registered worktrees keep no handles open once the processes that
+    /// drove them have exited, so the owned tree removes them too.
     pub fn new(label: &str) -> Self {
-        let parent = std::env::temp_dir().join(format!(
-            "ratmac-t107-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&parent);
-        let root = parent.join("repo");
+        let owner = crate::support::TempTree::new(&format!("t107-{label}"))
+            .expect("create owned fixture parent");
+        let root = owner.join("repo");
         fs::create_dir_all(root.join("tools")).expect("create fixture repository");
 
-        let turn = Turn { parent, root };
+        let turn = Turn {
+            _owner: owner,
+            root,
+        };
         turn.git(&["init", "--initial-branch", "main", "."]);
         turn.git(&["config", "user.email", "turn@example.invalid"]);
         turn.git(&["config", "user.name", "turn fixture"]);
@@ -127,9 +117,8 @@ impl Turn {
     }
 
     pub fn git_in(&self, directory: &Path, args: &[&str]) -> Output {
-        Command::new("git")
+        crate::support::command("git", directory)
             .args(args)
-            .current_dir(directory)
             .output()
             .expect("invoke git")
     }
@@ -152,9 +141,8 @@ impl Turn {
     pub fn turn_in(&self, directory: &Path, args: &[&str]) -> Output {
         let mut all = vec!["-NoProfile", "-File", "tools/turn.ps1"];
         all.extend_from_slice(args);
-        Command::new("pwsh")
+        crate::support::command("pwsh", directory)
             .args(&all)
-            .current_dir(directory)
             .output()
             .expect("invoke pwsh")
     }
@@ -188,7 +176,7 @@ impl Turn {
     /// The sibling worktree path the item's turn opens, by the tool's own
     /// convention: `<parent>/<repo-name>-<item>`.
     pub fn sibling(&self, item: &str) -> PathBuf {
-        self.parent.join(format!("repo-{item}"))
+        self._owner.join(format!("repo-{item}"))
     }
 
     /// Open the item's turn and commit one tracked change inside it, so a
@@ -252,7 +240,7 @@ impl Turn {
         let index = self.git_text(&["ls-files", "--stage"]);
         let primary = digest_tree(&self.root);
         let mut siblings: Vec<String> = Vec::new();
-        for entry in fs::read_dir(&self.parent).expect("read sibling directory") {
+        for entry in fs::read_dir(self._owner.path()).expect("read sibling directory") {
             let path = entry.expect("read entry").path();
             let name = path
                 .file_name()

@@ -8,7 +8,6 @@
 
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 
 /// History files that legitimately grow in place. Their recorded prefix must
 /// never change; only new content may be appended.
@@ -45,9 +44,8 @@ pub fn verify_history_preservation(
 ) -> Result<(), Vec<ArchiveViolation>> {
     let mut args = vec!["ls-tree", "-r", "--name-only", "HEAD", "--"];
     args.extend_from_slice(history_roots);
-    let listing = Command::new("git")
+    let listing = crate::support::command("git", repo_root)
         .args(&args)
-        .current_dir(repo_root)
         .output()
         .expect("git ls-tree must run");
     let listing = String::from_utf8_lossy(&listing.stdout);
@@ -213,9 +211,8 @@ fn head_issue_status(repo_root: &Path, location: &str, issue_id: &str) -> String
 }
 
 fn head_bytes(repo_root: &Path, path: &str) -> Option<Vec<u8>> {
-    let output = Command::new("git")
+    let output = crate::support::command("git", repo_root)
         .args(["show", &format!("HEAD:{path}")])
-        .current_dir(repo_root)
         .output()
         .expect("git show must run");
     output.status.success().then_some(output.stdout)

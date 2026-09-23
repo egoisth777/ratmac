@@ -18,11 +18,18 @@
 //! The crates run with one shared build directory (`target/lanes`) so the
 //! thirteen builds of the Engine collapse into one; the sweep shares build
 //! output the same way through `--target-dir`.
+//!
+//! Both checks demand the same crate runs, so one test process executes each
+//! crate once and both read that observation while its inputs are unchanged
+//! (WCP-002, `ratmac_qa::lane_runs`); an input change re-runs the crate.
 
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Output, Stdio};
+use std::sync::Arc;
+
+use ratmac_qa::{lane_runs, support};
 
 /// The thirteen pre-split crates and the lane names each was landed with -
 /// frozen from the tree before the port. Seventy-six lanes: `t-061` and
@@ -214,19 +221,22 @@ fn declared_lanes(root: &Path, crate_id: &str) -> Vec<String> {
 
 /// The sweep's per-crate command, in the crate's own directory, with one
 /// shared build directory under the checkout so the Engine builds once.
-fn run_crate(root: &Path, crate_id: &str) -> Output {
-    let mut command = Command::new("cargo");
-    command
-        .args(["test", "--offline"])
-        .current_dir(crate_dir(root, crate_id))
-        .stdin(Stdio::null());
-    for (key, _) in std::env::vars_os() {
-        if key.to_string_lossy().to_uppercase().starts_with("CARGO_") {
-            command.env_remove(&key);
+/// A run is reused within this process only while the checkout still
+/// matches what it saw from start to finish (`lane_runs::Observations`).
+fn run_crate(root: &Path, crate_id: &str) -> Arc<Output> {
+    static RUNS: lane_runs::Observations<Output> = lane_runs::Observations::new();
+    let _lanes = lane_runs::exclusive();
+    RUNS.observe(root, crate_id, || {
+        let mut command = support::command("cargo", crate_dir(root, crate_id));
+        command.args(["test", "--offline"]).stdin(Stdio::null());
+        for (key, _) in std::env::vars_os() {
+            if key.to_string_lossy().to_uppercase().starts_with("CARGO_") {
+                command.env_remove(&key);
+            }
         }
-    }
-    command.env("CARGO_TARGET_DIR", root.join("target").join("lanes"));
-    command.output().expect("invoke cargo test in the crate")
+        command.env("CARGO_TARGET_DIR", root.join("target").join("lanes"));
+        command.output().expect("invoke cargo test in the crate")
+    })
 }
 
 fn combined(output: &Output) -> String {

@@ -8,6 +8,11 @@
 //! folder that holds a crate the roster never named, and a throwaway
 //! declaration runs the sweep's verify mode over the two marked twins in
 //! place - the twins are never copied, never unmarked.
+//!
+//! In the `lane_sweeps` aggregate binary these checks share a process with
+//! the other sweep suites, so each step that reads the tracked report or
+//! runs the real lanes holds `ratmac_qa::lane_runs::exclusive` (WCP-002).
+//! The expiry verification stays its own run, never a reused ordinary sweep.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -15,6 +20,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use ratmac_qa::baseline::{self, Pair};
+use ratmac_qa::lane_runs;
 
 /// The seven post-split crates `RLR-003` names: four ported by this ticket,
 /// three that read green today and needed only the re-sweep.
@@ -210,8 +216,11 @@ fn every_post_split_crate_passes_and_the_baseline_helper_trims_entries() {
         normalize("Commands: start, scaffold, invented\n"),
         normalize("Commands: start, scaffold\n")
     );
-    let report = fs::read_to_string(root.join(".ratmac/evidence/lane-sweep/report.md"))
-        .expect("read the tracked sweep report");
+    let report = {
+        let _lanes = lane_runs::exclusive();
+        fs::read_to_string(root.join(".ratmac/evidence/lane-sweep/report.md"))
+            .expect("read the tracked sweep report")
+    };
     assert_eq!(
         normalize(
             "pending guard: files_exact root=\"ticket\" path=\"done\" entries=[\"done.txt\"]\n"
@@ -281,7 +290,10 @@ fn the_roster_is_complete_and_the_check_refuses_strays() {
         "RLRV-003: the roster names exactly the crates the folder holds"
     );
 
-    let check = sweep_tool(&root, &["check"]);
+    let check = {
+        let _lanes = lane_runs::exclusive();
+        sweep_tool(&root, &["check"])
+    };
     assert_eq!(
         check.status.code(),
         Some(0),
@@ -327,6 +339,7 @@ fn the_roster_is_complete_and_the_check_refuses_strays() {
 #[test]
 fn verify_expired_runs_the_marked_twins_and_reports_them_red() {
     let root = repo_root();
+    let _lanes = lane_runs::exclusive();
     let roster = declared_roster(&root);
     assert_eq!(
         roster.iter().cloned().collect::<BTreeSet<_>>(),

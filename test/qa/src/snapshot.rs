@@ -11,7 +11,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::fs;
 use std::path::{Component, Path};
-use std::process::Command;
 
 use sha2::{Digest, Sha256};
 
@@ -158,7 +157,7 @@ fn porcelain_states(
 ) -> Result<BTreeMap<String, TrackingState>, SnapshotViolation> {
     // `core.quotePath=false` keeps non-ASCII paths verbatim; otherwise git
     // escapes them and every such row silently parses to the wrong path.
-    let output = match Command::new("git")
+    let output = match crate::support::command("git", repo_root)
         .args([
             "-c",
             "core.quotePath=false",
@@ -166,7 +165,6 @@ fn porcelain_states(
             "--porcelain",
             "-uall",
         ])
-        .current_dir(repo_root)
         .output()
     {
         Ok(output) if output.status.success() => output,
@@ -219,9 +217,8 @@ fn porcelain_states(
 fn cached_index_paths(repo_root: &Path) -> Result<BTreeSet<String>, SnapshotViolation> {
     // `-z` emits NUL-terminated repository-relative paths verbatim: no
     // quoting, no escaping, and forward separators on every platform.
-    let output = match Command::new("git")
+    let output = match crate::support::command("git", repo_root)
         .args(["ls-files", "--cached", "-z"])
-        .current_dir(repo_root)
         .output()
     {
         Ok(output) if output.status.success() => output,

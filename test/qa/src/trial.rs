@@ -6,41 +6,31 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 
 use sha2::{Digest, Sha256};
 
 pub const BASE: &str = "exp/ratmac-deterministic";
 
 pub struct Trial {
-    parent: PathBuf,
+    _owner: crate::support::TempTree,
     pub root: PathBuf,
-}
-
-impl Drop for Trial {
-    fn drop(&mut self) {
-        // Registered worktrees keep no handles open once the process exits.
-        let _ = fs::remove_dir_all(&self.parent);
-    }
 }
 
 impl Trial {
     /// A repository whose experiment base is checked out clean, carrying the
-    /// real `tools/trial.ps1` under test.
+    /// real `tools/trial.ps1` under test. Registered worktrees keep no
+    /// handles open once the process exits, so the owned tree removes them.
     pub fn new(label: &str) -> Self {
-        let parent = std::env::temp_dir().join(format!(
-            "ratmac-t052-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&parent);
-        let root = parent.join("repo");
+        let owner = crate::support::TempTree::new(&format!("t052-{label}"))
+            .expect("create owned fixture parent");
+        let root = owner.join("repo");
         fs::create_dir_all(root.join("tools")).expect("create fixture repository");
 
-        let trial = Trial { parent, root };
+        let trial = Trial {
+            _owner: owner,
+            root,
+        };
         trial.git(&["init", "--initial-branch", "main", "."]);
         trial.git(&["config", "user.email", "trial@example.invalid"]);
         trial.git(&["config", "user.name", "trial fixture"]);
@@ -55,9 +45,8 @@ impl Trial {
     }
 
     pub fn git_in(&self, directory: &Path, args: &[&str]) -> Output {
-        Command::new("git")
+        crate::support::command("git", directory)
             .args(args)
-            .current_dir(directory)
             .output()
             .expect("invoke git")
     }
@@ -80,9 +69,8 @@ impl Trial {
     pub fn trial_in(&self, directory: &Path, args: &[&str]) -> Output {
         let mut all = vec!["-NoProfile", "-File", "tools/trial.ps1"];
         all.extend_from_slice(args);
-        Command::new("pwsh")
+        crate::support::command("pwsh", directory)
             .args(&all)
-            .current_dir(directory)
             .output()
             .expect("invoke pwsh")
     }
@@ -108,7 +96,7 @@ impl Trial {
         let status = self.git_text(&["status", "--porcelain"]);
         let index = self.git_text(&["ls-files", "--stage"]);
         let worktree_digest = digest_tree(&self.root);
-        let mut siblings: Vec<String> = fs::read_dir(&self.parent)
+        let mut siblings: Vec<String> = fs::read_dir(self._owner.path())
             .expect("read sibling directory")
             .map(|entry| {
                 entry
@@ -130,7 +118,7 @@ impl Trial {
     }
 
     pub fn sibling(&self, name: &str) -> PathBuf {
-        self.parent.join(name)
+        self._owner.join(name)
     }
 }
 

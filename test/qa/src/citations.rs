@@ -70,7 +70,6 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 /// Where the enumerated historical allowlist lives, repository-relative
 /// (ADR-0019: tracked data, never generated).
@@ -739,9 +738,8 @@ fn reachable_commits(repo: &Path) -> HashSet<String> {
 
 /// Runs one git command in `repo`, panicking only if git cannot spawn.
 fn git(repo: &Path, args: &[&str]) -> std::process::Output {
-    Command::new("git")
+    crate::support::command("git", repo)
         .args(args)
-        .current_dir(repo)
         .output()
         .unwrap_or_else(|error| panic!("git {args:?} must run: {error}"))
 }

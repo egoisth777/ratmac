@@ -24,6 +24,27 @@ path = "src/bin/lock_barrier.rs"
 name = "rtm-qa"
 path = "../../src/bin/rtm.rs"
 
+# WCP-002: one default aggregate binary runs the lane sweep suites in one
+# process; each suite stays explicitly runnable by name (`--test <name>`).
+[[test]]
+name = "lane_sweeps"
+path = "tests/lane_sweeps.rs"
+
+[[test]]
+name = "t108_lane_sweep"
+path = "tests/t108_lane_sweep.rs"
+test = false
+
+[[test]]
+name = "t109_pre_split_ports"
+path = "tests/t109_pre_split_ports.rs"
+test = false
+
+[[test]]
+name = "t110_post_split_ports"
+path = "tests/t110_post_split_ports.rs"
+test = false
+
 [dependencies]
 ratmac = { path = "../..", features = ["test-fault-injection"] }
 toml = "0.8"

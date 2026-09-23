@@ -106,7 +106,7 @@ fn build(repo_root: &Path) -> Result<PathBuf, String> {
     fs::create_dir_all(&tree).map_err(|error| format!("create {}: {error}", tree.display()))?;
 
     let tarball = base.join("freeze.tar");
-    let archive = Command::new("git")
+    let archive = crate::support::command("git", repo_root)
         .args([
             "archive",
             "--format=tar",
@@ -114,7 +114,6 @@ fn build(repo_root: &Path) -> Result<PathBuf, String> {
             &tarball.to_string_lossy(),
             FREEZE_COMMIT,
         ])
-        .current_dir(repo_root)
         .output()
         .map_err(|error| format!("run git archive: {error}"))?;
     if !archive.status.success() {
@@ -124,9 +123,8 @@ fn build(repo_root: &Path) -> Result<PathBuf, String> {
         ));
     }
 
-    let extract = Command::new("tar")
+    let extract = crate::support::command("tar", &tree)
         .args(["-xf", &tarball.to_string_lossy()])
-        .current_dir(&tree)
         .output()
         .map_err(|error| format!("run tar: {error}"))?;
     if !extract.status.success() {
@@ -260,8 +258,10 @@ pub fn run(engine: &Path, root: &Path, scenario: &Scenario, translate: bool) -> 
             )
         })
         .collect();
-    let mut command = Command::new(engine);
-    command.args(&owned).current_dir(root);
+    // Only the scenario's own environment selects a fault or marker; an
+    // inherited hook or Git redirection never reaches the Engine.
+    let mut command = crate::support::command(engine, root);
+    command.args(&owned);
     for (name, value) in &scenario.env {
         // A marker or release path names a file, so it needs translating too.
         let value = if translate {
@@ -548,9 +548,8 @@ const DECLARED_SUPERSESSIONS: &[Supersession] = &[Supersession {
 
 /// A file as the freeze commit holds it.
 pub fn freeze_file(repo_root: &Path, relative: &str) -> String {
-    let output = Command::new("git")
+    let output = crate::support::command("git", repo_root)
         .args(["show", &format!("{FREEZE_COMMIT}:{relative}")])
-        .current_dir(repo_root)
         .output()
         .expect("read a file out of the freeze commit");
     assert!(

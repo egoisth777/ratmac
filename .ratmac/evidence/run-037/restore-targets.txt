@@ -1,0 +1,27 @@
+# Frozen restore targets for the shared private test support ticket
+Effective core.autocrlf: false; no checkout conversion is requested.
+Effective core.eol: unset
+
+Target: test/qa/src/support.rs
+SHA-256: b700e9729b015171aa731d640746964c2e5dcc92d1dde5c96082fb760a1d3d67
+Indexed raw-content object: 421632dd68784e8cc5580e6dd540399b544806ad
+test/qa/src/support.rs: text: unspecified
+test/qa/src/support.rs: eol: unspecified
+test/qa/src/support.rs: filter: unspecified
+test/qa/src/support.rs: working-tree-encoding: unspecified
+
+Target: test/qa/src/lane_runs.rs
+SHA-256: 5542fd7b918fbdbd01f21bf333d5c393302fa2e8c8d2ce9f0b7ae287ed9106dc
+Indexed raw-content object: 8828daf0f2c18eac91575fcd81b2a20389c43d9e
+test/qa/src/lane_runs.rs: text: unspecified
+test/qa/src/lane_runs.rs: eol: unspecified
+test/qa/src/lane_runs.rs: filter: unspecified
+test/qa/src/lane_runs.rs: working-tree-encoding: unspecified
+
+Target: .arca/log.md
+SHA-256: 7f61eca655cad6b6a54861c79baed4aadc2555a673a1800a3cf08fc6c0f3bb4d
+Indexed raw-content object: e135379a5865426cccc52da37f315e5b16125eb1
+.arca/log.md: text: unspecified
+.arca/log.md: eol: unspecified
+.arca/log.md: filter: unspecified
+.arca/log.md: working-tree-encoding: unspecified

@@ -1,0 +1,10 @@
+ticket-id = "t-126"
+check-id = "HT-126-01"
+kind = "hidden-lane"
+command = "cargo test --offline --manifest-path test-hidden/t-126/Cargo.toml -- --test-threads=1"
+working-dir = "."
+exit-status = 0
+output-sha256 = "46549b6871f3a92185de7db0da42af46c36a488e2374c8d09d2b7001f3da5cdf"
+tree-roots = ["src","test/qa","test-hidden","tools","Cargo.toml","Cargo.lock",".gitignore",".ratmac/lanes.toml",".ratmac/evidence/run-037/baseline-inventory.toml",".ratmac/evidence/run-037/migration-inventory.toml",".ratmac/evidence/run-037/preservation-baseline.toml",".arca/ticket/t-126.md"]
+tree-sha256 = "cd53c8154510bb0c0ad56efce7e45e30aa5d7aec3385a9843a1433b65ef711a1"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running unittests src\\lib.rs (test-hidden\\t-126\\target\\debug\\deps\\ratmac_t126_hidden-dcec61eed405a50e.exe)\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n     Running tests\\hidden.rs (test-hidden\\t-126\\target\\debug\\deps\\hidden-a847b2f1b707b952.exe)\n\nrunning 6 tests\ntest ht_126_01 ... ok\ntest ht_126_02 ... ok\ntest ht_126_03 ... ok\ntest ht_126_04 ... ok\ntest ht_126_05 ... ok\ntest ht_126_06 ... ok\n\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.46s\n\n   Doc-tests ratmac_t126_hidden\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n"

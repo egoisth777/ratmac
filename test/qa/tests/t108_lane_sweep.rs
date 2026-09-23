@@ -24,7 +24,9 @@
 //! stands (`GPH-003`: this repository is the growing fixture - fifty landed
 //! crates spanning two rebuild generations), so they compile and run every
 //! lane and are correspondingly slow. The two share one sweep per test
-//! process through `real_sweep_report`; each crate builds into its own
+//! process through `real_sweep` - LNRV-005 reads the same genuinely executed
+//! sweep and its bracketing tree snapshots, reused only while the tree still
+//! matches the one that sweep left (WCP-002); each crate builds into its own
 //! target directory exactly as the lane always has, so a sweep re-executes
 //! lanes rather than perturbing how they run. Every other check runs the
 //! same shipped script over small fixture lanes roots, including `t-078`
@@ -68,8 +70,9 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Arc, Mutex};
 
+use ratmac_qa::lane_runs;
 use ratmac_qa::turn::SKIP;
 
 /// One declared report row: (crate, verdict, detail).
@@ -173,30 +176,73 @@ fn crate_ids(root: &Path) -> Vec<String> {
 
 // --- the real sweep, shared once per test process ----------------------------
 
-/// Real sweeps serialize on one mutex: they run the same lanes, and
-/// LNRV-005 brackets its own run with tree snapshots.
-static SWEEP_MUTEX: Mutex<()> = Mutex::new(());
+/// One genuinely executed sweep over this repository, bracketed by the
+/// LNRV-005 tree snapshots (the report artifact excluded).
+struct RealSweep {
+    before: BTreeMap<String, Vec<u8>>,
+    after: BTreeMap<String, Vec<u8>>,
+    /// `lane_runs::outside_digest` before and after the run: Cargo
+    /// configuration outside the checkout that the snapshots cannot see.
+    outside_before: String,
+    outside_after: String,
+    code: Option<i32>,
+    text: String,
+    report: Option<String>,
+}
 
 /// The real sweep over this repository as it stands: every rostered crate
-/// under the declared lanes root, run once per test process.
-static REAL_REPORT: LazyLock<String> = LazyLock::new(|| {
-    let _guard = SWEEP_MUTEX
+/// under the declared lanes root. Real sweeps serialize on the process-wide
+/// lane lock - they run the same lanes, and the snapshots bracket exactly
+/// one run. A recorded sweep is reused only when the tree did not move while
+/// it ran and the tree, the Cargo configuration outside it, and the report
+/// still match what it left; otherwise the sweep runs again. LNRV-005 still
+/// asserts the no-movement fact itself.
+fn real_sweep() -> Arc<RealSweep> {
+    static SWEPT: Mutex<Option<Arc<RealSweep>>> = Mutex::new(None);
+    let _lanes = lane_runs::exclusive();
+    let root = repo_root();
+    let report_path = root.join(".ratmac/evidence/lane-sweep/report.md");
+    let current = snapshot_tree(&root, &report_path);
+    let outside = lane_runs::outside_digest(&root);
+    let mut swept = SWEPT
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let root = repo_root();
+    if let Some(sweep) = swept.as_ref() {
+        if sweep.before == sweep.after
+            && sweep.after == current
+            && sweep.outside_before == sweep.outside_after
+            && sweep.outside_after == outside
+            && fs::read_to_string(&report_path).ok() == sweep.report
+        {
+            return Arc::clone(sweep);
+        }
+    }
     let output = run_sweep(&root, &["sweep"]);
-    let text = combined(&output);
-    assert!(
-        output.status.code().is_some_and(|code| code <= 1),
-        "the sweep over this repository completes (red or missing verdicts \
-         exit 1, tool errors exit 2): {text}"
-    );
-    fs::read_to_string(root.join(".ratmac/evidence/lane-sweep/report.md"))
-        .expect("the sweep wrote its report under the declared root")
-});
+    let sweep = Arc::new(RealSweep {
+        before: current,
+        after: snapshot_tree(&root, &report_path),
+        outside_before: outside,
+        outside_after: lane_runs::outside_digest(&root),
+        code: output.status.code(),
+        text: combined(&output),
+        report: fs::read_to_string(&report_path).ok(),
+    });
+    *swept = Some(Arc::clone(&sweep));
+    sweep
+}
 
 fn real_sweep_report() -> String {
-    REAL_REPORT.clone()
+    let sweep = real_sweep();
+    assert!(
+        sweep.code.is_some_and(|code| code <= 1),
+        "the sweep over this repository completes (red or missing verdicts \
+         exit 1, tool errors exit 2): {}",
+        sweep.text
+    );
+    sweep
+        .report
+        .clone()
+        .expect("the sweep wrote its report under the declared root")
 }
 
 // --- fixture lanes roots ------------------------------------------------------
@@ -419,9 +465,7 @@ fn the_sweep_reports_one_verdict_per_crate_and_names_a_missing_crate() {
     fs::copy(sweep_source(), twin.join("tools/sweep_lanes.py"))
         .expect("install the shipped sweep script in the twin");
     {
-        let _guard = SWEEP_MUTEX
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = lane_runs::exclusive();
         let swept = Command::new("python")
             .arg(twin.join("tools/sweep_lanes.py"))
             .arg("sweep")
@@ -1010,23 +1054,15 @@ fn snapshot_tree(root: &Path, except: &Path) -> BTreeMap<String, Vec<u8>> {
 /// unmarking change exactly the marker's own bytes.
 #[test]
 fn a_sweep_changes_only_the_report_and_a_marker_changes_only_its_own_bytes() {
-    let root = repo_root();
-    let report_path = root.join(".ratmac/evidence/lane-sweep/report.md");
-
     // A full sweep over this repository: only the report artifact differs.
-    let _guard = SWEEP_MUTEX
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let before = snapshot_tree(&root, &report_path);
-    let swept = run_sweep(&root, &["sweep"]);
+    let swept = real_sweep();
     assert!(
-        swept.status.code().is_some_and(|code| code <= 1),
+        swept.code.is_some_and(|code| code <= 1),
         "the full sweep completes: {}",
-        combined(&swept)
+        swept.text
     );
-    let after = snapshot_tree(&root, &report_path);
     assert_eq!(
-        before, after,
+        swept.before, swept.after,
         "the sweep writes nothing but its report artifact"
     );
 

@@ -97,17 +97,7 @@ pub fn parse_index_listing(bytes: &[u8]) -> Result<Vec<IndexEntry>, String> {
 }
 
 fn git(root: &Path) -> Command {
-    let mut command = Command::new("git");
-    command.current_dir(root);
-    for (key, _) in std::env::vars_os() {
-        if key
-            .to_string_lossy()
-            .to_ascii_uppercase()
-            .starts_with("GIT_")
-        {
-            command.env_remove(key);
-        }
-    }
+    let mut command = crate::support::command("git", root);
     command.env("GIT_OPTIONAL_LOCKS", "0");
     command
 }

@@ -2,6 +2,7 @@
 
 use ratmac_qa::baseline::{self, scenario};
 use ratmac_qa::json::Json;
+use ratmac_qa::lane_runs;
 use ratmac_qa::tempgit::TempRepo;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -9,6 +10,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -451,6 +453,82 @@ fn aggregate_fixture_control() {
     );
 }
 
+/// Aggregate reuse: a lane observation is reused only while the checkout is
+/// byte-identical to what its run saw from start to finish. Build output is
+/// not input; a new build script, in-checkout Cargo configuration, or a
+/// regular file named `target` is.
+fn observation_reuse_control() {
+    let fixture = Scratch::new("observation-reuse");
+    let root = fixture.0.join("checkout");
+    fs::create_dir_all(root.join("test-hidden/t-901/src")).unwrap();
+    fs::write(root.join("Cargo.toml"), "[package]\nname = \"engine\"\n").unwrap();
+    fs::write(root.join("test-hidden/t-901/src/lib.rs"), "// lane\n").unwrap();
+    let runs = AtomicU64::new(0);
+    let observations = lane_runs::Observations::new();
+    let observe = || observations.observe(&root, "t-901", || runs.fetch_add(1, Ordering::SeqCst));
+    let count = || runs.load(Ordering::SeqCst);
+    let first = observe();
+    assert!(
+        Arc::ptr_eq(&first, &observe()),
+        "an unchanged checkout reuses the executed observation"
+    );
+    assert_eq!(count(), 1, "reuse executes nothing");
+    fs::create_dir_all(root.join("test-hidden/t-901/target/debug")).unwrap();
+    fs::write(root.join("test-hidden/t-901/target/debug/out"), "built").unwrap();
+    observe();
+    assert_eq!(count(), 1, "build output under target/ is not a lane input");
+    for (step, (file, body)) in [
+        (root.join("build.rs"), "fn main() {}\n"),
+        (root.join(".cargo/config.toml"), "[build]\n"),
+        // Outside the checkout, in an owned ancestor: Cargo discovers it too.
+        (
+            fixture.0.join(".cargo/config.toml"),
+            "[net]\noffline = true\n",
+        ),
+        (
+            root.join("test-hidden/t-901/target-file/target"),
+            "a file, not build output\n",
+        ),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(&file, body).unwrap();
+        observe();
+        assert_eq!(
+            count(),
+            step as u64 + 2,
+            "adding {} forces a fresh run",
+            file.display()
+        );
+        observe();
+        assert_eq!(count(), step as u64 + 2, "the fresh run is then reused");
+    }
+    // Change an input so the next observation must run, then move the inputs
+    // while it runs: that run is returned but never kept for reuse. Putting
+    // the pre-run bytes back afterwards must not revive it: the inputs then
+    // hash exactly as they did when that run started.
+    fs::write(root.join("test-hidden/t-901/src/lib.rs"), "// lane v2\n").unwrap();
+    observations.observe(&root, "t-901", || {
+        fs::write(
+            root.join("test-hidden/t-901/src/lib.rs"),
+            "// edited mid-run\n",
+        )
+        .unwrap();
+        runs.fetch_add(1, Ordering::SeqCst)
+    });
+    assert_eq!(count(), 6, "the changed input forced a fresh run");
+    fs::write(root.join("test-hidden/t-901/src/lib.rs"), "// lane v2\n").unwrap();
+    observe();
+    assert_eq!(
+        count(),
+        7,
+        "an observation whose inputs moved while it ran is never reused, \
+         even once the inputs return to their pre-run bytes"
+    );
+}
+
 const INVENTORY: &str = ".ratmac/evidence/run-037/baseline-inventory.toml";
 const AFTER_INVENTORY: &str = ".ratmac/evidence/run-037/migration-inventory.toml";
 
@@ -765,6 +843,7 @@ fn wcpv_004() {
         }
     }
     aggregate_fixture_control();
+    observation_reuse_control();
 }
 
 fn digest(bytes: &[u8]) -> String {
@@ -867,8 +946,92 @@ fn wcpv_006() {
             );
         }
     }
+    if let Some(after) = &after {
+        if migration_unlanded(&root) {
+            if let Err(error) = bound_to_current(&root, after) {
+                panic!("the after inventory must describe this tree: {error}");
+            }
+        }
+    }
+    after_binding_control();
     preserved_fault("before-verdict-archive");
     preserved_fault("before-state-replace");
+}
+
+/// Whether this migration is still the latest word on the private crates:
+/// its ticket record carries no landing stamp yet. Until then every
+/// after-inventory row must be the current bytes. Once it lands the rows are
+/// history: a later authorized port or dependency update may change live
+/// files, and the protected rows stay bound through the before-copy corpus,
+/// whose bytes they must equal.
+fn migration_unlanded(root: &Path) -> bool {
+    let record = [".arca/ticket/t-126.md", ".arca/ticket/archive/t-126.md"]
+        .iter()
+        .find_map(|path| fs::read_to_string(root.join(path)).ok())
+        .expect("the migration's ticket record exists");
+    let stamp = record
+        .lines()
+        .find_map(|line| line.strip_prefix("landed-commit:"))
+        .expect("the ticket record declares its landing stamp");
+    stamp.trim().trim_matches('"').is_empty()
+}
+
+/// Every `files` and `preserved` row of `after` against the bytes now under
+/// `root`; the first absent or different file is named.
+fn bound_to_current(root: &Path, after: &toml::Value) -> Result<(), String> {
+    for key in ["files", "preserved"] {
+        for row in records(after, key) {
+            let path = row["path"].as_str().expect("inventory row path");
+            let bytes = fs::read(root.join(path))
+                .map_err(|error| format!("{key} row {path} is not on disk: {error}"))?;
+            if Some(digest(&bytes).as_str()) != row["sha256"].as_str() {
+                return Err(format!("{key} row {path} differs from the current bytes"));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The binding refuses an expired source changed after capture and accepts
+/// its unchanged twin.
+fn after_binding_control() {
+    for changed in [false, true] {
+        let fixture = Scratch::new("after-binding");
+        let mut rows = String::from("preserved = []\n");
+        for (path, body) in [
+            (
+                "test-hidden/t-901/EXPIRED.toml",
+                "edition = \"edition-001\"\n",
+            ),
+            ("test-hidden/t-901/src/lib.rs", "// expired source\n"),
+        ] {
+            let file = fixture.0.join(path);
+            fs::create_dir_all(file.parent().unwrap()).unwrap();
+            fs::write(&file, body).unwrap();
+            rows.push_str(&format!(
+                "[[files]]\npath = \"{path}\"\nsha256 = \"{}\"\n",
+                digest(body.as_bytes())
+            ));
+        }
+        let after: toml::Value = rows.parse().unwrap();
+        if changed {
+            fs::write(
+                fixture.0.join("test-hidden/t-901/src/lib.rs"),
+                "// edited after capture\n",
+            )
+            .unwrap();
+        }
+        match bound_to_current(&fixture.0, &after) {
+            Ok(()) => assert!(!changed, "a changed expired source must be refused"),
+            Err(error) => {
+                assert!(changed, "the unchanged twin must pass: {error}");
+                assert!(
+                    error.contains("test-hidden/t-901/src/lib.rs"),
+                    "the refusal names the changed file: {error}"
+                );
+            }
+        }
+    }
 }
 
 /// A real existing helper must ignore foreign Git addressing in child processes.
