@@ -1,0 +1,10 @@
+planned-test-id = "WRSV-006-04"
+ticket-id = "t-116"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t116_terminal_history_status wrsv_006_04 -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t116_terminal_history_status.rs"
+test-name = "wrsv_006_04"
+exit-status = 101
+output-sha256 = "3bceac50309fee641fd79ff888341a909f32084c4dd7163aaea305747b541272"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s\n     Running tests\\t116_terminal_history_status.rs (target\\debug\\deps\\t116_terminal_history_status-bd82822426c7c59f.exe)\n\nrunning 1 test\ntest wrsv_006_04 ... FAILED\n\nfailures:\n\n---- wrsv_006_04 stdout ----\n\nthread 'wrsv_006_04' (67940) panicked at test\\qa\\tests\\t116_terminal_history_status.rs:341:5:\ncontrol: the passed Run run-001 stays readable: rtm: status: runbook pin mismatch: .ratmac/ratmac.toml drifted since rtm start — observed sha256=f91c370e685bd88ae50a61872c8663a6cf6940d5ff0672fd799739de4f0513b2; expected sha256=fa428e922c7619bdc49043eedad8240f61c72788562029b76df4ceec7c31cfa7; restore the pinned runbook bytes or retire the run (rtm abandon --run run-001 --confirm \"abandon run-001\"); nothing was modified\nnext: rtm doctor\n\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    wrsv_006_04\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 1.13s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t116_terminal_history_status`\n"

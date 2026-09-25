@@ -1,0 +1,10 @@
+planned-test-id = "WRSV-006-01"
+ticket-id = "t-116"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t116_terminal_history_status wrsv_006_01 -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t116_terminal_history_status.rs"
+test-name = "wrsv_006_01"
+exit-status = 101
+output-sha256 = "244d6094be5eadb119ced6ad88feff92bd47f6411908ce5dcf4dee23d517c8cd"
+output = "   Compiling ratmac v0.1.0 (E:\\repos\\projs\\skill-dev\\ratmac-t-116)\n   Compiling ratmac-qa v0.1.0 (E:\\repos\\projs\\skill-dev\\ratmac-t-116\\test\\qa)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.00s\n     Running tests\\t116_terminal_history_status.rs (target\\debug\\deps\\t116_terminal_history_status-bd82822426c7c59f.exe)\n\nrunning 1 test\ntest wrsv_006_01 ... FAILED\n\nfailures:\n\n---- wrsv_006_01 stdout ----\n\nthread 'wrsv_006_01' (66132) panicked at test\\qa\\tests\\t116_terminal_history_status.rs:342:5:\nunchanged runbook: the view names the Run run-001: Engine root: C:/Users/egois/AppData/Local/Temp/ratmac-t116-drift-56340-1790370161285848800-0/histproj/.ratmac\nState: done\nStatus: passed\nGoal revision: \nInput revision: \nOutput revision: \nActive refs: \nBlocker: \n\nParent finished the work.\n\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    wrsv_006_01\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 1.43s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t116_terminal_history_status`\n"
