@@ -1,0 +1,10 @@
+planned-test-id = "WRSV-007-03"
+ticket-id = "t-115"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t115_abandon_confirmation_hints wrsv_007_03 -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t115_abandon_confirmation_hints.rs"
+test-name = "wrsv_007_03"
+exit-status = 101
+output-sha256 = "a42997903068c8653afdeeae5bec72ebc7e1e22aad1d2d918f821434919350b4"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t115_abandon_confirmation_hints.rs (target\\debug\\deps\\t115_abandon_confirmation_hints-48f7ebb03b174118.exe)\n\nrunning 1 test\ntest wrsv_007_03 ... FAILED\n\nfailures:\n\n---- wrsv_007_03 stdout ----\n\nthread 'wrsv_007_03' (63704) panicked at test\\qa\\tests\\t115_abandon_confirmation_hints.rs:320:9:\nthe diagnostic displays the whole command: \"rtm: abandon: --confirm needs the exact confirmation phrase \\\"abandon run-001\\\"\\n\"\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    wrsv_007_03\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.76s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t115_abandon_confirmation_hints`\n"
