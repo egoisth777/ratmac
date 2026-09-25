@@ -308,7 +308,7 @@ if ($null -ne $pin -and $pin.Sha256 -ne $observed) {
         "resolved (expected) = $($pin.Resolved)",
         "sha256 (expected) = $($pin.Sha256)",
         'the pin was recorded by the active Run in .ratmac/evidence.toml [engine]',
-        'rebuild the pinned revision, or retire the Run with: rtm abandon --confirm "abandon <project>"')
+        'rebuild the pinned revision, or retire the Run with: rtm abandon --run <id> --confirm "abandon <run id>"')
 }
 
 Write-Report "Engine: $engine"

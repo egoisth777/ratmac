@@ -5,8 +5,14 @@
 //! human running
 //!
 //! ```text
-//! rtm abandon --run <id> --confirm "abandon <project directory name>"
+//! rtm abandon --run <id> --confirm "abandon <run id>"
 //! ```
+//!
+//! With no Run admitted, only a leftover lock can remain; that unaddressed
+//! cleanup omits `--run` and confirms with the project directory name:
+//! `rtm abandon --confirm "abandon <project directory name>"`. The project
+//! phrase never retires a Run: while any Run is admitted, an unaddressed
+//! request refuses, lists the roster, and chooses no Run for the caller.
 //!
 //! The Engine keeps no caller identity (ORS-001); it checks only that the
 //! exact phrase was typed at invocation, never read from a file an agent can
@@ -56,15 +62,112 @@ fn refusal(reason: impl Into<String>) -> AbandonRefusal {
     }
 }
 
+/// The addressed retirement usage, exactly as `rtm abandon --help` states it.
+pub const ADDRESSED_USAGE: &str = "rtm abandon --run <id> --confirm \"abandon <run id>\"";
+
 /// The exact phrase a human must type to retire the addressed Run.
 pub fn required_phrase(root: &Path, run: Option<&str>) -> String {
     // FDC-007: abandon-with-run-id demands a phrase naming that run id. Only
     // the unaddressed leftover-lock retirement - which touches no Run - keeps
     // the project-name phrase.
     match run.map(str::trim).filter(|id| !id.is_empty()) {
-        Some(id) => format!("abandon {id}"),
+        Some(id) => run_phrase(id),
         None => format!("abandon {}", project_name(root)),
     }
+}
+
+fn run_phrase(id: &str) -> String {
+    format!("abandon {id}")
+}
+
+/// The whole command that retires Run `id`, for hints that already know it.
+pub fn addressed_command(id: &str) -> String {
+    format!("rtm abandon --run {id} --confirm {:?}", run_phrase(id))
+}
+
+/// What a request addresses once its address is validated (WRS-007).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Target {
+    /// A roster member named by `--run`.
+    Run(String),
+    /// No address and no admitted Run: at most a leftover lock is retired.
+    Leftover,
+}
+
+impl Target {
+    /// The phrase this target requires, from [`required_phrase`].
+    pub fn phrase(&self, root: &Path) -> String {
+        match self {
+            Target::Run(id) => required_phrase(root, Some(id)),
+            Target::Leftover => required_phrase(root, None),
+        }
+    }
+
+    /// What a human types next for this target, as one whole command.
+    pub fn guidance(&self, root: &Path) -> String {
+        match self {
+            Target::Run(id) => format!("for run {id}: {}", addressed_command(id)),
+            Target::Leftover => format!(
+                "no Run is admitted, so only a leftover lock may be retired: rtm abandon --confirm {:?}",
+                self.phrase(root)
+            ),
+        }
+    }
+}
+
+fn requires_address(roster_line: &str) -> AbandonRefusal {
+    refusal(format!(
+        "abandon requires --run <id>; runs: {roster_line}; a Run is retired only by its own phrase: {ADDRESSED_USAGE}"
+    ))
+}
+
+/// WRS-007: validate what a request addresses - read-only, before any phrase
+/// is shown or checked. Pre-split residue refuses first and teaches no
+/// phrase. An address must be an exact roster member. With no address, any
+/// admitted Run makes the request refuse with the roster and the addressed
+/// usage; no Run is ever chosen for the caller. With no admitted Run, only
+/// an extant leftover root lock makes the project phrase applicable;
+/// otherwise nothing is left to retire and no phrase is taught.
+pub fn resolve_target(root: &Path, run: Option<&str>) -> Result<Target, AbandonRefusal> {
+    crate::Scheduler::refuse_flat_residue(root)
+        .map_err(|error| refusal(format!("abandonment refused: {error}")))?;
+    let address = run.map(str::trim);
+    if let Some(id) = address.filter(|id| !id.is_empty()) {
+        crate::Scheduler::refuse_addressed_run_residue(root, id)
+            .map_err(|error| refusal(format!("abandonment refused: {error}")))?;
+    }
+    let engine_root = crate::root::resolve(root).engine_root().to_path_buf();
+    let roster = run_roster_at(&engine_root)?;
+    let roster_line = if roster.is_empty() {
+        "none".to_owned()
+    } else {
+        roster.join(", ")
+    };
+    match address {
+        Some("") => Err(refusal(format!(
+            "abandon: --run needs a run id; runs: {roster_line}; a Run is retired only by its own phrase: {ADDRESSED_USAGE}"
+        ))),
+        Some(id) if roster.iter().any(|entry| entry == id) => Ok(Target::Run(id.to_owned())),
+        Some(id) => Err(refusal(format!(
+            "abandon names no run: {id:?} is not on the roster; runs: {roster_line}; a Run is retired only by its own phrase: {ADDRESSED_USAGE}"
+        ))),
+        None if roster.iter().any(|id| admitted(root, id)) => Err(requires_address(&roster_line)),
+        // Only a true leftover-lock path teaches the project phrase: with no
+        // admitted Run and no leftover root lock there is nothing to retire,
+        // so the refusal teaches no phrase at all.
+        None if lock_path_present(&crate::lock::root_path(&engine_root))? => Ok(Target::Leftover),
+        None => Err(refusal(format!(
+            "nothing to retire in {}: no live run and no leftover lock",
+            project_name(root)
+        ))),
+    }
+}
+
+fn admitted(root: &Path, id: &str) -> bool {
+    crate::Scheduler::runs_dir(root)
+        .join(id)
+        .join("run.toml")
+        .is_file()
 }
 
 fn project_name(root: &Path) -> String {
@@ -110,28 +213,23 @@ pub struct AbandonPlan {
 
 /// Decide whether this project's Run may be retired. Writes nothing.
 pub fn plan_abandon(root: &Path, request: &AbandonRequest) -> Result<AbandonPlan, AbandonRefusal> {
-    crate::Scheduler::refuse_flat_residue(root)
-        .map_err(|error| refusal(format!("abandonment refused: {error}")))?;
-    if let Some(run) = request
-        .run
-        .as_deref()
-        .map(str::trim)
-        .filter(|run| !run.is_empty())
-    {
-        crate::Scheduler::refuse_addressed_run_residue(root, run)
-            .map_err(|error| refusal(format!("abandonment refused: {error}")))?;
-    }
-
-    let required = required_phrase(root, request.run.as_deref());
+    // WRS-007: the address is validated before any phrase is checked, so a
+    // refusal never teaches a phrase that cannot retire the intended Run.
+    let target = resolve_target(root, request.run.as_deref())?;
+    let required = target.phrase(root);
+    let scope = match target {
+        Target::Run(_) => "",
+        Target::Leftover => "; no Run is admitted, so this phrase retires only a leftover lock",
+    };
     match request.confirmation.as_deref() {
         None => {
             return Err(refusal(format!(
-                "abandonment is unconfirmed: a human must type --confirm {required:?}"
+                "abandonment is unconfirmed: a human must type --confirm {required:?}{scope}"
             )))
         }
         Some(phrase) if phrase != required => {
             return Err(refusal(format!(
-                "abandonment is unconfirmed: confirmation {phrase:?} does not match the required phrase {required:?}"
+                "abandonment is unconfirmed: confirmation {phrase:?} does not match the required phrase {required:?}{scope}"
             )))
         }
         Some(_) => {}
@@ -171,9 +269,7 @@ pub fn plan_abandon(root: &Path, request: &AbandonRequest) -> Result<AbandonPlan
             Some(id.to_owned())
         }
         None if !live.is_empty() => {
-            return Err(refusal(format!(
-                "abandon requires --run <id>; runs: {roster_line}"
-            )));
+            return Err(requires_address(&roster_line));
         }
         None => None,
     };
@@ -598,12 +694,19 @@ fn append_event_once(
 
 fn run_roster_at(engine_root: &Path) -> Result<Vec<String>, AbandonRefusal> {
     let runs = engine_root.join("runs");
-    let entries = fs::read_dir(&runs).map_err(|error| {
-        refusal(format!(
-            "abandon cannot read run roster {}: {error}",
-            runs.displayed()
-        ))
-    })?;
+    let entries = match fs::read_dir(&runs) {
+        Ok(entries) => entries,
+        // No roster folder: no Run was ever minted here, so none is admitted
+        // and only the leftover-lock path applies (WRS-007). Any other read
+        // failure still refuses rather than guessing the roster is empty.
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => {
+            return Err(refusal(format!(
+                "abandon cannot read run roster {}: {error}",
+                runs.displayed()
+            )))
+        }
+    };
     let mut ids = Vec::new();
     for entry in entries {
         let entry = entry.map_err(|error| {

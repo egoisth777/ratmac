@@ -869,10 +869,16 @@ impl Scheduler {
             return Ok(());
         };
         if observed != expected {
+            // WRS-007: an addressed Run's hint names its own retirement phrase.
+            let run_id = run_dir
+                .file_name()
+                .map(crate::root::component)
+                .unwrap_or_default();
             return Err(StateError::new(format!(
                 "runbook pin mismatch: .ratmac/ratmac.toml drifted since rtm start — \
                  observed sha256={observed}; expected sha256={expected}; restore the \
-                 pinned runbook bytes or retire the run (rtm abandon); nothing was modified"
+                 pinned runbook bytes or retire the run ({}); nothing was modified",
+                crate::abandon::addressed_command(&run_id)
             )));
         }
         Ok(())

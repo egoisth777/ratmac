@@ -63,7 +63,7 @@ pub fn help(command: impl AsRef<str>) -> &'static str {
             "Usage: rtm hold --run <id> --blocker <reference beneath a declared root> --confirm \"hold <id>\"\n\nA human confirms pausing a Run that is blocked for an out-of-scope reason. The Run Record records the pause and its blocker reference, and the named Run routes along the Runbook's blocked route; it stays not-passed until a human resumes it. The blocker is an opaque reference: rtm checks that it exists beneath a declared root and judges nothing else about it. The confirmation phrase is typed at invocation; it is never read from a file.\n"
         }
         "abandon" => {
-            "Usage: rtm abandon --run <id> --confirm \"abandon <run id>\"\n\nA human retires a broken Run: rtm records a terminal abandoned event, then retires the admission state, the Run evidence, and the lock so a fresh Run can start. The confirmation phrase names the addressed run id (FDC-007), is typed at invocation, and is never read from a file. Retiring only a leftover lock - no live run anywhere - omits --run and confirms with \"abandon <project directory name>\". No bypass flag exists - a stale lock is retired through this path.\n"
+            "Usage: rtm abandon --run <id> --confirm \"abandon <run id>\"\n\nA human retires a broken Run: rtm records a terminal abandoned event, then retires the admission state, the Run evidence, and the lock so a fresh Run can start. The confirmation phrase names the addressed run id (FDC-007), is typed at invocation, and is never read from a file. Retiring only a leftover lock - no Run admitted anywhere - omits --run and confirms with \"abandon <project directory name>\"; that phrase never retires a Run, and while any Run is admitted abandon without --run refuses and lists the roster. No bypass flag exists - a stale lock is retired through this path.\n"
         }
         "spawn" => {
             "Usage: rtm spawn <name> --run <parent id> [--bind name=value ...] [--workspace <path>]\n\nOrdinary checked motion, no confirmation phrase (FDC-007): create a child Run from a class the parent's runbook declares. Legal only while the parent occupies the State declaring that spawn. Each --bind supplies a value for a binding name the spawn declares; --workspace binds the child to an existing directory, or otherwise it inherits the parent's workspace. The entry lands in the parent's spawn ledger (FDC-011). The child is an ordinary Run on the flat roster with its own Run Record and evidence.\n"
@@ -572,27 +572,39 @@ fn respawn<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Re
 fn abandon<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Result<(), CliError> {
     let mut confirmation: Option<String> = None;
     let mut run: Option<String> = None;
-    // The addressed run resolves first, wherever --run sits, so every
-    // refusal below names the phrase for the right target.
+    // WRS-007: the address resolves first, wherever --run sits, and is
+    // validated before any phrase-specific hint, so every refusal below
+    // names the phrase for the right target and never chooses a Run.
     let mut index = 0;
     while index < args.len() {
         if args[index] == "--run" {
             let Some(value) = args
                 .get(index + 1)
-                .filter(|value| !value.starts_with("--"))
+                .filter(|value| !value.starts_with("--") && !value.trim().is_empty())
                 .cloned()
             else {
+                // WRS-007: a missing or blank address teaches the addressed
+                // usage and chooses no roster entry for the caller.
                 return Err(CliError::refusal(format!(
-                    "abandon: --run needs a run id; {}",
-                    roster_line(project_root)?
+                    "abandon: --run needs a run id; {}; a Run is retired only by its own phrase: {}",
+                    roster_line(project_root)?,
+                    crate::abandon::ADDRESSED_USAGE
                 )));
             };
+            if run.is_some() {
+                return Err(CliError::refusal(format!(
+                    "abandon: --run given twice; address exactly one run; {}; a Run is retired only by its own phrase: {}",
+                    roster_line(project_root)?,
+                    crate::abandon::ADDRESSED_USAGE
+                )));
+            }
             run = Some(value);
             index += 2;
         } else {
             index += 1;
         }
     }
+    let target = || crate::abandon::resolve_target(project_root, run.as_deref());
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
@@ -600,24 +612,35 @@ fn abandon<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Re
                 index += 2;
             }
             "--confirm" => {
-                confirmation = Some(
-                    args.get(index + 1)
-                        .filter(|value| !value.starts_with("--"))
-                        .cloned()
-                        .ok_or_else(|| {
-                            CliError::new(format!(
-                                "abandon: --confirm needs the exact confirmation phrase {:?}",
-                                crate::abandon::required_phrase(project_root, run.as_deref())
-                            ))
-                        })?,
-                );
+                let Some(value) = args
+                    .get(index + 1)
+                    .filter(|value| !value.starts_with("--"))
+                    .cloned()
+                else {
+                    return Err(CliError::new(match target() {
+                        Ok(target) => format!(
+                            "abandon: --confirm needs the exact confirmation phrase {:?}; {}",
+                            target.phrase(project_root),
+                            target.guidance(project_root)
+                        ),
+                        Err(refusal) => {
+                            format!(
+                                "abandon: --confirm needs the exact confirmation phrase; {refusal}"
+                            )
+                        }
+                    }));
+                };
+                confirmation = Some(value);
                 index += 2;
             }
             other => {
+                let next = match target() {
+                    Ok(target) => target.guidance(project_root),
+                    Err(refusal) => refusal.to_string(),
+                };
                 return Err(CliError::new(format!(
-                    "abandon: unsupported option {other}; the only option is --confirm {:?}",
-                    crate::abandon::required_phrase(project_root, run.as_deref())
-                )))
+                    "abandon: unsupported option {other}; the options are --run <id> and --confirm <phrase>; {next}"
+                )));
             }
         }
     }

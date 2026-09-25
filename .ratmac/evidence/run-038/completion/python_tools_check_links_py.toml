@@ -1,0 +1,10 @@
+ticket-id = "t-115"
+check-id = "python tools/check_links.py"
+kind = "quality"
+command = "python tools/check_links.py"
+working-dir = "."
+exit-status = 0
+output-sha256 = "b04d2b5bba61639a9ce4c2fa3b31839c487e1fbcc5e4a69da21fc7f6e81001da"
+tree-roots = ["src","test","test-hidden","tools",".arca","Cargo.toml","Cargo.lock","AGENTS.md",".gitignore",".ratmac/ratmac.toml",".ratmac/turn.toml",".ratmac/lanes.toml"]
+tree-sha256 = "f4a5ac3bab33f346d95f05aa57cfc908aa575f7c81715a37f1821a4e910066e9"
+output = "intake shape check: all links resolve, all accepted requirement IDs present\r\n"

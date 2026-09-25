@@ -1,0 +1,10 @@
+ticket-id = "t-115"
+check-id = "HT-115-02"
+kind = "hidden-lane"
+command = "cargo test --offline --locked --manifest-path test-hidden/t-115/Cargo.toml -- --test-threads=1"
+working-dir = "."
+exit-status = 0
+output-sha256 = "092b4c319b18bb6cfbc954da3474f74e349fef94670a67d41aae227f22182342"
+tree-roots = ["src","test/qa","test-hidden","tools","Cargo.toml","Cargo.lock",".gitignore",".ratmac/lanes.toml"]
+tree-sha256 = "2179704297faec1c6ac182a36bc7acf46b8529afc07313cd3374f6a025e00741"
+output = "\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 5 tests\ntest ht_115_01 ... ok\ntest ht_115_02 ... ok\ntest ht_115_03 ... ok\ntest ht_115_05 ... ok\ntest ht_115_06 ... ok\n\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.26s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n   Compiling ratmac v0.1.0 (E:\\repos\\projs\\skill-dev\\ratmac-t-115)\n   Compiling ratmac-qa v0.1.0 (E:\\repos\\projs\\skill-dev\\ratmac-t-115\\test\\qa)\n   Compiling ratmac-t115-hidden v0.1.0 (E:\\repos\\projs\\skill-dev\\ratmac-t-115\\test-hidden\\t-115)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.43s\n     Running unittests src\\lib.rs (test-hidden\\t-115\\target\\debug\\deps\\ratmac_t115_hidden-9be838347f816563.exe)\n     Running tests\\hidden.rs (test-hidden\\t-115\\target\\debug\\deps\\hidden-3a2a333bff88ccaf.exe)\n   Doc-tests ratmac_t115_hidden\n"

@@ -792,7 +792,7 @@ reads it back and no gate decides anything from it.
 A Run that cannot be repaired is retired by `rtm`, never by hand:
 
 ```text
-rtm abandon --confirm "abandon <project directory name>"
+rtm abandon --run <id> --confirm "abandon <run id>"
 ```
 
 Agents never delete or edit `.ratmac/runs/<run-id>/run.toml`, a Run lock under
@@ -807,7 +807,11 @@ With multi-run addressing, authorization splits by motion kind (`FDC-007`):
 `rtm respawn --run <id>` and abandon-with-run-id require confirmation phrases
 naming that run id - typed at invocation, never read from a file.
 
-A stale lock is retired through this same path; no bypass flag exists.
+A stale lock is retired through this same path; no bypass flag exists. Only when no
+Run is admitted does a leftover lock alone get retired without an address, with
+`rtm abandon --confirm "abandon <project directory name>"`; that project phrase never
+retires a Run, and while any Run is admitted an unaddressed abandon refuses and lists
+the roster (`WRS-007`).
 Everything unconfirmed refuses before the first write, and a retirement that
 cannot finish restores every file it touched - the Run stays active rather than
 half retired, and re-running the confirmed command finishes the job. A leftover
