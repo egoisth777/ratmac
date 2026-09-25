@@ -1,0 +1,10 @@
+ticket-id = "t-116"
+check-id = "WRSV-006-02"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test t116_terminal_history_status -- --test-threads=1"
+working-dir = "."
+exit-status = 0
+output-sha256 = "e11bfcd7a8290f9db5bc6dff69ee34763d347cb26f403cddd99f08dcbe055fbd"
+tree-roots = ["src","test/qa","test-hidden","tools","Cargo.toml","Cargo.lock",".gitignore",".ratmac/lanes.toml"]
+tree-sha256 = "e52cf079cd4fd16c025bec13f589889dde25b067214301316c98b3ca5dcbca85"
+output = "\nrunning 4 tests\ntest wrsv_006_01 ... ok\ntest wrsv_006_02 ... ok\ntest wrsv_006_03 ... ok\ntest wrsv_006_04 ... ok\n\ntest result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 13.82s\n\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t116_terminal_history_status.rs (target\\debug\\deps\\t116_terminal_history_status-bd82822426c7c59f.exe)\n"

@@ -264,20 +264,84 @@ impl StatusReport {
 
 impl fmt::Display for StatusReport {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(formatter, "State: {}", self.state.state)?;
-        writeln!(formatter, "Status: {}", self.state.status)?;
-        writeln!(formatter, "Goal revision: {}", self.state.goal_revision)?;
-        writeln!(formatter, "Input revision: {}", self.state.input_revision)?;
-        writeln!(formatter, "Output revision: {}", self.state.output_revision)?;
-        writeln!(
-            formatter,
-            "Active refs: {}",
-            self.state.active_refs.join(", ")
-        )?;
-        writeln!(formatter, "Blocker: {}", self.state.blocker)?;
+        write_recorded(formatter, &self.state)?;
         for guard in &self.pending_guards {
             writeln!(formatter, "pending guard: {guard}")?;
         }
         Ok(())
+    }
+}
+
+/// The Run Record's fields, one labelled line each.
+fn write_recorded(formatter: &mut fmt::Formatter<'_>, state: &RunState) -> fmt::Result {
+    writeln!(formatter, "State: {}", state.state)?;
+    writeln!(formatter, "Status: {}", state.status)?;
+    writeln!(formatter, "Goal revision: {}", state.goal_revision)?;
+    writeln!(formatter, "Input revision: {}", state.input_revision)?;
+    writeln!(formatter, "Output revision: {}", state.output_revision)?;
+    writeln!(formatter, "Active refs: {}", state.active_refs.join(", "))?;
+    writeln!(formatter, "Blocker: {}", state.blocker)
+}
+
+/// WRS-006: a passed Run read as history - its identity, recorded State and
+/// status, and recorded evidence identities. It carries no prompt, guard,
+/// or next act: finished history never borrows the current runbook's words.
+#[derive(Clone, Debug)]
+pub struct HistoryReport {
+    pub run_id: String,
+    /// Parent Run and recorded class of a spawned child; `None` when top-level.
+    pub spawned: Option<(String, String)>,
+    pub state: RunState,
+    pub evidence_path: PathBuf,
+    /// `None` when the Run has no evidence file; never a guessed identity.
+    pub evidence: Option<crate::pin::Evidence>,
+}
+
+impl fmt::Display for HistoryReport {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(formatter, "Run: {}", self.run_id)?;
+        match &self.spawned {
+            Some((parent, class)) => writeln!(formatter, "Class: {class} (spawned by {parent})")?,
+            None => writeln!(formatter, "Class: top-level")?,
+        }
+        write_recorded(formatter, &self.state)?;
+        let path = crate::root::displayed(&self.evidence_path);
+        match &self.evidence {
+            None => writeln!(formatter, "Recorded evidence: none ({path} is absent)")?,
+            Some(evidence) => {
+                writeln!(formatter, "Recorded evidence: {path}")?;
+                if let Some(engine) = &evidence.engine {
+                    write!(formatter, "- engine: {engine}")?;
+                    for (label, value) in [
+                        ("source-commit", &engine.source_commit),
+                        ("channel", &engine.channel),
+                    ] {
+                        if let Some(value) = value {
+                            write!(formatter, " {label}={value}")?;
+                        }
+                    }
+                    writeln!(formatter)?;
+                }
+                if let Some(sha256) = &evidence.runbook_sha256 {
+                    writeln!(formatter, "- runbook: sha256={sha256}")?;
+                }
+                for (label, revision) in [
+                    ("goal baseline", &evidence.goal_baseline),
+                    ("goal frozen", &evidence.goal_frozen),
+                ] {
+                    if let Some(revision) = revision {
+                        writeln!(formatter, "- {label}: {revision}")?;
+                    }
+                }
+                for gate in &evidence.gates {
+                    writeln!(formatter, "- gate {}: {}", gate.program, gate.identity)?;
+                }
+            }
+        }
+        write!(
+            formatter,
+            "Current instructions: unavailable - this Run has passed and is shown \
+             from its record; the current runbook's prompts and guards are not its own."
+        )
     }
 }

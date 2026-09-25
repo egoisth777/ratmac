@@ -312,6 +312,19 @@ fn status<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Res
     Scheduler::refuse_flat_residue_with_roots(&roots)
         .map_err(|error| hard_error("status", error))?;
     let id = addressed_run_with_roots("status", args, &roots)?;
+    // WRS-006: a passed Run reads as history before any runbook-dependent
+    // open, so a runbook that moved on cannot refuse or reword it.
+    if let Some(history) =
+        Scheduler::history_with_roots(&roots, &id).map_err(|error| hard_error("status", error))?
+    {
+        writeln!(
+            writer,
+            "Engine root: {}",
+            crate::root::displayed(roots.engine_root())
+        )?;
+        writeln!(writer, "{history}")?;
+        return Ok(());
+    }
     // The roots-taking open is required to resolve this invocation once; swapping in the path-taking form is a silent regression no test can catch.
     let scheduler =
         Scheduler::open_run_with_roots(&roots, &id).map_err(|error| hard_error("status", error))?;

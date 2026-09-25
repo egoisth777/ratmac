@@ -342,8 +342,11 @@ fn roots_table_validates_named_paths_with_distinct_diagnostics() {
     );
     let status = fixture.rtm(&["status", "--run", &valid_run]);
     let visible_status = combined(&status);
+    // WRS-006: `done` is terminal, so the Run has passed and `status` is its
+    // history view, which names the State but shows no prompt. The State line
+    // is printed by both the live and the history view.
     assert!(
-        status.status.success() && visible_status.contains("Named-root guard passed."),
+        status.status.success() && visible_status.lines().any(|line| line == "State: done"),
         "the named-root guard must reach its ordinary verdict: {visible_status}"
     );
 

@@ -294,10 +294,17 @@ fn follow_taught_lines(
             "AOPV-004: {context}: the engine accepts the act it taught ({}): {followed_text}",
             taught[0]
         );
+        // WRS-006: a passed Run's addressed status is its history view, which
+        // shows no current prompt and says so; every other render, including
+        // every step, keeps its prose.
+        let history = argv.starts_with(&["rtm", "status"])
+            && followed_text.contains("Status: passed\n")
+            && followed_text.contains("Current instructions: unavailable");
         assert!(
-            prompts
-                .iter()
-                .any(|prompt| followed_text.contains(prompt.as_str())),
+            history
+                || prompts
+                    .iter()
+                    .any(|prompt| followed_text.contains(prompt.as_str())),
             "AOPV-004: {context}: each followed render still shows authored prompt prose: \
              {followed_text}"
         );

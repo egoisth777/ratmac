@@ -69,10 +69,28 @@ impl Evidence {
         let Ok(source) = fs::read_to_string(path) else {
             return Self::default();
         };
-        let Ok(value) = source.parse::<toml::Value>() else {
-            return Self::default();
-        };
+        source
+            .parse::<toml::Value>()
+            .map(|value| Self::from_value(&value))
+            .unwrap_or_default()
+    }
 
+    /// Parse evidence text strictly: TOML in exactly the shape `render`
+    /// writes. Text that is not TOML, an unknown table or field, a value that
+    /// is not text, or a missing required field is refused by name, so no
+    /// recorded identity is ever dropped in silence. A reader that must name
+    /// malformed evidence (WRS-006) uses this instead of `load`.
+    pub fn parse(source: &str) -> Result<Self, String> {
+        let value = source
+            .parse::<toml::Value>()
+            .map_err(|error| error.to_string())?;
+        check_shape(&value)?;
+        Ok(Self::from_value(&value))
+    }
+
+    /// Every identity a parsed evidence value carries, skipping what is
+    /// missing or malformed - the lenient reading `load` has always used.
+    fn from_value(value: &toml::Value) -> Self {
         let engine = value.get("engine").and_then(identity_from);
         let gates = value
             .get("gate")
@@ -384,6 +402,83 @@ fn identity_from(value: &toml::Value) -> Option<Identity> {
         source_commit: optional("source-commit"),
         channel: optional("channel"),
     })
+}
+
+/// How one evidence field may appear.
+#[derive(Clone, Copy)]
+enum Field {
+    /// Present, as non-empty text.
+    Required,
+    /// Present, as text that may be empty (an unfrozen goal).
+    Text,
+    /// Absent, or present as text.
+    Optional,
+}
+
+/// Check an evidence value against the shape `Evidence::render` writes.
+fn check_shape(value: &toml::Value) -> Result<(), String> {
+    use Field::{Optional, Required, Text};
+    let table = value.as_table().ok_or("evidence is not a table")?;
+    for (key, item) in table {
+        match key.as_str() {
+            "engine" => check_table(
+                "engine",
+                item,
+                &[
+                    ("resolved", Required),
+                    ("sha256", Required),
+                    ("source-commit", Optional),
+                    ("channel", Optional),
+                ],
+            )?,
+            "goal" => check_table("goal", item, &[("baseline", Text), ("frozen", Text)])?,
+            "runbook" => check_table("runbook", item, &[("sha256", Required)])?,
+            "gate" => {
+                let entries = item.as_array().ok_or("`gate` is not an array of tables")?;
+                for (index, entry) in entries.iter().enumerate() {
+                    check_table(
+                        &format!("gate[{index}]"),
+                        entry,
+                        &[
+                            ("program", Required),
+                            ("resolved", Required),
+                            ("sha256", Required),
+                        ],
+                    )?;
+                }
+            }
+            other => return Err(format!("unknown field `{other}`")),
+        }
+    }
+    Ok(())
+}
+
+/// Check one evidence table: only the listed fields, each as text, each
+/// present unless optional, and non-empty where required.
+fn check_table(label: &str, value: &toml::Value, fields: &[(&str, Field)]) -> Result<(), String> {
+    let table = value
+        .as_table()
+        .ok_or_else(|| format!("`{label}` is not a table"))?;
+    if let Some(unknown) = table
+        .keys()
+        .find(|key| !fields.iter().any(|(name, _)| name == key))
+    {
+        return Err(format!("unknown field `{label}.{unknown}`"));
+    }
+    for (name, field) in fields {
+        match (table.get(*name), field) {
+            (None, Field::Optional) => {}
+            (None, _) => return Err(format!("`{label}.{name}` is missing")),
+            (Some(item), _) => match item.as_str() {
+                None => return Err(format!("`{label}.{name}` is not text")),
+                Some("") if matches!(field, Field::Required) => {
+                    return Err(format!("`{label}.{name}` is empty"))
+                }
+                Some(_) => {}
+            },
+        }
+    }
+    Ok(())
 }
 
 /// Quote a value as a TOML basic string.

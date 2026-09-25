@@ -388,8 +388,13 @@ fn engine_root_holds_runtime_and_never_writes_arca() {
         "ENS-001: status after step must still reopen the same .ratmac Run: {}",
         combined(&status_after)
     );
+    // WRS-006: `build` is terminal, so the Run has passed and `status` is its
+    // history view, which names the State but shows no prompt. The State line
+    // is printed by both the live and the history view.
     assert!(
-        combined(&status_after).contains("Build the ticket."),
+        combined(&status_after)
+            .lines()
+            .any(|line| line == "State: build"),
         "ENS-001: the Run must advance to its second State: {}",
         combined(&status_after)
     );

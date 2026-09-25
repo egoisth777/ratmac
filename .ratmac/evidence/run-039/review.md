@@ -1,0 +1,28 @@
+# Independent review before full proof
+
+Accepted on 2026-09-25, before executing the full workspace proof.
+
+- Two independent reviewers split the work: one reviewed the source change (`src/cli.rs`, `src/pin.rs`, `src/scheduler.rs`, `src/state.rs`), the public oracle, and the three adjusted older checks (`t104_operator_skill`, private `t-103` HT-103-02, private `t-085` HT-085-06); the other reviewed the new private crate `t-116`, which a separate agent wrote without reading the public oracle or the source diff. Neither reviewer edited, built, or ran anything.
+- The source review's first round asked for repairs: evidence that parsed as TOML but did not have the recorded shape was dropped without a word, the public checks compared only `sha256` values and never showed that a history read evaluates no guard, and the `t104` exemption covered more renders than `status`. A later round removed a residue check that ran twice on the history path and added a finished child in a linked worktree whose leftover `.arca/state.toml` refuses by name. Each round was re-reviewed; the last accepted with no open finding.
+- The older checks were adjusted only where WRS-006 changed an observed report: `status` of a passed Run is now a history view that says the current instructions are unavailable instead of printing a prompt. `t104` and HT-103-02 accept that view only for a passed Run's `status`; HT-085-06 sets aside exactly the freeze prompt block and the rows the history view adds, then compares every other line of the freeze report exactly. Its first form allowed arbitrary extra lines and was repaired before acceptance.
+- The first full workspace proof then found two more older public checks that stepped a Run into a terminal State and looked for that State's prompt: `t071_engine_root` (ENSV-001, State `build`) and `t076_roots_table` (ENSV-009, State `done`). Under WRS-006 that `status` is the history view, which names the State but shows no prompt. Each now requires an exact `State: <name>` line instead. Their other assertions are unchanged: step success, status success, and, in `t071`, the recorded State in `run.toml` and a byte-identical `.arca/`. The source reviewer accepted both as no weaker, since a whole labelled State line is stricter than a prompt substring and the guard verdict is still proven by the step through it.
+- The private review took eight rounds. The early rounds judged free wording (whether a sentence negates a claim, which label a value sits near), and each repair opened a new wording hole. From the fifth round on, the oracles first mask every known value (recorded evidence fields, the lane's own digest of the current runbook, and the known Engine, Run, evidence, and runbook locations) as typed placeholders. After masking, any leftover 64-hex token or absolute path is an invented identity, each recorded value must sit under its own role label with no current-tense label, and a small fixed vocabulary is banned: retirement advice (`abandon`, `retire`, `--confirm`), affirmative verification of defective evidence, and the changed guard's definition. `abandoned` stays allowed as a recorded ledger fact. The last rounds judged each finding by whether a plausible defective Engine would pass or a plausible correct Engine would be rejected, and repaired provenance scope, gate records in table form, forwarded filesystem errors, and a `.bak` suffix hiding behind a masked path. The eighth round accepted with no open finding. The conservative prose bans and one shared build-setting guard in the common private-test helper stay recorded as notes, not cleared guarantees.
+- The private crate was checked against a build of the unfixed `HEAD` source: all five lanes fail at their stated defect after their positive controls pass. Against the fix, all five pass serially and in parallel, with no lint warnings.
+- Focused and private `t-116` checks pass against these bytes. The affected regressions `t045`, `t048`, `t050`, `t066`, `t069`, `t071`, `t074`, `t076`, `t077`, `t078`, `t085`, `t089`, `t103`, `t104`, `t115`, and the private `t-066`, `t-085`, `t-103`, and `t-104` crates pass. Any later source or oracle repair requires renewed review.
+
+| Reviewed input | SHA-256 |
+| :--- | :--- |
+| `src/cli.rs` | `3d047a9f2201eb2136471026e74caa7c763796c57c26eeb9908c98ddc881fc80` |
+| `src/pin.rs` | `13e2ceb5bc8123c5f2064c4562cd39f49a32273a4c939ca20a01d3ace62839ee` |
+| `src/scheduler.rs` | `2555e137ae045c13ddd966a9d379c477fbe2eb7fdad3eb2ec19f89c99f459e7e` |
+| `src/state.rs` | `241afa7ac7729222ec8aa3b932381ac570dc64b0faf91985979cca536192a72f` |
+| `test/qa/tests/t116_terminal_history_status.rs` | `20e162f0626893926720d96e1bd69f2ea021949da8f0b4cbda2b1a4484030294` |
+| `test/qa/tests/t104_operator_skill.rs` | `ac3def5ddbab965c11c59d1a36e6a617e7286a8e4e8451674e3e681ae68f644f` |
+| `test/qa/tests/t071_engine_root.rs` | `c0da0885c5fb9945cca9ab6842761ef9061118cff35e7610df64d8a4096ff753` |
+| `test/qa/tests/t076_roots_table.rs` | `520c5bdaf97ad9ef862febfe32fab4d762fe35e9a12201c94cb1f192d26c0fcc` |
+| `test-hidden/t-103/tests/hidden.rs` | `e1c8d90d7266e1f73e04897f2753de9e39366ac9e4938a1d119399e71d646ebb` |
+| `test-hidden/t-085/tests/hidden.rs` | `0fff41d29f1c2f65ee74e8b72ae0ffdb417e8fcc621c2e1c75828b5edd6db71c` |
+| `test-hidden/t-116/Cargo.toml` | `d960cfcfeda43c49e6e848f24cd6ca860195d2397decbcfff8e5dd512fe176c9` |
+| `test-hidden/t-116/Cargo.lock` | `9bf4033f43d36c2b8bc608f7b2e0a7cd0c6aaf49f883a5a155ba7e2fd56e5b18` |
+| `test-hidden/t-116/src/lib.rs` | `1965a0336e9b55c21908069a5e049c73a110119f1e93fd1c028cbeb636c59bfe` |
+| `test-hidden/t-116/tests/hidden.rs` | `e63b8ea349123b7806cf487f8dbb8b501376ac5766a0d22569fb1d1816bf8df9` |

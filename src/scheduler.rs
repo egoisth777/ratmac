@@ -17,7 +17,9 @@ use crate::machine::{GuardAddress, GuardKind, MachineClass, StateDefinition};
 use crate::model::{Run, RunState, Status};
 use crate::root::Displayed;
 use crate::roots::{ValidatedWorkflowRoots, WorkflowRoots};
-use crate::state::{StateError, StatePrompt, StateStore, StateWriteOutcome, StatusReport};
+use crate::state::{
+    HistoryReport, StateError, StatePrompt, StateStore, StateWriteOutcome, StatusReport,
+};
 
 static ROLLBACK_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
@@ -595,6 +597,67 @@ impl Scheduler {
             invoking_root: Some(invoking_root),
             engine_root: Some(engine_root),
         })
+    }
+
+    /// WRS-006: read an addressed passed Run as history. The caller has
+    /// already refused residue at the invoking and Engine roots; the address
+    /// and ledger checks of `open_run_with_roots` run next - resolving a
+    /// child's ledger workspace refuses residue in that bound workspace -
+    /// then the Run Record is parsed strictly. Only a Run recorded
+    /// as passed is answered here, from its record and evidence alone: the
+    /// current runbook is never read, so a changed, removed, or unparsable
+    /// runbook cannot refuse or reword finished history. Any other Run - and
+    /// a roster entry with no Run Record - returns `None` and keeps every
+    /// existing check. Writes nothing.
+    pub(crate) fn history_with_roots(
+        roots: &crate::root::Roots,
+        run_id: &str,
+    ) -> Result<Option<HistoryReport>, StateError> {
+        let engine_root = roots.engine_root();
+        Self::validate_run_address_at(engine_root, run_id)?;
+        let spawned = match Self::ledger_record_of_at(engine_root, run_id)? {
+            Some((ledger_path, entry)) => {
+                Self::workspace_from_ledger_entry(engine_root, &ledger_path, &entry)?;
+                let parent = ledger_path
+                    .parent()
+                    .and_then(Path::file_name)
+                    .map(crate::root::component)
+                    .unwrap_or_default();
+                Some((parent, entry.class))
+            }
+            None => None,
+        };
+        let run_dir = Self::runs_dir_at(engine_root).join(run_id);
+        if !run_dir.join("run.toml").is_file() {
+            return Ok(None);
+        }
+        let state = StateStore::for_engine_root(engine_root, run_id).load()?;
+        if state.status != Status::Passed {
+            return Ok(None);
+        }
+        let evidence_path = crate::pin::evidence_path(&run_dir);
+        let evidence = match fs::read_to_string(&evidence_path) {
+            Ok(source) => Some(crate::pin::Evidence::parse(&source).map_err(|error| {
+                StateError::new(format!(
+                    "invalid {}: {error}; its recorded identities cannot be shown",
+                    evidence_path.displayed()
+                ))
+            })?),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => {
+                return Err(StateError::new(format!(
+                    "read {}: {error}",
+                    evidence_path.displayed()
+                )))
+            }
+        };
+        Ok(Some(HistoryReport {
+            run_id: run_id.to_owned(),
+            spawned,
+            state,
+            evidence_path,
+            evidence,
+        }))
     }
     /// Refuse live residue in the workspace durably bound to an addressed Run
     /// without requiring that Run to remain admitted. Direct existing-Run
