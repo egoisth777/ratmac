@@ -286,6 +286,9 @@ pub(crate) fn plan_hold_in(
 /// exists and that it resolves beneath a root the runbook declares - never
 /// what kind of record it is, which is the shop's rule and not the Engine's.
 fn verify_blocker(scheduler: &crate::Scheduler, blocker: &str) -> Result<(), HoldRefusal> {
+    // WEBV-014: looking up a hold's blocker reference is a blocker
+    // operation.
+    crate::observe::operation("blocker");
     // The reference belongs to the addressed Run's workspace: that is the
     // tree its declared roots resolve in, whether it is the invoking checkout
     // or a linked one bound at spawn.
@@ -370,6 +373,7 @@ pub(crate) fn apply_hold_in(
         .ensure_current()
         .map_err(|error| refusal(error.to_string()))?;
 
+    crate::observe::operation("record");
     let old_state_bytes = fs::read(&state_path)
         .map_err(|error| refusal(format!("hold cannot read state: {error}")))?;
     let store = crate::state::StateStore::for_engine_root(&engine_root, &plan.run_id);

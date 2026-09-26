@@ -66,6 +66,7 @@ impl Evidence {
     /// exists yet.
     pub fn load(run_dir: &Path) -> Self {
         let path = evidence_path(run_dir);
+        crate::observe::operation("record");
         let Ok(source) = fs::read_to_string(path) else {
             return Self::default();
         };

@@ -283,6 +283,9 @@ fn try_acquire_once(
     guard: &str,
     fault_domain: &str,
 ) -> Result<Option<OwnedLock>, StateError> {
+    // WEBV-014: attempting to acquire the root or a Run lock is a lock
+    // operation, recorded before the attempt can create its lock directory.
+    crate::observe::operation("lock");
     prepare_lock_path(engine_root, &path)?;
     refuse_legacy(engine_root)?;
 

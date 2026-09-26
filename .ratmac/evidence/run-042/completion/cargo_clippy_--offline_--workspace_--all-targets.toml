@@ -1,0 +1,10 @@
+ticket-id = "t-120"
+check-id = "cargo clippy --offline --workspace --all-targets"
+kind = "quality"
+command = "cargo clippy --offline --workspace --all-targets"
+working-dir = "."
+exit-status = 0
+output-sha256 = "9ef39b149b6f03838c902681c42f7826965d3a231c2fa7377d020b957df9b287"
+tree-roots = ["src","test","test-hidden","tools",".arca","Cargo.toml","Cargo.lock","AGENTS.md",".gitignore",".ratmac/ratmac.toml",".ratmac/turn.toml",".ratmac/lanes.toml"]
+tree-sha256 = "50b7cf14ea12e437fa8b869868dd26a632cbab20c87ca96b120dc60c63a8ff86"
+output = "warning: useless use of `vec!`\n   --> test\\qa\\tests\\t113_snapshot_integrity.rs:306:20\n    |\n306 |       let expected = vec![\n    |  ____________________^\n307 | |         format!(\n308 | |             \"data/notes spaced.txt\\tuntracked\\t{}\\texception\",\n309 | |             digest(\"data/notes spaced.txt\")\n...   |\n322 | |         ),\n323 | |     ];\n    | |_____^\n    |\n    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#useless_vec\n    = note: `#[warn(clippy::useless_vec)]` on by default\nhelp: you can use an array directly\n    |\n306 ~     let expected = [format!(\n307 +             \"data/notes spaced.txt\\tuntracked\\t{}\\texception\",\n308 +             digest(\"data/notes spaced.txt\")\n309 +         ),\n310 +         format!(\n311 +             \"data/notes spaced.txt.bak\\ttracked\\t{}\",\n312 +             digest(\"data/notes spaced.txt.bak\")\n313 +         ),\n314 +         format!(\n315 ~             \"data/wîngs ✈ extra.txt\\ttracked\\t{}\",\n316 ~             digest(\"data/wîngs ✈ extra.txt\")\n317 +         ),\n318 +         format!(\n319 ~             \"data/wîngs ✈.txt\\tuntracked\\t{}\\texception\",\n320 ~             digest(\"data/wîngs ✈.txt\")\n321 ~         )];\n    |\n\nwarning: `ratmac-qa` (test \"t113_snapshot_integrity\") generated 1 warning (run `cargo clippy --fix --test \"t113_snapshot_integrity\" -p ratmac-qa -- ` to apply 1 suggestion)\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.10s\n"

@@ -34,6 +34,7 @@ pub(crate) fn summary(engine_root: &Path, roster: &[String], none_text: &str) ->
             .join(", ");
     }
     let runs = engine_root.join("runs");
+    crate::observe::operation("roster");
     match fs::read_dir(&runs) {
         Err(error) if error.kind() != ErrorKind::NotFound => format!(
             "unreadable ({}: {})",
@@ -162,6 +163,7 @@ impl Records {
             return fields.join("; ");
         }
         let path = dir.join("run.toml");
+        crate::observe::operation("record");
         match fs::read(&path) {
             Ok(bytes) => match String::from_utf8(bytes)
                 .map_err(|error| error.to_string())

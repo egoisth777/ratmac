@@ -1869,8 +1869,8 @@ fn webv_019() {
         &[canonical_line(&nogit)],
     );
 
-    // An addressed runbook: only its project resolves, and a `.ratmac/`
-    // path hoists to that project.
+    // An addressed runbook: the invoking checkout and its project resolve,
+    // each once; a `.ratmac/` path hoists to that project.
     let log = fresh.next_log();
     let addressed = primary.join(".ratmac/ratmac.toml");
     let output = support::command(ratmac_qa::engine_bin!(), tree.path())
@@ -1887,13 +1887,17 @@ fn webv_019() {
         )),
         "WEBV-019: `rtm doctor <runbook>` reports the runbook's project: {text}"
     );
-    assert_resolutions(
-        "WEBV-019: `rtm doctor <primary runbook>`",
-        &log,
-        &[canonical_line(&primary)],
+    let mut expected = vec![canonical_line(tree.path()), canonical_line(&primary)];
+    let mut lines = log_lines(&log);
+    expected.sort();
+    lines.sort();
+    assert_eq!(
+        lines, expected,
+        "WEBV-019: `rtm doctor <primary runbook>` resolves the invoking checkout and the runbook's project, each once"
     );
 
-    // A runbook in a different project: that project alone resolves.
+    // A runbook in a different project: the invoking checkout and that
+    // project resolve, each once.
     let other_project = tree.join("other-project");
     fs::create_dir_all(&other_project)
         .unwrap_or_else(|error| panic!("create {}: {error}", other_project.display()));
@@ -1912,12 +1916,15 @@ fn webv_019() {
             "Engine root: {}",
             rendered(&other_project.join(".ratmac"))
         )),
-        "WEBV-019: `rtm doctor <runbook>` reports the addressed project alone: {text}"
+        "WEBV-019: `rtm doctor <runbook>` reports the addressed project: {text}"
     );
-    assert_resolutions(
-        "WEBV-019: `rtm doctor <another project's runbook>`",
-        &log,
-        &[canonical_line(&other_project)],
+    let mut expected = vec![canonical_line(tree.path()), canonical_line(&other_project)];
+    let mut lines = log_lines(&log);
+    expected.sort();
+    lines.sort();
+    assert_eq!(
+        lines, expected,
+        "WEBV-019: `rtm doctor <another project's runbook>` resolves the invoking checkout and that project, each once"
     );
 
     // Scaffold in the same directory: one resolution.

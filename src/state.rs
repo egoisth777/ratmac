@@ -118,6 +118,8 @@ impl StateStore {
     }
 
     pub fn load(&self) -> Result<RunState, StateError> {
+        // WEBV-014: reading a Run's Run Record is a record operation.
+        crate::observe::operation("record");
         let source = fs::read_to_string(&self.path)
             .map_err(|error| StateError::new(format!("read run.toml: {error}")))?;
         Self::parse(source)

@@ -82,8 +82,27 @@ pub fn help(command: impl AsRef<str>) -> &'static str {
         "skill" => {
             "Usage: rtm skill <path>\n\nWrite the thin ratmac-operator skill folder (SKILL.md plus references) at a path that does not exist yet. The skill write creates exactly one folder, never overwrites, and creates no directories. SKILL.md carries the identity stamp of the engine that wrote it. The skill itself teaches only invariants - the operating loop and the never-touch rules - and reaches everything current by running the engine and reading its output.\n"
         }
-        _ => "Usage: rtm <command> [options]\n\nCommands: start, status, step, hold, abandon, spawn, respawn, doctor, scaffold, skill\n",
+        _ => general_usage(),
     }
+}
+
+/// The one public route table (WEB-004): the verbs the general usage's
+/// `Commands:` line lists are exactly the commands `rtm` dispatches, and a
+/// verb added to dispatch is added here.
+const COMMANDS: [&str; 10] = [
+    "start", "status", "step", "hold", "abandon", "spawn", "respawn", "doctor", "scaffold", "skill",
+];
+
+/// The general usage, rendered from the route table so the table stays its
+/// one source.
+fn general_usage() -> &'static str {
+    static USAGE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    USAGE.get_or_init(|| {
+        format!(
+            "Usage: rtm <command> [options]\n\nCommands: {}\n",
+            COMMANDS.join(", ")
+        )
+    })
 }
 
 fn command_index(args: &[String]) -> usize {
@@ -200,6 +219,12 @@ fn addressed_run_with_roots(
 /// lives in `src/root.rs`. Each project the command addresses is resolved
 /// by `invocation` the first time it is needed, and every handler below is
 /// handed that context rather than a path.
+///
+/// WEB-004 fixes the order: splitting the arguments into command and target,
+/// Engine-root resolution, and the residue inspection are the only things
+/// that may precede a recognized command's refusal for retired-layout
+/// residue - never the command's own option validation, runbook parsing,
+/// roster reads, blocker lookup, target checks, or writes.
 pub(crate) fn run<I, S, W>(
     args: I,
     invocation: &crate::root::Invocation,
@@ -221,100 +246,170 @@ where
     };
     let command_args = &args[command_index + 1..];
 
-    if is_help(&args) {
+    // RAT-003: the retired spelling is refused by name before any help,
+    // resolution, inspection, read, or write, and its refusal never spells
+    // the retired name. The binary and the library answer identically.
+    if command == "schd" {
+        return Err(CliError::new("unsupported command; invoke rtm"));
+    }
+
+    // A first token the route table does not list is an unknown command: a
+    // pure usage response that resolves, inspects, reads, and writes
+    // nothing.
+    if !COMMANDS.contains(&command.as_str()) {
+        if is_help(&args) {
+            writer.write_all(help("").as_bytes())?;
+            return Ok(0);
+        }
+        return Err(unsupported(command));
+    }
+
+    // The one pure per-command help form: a recognized command followed by
+    // exactly one `--help` or `-h` and nothing else. Nothing is resolved,
+    // inspected, read, or written.
+    if command_args.len() == 1 && matches!(command_args[0].as_str(), "--help" | "-h") {
         writer.write_all(help(command).as_bytes())?;
         return Ok(0);
     }
-    if command == "doctor" {
-        return doctor(command_args, invocation, writer);
-    }
 
-    if command == "status" {
-        status(command_args, &invocation.checkout(), writer)?;
-        return Ok(0);
-    }
-
-    // An unsupported command addresses no project, so it resolves nothing.
-    if !matches!(
-        command.as_str(),
-        "start" | "step" | "hold" | "abandon" | "spawn" | "respawn" | "scaffold" | "skill"
-    ) {
-        return Err(unsupported(command));
-    }
+    // One preflight before any handler: the invoking checkout with its
+    // shared primary root first, every command.
     let roots = invocation.checkout();
-    Scheduler::refuse_flat_residue_with_roots(&roots)
-        .map_err(|error| CliError::new(format!("{command}: {error}")))?;
+    Scheduler::refuse_flat_residue_with_roots(&roots).map_err(|error| match command.as_str() {
+        "status" => hard_error("status", error),
+        _ => CliError::new(format!("{command}: {error}")),
+    })?;
 
-    if command == "scaffold" {
-        return scaffold(command_args, invocation, writer);
-    }
-
-    if command == "skill" {
-        return skill(command_args, invocation, writer);
-    }
-    if command == "hold" {
-        hold(command_args, &roots, writer)?;
-        return Ok(0);
-    }
-
-    if command == "abandon" {
-        abandon(command_args, &roots, writer)?;
-        return Ok(0);
-    }
-
-    if command == "spawn" {
-        spawn(command_args, &roots, writer)?;
-        return Ok(0);
-    }
-
-    if command == "respawn" {
-        respawn(command_args, &roots, writer)?;
-        return Ok(0);
-    }
-
-    if command == "start" {
-        if !command_args.is_empty() {
-            return Err(CliError::new(
-                "start accepts no run-id or extra arguments".to_owned(),
-            ));
-        }
-        let mut scheduler = Scheduler::open_with_roots(&roots)
-            .map_err(|error| CliError::new(format!("start: {error}")))?;
-        let run = scheduler
-            .start()
-            .map_err(|error| CliError::new(format!("start: {error}")))?;
-        if let Some(id) = run.id() {
-            writeln!(writer, "rtm: started run {id} at .ratmac/runs/{id}/")?;
-        }
-        return Ok(0);
-    }
-
-    if command == "step" {
-        let id = addressed_run_with_roots(command, command_args, &roots)?;
-        let mut scheduler = Scheduler::open_run_with_roots(&roots, &id)
-            .map_err(|error| hard_error(command, error))?;
-        let outcome = scheduler
-            .step(StepRequest::new(""))
-            .map_err(|error| hard_error("step", error))?;
-        if let StepOutcome::Refused { .. } = &outcome {
-            writeln!(writer, "rtm: {outcome}")?;
-            if let Some(next) = crate::teach::step_refusal_next(&id, &outcome) {
-                writeln!(writer, "{next}")?;
-            }
-        } else {
-            let report = scheduler
-                .status()
-                .map_err(|error| hard_error("status", error))?;
-            writer.write_all(report.state_prompt().as_str().as_bytes())?;
-            writer.write_all(b"\n")?;
-            if let Some(next) = crate::teach::status_next(&id, report.state.status) {
-                writeln!(writer, "{next}")?;
+    // Then the project the arguments explicitly address, when the
+    // non-validating target scan identifies one.
+    match command.as_str() {
+        "doctor" | "scaffold" | "skill" => {
+            if let Some(target) = command_args.iter().find(|arg| !arg.starts_with('-')) {
+                let project =
+                    invocation.project(&crate::root::addressed_project_root(Path::new(target)));
+                Scheduler::refuse_flat_residue_with_roots(&project)
+                    .map_err(|error| CliError::refusal(error.to_string()))?;
             }
         }
+        "spawn" => {
+            if let Some(workspace) = sole_workspace(command_args) {
+                Scheduler::refuse_spawn_workspace_residue(&roots, Path::new(workspace))
+                    .map_err(|error| CliError::new(format!("spawn: {error}")))?;
+            }
+        }
+        _ => {}
+    }
+
+    // Help among any other operational argument cannot skip the preflight
+    // above; once that has passed, the command's help is the whole answer
+    // and nothing else runs.
+    if is_help(command_args) {
+        writer.write_all(help(command).as_bytes())?;
         return Ok(0);
     }
 
-    Err(unsupported(command))
+    match command.as_str() {
+        "doctor" => doctor(command_args, invocation, writer),
+        "status" => {
+            status(command_args, &roots, writer)?;
+            Ok(0)
+        }
+        "scaffold" => scaffold(command_args, invocation, writer),
+        "skill" => skill(command_args, invocation, writer),
+        "hold" => {
+            hold(command_args, &roots, writer)?;
+            Ok(0)
+        }
+        "abandon" => {
+            abandon(command_args, &roots, writer)?;
+            Ok(0)
+        }
+        "spawn" => {
+            spawn(command_args, &roots, writer)?;
+            Ok(0)
+        }
+        "respawn" => {
+            respawn(command_args, &roots, writer)?;
+            Ok(0)
+        }
+        "start" => start(command_args, &roots, writer),
+        "step" => step(command_args, &roots, writer),
+        _ => unreachable!("the route table lists every dispatched command"),
+    }
+}
+
+/// WEB-004: the non-validating spawn target scan. A `--workspace` value
+/// addresses a project only when the option occurs exactly once and its next
+/// argument exists, is non-empty, and does not begin with `--`; anything
+/// else - repeated, valueless, or empty - addresses no project, so only the
+/// invoking checkout is inspected and the ordinary usage error follows.
+fn sole_workspace(args: &[String]) -> Option<&str> {
+    let mut workspace: Option<&str> = None;
+    let mut index = 0;
+    while index < args.len() {
+        if args[index] == "--workspace" {
+            let value = args.get(index + 1)?;
+            if workspace.is_some() || value.is_empty() || value.starts_with("--") {
+                return None;
+            }
+            workspace = Some(value);
+        }
+        index += 1;
+    }
+    workspace
+}
+
+/// AAL-003/LGS-001: mint the project's next Run from the invoking checkout.
+fn start<W: Write>(
+    args: &[String],
+    roots: &crate::root::Roots,
+    writer: &mut W,
+) -> Result<i32, CliError> {
+    if !args.is_empty() {
+        return Err(CliError::new(
+            "start accepts no run-id or extra arguments".to_owned(),
+        ));
+    }
+    let mut scheduler = Scheduler::open_with_roots(roots)
+        .map_err(|error| CliError::new(format!("start: {error}")))?;
+    let run = scheduler
+        .start()
+        .map_err(|error| CliError::new(format!("start: {error}")))?;
+    if let Some(id) = run.id() {
+        writeln!(writer, "rtm: started run {id} at .ratmac/runs/{id}/")?;
+    }
+    Ok(0)
+}
+
+/// FDC-004/R-019: advance exactly the addressed Run one ordinary motion.
+fn step<W: Write>(
+    args: &[String],
+    roots: &crate::root::Roots,
+    writer: &mut W,
+) -> Result<i32, CliError> {
+    let command = "step";
+    let id = addressed_run_with_roots(command, args, roots)?;
+    let mut scheduler =
+        Scheduler::open_run_with_roots(roots, &id).map_err(|error| hard_error(command, error))?;
+    let outcome = scheduler
+        .step(StepRequest::new(""))
+        .map_err(|error| hard_error("step", error))?;
+    if let StepOutcome::Refused { .. } = &outcome {
+        writeln!(writer, "rtm: {outcome}")?;
+        if let Some(next) = crate::teach::step_refusal_next(&id, &outcome) {
+            writeln!(writer, "{next}")?;
+        }
+    } else {
+        let report = scheduler
+            .status()
+            .map_err(|error| hard_error("status", error))?;
+        writer.write_all(report.state_prompt().as_str().as_bytes())?;
+        writer.write_all(b"\n")?;
+        if let Some(next) = crate::teach::status_next(&id, report.state.status) {
+            writeln!(writer, "{next}")?;
+        }
+    }
+    Ok(0)
 }
 
 fn unsupported(command: &str) -> CliError {
@@ -963,6 +1058,7 @@ fn environment_report<W: Write>(
             let state_path = runs_dir.join(&id).join("run.toml");
             let shown = format!(".ratmac/runs/{id}/run.toml");
             if state_path.is_file() {
+                crate::observe::operation("record");
                 match std::fs::read_to_string(&state_path) {
                     Ok(source) => {
                         if let Ok(table) = source.parse::<toml::Value>() {

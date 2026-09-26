@@ -116,6 +116,7 @@ fn read_highest(path: &Path) -> Result<Option<i64>, StateError> {
 /// rather than treated as an empty namespace.
 fn highest_roster_ordinal(engine_root: &Path) -> Result<i64, StateError> {
     let runs_dir = engine_root.join("runs");
+    crate::observe::operation("roster");
     match fs::symlink_metadata(&runs_dir) {
         Ok(_) => {}
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),

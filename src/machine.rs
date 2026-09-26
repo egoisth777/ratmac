@@ -403,7 +403,7 @@ pub struct MachineClassParseError {
 }
 
 impl MachineClassParseError {
-    fn at(code: &'static str, location: String, message: String) -> Self {
+    pub(crate) fn at(code: &'static str, location: String, message: String) -> Self {
         Self {
             code,
             location,
@@ -462,6 +462,10 @@ impl MachineClass {
     /// Other unknown-key diagnostics are intentionally left to the strict
     /// schema boundary owned by t-005.
     pub fn from_toml(source: &str) -> Result<Self, MachineClassParseError> {
+        // WEBV-014: parsing a runbook into a Machine Class is the runbook
+        // operation. The residue inspection's own `phases` byte scan parses
+        // through `toml::Value` directly and never lands here.
+        crate::observe::operation("runbook");
         let document: toml::Value = source.parse().map_err(|error| {
             MachineClassParseError::at(
                 "RB102",

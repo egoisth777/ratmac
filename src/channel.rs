@@ -114,6 +114,7 @@ pub fn newest_edition(root: &Path) -> Result<(String, String), String> {
 pub fn live_run_findings(root: &Path, engine_root: &Path) -> Vec<String> {
     let mut findings = Vec::new();
     let runs_root = engine_root.join("runs");
+    crate::observe::operation("roster");
     let Ok(entries) = std::fs::read_dir(&runs_root) else {
         return findings;
     };
@@ -168,6 +169,7 @@ pub fn live_run_findings(root: &Path, engine_root: &Path) -> Vec<String> {
 
 /// A Run is live while its record is `planned` or `executing`.
 fn run_is_live(run_dir: &Path) -> bool {
+    crate::observe::operation("record");
     let Ok(text) = std::fs::read_to_string(run_dir.join("run.toml")) else {
         return false;
     };

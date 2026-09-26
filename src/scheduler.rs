@@ -623,6 +623,8 @@ impl Scheduler {
             return Ok(None);
         }
         let evidence_path = crate::pin::evidence_path(&run_dir);
+        // WEBV-014: reading a passed Run's evidence is a record operation.
+        crate::observe::operation("record");
         let evidence = match fs::read_to_string(&evidence_path) {
             Ok(source) => Some(crate::pin::Evidence::parse(&source).map_err(|error| {
                 StateError::new(format!(
@@ -953,6 +955,10 @@ impl Scheduler {
     }
 
     pub(crate) fn run_roster_at(engine_root: &Path) -> Vec<String> {
+        // WEBV-014: listing the resolved `.ratmac/runs/` is a roster
+        // operation; the residue inspection lists it through its own reader
+        // and never lands here.
+        crate::observe::operation("roster");
         let Ok(entries) = fs::read_dir(Self::runs_dir_at(engine_root)) else {
             return Vec::new();
         };
@@ -1194,6 +1200,9 @@ impl Scheduler {
             )));
         }
         Self::refuse_flat_residue_at(&workspace, roots.engine_root())?;
+        // WEBV-014: judging whether the recorded spawn workspace still exists
+        // is a target operation; the residue judgment above stays silent.
+        crate::observe::operation("target");
         let canonical = fs::canonicalize(&workspace).map_err(|error| {
             if error.kind() == std::io::ErrorKind::NotFound {
                 StateError::new(format!(
@@ -1248,6 +1257,19 @@ impl Scheduler {
             invoking_root.join(workspace)
         }
     }
+
+    /// WEB-004: the CLI's non-validating spawn target scan judges a
+    /// caller-supplied `--workspace` spelling for residue. The candidate
+    /// joins the invoking checkout when relative and is judged, never
+    /// resolved, against the invoking Engine root - the same judgment
+    /// `spawn_to_with_roots` repeats before it validates anything else.
+    pub(crate) fn refuse_spawn_workspace_residue(
+        roots: &crate::root::Roots,
+        workspace: &Path,
+    ) -> Result<(), StateError> {
+        let candidate = Self::spawn_workspace_candidate(roots.invoking_checkout_root(), workspace);
+        Self::refuse_flat_residue_at(&candidate, roots.engine_root())
+    }
     /// Canonicalize a caller-supplied spawn workspace before the mint
     /// transaction. Relative spellings are interpreted from `base` - the
     /// invocation checkout, not a parent Run's stored workspace.
@@ -1259,6 +1281,9 @@ impl Scheduler {
         let spelling = workspace.displayed();
         let candidate = Self::spawn_workspace_candidate(base, workspace);
         Self::refuse_flat_residue_at(&candidate, roots.engine_root())?;
+        // WEBV-014: judging whether a spawn workspace exists is a target
+        // operation, after the residue judgment and before any mint.
+        crate::observe::operation("target");
         let metadata = fs::metadata(&candidate).map_err(|error| {
             if error.kind() == std::io::ErrorKind::NotFound {
                 StateError::new(format!("workspace {spelling:?} does not exist"))
@@ -1302,6 +1327,7 @@ impl Scheduler {
     }
 
     fn snapshot_ledger(path: &Path) -> Result<LedgerSnapshot, StateError> {
+        crate::observe::operation("ledger");
         match fs::read(path) {
             Ok(bytes) => Ok(LedgerSnapshot {
                 path: path.to_path_buf(),
@@ -1595,10 +1621,13 @@ impl Scheduler {
     }
 
     fn snapshot_minted_run(run_dir: &Path) -> Result<MintedRunSnapshot, StateError> {
+        crate::observe::operation("record");
         let state_bytes = fs::read(run_dir.join("run.toml"))
             .map_err(|error| StateError::new(format!("snapshot minted Run Record: {error}")))?;
+        crate::observe::operation("record");
         let evidence_bytes = fs::read(run_dir.join(crate::pin::EVIDENCE_FILE))
             .map_err(|error| StateError::new(format!("snapshot minted evidence.toml: {error}")))?;
+        crate::observe::operation("ledger");
         let spawn_ledger_bytes = fs::read(run_dir.join("spawn-ledger"))
             .map_err(|error| StateError::new(format!("snapshot minted spawn-ledger: {error}")))?;
         Ok(MintedRunSnapshot {
@@ -1663,6 +1692,10 @@ impl Scheduler {
                     entry.path().displayed()
                 )));
             }
+            crate::observe::operation(match name.as_str() {
+                "spawn-ledger" => "ledger",
+                _ => "record",
+            });
             let observed = fs::read(entry.path()).map_err(|error| {
                 StateError::new(format!(
                     "{operation} refused: cannot read minted Run entry {}: {error}",
@@ -1830,6 +1863,7 @@ composition is capped at one level (FDC-012)"
 composition is capped at one level (FDC-012)"
                 )));
             }
+            crate::observe::operation("record");
             let parent_state_bytes = fs::read(&state_path)
                 .map_err(|error| StateError::new(format!("read Run Record: {error}")))?;
             let state = self.load_state_unlocked()?;
@@ -1912,6 +1946,7 @@ composition is capped at one level (FDC-012)"
         run_lock.ensure_current()?;
         Self::validate_run_address_at(&engine_root, &parent_id)?;
         Self::verify_runbook_snapshot(&snapshot, &invoking_root, Some(&run_dir))?;
+        crate::observe::operation("record");
         let current_state_bytes = fs::read(&state_path)
             .map_err(|error| StateError::new(format!("read Run Record before spawn: {error}")))?;
         if current_state_bytes != parent_state_bytes {
@@ -2288,6 +2323,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
             guarded_ledgers,
         ) = {
             Self::verify_runbook_snapshot(&snapshot, &invoking_root, Some(&run_dir))?;
+            crate::observe::operation("record");
             let guarded_state_bytes = fs::read(&state_path)
                 .map_err(|error| StateError::new(format!("read Run Record: {error}")))?;
             let state = self.load_state_unlocked()?;
@@ -2403,6 +2439,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
         // durable motion. Compare the exact Run Record bytes guards observed
         // as a defense against an out-of-band writer.
         run_lock.ensure_current()?;
+        crate::observe::operation("record");
         let current_state_bytes = fs::read(&state_path)
             .map_err(|error| StateError::new(format!("read Run Record before commit: {error}")))?;
         if current_state_bytes != guarded_state_bytes {
@@ -2449,6 +2486,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
         if let Some(frozen_evidence) = frozen_evidence {
             run_lock.ensure_current()?;
             let path = crate::pin::evidence_path(&run_dir);
+            crate::observe::operation("record");
             let before = match fs::read(&path) {
                 Ok(bytes) => Some(bytes),
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
@@ -2553,6 +2591,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
                 "rollback refused because the addressed Run lock is no longer current: {error}; the Engine restored nothing"
             ));
         }
+        crate::observe::operation("record");
         let current_state = match fs::read(state_path) {
             Ok(bytes) => bytes,
             Err(error) => {
@@ -2576,6 +2615,7 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
         }
 
         if let Some(evidence) = evidence {
+            crate::observe::operation("record");
             let current = match fs::read(&evidence.path) {
                 Ok(bytes) => bytes,
                 Err(error) => {
@@ -3862,6 +3902,11 @@ fn restore_exact_file_if_current(
             path.displayed()
         )));
     }
+    match path.file_name().and_then(|name| name.to_str()) {
+        Some("spawn-ledger") => crate::observe::operation("ledger"),
+        Some("run.toml") | Some("evidence.toml") => crate::observe::operation("record"),
+        _ => {}
+    }
     let current = fs::read(path).map_err(|error| {
         StateError::new(format!(
             "read {} before exact rollback replacement: {error}",
@@ -3892,6 +3937,7 @@ fn restore_evidence(evidence: &EvidenceRollback) -> Result<(), StateError> {
                     evidence.path.displayed()
                 )));
             }
+            crate::observe::operation("record");
             let current = fs::read(&evidence.path).map_err(|error| {
                 StateError::new(format!(
                     "read newly written evidence {} before removal: {error}",

@@ -1,0 +1,10 @@
+ticket-id = "t-120"
+check-id = "WEBV-014"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test t120_residue_refusal_precedence -- --test-threads=1"
+working-dir = "."
+exit-status = 0
+output-sha256 = "6244fe30b67f59fa45655caca25b33fec4c93f1c0a13128051d380fa0aa230e3"
+tree-roots = ["src","test/qa","test-hidden","tools","Cargo.toml","Cargo.lock",".gitignore",".ratmac/lanes.toml"]
+tree-sha256 = "a004960b70e5ee4855681b87694743e0dad375b7b4a274bf37e284a9d1b41d6c"
+output = "\nrunning 4 tests\ntest webv_013 ... ok\ntest webv_014 ... ok\ntest webv_015 ... ok\ntest webv_016 ... ok\n\ntest result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.54s\n\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s\n     Running tests\\t120_residue_refusal_precedence.rs (target\\debug\\deps\\t120_residue_refusal_precedence-14a360be7dd86936.exe)\n"

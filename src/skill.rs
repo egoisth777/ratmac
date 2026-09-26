@@ -90,6 +90,10 @@ pub(crate) fn write_skill_in(
     crate::Scheduler::refuse_flat_residue_with_roots(project)
         .map_err(|error| SkillRefusal::Preflight(error.to_string()))?;
     let shown = crate::root::displayed(path);
+    // WEBV-014: judging whether the target path and its hidden partial
+    // sibling are free is a target operation, recorded before the write it
+    // permits.
+    crate::observe::operation("target");
     if path.exists() {
         return Err(SkillRefusal::Occupied(shown));
     }

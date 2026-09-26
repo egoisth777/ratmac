@@ -187,9 +187,23 @@ mod fault {
 /// path through a re-export from its own module, establishes one context
 /// here, and hands it to the context-taking internals.
 pub(crate) mod entries {
-    use super::{addressed_project_root, Invocation, Roots};
+    use super::{addressed_project_root, displayed, Invocation, Roots};
     use std::io::Write;
     use std::path::Path;
+
+    /// WEB-004: one contract defect carrying a residue refusal. The artifact
+    /// is the inspected project's checkout path and the reason is the
+    /// refusal itself, so a contract entry answers residue before it reads
+    /// any workflow record or judges any request value.
+    fn contract_residue_defect(
+        project: &Roots,
+        error: &crate::state::StateError,
+    ) -> crate::contract::ContractDefect {
+        crate::contract::ContractDefect {
+            artifact: displayed(project.invoking_checkout_root()),
+            reason: error.to_string(),
+        }
+    }
 
     /// Run the CLI from supplied arguments without spawning a process.
     ///
@@ -269,14 +283,22 @@ pub(crate) mod entries {
 
     /// PGE-001: verify intake completion over the working tree.
     pub fn gate_intake(workspace: &Path) -> Result<(), Vec<crate::contract::ContractDefect>> {
-        crate::contract::gate_intake_in(&Roots::resolve(workspace))
+        let project = Roots::resolve(workspace);
+        if let Err(error) = crate::Scheduler::refuse_flat_residue_with_roots(&project) {
+            return Err(vec![contract_residue_defect(&project, &error)]);
+        }
+        crate::contract::gate_intake_in(&project)
     }
 
     /// PCR-003: classify every work item from the tree alone.
     pub fn work_items(
         workspace: &Path,
     ) -> Result<Vec<crate::contract::WorkItem>, Vec<crate::contract::ContractDefect>> {
-        crate::contract::work_items_in(&Roots::resolve(workspace))
+        let project = Roots::resolve(workspace);
+        if let Err(error) = crate::Scheduler::refuse_flat_residue_with_roots(&project) {
+            return Err(vec![contract_residue_defect(&project, &error)]);
+        }
+        crate::contract::work_items_in(&project)
     }
 
     /// PGE-002: verify residual and ticket record contracts.
@@ -285,13 +307,20 @@ pub(crate) mod entries {
         engine_root: &Path,
         run_id: &str,
     ) -> Result<(), Vec<crate::contract::ContractDefect>> {
-        crate::contract::gate_records_in(&Roots::resolve(workspace), engine_root, run_id)
+        let project = Roots::resolve(workspace);
+        if let Err(error) = crate::Scheduler::refuse_flat_residue_with_roots(&project) {
+            return Err(vec![contract_residue_defect(&project, &error)]);
+        }
+        crate::contract::gate_records_in(&project, engine_root, run_id)
     }
 
     /// Requirements whose mechanizing gate the project's Runbook does not
     /// declare.
     pub fn unproven_mechanization(root: &Path) -> Vec<crate::contract::ContractDefect> {
         let project = Roots::resolve(root);
+        if let Err(error) = crate::Scheduler::refuse_flat_residue_with_roots(&project) {
+            return vec![contract_residue_defect(&project, &error)];
+        }
         crate::contract::unproven_mechanization_in(project.invoking_checkout_root())
     }
 }
@@ -306,6 +335,16 @@ impl crate::machine::MachineClass {
         project_root: impl AsRef<Path>,
     ) -> Result<Self, crate::machine::MachineClassParseError> {
         let project = Roots::resolve(project_root);
+        // WEB-004: retired-layout residue in the project refuses before the
+        // runbook is read, with the loader's own coded refusal shape.
+        if let Err(error) = crate::Scheduler::refuse_flat_residue_with_roots(&project) {
+            let runbook = checkout_machine_class_path(project.invoking_checkout_root());
+            return Err(crate::machine::MachineClassParseError::at(
+                error.code().unwrap_or("RB101"),
+                runbook.displayed().to_string(),
+                error.to_string(),
+            ));
+        }
         Self::load_from_checkout(project.invoking_checkout_root())
     }
 }

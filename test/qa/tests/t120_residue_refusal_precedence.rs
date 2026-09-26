@@ -438,11 +438,91 @@ fn rtm_observed(directory: &Path, log: &Path, args: &[&str]) -> Output {
         .unwrap_or_else(|error| panic!("invoke rtm {args:?}: {error}"))
 }
 
+/// Run the harness Engine with both the operation observer and the t-119
+/// resolution log armed.
+fn rtm_tracked(directory: &Path, op_log: &Path, resolution_log: &Path, args: &[&str]) -> Output {
+    support::command(ratmac_qa::engine_bin!(), directory)
+        .args(args)
+        .env(OP_LOG_VAR, op_log)
+        .env(ROOT_LOG_VAR, resolution_log)
+        .output()
+        .unwrap_or_else(|error| panic!("invoke rtm {args:?}: {error}"))
+}
+
 /// Every node below `root` as comparable bytes, links included.
 fn tree_snapshot(root: &Path) -> BTreeMap<String, Vec<u8>> {
     support::capture(root, support::CaptureOptions::default())
         .unwrap_or_else(|error| panic!("capture {}: {error}", rendered(root)))
         .tagged()
+}
+
+/// The canonical one-line spelling of a resolved project directory, the
+/// t-119 resolution-log format.
+fn canonical_line(dir: &Path) -> String {
+    fs::canonicalize(dir)
+        .unwrap_or_else(|_| dir.to_path_buf())
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+/// Every line a resolution log holds; an absent log reads as no lines.
+fn resolution_lines(log: &Path) -> Vec<String> {
+    match fs::read_to_string(log) {
+        Ok(text) => text.lines().map(str::to_owned).collect(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(error) => panic!("read the resolution log {}: {error}", rendered(log)),
+    }
+}
+
+/// Assert the resolution log holds exactly `expected` projects, each exactly
+/// once, compared as a set: neither order nor repetition may leak.
+fn assert_resolved_set(label: &str, log: &Path, expected: &[String]) {
+    let lines = resolution_lines(log);
+    let mut held = lines.clone();
+    held.sort();
+    held.dedup();
+    assert_eq!(
+        lines.len(),
+        held.len(),
+        "{label}: every addressed project resolves at most once; log {} held {lines:?}",
+        rendered(log)
+    );
+    let mut wanted: Vec<String> = expected.to_vec();
+    wanted.sort();
+    assert_eq!(
+        held, wanted,
+        "{label}: the resolution log holds exactly the expected projects"
+    );
+}
+
+/// Assert the resolution log names the invoking checkout exactly once, allows
+/// the addressed project at most once, and nothing else: the contract fixes
+/// inspection order, not resolution order.
+fn assert_resolved_invoking(label: &str, log: &Path, invoking: &str, addressed: &str) {
+    let lines = resolution_lines(log);
+    let mut held = lines.clone();
+    held.sort();
+    held.dedup();
+    assert_eq!(
+        lines.len(),
+        held.len(),
+        "{label}: every addressed project resolves at most once; log {} held {lines:?}",
+        rendered(log)
+    );
+    assert_eq!(
+        lines
+            .iter()
+            .filter(|line| line.as_str() == invoking)
+            .count(),
+        1,
+        "{label}: the invoking checkout resolves exactly once"
+    );
+    for line in &held {
+        assert!(
+            line == invoking || line == addressed,
+            "{label}: only the two involved projects may resolve; held {lines:?}"
+        );
+    }
 }
 
 fn stdout(output: &Output) -> String {
@@ -566,11 +646,9 @@ fn refuse_row(
     plant_at: &Path,
     shape: Shape,
     expect: Expect,
-    logs: &TempTree,
-    step: &mut usize,
+    ops: &mut OpLog,
 ) {
-    *step += 1;
-    let log = logs.join(format!("op-{:03}.log", step));
+    let log = ops.fresh();
     let planted = plant(plant_at, shape);
     let mut trees: Vec<PathBuf> = Vec::new();
     for root in [invoke_from, plant_at] {
@@ -596,6 +674,19 @@ fn refuse_row(
 }
 
 // --- WEBV-013 -----------------------------------------------------------------
+
+/// One binary row's operation-log bookkeeping: fresh numbered logs.
+struct OpLog {
+    logs: TempTree,
+    next: usize,
+}
+
+impl OpLog {
+    fn fresh(&mut self) -> PathBuf {
+        self.next += 1;
+        self.logs.join(format!("op-{:03}.log", self.next))
+    }
+}
 
 /// The commands the general usage's `Commands:` line lists - the one public
 /// route table.
@@ -626,6 +717,20 @@ struct LibraryProbe {
     next: usize,
 }
 
+/// How a library entry's text must carry the refusal, per the ticket's
+/// Library entries table: the Scheduler, scaffold, skill, contract, loader,
+/// and `cli::run_from` rows say the text IS the refusal; the abandon, hold,
+/// and diagnose rows allow surrounding text around it.
+#[derive(Clone, Copy)]
+enum RefusalText {
+    /// The text is the refusal, in one permitted path spelling.
+    Is,
+    /// The text is `<command>: <refusal>`, the binary line without `rtm: `.
+    IsPrefixed(&'static str),
+    /// The ticket row explicitly allows the refusal inside a longer text.
+    Contains,
+}
+
 impl LibraryProbe {
     fn fresh_log(&mut self) -> PathBuf {
         self.next += 1;
@@ -634,19 +739,44 @@ impl LibraryProbe {
 
     /// One library row: residue planted at the inspected project, an outcome
     /// that must carry the refusal, no operation logged, tree identical.
-    fn row(&mut self, root: &Path, shape: Shape, label: &str, body: impl FnOnce() -> String) {
+    fn row(
+        &mut self,
+        root: &Path,
+        shape: Shape,
+        label: &str,
+        how: RefusalText,
+        body: impl FnOnce() -> String,
+    ) {
         let log = self.fresh_log();
         let planted = plant(root, shape);
         let before = tree_snapshot(root);
+        // The observer is armed for exactly the entry's own work: a library
+        // entry that reads before its preflight would log and be caught.
+        let observer = HookVar::bind(OP_LOG_VAR, &log);
         let text = body();
-        assert!(
-            planted
-                .sentences
-                .iter()
-                .any(|sentence| text.contains(sentence)),
-            "WEBV-013: {label} must answer the residue refusal before its own validation; \
-             held: {text}"
-        );
+        drop(observer);
+        match how {
+            RefusalText::Is => assert!(
+                planted.sentences.contains(&text),
+                "WEBV-013: {label}'s text is the refusal, in one permitted path spelling; \
+                 held: {text}"
+            ),
+            RefusalText::IsPrefixed(command) => assert!(
+                planted
+                    .sentences
+                    .iter()
+                    .any(|sentence| text == format!("{command}: {sentence}")),
+                "WEBV-013: {label}'s text is the binary line without `rtm: `; held: {text}"
+            ),
+            RefusalText::Contains => assert!(
+                planted
+                    .sentences
+                    .iter()
+                    .any(|sentence| text.contains(sentence)),
+                "WEBV-013: {label} must answer the residue refusal before its own validation; \
+                 held: {text}"
+            ),
+        }
         assert!(
             !log.exists(),
             "WEBV-013: {label} inspects residue before any operation; the log must stay absent"
@@ -676,11 +806,9 @@ fn assert_defect_names_the_refusal(
         defect.artifact
     );
     assert!(
-        planted
-            .sentences
-            .iter()
-            .any(|sentence| defect.reason.contains(sentence)),
-        "WEBV-013: {label}'s defect reason carries the refusal; held {:?}",
+        planted.sentences.contains(&defect.reason),
+        "WEBV-013: {label}'s defect reason is the refusal, in one permitted path spelling; \
+         held {:?}",
         defect.reason
     );
 }
@@ -704,6 +832,24 @@ fn library_entries_refuse_residue_first() {
     let root = project.path().to_path_buf();
     let runbook = root.join(".ratmac").join("ratmac.toml");
     let engine_root = root.join(".ratmac");
+
+    // Positive control for the observer itself: armed the same way the rows
+    // arm it, a clean in-process start must record at least its runbook and
+    // lock operations, one documented kind per line.
+    {
+        let log = probe.fresh_log();
+        let observer = HookVar::bind(OP_LOG_VAR, &log);
+        Scheduler::open(&root)
+            .expect("WEBV-013: the observer control opens the fixture")
+            .start()
+            .expect("WEBV-013: the observer control starts a run");
+        drop(observer);
+        assert_logs_kinds(
+            "the in-process `Scheduler::open` + `start` control",
+            &log,
+            &["runbook", "lock"],
+        );
+    }
 
     // Positive controls on the clean fixture: the entries work.
     let first = Scheduler::open(&root)
@@ -755,6 +901,7 @@ fn library_entries_refuse_residue_first() {
         &root,
         Shape::Presplit(".arca/rtm.lock"),
         "Scheduler::open",
+        RefusalText::Is,
         || {
             Scheduler::open(&root)
                 .expect_err("open refuses residue")
@@ -765,21 +912,29 @@ fn library_entries_refuse_residue_first() {
         &root,
         Shape::Presplit(".arca/runs"),
         "Scheduler::open_run",
+        RefusalText::Is,
         || {
             Scheduler::open_run(&root, ghost)
                 .expect_err("open_run refuses residue before its run address")
                 .to_string()
         },
     );
-    probe.row(&root, Shape::FlatState, "Scheduler::run_roster", || {
-        Scheduler::run_roster(&root)
-            .expect_err("run_roster refuses residue")
-            .to_string()
-    });
+    probe.row(
+        &root,
+        Shape::FlatState,
+        "Scheduler::run_roster",
+        RefusalText::Is,
+        || {
+            Scheduler::run_roster(&root)
+                .expect_err("run_roster refuses residue")
+                .to_string()
+        },
+    );
     probe.row(
         &root,
         Shape::Presplit(".arca/ratmac.toml"),
         "Scheduler::spawn_to",
+        RefusalText::Is,
         || {
             Scheduler::spawn_to(&root, ghost, "undeclared", &BTreeMap::new())
                 .expect_err("spawn_to refuses residue before the unknown parent and name")
@@ -794,6 +949,7 @@ fn library_entries_refuse_residue_first() {
         &area,
         Shape::Presplit(".arca/rtm.lock"),
         "Scheduler::spawn_to_with_workspace",
+        RefusalText::Is,
         || {
             let bindings = BTreeMap::from([("ticket".to_owned(), "WEBV-013".to_owned())]);
             Scheduler::spawn_to_with_workspace(&root, ghost, "rev", &bindings, Some(&area))
@@ -802,40 +958,54 @@ fn library_entries_refuse_residue_first() {
         },
     );
     let _ = fs::remove_dir_all(&area);
-    probe.row(&root, Shape::RecordState, "Scheduler::respawn", || {
-        let request = RespawnRequest {
-            run: Some(first.clone()),
-            confirmation: Some("not the phrase".to_owned()),
-        };
-        Scheduler::respawn(&root, &request)
-            .expect_err("respawn refuses residue before the confirmation")
-            .to_string()
-    });
+    probe.row(
+        &root,
+        Shape::RecordState,
+        "Scheduler::respawn",
+        RefusalText::Is,
+        || {
+            let request = RespawnRequest {
+                run: Some(first.clone()),
+                confirmation: Some("not the phrase".to_owned()),
+            };
+            Scheduler::respawn(&root, &request)
+                .expect_err("respawn refuses residue before the confirmation")
+                .to_string()
+        },
+    );
 
     // Abandon and hold entries: the entry's Err refusal contains the refusal.
     probe.row(
         &root,
         Shape::Presplit(".arca/state.toml"),
         "abandon::resolve_target",
+        RefusalText::Contains,
         || {
             abandon::resolve_target(&root, Some(ghost))
                 .expect_err("resolve_target refuses residue before the unknown run")
                 .to_string()
         },
     );
-    probe.row(&root, Shape::FlatState, "abandon::plan_abandon", || {
-        let request = AbandonRequest {
-            confirmation: Some("wrong phrase".to_owned()),
-            run: Some(first.clone()),
-        };
-        abandon::plan_abandon(&root, &request)
-            .expect_err("plan_abandon refuses residue before the confirmation")
-            .to_string()
-    });
+    probe.row(
+        &root,
+        Shape::FlatState,
+        "abandon::plan_abandon",
+        RefusalText::Contains,
+        || {
+            let request = AbandonRequest {
+                confirmation: Some("wrong phrase".to_owned()),
+                run: Some(first.clone()),
+            };
+            abandon::plan_abandon(&root, &request)
+                .expect_err("plan_abandon refuses residue before the confirmation")
+                .to_string()
+        },
+    );
     probe.row(
         &root,
         Shape::Presplit(".arca/rtm.lock"),
         "abandon::apply_abandon",
+        RefusalText::Contains,
         || {
             abandon::apply_abandon(&root, &abandon_plan)
                 .expect_err("apply_abandon refuses residue before the stale plan")
@@ -846,6 +1016,7 @@ fn library_entries_refuse_residue_first() {
         &root,
         Shape::Presplit(".arca/runs"),
         "blocked::plan_hold",
+        RefusalText::Contains,
         || {
             let request = HoldRequest {
                 blocker: None,
@@ -857,14 +1028,22 @@ fn library_entries_refuse_residue_first() {
                 .to_string()
         },
     );
-    probe.row(&root, Shape::RecordPhase, "blocked::apply_hold", || {
-        blocked::apply_hold(&root, &hold_plan)
-            .expect_err("apply_hold refuses residue before the stale plan")
-            .to_string()
-    });
+    probe.row(
+        &root,
+        Shape::RecordPhase,
+        "blocked::apply_hold",
+        RefusalText::Contains,
+        || {
+            blocked::apply_hold(&root, &hold_plan)
+                .expect_err("apply_hold refuses residue before the stale plan")
+                .to_string()
+        },
+    );
 
     // Diagnose: exactly one error finding, RB111 for a pre-cutover runbook
-    // and RB101 otherwise, its message carrying the refusal.
+    // and RB101 otherwise. The ticket's Library entries table allows this
+    // row's message to CONTAIN the refusal ("its message contains the
+    // refusal"), so the match below stays a substring check.
     for (shape, code) in [
         (Shape::Presplit(".arca/rtm.lock"), "RB101"),
         (Shape::PhasesRunbook, "RB111"),
@@ -872,7 +1051,9 @@ fn library_entries_refuse_residue_first() {
         let log = probe.fresh_log();
         let planted = plant(&root, shape);
         let before = tree_snapshot(&root);
+        let observer = HookVar::bind(OP_LOG_VAR, &log);
         let findings = ratmac::doctor::diagnose(&runbook);
+        drop(observer);
         assert_eq!(
             findings.len(),
             1,
@@ -912,6 +1093,7 @@ fn library_entries_refuse_residue_first() {
         &root,
         Shape::Presplit(".arca/rtm.lock"),
         "scaffold::write_scaffold",
+        RefusalText::Is,
         || {
             let refusal = ratmac::scaffold::write_scaffold(&taken_scaffold)
                 .expect_err("write_scaffold refuses residue before the occupied path");
@@ -928,6 +1110,7 @@ fn library_entries_refuse_residue_first() {
         &root,
         Shape::Presplit(".arca/runs"),
         "skill::write_skill",
+        RefusalText::Is,
         || {
             let refusal = ratmac::skill::write_skill(&taken_skill)
                 .expect_err("write_skill refuses residue before the occupied path");
@@ -945,8 +1128,10 @@ fn library_entries_refuse_residue_first() {
         let log = probe.fresh_log();
         let planted = plant(&root, Shape::Presplit(".arca/rtm.lock"));
         let before = tree_snapshot(&root);
+        let observer = HookVar::bind(OP_LOG_VAR, &log);
         let defects = contract::gate_intake(&root)
             .expect_err("contract::gate_intake refuses residue before its contract reads");
+        drop(observer);
         assert_eq!(
             defects.len(),
             1,
@@ -968,8 +1153,10 @@ fn library_entries_refuse_residue_first() {
         let log = probe.fresh_log();
         let planted = plant(&root, Shape::FlatState);
         let before = tree_snapshot(&root);
+        let observer = HookVar::bind(OP_LOG_VAR, &log);
         let defects = contract::work_items(&root)
             .expect_err("contract::work_items refuses residue before its contract reads");
+        drop(observer);
         assert_eq!(
             defects.len(),
             1,
@@ -991,8 +1178,10 @@ fn library_entries_refuse_residue_first() {
         let log = probe.fresh_log();
         let planted = plant(&root, Shape::Presplit(".arca/state.toml"));
         let before = tree_snapshot(&root);
+        let observer = HookVar::bind(OP_LOG_VAR, &log);
         let defects = contract::gate_records(&root, &engine_root, ghost)
             .expect_err("contract::gate_records refuses residue before the run id");
+        drop(observer);
         assert_eq!(
             defects.len(),
             1,
@@ -1014,7 +1203,9 @@ fn library_entries_refuse_residue_first() {
         let log = probe.fresh_log();
         let planted = plant(&root, Shape::RecordState);
         let before = tree_snapshot(&root);
+        let observer = HookVar::bind(OP_LOG_VAR, &log);
         let defects = contract::unproven_mechanization(&root);
+        drop(observer);
         assert_eq!(
             defects.len(),
             1,
@@ -1048,8 +1239,10 @@ fn library_entries_refuse_residue_first() {
         let log = probe.fresh_log();
         let planted = plant(&root, shape);
         let before = tree_snapshot(&root);
+        let observer = HookVar::bind(OP_LOG_VAR, &log);
         let error = MachineClass::load_from_project_root(&root)
             .expect_err("MachineClass::load_from_project_root refuses residue");
+        drop(observer);
         assert_eq!(
             error.code(),
             code,
@@ -1067,8 +1260,9 @@ fn library_entries_refuse_residue_first() {
             planted
                 .sentences
                 .iter()
-                .any(|sentence| error.message().contains(sentence)),
-            "WEBV-013: the loader's residue refusal message carries the refusal: {}",
+                .any(|sentence| error.message() == sentence),
+            "WEBV-013: the loader's residue refusal message is the refusal, in one permitted \
+             path spelling: {}",
             error.message()
         );
         assert!(!log.exists(), "WEBV-013: the loader logs no operation here");
@@ -1085,6 +1279,7 @@ fn library_entries_refuse_residue_first() {
         &root,
         Shape::Presplit(".arca/rtm.lock"),
         "cli::run_from",
+        RefusalText::IsPrefixed("doctor"),
         || {
             let mut report = Vec::new();
             let error = cli::run_from(["doctor", "--no-such-option"], &root, &mut report)
@@ -1101,6 +1296,141 @@ fn library_entries_refuse_residue_first() {
             error.to_string()
         },
     );
+
+    // Observer controls for repetition: the observer logs one line per
+    // boundary crossing, never once per file or per process. Each entry
+    // below runs twice under one fresh log; every kind it logged once must
+    // count exactly two.
+    {
+        // `Scheduler::open_run` reads the Run's Run Record and evidence.
+        let log = probe.fresh_log();
+        let observer = HookVar::bind(OP_LOG_VAR, &log);
+        Scheduler::open_run(&root, &first).expect("open_run reads the planned run");
+        drop(observer);
+        let once = kind_counts("`Scheduler::open_run` once", &log);
+        let observer = HookVar::bind(OP_LOG_VAR, &log);
+        Scheduler::open_run(&root, &first).expect("open_run reads the planned run again");
+        drop(observer);
+        let twice = kind_counts("`Scheduler::open_run` twice", &log);
+        assert_doubled_kinds("`Scheduler::open_run`", &once, &twice);
+        assert_eq!(
+            twice.get("record"),
+            Some(&2),
+            "WEBV-013: the record read twice is two `record` events"
+        );
+
+        // Locating a minted child through the roster reads its parent's
+        // spawn ledger: the same child address read twice is two `ledger`
+        // events. One spawn mints the child; a second spawn from the now
+        // blocked parent is refused by design, so the repeat is the read.
+        let spawn_parent = Scheduler::open(&root)
+            .expect("the repetition control opens the fixture")
+            .start()
+            .expect("the repetition control starts a parent")
+            .id()
+            .expect("a started parent has an id")
+            .to_owned();
+        Scheduler::open_run(&root, &spawn_parent)
+            .expect("the repetition control opens the parent")
+            .step(StepRequest::new("delegate for the spawn control"))
+            .expect("the repetition control reaches the spawning state");
+        let child = {
+            let log = probe.fresh_log();
+            let observer = HookVar::bind(OP_LOG_VAR, &log);
+            let bindings = BTreeMap::from([("ticket".to_owned(), "WEBV-013".to_owned())]);
+            let child = Scheduler::spawn_to(&root, &spawn_parent, "rev", &bindings)
+                .expect("the control spawn mints a child");
+            drop(observer);
+            child
+        };
+        let log = probe.fresh_log();
+        let observer = HookVar::bind(OP_LOG_VAR, &log);
+        Scheduler::open_run(&root, &child).expect("open_run reads the minted child");
+        drop(observer);
+        let once = kind_counts("`Scheduler::open_run` on a minted child once", &log);
+        let observer = HookVar::bind(OP_LOG_VAR, &log);
+        Scheduler::open_run(&root, &child).expect("open_run reads the minted child again");
+        drop(observer);
+        let twice = kind_counts("`Scheduler::open_run` on a minted child twice", &log);
+        assert_doubled_kinds("`Scheduler::open_run` on a minted child", &once, &twice);
+        assert!(
+            once.contains_key("ledger"),
+            "WEBV-013: locating a minted child crosses the ledger boundary at least once; \
+             held {once:?}"
+        );
+        let ledger_once = once.get("ledger").copied().unwrap_or(0);
+        let ledger_twice = Some(ledger_once * 2);
+        assert_eq!(
+            twice.get("ledger"),
+            ledger_twice.as_ref(),
+            "WEBV-013: the same child address read twice crosses every ledger boundary \
+             twice; the observer never deduplicates"
+        );
+
+        // `MachineClass::load_from_project_root` parses the runbook each
+        // call.
+        let log = probe.fresh_log();
+        let observer = HookVar::bind(OP_LOG_VAR, &log);
+        MachineClass::load_from_project_root(&root).expect("the loader parses the clean runbook");
+        drop(observer);
+        let once = kind_counts("`MachineClass::load_from_project_root` once", &log);
+        let observer = HookVar::bind(OP_LOG_VAR, &log);
+        MachineClass::load_from_project_root(&root)
+            .expect("the loader parses the clean runbook again");
+        drop(observer);
+        let twice = kind_counts("`MachineClass::load_from_project_root` twice", &log);
+        assert_doubled_kinds("`MachineClass::load_from_project_root`", &once, &twice);
+        assert_eq!(
+            twice.get("runbook"),
+            Some(&2),
+            "WEBV-013: the runbook parsed twice is two `runbook` events"
+        );
+    }
+
+    // The retired spelling `schd` as the first token, help token or not,
+    // answers before anything else - before the residue inspection, before
+    // help - and never spells itself. `cli::run_from` answers exactly what
+    // the binary answers.
+    for args in [
+        vec![ratmac_qa::rebrand::LEGACY_COMMAND],
+        vec![ratmac_qa::rebrand::LEGACY_COMMAND, "status"],
+        vec![ratmac_qa::rebrand::LEGACY_COMMAND, "--help"],
+        vec!["rtm", ratmac_qa::rebrand::LEGACY_COMMAND, "--help"],
+    ] {
+        let log = probe.fresh_log();
+        let planted = plant(&root, Shape::Presplit(".arca/rtm.lock"));
+        let before = tree_snapshot(&root);
+        let observer = HookVar::bind(OP_LOG_VAR, &log);
+        let mut report = Vec::new();
+        let error = cli::run_from(&args, &root, &mut report)
+            .expect_err("the retired spelling is refused, not reported");
+        drop(observer);
+        assert!(
+            report.is_empty(),
+            "WEBV-013: `run_from {args:?}` prints nothing on stdout"
+        );
+        assert_eq!(
+            error.to_string(),
+            "unsupported command; invoke rtm",
+            "WEBV-013: `run_from {args:?}` answers the retired-spelling refusal exactly, \
+             never spelling `schd`"
+        );
+        assert_eq!(
+            error.exit_code(),
+            1,
+            "WEBV-013: `run_from {args:?}` exits 1"
+        );
+        assert!(
+            !log.exists(),
+            "WEBV-013: `run_from {args:?}` resolves, inspects, and reads nothing first"
+        );
+        assert_eq!(
+            tree_snapshot(&root),
+            before,
+            "WEBV-013: `run_from {args:?}` writes nothing"
+        );
+        drop(planted);
+    }
 }
 
 /// WEBV-013: every listed command and every library entry refuses residue
@@ -1108,8 +1438,10 @@ fn library_entries_refuse_residue_first() {
 /// every command the general usage lists.
 #[test]
 fn webv_013() {
-    let logs = TempTree::new("t120-013-op").expect("own the operation log tree");
-    let mut step = 0usize;
+    let mut ops = OpLog {
+        logs: TempTree::new("t120-013-op").expect("own the operation log tree"),
+        next: 0,
+    };
 
     // The route table: the general usage's `Commands:` line.
     let project = plain_project("013-cli", RUNBOOK);
@@ -1239,7 +1571,7 @@ fn webv_013() {
     let writes = TempTree::new("t120-013-writes").expect("own the control write tree");
     let scaffold_target = writes.join("control-scaffold.toml");
     let scaffold_control = rtm(
-        &writes.path(),
+        writes.path(),
         &[
             "scaffold",
             scaffold_target.to_str().expect("the control path is UTF-8"),
@@ -1253,7 +1585,7 @@ fn webv_013() {
     );
     let skill_target = writes.join("control-skill");
     let skill_control = rtm(
-        &writes.path(),
+        writes.path(),
         &[
             "skill",
             skill_target.to_str().expect("the control path is UTF-8"),
@@ -1302,8 +1634,7 @@ fn webv_013() {
                 command: "status",
                 trailing_next: true,
             },
-            &logs,
-            &mut step,
+            &mut ops,
         );
     }
 
@@ -1347,7 +1678,7 @@ fn webv_013() {
         ),
         invoking(
             "status",
-            vec!["status".into(), "--run".into()],
+            vec!["status".into(), "--run".into(), "ghost-run-900".into()],
             Shape::Presplit(".arca/runs"),
         ),
         invoking(
@@ -1506,8 +1837,7 @@ fn webv_013() {
             &row.plant_at,
             row.shape,
             row.expect,
-            &logs,
-            &mut step,
+            &mut ops,
         );
     }
 
@@ -1519,6 +1849,49 @@ fn webv_013() {
 
 /// Assert the operation log holds at least `required` kinds, every line a
 /// documented kind.
+fn kind_counts(label: &str, log: &Path) -> BTreeMap<String, usize> {
+    let bytes = fs::read(log).unwrap_or_else(|error| {
+        panic!(
+            "{label} records its operations through RATMAC_TEST_OPERATION_LOG; reading {}: \
+             {error}",
+            rendered(log)
+        )
+    });
+    let text = String::from_utf8(bytes)
+        .unwrap_or_else(|error| panic!("{} holds invalid UTF-8: {error}", rendered(log)));
+    assert!(
+        text.is_empty() || text.ends_with('\n'),
+        "{} ends every kind line with a newline",
+        rendered(log)
+    );
+    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+    for line in text.lines() {
+        *counts.entry(line.to_owned()).or_insert(0) += 1;
+    }
+    counts
+}
+
+/// A repeated operation must double every kind's count: the observer logs
+/// one line per boundary crossing, never once per file or per process.
+fn assert_doubled_kinds(
+    label: &str,
+    once: &BTreeMap<String, usize>,
+    twice: &BTreeMap<String, usize>,
+) {
+    assert!(
+        !once.is_empty(),
+        "{label}'s control logs at least one operation"
+    );
+    let doubled: BTreeMap<String, usize> = once
+        .iter()
+        .map(|(kind, count)| (kind.clone(), count * 2))
+        .collect();
+    assert_eq!(
+        *twice, doubled,
+        "{label} repeated must double every kind's count; the observer never deduplicates"
+    );
+}
+
 fn assert_logs_kinds(label: &str, log: &Path, required: &[&str]) {
     let bytes = fs::read(log).unwrap_or_else(|error| {
         panic!(
@@ -1583,6 +1956,19 @@ fn webv_014() {
         &["roster", "record", "runbook"],
     );
 
+    // Repeating the same command against one log must double every kind's
+    // count: one line per boundary crossing, never once per file or process.
+    let once = kind_counts("`rtm status --run <planned Run>` once", &status_log);
+    let status_again = rtm_observed(root, &status_log, &["status", "--run", &run]);
+    assert!(
+        status_again.status.success(),
+        "WEBV-014: the repeated control `rtm status --run <planned Run>` reports: {}{}",
+        stdout(&status_again),
+        stderr(&status_again)
+    );
+    let twice = kind_counts("`rtm status --run <planned Run>` twice", &status_log);
+    assert_doubled_kinds("`rtm status --run <planned Run>`", &once, &twice);
+
     let stepped = rtm(root, &["step", "--run", &run]);
     assert!(
         stepped.status.success(),
@@ -1632,7 +2018,7 @@ fn webv_014() {
     let scaffold_target = writes.join("scaffold.toml");
     let scaffold_log = logs.join("scaffold.log");
     let scaffold = rtm_observed(
-        &writes.path(),
+        writes.path(),
         &scaffold_log,
         &[
             "scaffold",
@@ -1652,7 +2038,7 @@ fn webv_014() {
     let skill_target = writes.join("skill");
     let skill_log = logs.join("skill.log");
     let skill = rtm_observed(
-        &writes.path(),
+        writes.path(),
         &skill_log,
         &[
             "skill",
@@ -1797,8 +2183,10 @@ fn linked_fixture(label: &str) -> LinkedFixture {
 /// ordinary usage error.
 #[test]
 fn webv_015() {
-    let logs = TempTree::new("t120-015-op").expect("own the operation log tree");
-    let mut step = 0usize;
+    let mut ops = OpLog {
+        logs: TempTree::new("t120-015-op").expect("own the operation log tree"),
+        next: 0,
+    };
     let fixture = linked_fixture("015");
     let primary = fixture.primary.clone();
     let linked = fixture.linked.clone();
@@ -1833,8 +2221,7 @@ fn webv_015() {
             command: "start",
             trailing_next: false,
         },
-        &logs,
-        &mut step,
+        &mut ops,
     );
     refuse_row(
         "WEBV-015: a linked `rtm doctor` refuses residue only at the shared primary root",
@@ -1846,8 +2233,7 @@ fn webv_015() {
             command: "doctor",
             trailing_next: false,
         },
-        &logs,
-        &mut step,
+        &mut ops,
     );
 
     // Residue only at the invoking root, defeated against malformed options.
@@ -1861,8 +2247,7 @@ fn webv_015() {
             command: "doctor",
             trailing_next: false,
         },
-        &logs,
-        &mut step,
+        &mut ops,
     );
     let wrong_hold = format!("hold-{run}-wrong");
     refuse_row(
@@ -1883,8 +2268,7 @@ fn webv_015() {
             command: "hold",
             trailing_next: false,
         },
-        &logs,
-        &mut step,
+        &mut ops,
     );
 
     // A valid explicit target: residue at that project refuses with the bare
@@ -1900,8 +2284,7 @@ fn webv_015() {
         &target_root,
         Shape::Presplit(".arca/rtm.lock"),
         Expect::Addressed,
-        &logs,
-        &mut step,
+        &mut ops,
     );
     refuse_row(
         "WEBV-015: `rtm doctor <runbook> <extra>` reports the addressed residue first",
@@ -1910,8 +2293,7 @@ fn webv_015() {
         &target_root,
         Shape::Presplit(".arca/runs"),
         Expect::Addressed,
-        &logs,
-        &mut step,
+        &mut ops,
     );
     let scaffold_path = target_root.join("new.toml").to_string_lossy().into_owned();
     refuse_row(
@@ -1921,8 +2303,7 @@ fn webv_015() {
         &target_root,
         Shape::Presplit(".arca/rtm.lock"),
         Expect::Addressed,
-        &logs,
-        &mut step,
+        &mut ops,
     );
     let skill_path = target_root.join("new-skill").to_string_lossy().into_owned();
     refuse_row(
@@ -1932,20 +2313,15 @@ fn webv_015() {
         &target_root,
         Shape::Presplit(".arca/state.toml"),
         Expect::Addressed,
-        &logs,
-        &mut step,
+        &mut ops,
     );
 
     // A spawn workspace: residue there refuses under `spawn:` with exit 1,
-    // even beside a malformed binding.
+    // even beside a malformed binding. The residue is a real pre-split file
+    // under the workspace's own `.arca/` - the workspace residue the Engine's
+    // preflight inspects - restored per row.
     let area = primary.join("area");
-    fs::create_dir_all(area.join(".arca/runs/legacy")).expect("create the workspace area");
-    fs::write(
-        area.join(".arca/runs/legacy/state.toml"),
-        "phase = \"plan\"\n",
-    )
-    .expect("plant the workspace residue");
-    let area_sentences = residue_sentences(Shape::Presplit(".arca/runs"), &area);
+    fs::create_dir_all(&area).expect("create the workspace area");
     for (label, args) in [
         (
             "WEBV-015: `rtm spawn --workspace` refuses the workspace's residue",
@@ -1975,22 +2351,12 @@ fn webv_015() {
             ],
         ),
     ] {
-        step += 1;
-        let log = logs.join(format!("op-{:03}.log", step));
+        let log = ops.fresh();
+        let planted = plant(&area, Shape::Presplit(".arca/runs"));
         let before_primary = tree_snapshot(&primary);
         let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
         let output = rtm_observed(&primary, &log, &arg_refs);
-        assert_refusal(
-            label,
-            &output,
-            Expect::SpawnWorkspace,
-            &Planted {
-                sentences: area_sentences.clone(),
-                runbook_restore: None,
-                clean: Vec::new(),
-            },
-            &log,
-        );
+        assert_refusal(label, &output, Expect::SpawnWorkspace, &planted, &log);
         assert_eq!(
             tree_snapshot(&primary),
             before_primary,
@@ -1998,43 +2364,25 @@ fn webv_015() {
         );
     }
 
-    // A missing or ambiguous target: only the invoking checkout is inspected,
-    // then the ordinary usage error follows.
+    // An ambiguous target addresses no project: the ordinary usage error
+    // follows, and nothing runs before it.
     let other_area = primary.join("other-area");
     fs::create_dir_all(&other_area).expect("create the second workspace area");
-    for (label, args, first_line) in [
-        (
-            "WEBV-015: a repeated `--workspace` addresses no project",
-            vec![
-                "spawn".to_owned(),
-                "rev".into(),
-                "--run".into(),
-                run.clone(),
-                "--bind".into(),
-                "ticket=WEBV-015".into(),
-                "--workspace".into(),
-                area.to_string_lossy().into_owned(),
-                "--workspace".into(),
-                other_area.to_string_lossy().into_owned(),
-            ],
-            "rtm: spawn: --workspace given twice",
-        ),
-        (
-            "WEBV-015: a valueless `--workspace` addresses no project",
-            vec![
-                "spawn".to_owned(),
-                "rev".into(),
-                "--run".into(),
-                run.clone(),
-                "--bind".into(),
-                "ticket=WEBV-015".into(),
-                "--workspace".into(),
-            ],
-            "rtm: spawn: --workspace needs a directory path",
-        ),
-    ] {
-        step += 1;
-        let log = logs.join(format!("op-{:03}.log", step));
+    {
+        let label = "WEBV-015: a repeated `--workspace` addresses no project";
+        let args = vec![
+            "spawn".to_owned(),
+            "rev".into(),
+            "--run".into(),
+            run.clone(),
+            "--bind".into(),
+            "ticket=WEBV-015".into(),
+            "--workspace".into(),
+            area.to_string_lossy().into_owned(),
+            "--workspace".into(),
+            other_area.to_string_lossy().into_owned(),
+        ];
+        let log = ops.fresh();
         let before_primary = tree_snapshot(&primary);
         let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
         let output = rtm_observed(&primary, &log, &arg_refs);
@@ -2050,13 +2398,86 @@ fn webv_015() {
             stderr(&output)
         );
         assert!(
-            stderr(&output).starts_with(first_line),
+            stderr(&output).starts_with("rtm: spawn: --workspace given twice"),
             "{label}: the ordinary usage error is unchanged; held {}",
             stderr(&output)
         );
         assert!(
             !log.exists(),
             "{label}: no operation runs before the ordinary usage error"
+        );
+        assert_eq!(
+            tree_snapshot(&primary),
+            before_primary,
+            "{label}: nothing is written"
+        );
+    }
+
+    // A valueless `--workspace` also addresses no project, but the invoking
+    // checkout is still inspected: residue there must not change the answer.
+    {
+        let label = "WEBV-015: a valueless `--workspace` addresses no project";
+        let before_primary = tree_snapshot(&primary);
+        let args = [
+            "spawn",
+            "rev",
+            "--run",
+            run.as_str(),
+            "--bind",
+            "ticket=WEBV-015",
+            "--workspace",
+        ];
+        let output = rtm(&primary, &args);
+        assert!(
+            output.stdout.is_empty(),
+            "{label}: the ordinary usage error prints nothing on stdout: {}",
+            stdout(&output)
+        );
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "{label}: the ordinary usage error exits 1: {}",
+            stderr(&output)
+        );
+        assert!(
+            stderr(&output).starts_with("rtm: spawn: --workspace needs a directory path"),
+            "{label}: the ordinary usage error is unchanged; held {}",
+            stderr(&output)
+        );
+        assert_eq!(
+            tree_snapshot(&primary),
+            before_primary,
+            "{label}: nothing is written"
+        );
+    }
+
+    // The same valueless `--workspace` beside residue at the invoking root:
+    // the residue inspection precedes option validation, so the refusal
+    // wins and nothing else runs.
+    {
+        let label = "WEBV-015: a valueless `--workspace` beside invoking residue";
+        let planted = plant(&primary, Shape::RecordState);
+        let log = ops.fresh();
+        let before_primary = tree_snapshot(&primary);
+        let args = [
+            "spawn",
+            "rev",
+            "--run",
+            run.as_str(),
+            "--bind",
+            "ticket=WEBV-015",
+            "--workspace",
+        ];
+        let output = rtm_observed(&primary, &log, &args);
+        assert_refusal(
+            &format!("{label}: the preflight residue outranks the option defect"),
+            &output,
+            Expect::Invoking {
+                command: "spawn",
+                trailing_next: false,
+            },
+            &planted,
+            &log,
         );
         assert_eq!(
             tree_snapshot(&primary),
@@ -2089,6 +2510,283 @@ fn webv_015() {
             "WEBV-015: the ordinary scaffold usage error is unchanged: {}",
             stderr(&scaffold)
         );
+    }
+
+    // The invoking checkout's residue refuses doctor even when no target
+    // addresses another project: its own report never runs, nothing is
+    // logged, and the tree stays byte-identical.
+    {
+        let planted = plant(&primary, Shape::Presplit(".arca/rtm.lock"));
+        let log = ops.fresh();
+        let before = tree_snapshot(&primary);
+        let output = rtm(&primary, &["doctor"]);
+        assert_refusal(
+            "WEBV-015: `rtm doctor` without a target refuses the invoking checkout's residue",
+            &output,
+            Expect::Invoking {
+                command: "doctor",
+                trailing_next: false,
+            },
+            &planted,
+            &log,
+        );
+        assert_eq!(
+            tree_snapshot(&primary),
+            before,
+            "WEBV-015: the refused doctor changes nothing"
+        );
+    }
+
+    // (A) and (B): doctor, scaffold, and skill against one addressed
+    // project, with the invoking checkout dirty or clean. Distinct artifacts
+    // keep the winner honest: the invoking checkout carries a legacy lock,
+    // the addressed project a legacy runs directory.
+    {
+        let ab_target = plain_project("015-ab", RUNBOOK);
+        let ab_root = ab_target.path().to_path_buf();
+        let ab_runbook = ab_root.join(".ratmac").join("ratmac.toml");
+        let ab_runbook = ab_runbook.to_str().expect("the A/B target path is UTF-8");
+        let ab_scaffold = ab_root.join("new.toml").to_string_lossy().into_owned();
+        let ab_skill = ab_root.join("new-skill").to_string_lossy().into_owned();
+        let rows: [(&str, Vec<&str>); 3] = [
+            ("doctor", vec!["doctor", ab_runbook]),
+            ("scaffold", vec!["scaffold", ab_scaffold.as_str()]),
+            ("skill", vec!["skill", ab_skill.as_str()]),
+        ];
+        let invoking_shape = Shape::Presplit(".arca/rtm.lock");
+        let addressed_shape = Shape::Presplit(".arca/runs");
+        for (command, args) in rows {
+            // (A) Both dirty: the invoking artifact's refusal wins, both
+            // trees stay byte-identical, no operation logs, and each
+            // involved project resolves at most once.
+            {
+                let label =
+                    format!("WEBV-015: both dirty, `rtm {command}` reports the invoking artifact");
+                let op_log = ops.fresh();
+                let resolution_log = ops.fresh();
+                let invoking_planted = plant(&primary, invoking_shape);
+                let _addressed_planted = plant(&ab_root, addressed_shape);
+                let before_invoking = tree_snapshot(&primary);
+                let before_addressed = tree_snapshot(&ab_root);
+                let output = rtm_tracked(&primary, &op_log, &resolution_log, &args);
+                assert_refusal(
+                    &label,
+                    &output,
+                    Expect::Invoking {
+                        command,
+                        trailing_next: false,
+                    },
+                    &invoking_planted,
+                    &op_log,
+                );
+                assert_eq!(
+                    tree_snapshot(&primary),
+                    before_invoking,
+                    "{label}: the invoking tree stays byte-identical"
+                );
+                assert_eq!(
+                    tree_snapshot(&ab_root),
+                    before_addressed,
+                    "{label}: the addressed tree stays byte-identical"
+                );
+                assert_resolved_invoking(
+                    &label,
+                    &resolution_log,
+                    &canonical_line(&primary),
+                    &canonical_line(&ab_root),
+                );
+            }
+
+            // (B) Invoking clean, addressed dirty: the addressed artifact's
+            // bare refusal wins, and the resolution log holds exactly the
+            // invoking checkout and the addressed project, each once.
+            let label = format!(
+                "WEBV-015: addressed-only dirt, `rtm {command}` reports the addressed artifact"
+            );
+            let op_log = ops.fresh();
+            let resolution_log = ops.fresh();
+            let addressed_planted = plant(&ab_root, addressed_shape);
+            let before_invoking = tree_snapshot(&primary);
+            let before_addressed = tree_snapshot(&ab_root);
+            let output = rtm_tracked(&primary, &op_log, &resolution_log, &args);
+            assert_refusal(
+                &label,
+                &output,
+                Expect::Addressed,
+                &addressed_planted,
+                &op_log,
+            );
+            assert_eq!(
+                tree_snapshot(&primary),
+                before_invoking,
+                "{label}: the invoking tree stays byte-identical"
+            );
+            assert_eq!(
+                tree_snapshot(&ab_root),
+                before_addressed,
+                "{label}: the addressed tree stays byte-identical"
+            );
+            assert_resolved_set(
+                &label,
+                &resolution_log,
+                &[canonical_line(&primary), canonical_line(&ab_root)],
+            );
+        }
+    }
+
+    // (D) A repeated `--workspace` with both candidate directories dirty and
+    // the invoking checkout clean: the ordinary usage error wins, the
+    // candidates are untouched, no operation logs, and only the invoking
+    // checkout resolves.
+    {
+        let label = "WEBV-015: a repeated `--workspace` with both candidates dirty";
+        let candidates = TempTree::new("t120-015-candidates").expect("own the candidate tree");
+        let cand_a = candidates.join("a");
+        let cand_b = candidates.join("b");
+        let planted_a = plant(&cand_a, Shape::Presplit(".arca/state.toml"));
+        let planted_b = plant(&cand_b, Shape::Presplit(".arca/runs"));
+        let before_a = tree_snapshot(&cand_a);
+        let before_b = tree_snapshot(&cand_b);
+        let op_log = ops.fresh();
+        let resolution_log = ops.fresh();
+        let cand_a_text = cand_a.to_string_lossy().into_owned();
+        let cand_b_text = cand_b.to_string_lossy().into_owned();
+        let output = rtm_tracked(
+            &primary,
+            &op_log,
+            &resolution_log,
+            &[
+                "spawn",
+                "rev",
+                "--run",
+                run.as_str(),
+                "--bind",
+                "ticket=WEBV-015",
+                "--workspace",
+                cand_a_text.as_str(),
+                "--workspace",
+                cand_b_text.as_str(),
+            ],
+        );
+        assert!(
+            output.stdout.is_empty(),
+            "{label}: the ordinary usage error prints nothing on stdout: {}",
+            stdout(&output)
+        );
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "{label}: the ordinary usage error exits 1: {}",
+            stderr(&output)
+        );
+        assert!(
+            stderr(&output).starts_with("rtm: spawn: --workspace given twice"),
+            "{label}: the dirty candidates cannot change the repeated-target \
+             answer; held {}",
+            stderr(&output)
+        );
+        assert!(
+            !op_log.exists(),
+            "{label}: no operation runs before the ordinary usage error"
+        );
+        assert_eq!(
+            tree_snapshot(&cand_a),
+            before_a,
+            "{label}: candidate a is untouched"
+        );
+        assert_eq!(
+            tree_snapshot(&cand_b),
+            before_b,
+            "{label}: candidate b is untouched"
+        );
+        assert_resolved_set(label, &resolution_log, &[canonical_line(&primary)]);
+        drop(planted_a);
+        drop(planted_b);
+    }
+
+    // (D) The valueless forms: an empty value and a value beginning with
+    // `--` address no project. A directory literally named for the
+    // `--`-prefixed value carries residue under the invoking checkout, so a
+    // scanner that accepted the value would refuse; the ordinary usage
+    // error must answer instead. An empty value names no directory at all.
+    {
+        let label = "WEBV-015: `--workspace \"\"` addresses no project";
+        let op_log = ops.fresh();
+        let output = rtm_observed(
+            &primary,
+            &op_log,
+            &[
+                "spawn",
+                "rev",
+                "--run",
+                run.as_str(),
+                "--bind",
+                "ticket=WEBV-015",
+                "--workspace",
+                "",
+            ],
+        );
+        assert!(
+            output.stdout.is_empty(),
+            "{label}: the ordinary usage error prints nothing on stdout: {}",
+            stdout(&output)
+        );
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "{label}: the ordinary usage error exits 1: {}",
+            stderr(&output)
+        );
+        assert!(
+            stderr(&output).starts_with("rtm: spawn: --workspace needs a directory path"),
+            "{label}: the empty value keeps its ordinary answer; held {}",
+            stderr(&output)
+        );
+        assert!(!op_log.exists(), "{label}: no operation runs");
+
+        let label = "WEBV-015: a `--`-prefixed `--workspace` value addresses no project";
+        let dash_dir = primary.join("--bogus");
+        let planted = plant(&dash_dir, Shape::Presplit(".arca/rtm.lock"));
+        let before_primary = tree_snapshot(&primary);
+        let op_log = ops.fresh();
+        let output = rtm_observed(
+            &primary,
+            &op_log,
+            &[
+                "spawn",
+                "rev",
+                "--run",
+                run.as_str(),
+                "--bind",
+                "ticket=WEBV-015",
+                "--workspace",
+                "--bogus",
+            ],
+        );
+        assert!(
+            output.stdout.is_empty(),
+            "{label}: the ordinary usage error prints nothing on stdout: {}",
+            stdout(&output)
+        );
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "{label}: the ordinary usage error exits 1: {}",
+            stderr(&output)
+        );
+        assert!(
+            stderr(&output).starts_with("rtm: spawn: --workspace needs a directory path"),
+            "{label}: residue under a literally named directory cannot change the \
+             value's answer; held {}",
+            stderr(&output)
+        );
+        assert!(!op_log.exists(), "{label}: no operation runs");
+        assert_eq!(
+            tree_snapshot(&primary),
+            before_primary,
+            "{label}: nothing is written, the literal directory included"
+        );
+        drop(planted);
     }
 }
 
@@ -2163,8 +2861,17 @@ fn webv_016() {
             1,
             "rtm: spawn: --bind \"malformed\" is not shaped name=value\n",
         ),
-        (&["step", "--run"], 2, "rtm: step: --run needs a run id"),
-        (&["status", "--run", "ghost-run-900"], 2, "rtm: status:"),
+        (
+            &["step", "--run"],
+            2,
+            "rtm: step: --run needs a run id; runs: run-001\n",
+        ),
+        (
+            &["status", "--run", "ghost-run-900"],
+            2,
+            "rtm: status: run id \"ghost-run-900\" is not one canonical minted path \
+             segment; runs: run-001\n",
+        ),
         (
             &[
                 "hold",
@@ -2176,7 +2883,8 @@ fn webv_016() {
                 "wrong",
             ],
             1,
-            "rtm: hold refused;",
+            "rtm: hold refused; hold is unconfirmed: confirmation \"wrong\" does not match \
+             the required phrase \"hold x\"\n",
         ),
     ];
     for (args, code, first) in errors {
@@ -2318,6 +3026,101 @@ fn webv_016() {
             &["spawn", "-h", "--help"],
             "spawn",
         );
+
+        // The unknown-run error also cannot outrun the preflight: residue
+        // refuses before the run address is validated. The op-log-absent
+        // half of this claim is carried by webv_014's armed refusal twins.
+        let ghost_before = tree_snapshot(&root);
+        let ghost_status = rtm(&root, &["status", "--run", "ghost-run-900"]);
+        assert_refusal(
+            "WEBV-016: `rtm status --run <ghost>` reports the preflight residue before the \
+             unknown run",
+            &ghost_status,
+            Expect::Invoking {
+                command: "status",
+                trailing_next: true,
+            },
+            &planted,
+            &logs.join("ghost-status.log"),
+        );
+        assert_eq!(
+            tree_snapshot(&root),
+            ghost_before,
+            "WEBV-016: the refused ghost status changes nothing"
+        );
+
+        // (C) The pure help forms and an unknown command resolve nothing:
+        // with residue present the resolution log itself stays absent.
+        {
+            let resolution_log = logs.join("pure-resolution.log");
+            for (args, code) in [
+                (vec!["--help"], 0),
+                (vec!["-h"], 0),
+                (vec!["step", "--help"], 0),
+                (vec!["init"], 1),
+            ] {
+                let output = rtm_tracked(&root, &logs.join("pure-op.log"), &resolution_log, &args);
+                assert_eq!(
+                    output.status.code(),
+                    Some(code),
+                    "WEBV-016: `rtm {args:?}` keeps its ordinary exit: {}",
+                    stderr(&output)
+                );
+                assert!(
+                    !resolution_log.exists(),
+                    "WEBV-016: `rtm {args:?}` resolves nothing; the resolution log \
+                     {} must stay absent",
+                    rendered(&resolution_log)
+                );
+            }
+        }
+        // The retired spelling `schd` as the first token, help token or
+        // not, answers before anything else - before the residue inspection
+        // and before help - and never spells itself: the same bytes with
+        // residue planted as without, nothing resolved, nothing read,
+        // nothing written.
+        {
+            let schd_before = tree_snapshot(&root);
+            let op_log = logs.join("schd-op.log");
+            let resolution_log = logs.join("schd-resolution.log");
+            for args in [
+                vec![ratmac_qa::rebrand::LEGACY_COMMAND],
+                vec![ratmac_qa::rebrand::LEGACY_COMMAND, "status"],
+                vec![ratmac_qa::rebrand::LEGACY_COMMAND, "--help"],
+                vec!["rtm", ratmac_qa::rebrand::LEGACY_COMMAND, "--help"],
+            ] {
+                let output = rtm_tracked(&root, &op_log, &resolution_log, &args);
+                assert!(
+                    output.stdout.is_empty(),
+                    "WEBV-016: `rtm {args:?}` prints nothing on stdout: {}",
+                    stdout(&output)
+                );
+                assert_eq!(
+                    stderr(&output),
+                    "rtm: unsupported command; invoke rtm\n",
+                    "WEBV-016: `rtm {args:?}` answers the retired-spelling refusal exactly, \
+                     never spelling `schd`"
+                );
+                assert_eq!(
+                    output.status.code(),
+                    Some(1),
+                    "WEBV-016: `rtm {args:?}` exits 1"
+                );
+                assert!(
+                    !resolution_log.exists(),
+                    "WEBV-016: `rtm {args:?}` resolves nothing"
+                );
+                assert!(
+                    !op_log.exists(),
+                    "WEBV-016: `rtm {args:?}` inspects and reads nothing first"
+                );
+            }
+            assert_eq!(
+                tree_snapshot(&root),
+                schd_before,
+                "WEBV-016: the retired-spelling answers change nothing"
+            );
+        }
     }
 
     // Without residue, the mixed help forms print the command's help and
@@ -2349,6 +3152,14 @@ impl HookVar {
     fn hide(name: &'static str) -> Self {
         let previous = std::env::var_os(name);
         std::env::remove_var(name);
+        Self { name, previous }
+    }
+
+    /// Bind `name` to `value` for this scope, restoring exactly the prior
+    /// state - hidden or set - when dropped.
+    fn bind(name: &'static str, value: &Path) -> Self {
+        let previous = std::env::var_os(name);
+        std::env::set_var(name, value);
         Self { name, previous }
     }
 }

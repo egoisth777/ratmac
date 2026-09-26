@@ -394,6 +394,7 @@ pub(crate) fn plan_abandon_in(
                     }
                 }
                 Err(error) => {
+                    crate::observe::operation("ledger");
                     let raw = std::fs::read_to_string(&path).map_err(|read_error| {
                         refusal(format!(
                             "abandon cannot inspect defective spawn ledger {}: {read_error}; parse error: {error}",
@@ -638,6 +639,7 @@ fn revalidate_abandon_plan(engine_root: &Path, plan: &AbandonPlan) -> Result<(),
                 }
             }
             Err(error) => {
+                crate::observe::operation("ledger");
                 let raw = std::fs::read_to_string(&path).map_err(|read_error| {
                     refusal(format!(
                         "abandon cannot inspect defective spawn ledger {}: {read_error}; parse error: {error}",
@@ -717,6 +719,8 @@ fn append_event_once(
 }
 
 fn run_roster_at(engine_root: &Path) -> Result<Vec<String>, AbandonRefusal> {
+    // WEBV-014: listing `.ratmac/runs/` is a roster operation.
+    crate::observe::operation("roster");
     let runs = engine_root.join("runs");
     let entries = match fs::read_dir(&runs) {
         Ok(entries) => entries,

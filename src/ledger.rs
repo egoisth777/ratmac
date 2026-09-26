@@ -65,6 +65,8 @@ impl std::error::Error for LedgerError {}
 /// still count, so the cap holds across abandon and respawn. Strict read:
 /// an unreadable ledger refuses rather than guessing membership.
 pub fn is_recorded_child(runs_dir: &Path, run_id: &str) -> Result<bool, LedgerError> {
+    // WEBV-014: scanning the plural runs directory is a roster operation.
+    crate::observe::operation("roster");
     let entries = match std::fs::read_dir(runs_dir) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
@@ -96,6 +98,8 @@ pub fn is_recorded_child(runs_dir: &Path, run_id: &str) -> Result<bool, LedgerEr
 /// Strictly read every entry. An absent or empty file is an empty ledger
 /// (the path is reserved at mint); anything unreadable or malformed refuses.
 pub fn read_entries(path: &Path) -> Result<Vec<LedgerEntry>, LedgerError> {
+    // WEBV-014: reading a spawn ledger is a ledger operation.
+    crate::observe::operation("ledger");
     let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -284,6 +288,7 @@ pub fn annotate_abandoned(path: &Path, child_id: &str) -> Result<bool, LedgerErr
     if entry.abandoned {
         return Ok(true);
     }
+    crate::observe::operation("ledger");
     let source = fs::read_to_string(path).map_err(|error| {
         LedgerError::new(format!(
             "spawn ledger {} is unreadable: {error}",
