@@ -1,0 +1,10 @@
+planned-test-id = "WEBV-019"
+ticket-id = "t-119"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t119_single_root_resolution webv_019 -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t119_single_root_resolution.rs"
+test-name = "webv_019"
+exit-status = 101
+output-sha256 = "f4484e85a10d998f16046085b390fa958fb08451f2267d2ad193a10a784d29d8"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t119_single_root_resolution.rs (target\\debug\\deps\\t119_single_root_resolution-2d07aa9a5abfc1ff.exe)\n\nrunning 1 test\ntest webv_019 ... FAILED\n\nfailures:\n\n---- webv_019 stdout ----\n\nthread 'webv_019' (23144) panicked at test\\qa\\tests\\t119_single_root_resolution.rs:151:5:\nassertion `left == right` failed: WEBV-019: `rtm start` in the primary checkout: each distinct addressed project resolves exactly once; log C:/Users/egois/AppData/Local/Temp/ratmac-t119-scope-logs-10032-1790401149368203000-1/route-001.log held []\n  left: []\n right: [\"//?/C:/Users/egois/AppData/Local/Temp/ratmac-t119-scope-10032-1790401149085562600-0/primary\"]\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    webv_019\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.60s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t119_single_root_resolution`\n"

@@ -1,0 +1,10 @@
+planned-test-id = "WEBV-017"
+ticket-id = "t-119"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t119_single_root_resolution webv_017 -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t119_single_root_resolution.rs"
+test-name = "webv_017"
+exit-status = 101
+output-sha256 = "5de2115d4d7f645d97e7eb9c00751df8ec5e89639d8ea8ac8a06e5c3f073c18c"
+output = "   Compiling ratmac v0.1.0 (E:\\repos\\projs\\skill-dev\\ratmac-t-119)\n   Compiling ratmac-qa v0.1.0 (E:\\repos\\projs\\skill-dev\\ratmac-t-119\\test\\qa)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.54s\n     Running tests\\t119_single_root_resolution.rs (target\\debug\\deps\\t119_single_root_resolution-2d07aa9a5abfc1ff.exe)\n\nrunning 1 test\ntest webv_017 ... FAILED\n\nfailures:\n\n---- webv_017 stdout ----\n\nthread 'webv_017' (2408) panicked at test\\qa\\tests\\t119_single_root_resolution.rs:151:5:\nassertion `left == right` failed: WEBV-017: `rtm start`: each distinct addressed project resolves exactly once; log C:/Users/egois/AppData/Local/Temp/ratmac-t119-routes-logs-62008-1790401146271008200-2/route-001.log held []\n  left: []\n right: [\"//?/C:/Users/egois/AppData/Local/Temp/ratmac-t119-routes-62008-1790401145660686100-1\"]\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    webv_017\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 1.11s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t119_single_root_resolution`\n"

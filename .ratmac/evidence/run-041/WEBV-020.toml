@@ -1,0 +1,10 @@
+planned-test-id = "WEBV-020"
+ticket-id = "t-119"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t119_single_root_resolution webv_020 -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t119_single_root_resolution.rs"
+test-name = "webv_020"
+exit-status = 101
+output-sha256 = "daa24e63ea7aa1b8711309fb2b373481ef7840fcbd3cd66fe11428913ba72a43"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t119_single_root_resolution.rs (target\\debug\\deps\\t119_single_root_resolution-2d07aa9a5abfc1ff.exe)\n\nrunning 1 test\ntest webv_020 ... FAILED\n\nfailures:\n\n---- webv_020 stdout ----\n\nthread 'webv_020' (72980) panicked at test\\qa\\tests\\t119_single_root_resolution.rs:2004:5:\nWEBV-020: inserting crate::root::Roots::resolve into a handler in src/cli.rs must fail to compile with E0624 (private associated function); cargo check said:     Checking ratmac v0.1.0 (C:\\Users\\egois\\AppData\\Local\\Temp\\ratmac-t119-visibility-outside-52520-1790401151016328000-1\\copy)\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.12s\n\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    webv_020\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 2.42s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t119_single_root_resolution`\n"
