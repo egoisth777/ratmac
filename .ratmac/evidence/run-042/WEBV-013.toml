@@ -1,0 +1,10 @@
+planned-test-id = "WEBV-013"
+ticket-id = "t-120"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t120_residue_refusal_precedence webv_013 -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t120_residue_refusal_precedence.rs"
+test-name = "webv_013"
+exit-status = 101
+output-sha256 = "0429076ac8f22adfe10ee306f57348aca04f9c97be11134278e29f4dd035d9f6"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t120_residue_refusal_precedence.rs (target\\debug\\deps\\t120_residue_refusal_precedence-14a360be7dd86936.exe)\n\nrunning 1 test\ntest webv_013 ... FAILED\n\nfailures:\n\n---- webv_013 stdout ----\n\nthread 'webv_013' (37148) panicked at test\\qa\\tests\\t120_residue_refusal_precedence.rs:514:5:\nassertion `left == right` failed: WEBV-013: `rtm doctor` reports residue before its own argument defects: the residue refusal exits 1; stderr: rtm: doctor: unknown option \"--no-such-option\"; doctor accepts --json and one runbook path\n\n  left: 2\n right: 1\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    webv_013\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 2.04s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t120_residue_refusal_precedence`\n"

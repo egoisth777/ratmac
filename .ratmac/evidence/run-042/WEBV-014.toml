@@ -1,0 +1,10 @@
+planned-test-id = "WEBV-014"
+ticket-id = "t-120"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t120_residue_refusal_precedence webv_014 -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t120_residue_refusal_precedence.rs"
+test-name = "webv_014"
+exit-status = 101
+output-sha256 = "396c8daff6f61252a359bc4a6bbbe7ced885c717e70d636f08b1b2b9faca7e20"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t120_residue_refusal_precedence.rs (target\\debug\\deps\\t120_residue_refusal_precedence-14a360be7dd86936.exe)\n\nrunning 1 test\ntest webv_014 ... FAILED\n\nfailures:\n\n---- webv_014 stdout ----\n\nthread 'webv_014' (67024) panicked at test\\qa\\tests\\t120_residue_refusal_precedence.rs:1524:9:\nWEBV-014: `rtm start` records its operations through RATMAC_TEST_OPERATION_LOG; reading C:/Users/egois/AppData/Local/Temp/ratmac-t120-014-op-19480-1790415738551849700-0/start.log: The system cannot find the file specified. (os error 2)\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    webv_014\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.11s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t120_residue_refusal_precedence`\n"

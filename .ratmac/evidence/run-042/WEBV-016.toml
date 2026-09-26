@@ -1,0 +1,10 @@
+planned-test-id = "WEBV-016"
+ticket-id = "t-120"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t120_residue_refusal_precedence webv_016 -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t120_residue_refusal_precedence.rs"
+test-name = "webv_016"
+exit-status = 101
+output-sha256 = "34ba8e3a69f78938a19feb7b3ce134e4df5310605a2cf4fa65358855a212f395"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t120_residue_refusal_precedence.rs (target\\debug\\deps\\t120_residue_refusal_precedence-14a360be7dd86936.exe)\n\nrunning 1 test\ntest webv_016 ... FAILED\n\nfailures:\n\n---- webv_016 stdout ----\n\nthread 'webv_016' (2492) panicked at test\\qa\\tests\\t120_residue_refusal_precedence.rs:508:5:\nWEBV-016: `rtm step --run run-001 --help` carries a help token among other arguments, so its preflight still refuses residue: a residue refusal prints nothing on stdout: Usage: rtm step --run <id> [--help]\n\nAdvance exactly the named Run. Run addressing is always required; a missing --run refuses and prints the roster. Only the Main-Agent or a human invokes rtm step. Subagents only read state and never invoke rtm.\n\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    webv_016\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.42s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t120_residue_refusal_precedence`\n"
