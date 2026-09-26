@@ -1,0 +1,10 @@
+planned-test-id = "WRSV-005-03"
+ticket-id = "t-117"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t117_descriptive_run_roster wrsv_005_03 -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t117_descriptive_run_roster.rs"
+test-name = "wrsv_005_03"
+exit-status = 101
+output-sha256 = "f88111a9e2c618acdea49fb73b5f618d127e46e0a6c2e12066780998a5a4c57f"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t117_descriptive_run_roster.rs (target\\debug\\deps\\t117_descriptive_run_roster-cfed1dcfd6045cb1.exe)\n\nrunning 1 test\ntest wrsv_005_03 ... FAILED\n\nfailures:\n\n---- wrsv_005_03 stdout ----\n\nthread 'wrsv_005_03' (70424) panicked at test\\qa\\tests\\t117_descriptive_run_roster.rs:667:5:\nassertion `left == right` failed: the healthy roster\n  left: []\n right: [\"  run-001: top-level; state delegate; status planned\", \"  run-002: child of run-001; class reviewer; bind ticket=\\\"t-7\\\"; state finished; status passed\", \"  run-003: child of run-001; class reviewer; bind ticket=\\\"t-9\\\"; state review; status planned\"]\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    wrsv_005_03\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 4.32s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t117_descriptive_run_roster`\n"
