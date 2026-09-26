@@ -22,6 +22,8 @@
 
 use std::path::{Path, PathBuf};
 
+pub use crate::root::entries::write_skill;
+
 /// The suffix of the hidden sibling an in-progress write builds in before
 /// the one rename moves it to the caller's path. Fixed per target so an
 /// interrupted write is detectable by name: the leftover never sits at the
@@ -79,9 +81,13 @@ impl std::fmt::Display for SkillRefusal {
 /// it into place with one rename, so an interrupted write leaves the
 /// caller's path absent and a named leftover beside it - never a half
 /// folder that passes for the skill.
-pub fn write_skill(path: &Path) -> Result<(), SkillRefusal> {
-    let project_root = crate::root::addressed_project_root(path);
-    crate::Scheduler::refuse_flat_residue(&project_root)
+/// `project` is the resolved context of the project that owns `path`; the
+/// path-taking `write_skill` lives in `src/root.rs`.
+pub(crate) fn write_skill_in(
+    path: &Path,
+    project: &crate::root::Roots,
+) -> Result<(), SkillRefusal> {
+    crate::Scheduler::refuse_flat_residue_with_roots(project)
         .map_err(|error| SkillRefusal::Preflight(error.to_string()))?;
     let shown = crate::root::displayed(path);
     if path.exists() {

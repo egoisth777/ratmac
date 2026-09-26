@@ -4,6 +4,8 @@ use std::path::Path;
 
 use crate::{Scheduler, StepOutcome, StepRequest};
 
+pub use crate::root::entries::run_from;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CliError {
     message: String,
@@ -94,9 +96,8 @@ fn is_help(args: &[String]) -> bool {
 
 /// The roster line printed by every run-addressing refusal: the listing of
 /// the resolved `.ratmac/runs/`, read off artifacts.
-fn roster_line(project_root: &Path) -> Result<Roster, CliError> {
-    let roots = crate::root::resolve(project_root);
-    Scheduler::refuse_flat_residue_with_roots(&roots)
+fn roster_line(roots: &crate::root::Roots) -> Result<Roster, CliError> {
+    Scheduler::refuse_flat_residue_with_roots(roots)
         .map_err(|error| CliError::refusal(error.to_string()))?;
     Ok(roster_line_at(roots.engine_root()))
 }
@@ -138,12 +139,6 @@ fn roster_line_at(engine_root: &Path) -> Roster {
 /// empty, duplicated, non-canonical, escaping, or unknown value refuses and
 /// prints the roster; caller input is validated before any path join and the
 /// refusal changes nothing.
-fn addressed_run(command: &str, args: &[String], project_root: &Path) -> Result<String, CliError> {
-    let roots = crate::root::resolve(project_root);
-    addressed_run_with_roots(command, args, &roots)
-}
-
-/// Resolve an addressed Run through roots already selected for the invocation.
 fn addressed_run_with_roots(
     command: &str,
     args: &[String],
@@ -201,15 +196,13 @@ fn addressed_run_with_roots(
     Ok(id)
 }
 
-/// Run the CLI from supplied arguments without spawning a process.
-///
-/// FDC-004: `status` and `step` act on an existing Run, so `--run <id>` is
-/// always required; a missing value refuses and prints the roster (the
-/// listing of `.ratmac/runs/`) without touching any Run. `start` takes no
-/// run-id: it mints one.
-pub fn run_from<I, S, W>(
+/// Run the CLI inside one invocation context; the path-taking `run_from`
+/// lives in `src/root.rs`. Each project the command addresses is resolved
+/// by `invocation` the first time it is needed, and every handler below is
+/// handed that context rather than a path.
+pub(crate) fn run<I, S, W>(
     args: I,
-    project_root: impl AsRef<Path>,
+    invocation: &crate::root::Invocation,
     writer: &mut W,
 ) -> Result<i32, CliError>
 where
@@ -221,7 +214,6 @@ where
         .into_iter()
         .map(|arg| arg.as_ref().to_owned())
         .collect::<Vec<_>>();
-    let project_root = project_root.as_ref().to_path_buf();
     let command_index = command_index(&args);
     let Some(command) = args.get(command_index) else {
         writer.write_all(help("").as_bytes())?;
@@ -234,46 +226,49 @@ where
         return Ok(0);
     }
     if command == "doctor" {
-        return doctor(command_args, &project_root, writer);
+        return doctor(command_args, invocation, writer);
     }
 
     if command == "status" {
-        status(command_args, &project_root, writer)?;
+        status(command_args, &invocation.checkout(), writer)?;
         return Ok(0);
     }
 
-    if matches!(
+    // An unsupported command addresses no project, so it resolves nothing.
+    if !matches!(
         command.as_str(),
         "start" | "step" | "hold" | "abandon" | "spawn" | "respawn" | "scaffold" | "skill"
     ) {
-        Scheduler::refuse_flat_residue(&project_root)
-            .map_err(|error| CliError::new(format!("{command}: {error}")))?;
+        return Err(unsupported(command));
     }
+    let roots = invocation.checkout();
+    Scheduler::refuse_flat_residue_with_roots(&roots)
+        .map_err(|error| CliError::new(format!("{command}: {error}")))?;
 
     if command == "scaffold" {
-        return scaffold(command_args, writer);
+        return scaffold(command_args, invocation, writer);
     }
 
     if command == "skill" {
-        return skill(command_args, writer);
+        return skill(command_args, invocation, writer);
     }
     if command == "hold" {
-        hold(command_args, &project_root, writer)?;
+        hold(command_args, &roots, writer)?;
         return Ok(0);
     }
 
     if command == "abandon" {
-        abandon(command_args, &project_root, writer)?;
+        abandon(command_args, &roots, writer)?;
         return Ok(0);
     }
 
     if command == "spawn" {
-        spawn(command_args, &project_root, writer)?;
+        spawn(command_args, &roots, writer)?;
         return Ok(0);
     }
 
     if command == "respawn" {
-        respawn(command_args, &project_root, writer)?;
+        respawn(command_args, &roots, writer)?;
         return Ok(0);
     }
 
@@ -283,7 +278,7 @@ where
                 "start accepts no run-id or extra arguments".to_owned(),
             ));
         }
-        let mut scheduler = Scheduler::open(&project_root)
+        let mut scheduler = Scheduler::open_with_roots(&roots)
             .map_err(|error| CliError::new(format!("start: {error}")))?;
         let run = scheduler
             .start()
@@ -295,9 +290,9 @@ where
     }
 
     if command == "step" {
-        let id = addressed_run(command, command_args, &project_root)?;
-        let mut scheduler =
-            Scheduler::open_run(&project_root, &id).map_err(|error| hard_error(command, error))?;
+        let id = addressed_run_with_roots(command, command_args, &roots)?;
+        let mut scheduler = Scheduler::open_run_with_roots(&roots, &id)
+            .map_err(|error| hard_error(command, error))?;
         let outcome = scheduler
             .step(StepRequest::new(""))
             .map_err(|error| hard_error("step", error))?;
@@ -319,22 +314,26 @@ where
         return Ok(0);
     }
 
-    Err(CliError::new(format!(
-        "unsupported command or option: {}",
-        args.get(command_index).unwrap_or(&String::new())
-    )))
+    Err(unsupported(command))
+}
+
+fn unsupported(command: &str) -> CliError {
+    CliError::new(format!("unsupported command or option: {command}"))
 }
 
 /// Report one addressed Run through the one root resolution used to open it.
-fn status<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Result<(), CliError> {
-    let roots = crate::root::resolve(project_root);
-    Scheduler::refuse_flat_residue_with_roots(&roots)
+fn status<W: Write>(
+    args: &[String],
+    roots: &crate::root::Roots,
+    writer: &mut W,
+) -> Result<(), CliError> {
+    Scheduler::refuse_flat_residue_with_roots(roots)
         .map_err(|error| hard_error("status", error))?;
-    let id = addressed_run_with_roots("status", args, &roots)?;
+    let id = addressed_run_with_roots("status", args, roots)?;
     // WRS-006: a passed Run reads as history before any runbook-dependent
     // open, so a runbook that moved on cannot refuse or reword it.
     if let Some(history) =
-        Scheduler::history_with_roots(&roots, &id).map_err(|error| hard_error("status", error))?
+        Scheduler::history_with_roots(roots, &id).map_err(|error| hard_error("status", error))?
     {
         writeln!(
             writer,
@@ -344,9 +343,8 @@ fn status<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Res
         writeln!(writer, "{history}")?;
         return Ok(());
     }
-    // The roots-taking open is required to resolve this invocation once; swapping in the path-taking form is a silent regression no test can catch.
     let scheduler =
-        Scheduler::open_run_with_roots(&roots, &id).map_err(|error| hard_error("status", error))?;
+        Scheduler::open_run_with_roots(roots, &id).map_err(|error| hard_error("status", error))?;
     let report = scheduler
         .status()
         .map_err(|error| hard_error("status", error))?;
@@ -366,7 +364,11 @@ fn status<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Res
 ///
 /// Every condition is checked before the first write, so a refusal leaves
 /// Scheduler-owned files byte-identical.
-fn hold<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Result<(), CliError> {
+fn hold<W: Write>(
+    args: &[String],
+    roots: &crate::root::Roots,
+    writer: &mut W,
+) -> Result<(), CliError> {
     let mut blocker: Option<String> = None;
     let mut confirmation: Option<String> = None;
     let mut run: Option<String> = None;
@@ -379,7 +381,7 @@ fn hold<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Resul
                     .filter(|value| !value.starts_with("--"))
                     .cloned()
                 else {
-                    let roster = roster_line(project_root)?;
+                    let roster = roster_line(roots)?;
                     return Err(CliError::refusal(format!(
                         "hold: --run needs a run id; {}{}",
                         roster.line, roster.rows
@@ -425,9 +427,9 @@ fn hold<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Resul
         confirmation,
         run,
     };
-    let plan = crate::blocked::plan_hold(project_root, &request)
+    let plan = crate::blocked::plan_hold_in(roots, &request)
         .map_err(|refusal| CliError::new(format!("hold refused; {refusal}")))?;
-    crate::blocked::apply_hold(project_root, &plan)
+    crate::blocked::apply_hold_in(roots, &plan)
         .map_err(|refusal| CliError::new(format!("hold refused; {refusal}")))?;
     writeln!(
         writer,
@@ -450,7 +452,11 @@ fn hold<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Resul
 /// itself is all-or-nothing.
 /// FDC-007: ordinary checked motion. No confirmation phrase; the Scheduler
 /// checks the parent's State and the declared spawn before any write.
-fn spawn<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Result<(), CliError> {
+fn spawn<W: Write>(
+    args: &[String],
+    roots: &crate::root::Roots,
+    writer: &mut W,
+) -> Result<(), CliError> {
     let mut name: Option<String> = None;
     let mut run: Option<String> = None;
     let mut bindings: std::collections::BTreeMap<String, String> =
@@ -506,7 +512,7 @@ fn spawn<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Resu
                     .filter(|value| !value.starts_with("--"))
                     .cloned()
                 else {
-                    let roster = roster_line(project_root)?;
+                    let roster = roster_line(roots)?;
                     return Err(CliError::refusal(format!(
                         "spawn: --run needs a run id; {}{}",
                         roster.line, roster.rows
@@ -532,14 +538,14 @@ fn spawn<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Resu
         )
     })?;
     let Some(run) = run else {
-        let roster = roster_line(project_root)?;
+        let roster = roster_line(roots)?;
         return Err(CliError::refusal(format!(
             "spawn requires --run <parent id>; {}{}",
             roster.line, roster.rows
         )));
     };
-    let child = Scheduler::spawn_to_with_workspace(
-        project_root,
+    let child = Scheduler::spawn_to_with_roots(
+        roots,
         &run,
         &name,
         &bindings,
@@ -555,7 +561,11 @@ fn spawn<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Resu
 
 /// FDC-007/FDC-006: human-confirmed supersession by a phrase naming the
 /// superseded run id.
-fn respawn<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Result<(), CliError> {
+fn respawn<W: Write>(
+    args: &[String],
+    roots: &crate::root::Roots,
+    writer: &mut W,
+) -> Result<(), CliError> {
     let mut confirmation: Option<String> = None;
     let mut run: Option<String> = None;
     let mut index = 0;
@@ -567,7 +577,7 @@ fn respawn<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Re
                     .filter(|value| !value.starts_with("--"))
                     .cloned()
                 else {
-                    let roster = roster_line(project_root)?;
+                    let roster = roster_line(roots)?;
                     return Err(CliError::refusal(format!(
                         "respawn: --run needs a run id; {}{}",
                         roster.line, roster.rows
@@ -596,7 +606,7 @@ fn respawn<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Re
         }
     }
     let request = crate::RespawnRequest { run, confirmation };
-    let successor = Scheduler::respawn(project_root, &request)
+    let successor = Scheduler::respawn_with_roots(roots, &request)
         .map_err(|error| CliError::new(format!("respawn refused; {error}")))?;
     writeln!(
         writer,
@@ -605,7 +615,12 @@ fn respawn<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Re
     Ok(())
 }
 
-fn abandon<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Result<(), CliError> {
+fn abandon<W: Write>(
+    args: &[String],
+    roots: &crate::root::Roots,
+    writer: &mut W,
+) -> Result<(), CliError> {
+    let project_root = roots.named_checkout();
     let mut confirmation: Option<String> = None;
     let mut run: Option<String> = None;
     // WRS-007: the address resolves first, wherever --run sits, and is
@@ -621,7 +636,7 @@ fn abandon<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Re
             else {
                 // WRS-007: a missing or blank address teaches the addressed
                 // usage and chooses no roster entry for the caller.
-                let roster = roster_line(project_root)?;
+                let roster = roster_line(roots)?;
                 return Err(CliError::refusal(format!(
                     "abandon: --run needs a run id; {}; a Run is retired only by its own phrase: {}{}",
                     roster.line,
@@ -630,7 +645,7 @@ fn abandon<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Re
                 )));
             };
             if run.is_some() {
-                let roster = roster_line(project_root)?;
+                let roster = roster_line(roots)?;
                 return Err(CliError::refusal(format!(
                     "abandon: --run given twice; address exactly one run; {}; a Run is retired only by its own phrase: {}{}",
                     roster.line,
@@ -644,7 +659,7 @@ fn abandon<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Re
             index += 1;
         }
     }
-    let target = || crate::abandon::resolve_target(project_root, run.as_deref());
+    let target = || crate::abandon::resolve_target_in(roots, run.as_deref());
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
@@ -686,9 +701,9 @@ fn abandon<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Re
     }
 
     let request = crate::abandon::AbandonRequest { confirmation, run };
-    let plan = crate::abandon::plan_abandon(project_root, &request)
+    let plan = crate::abandon::plan_abandon_in(roots, &request)
         .map_err(|refusal| CliError::new(format!("abandon refused; {refusal}")))?;
-    crate::abandon::apply_abandon(project_root, &plan)
+    crate::abandon::apply_abandon_in(roots, &plan)
         .map_err(|refusal| CliError::new(format!("abandon refused; {refusal}")))?;
     match plan.state.as_deref() {
         Some(state) => writeln!(
@@ -710,7 +725,11 @@ fn abandon<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Re
 /// The argument-free form keeps its ORS-002 environment report and appends the
 /// findings; a path diagnoses that file alone. Either way the command writes
 /// nothing and its exit code carries the verdict.
-fn doctor<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Result<i32, CliError> {
+fn doctor<W: Write>(
+    args: &[String],
+    invocation: &crate::root::Invocation,
+    writer: &mut W,
+) -> Result<i32, CliError> {
     const USAGE: &str = "doctor accepts --json and one runbook path";
     let mut json = false;
     let mut target: Option<&str> = None;
@@ -737,8 +756,7 @@ fn doctor<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Res
 
     if let Some(target) = target {
         let target = Path::new(target);
-        let project_root = crate::root::addressed_project_root(target);
-        let roots = crate::root::resolve(&project_root);
+        let roots = invocation.project(&crate::root::addressed_project_root(target));
         Scheduler::refuse_flat_residue_with_roots(&roots)
             .map_err(|error| CliError::refusal(error.to_string()))?;
         // A path that cannot be read is a diagnosis (`RB101`), not a usage
@@ -752,11 +770,10 @@ fn doctor<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Res
         return Ok(diagnosis.exit_code());
     }
 
-    let roots = crate::root::resolve(project_root);
+    let roots = invocation.checkout();
     Scheduler::refuse_flat_residue_with_roots(&roots)
         .map_err(|error| CliError::new(format!("doctor: {error}")))?;
     let runbook_path = roots.machine_class_path();
-    // The roots-taking diagnosis is required to resolve this invocation once; swapping in the path-taking form is a silent regression no test can catch.
     let diagnosis = crate::doctor::diagnose_with_roots(&runbook_path, &roots);
     if json {
         write_findings(&diagnosis, true, writer)?;
@@ -769,7 +786,11 @@ fn doctor<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Res
 }
 
 /// AAL-002: write one runbook at a path that does not exist yet.
-fn scaffold<W: Write>(args: &[String], writer: &mut W) -> Result<i32, CliError> {
+fn scaffold<W: Write>(
+    args: &[String],
+    invocation: &crate::root::Invocation,
+    writer: &mut W,
+) -> Result<i32, CliError> {
     const USAGE: &str = "scaffold takes exactly one path";
     let mut target: Option<&str> = None;
     for arg in args {
@@ -791,7 +812,8 @@ fn scaffold<W: Write>(args: &[String], writer: &mut W) -> Result<i32, CliError> 
         )));
     };
     let path = Path::new(target);
-    crate::scaffold::write_scaffold(path)
+    let project = invocation.project(&crate::root::addressed_project_root(path));
+    crate::scaffold::write_scaffold_in(path, &project)
         .map_err(|refusal| CliError::refusal(refusal.to_string()))?;
     writeln!(
         writer,
@@ -803,7 +825,11 @@ fn scaffold<W: Write>(args: &[String], writer: &mut W) -> Result<i32, CliError> 
 }
 
 /// AOP-003: write one skill folder at a path that does not exist yet.
-fn skill<W: Write>(args: &[String], writer: &mut W) -> Result<i32, CliError> {
+fn skill<W: Write>(
+    args: &[String],
+    invocation: &crate::root::Invocation,
+    writer: &mut W,
+) -> Result<i32, CliError> {
     const USAGE: &str = "skill takes exactly one path";
     let mut target: Option<&str> = None;
     for arg in args {
@@ -823,7 +849,9 @@ fn skill<W: Write>(args: &[String], writer: &mut W) -> Result<i32, CliError> {
         return Err(CliError::refusal(format!("skill: no path given; {USAGE}")));
     };
     let path = Path::new(target);
-    crate::skill::write_skill(path).map_err(|refusal| CliError::refusal(refusal.to_string()))?;
+    let project = invocation.project(&crate::root::addressed_project_root(path));
+    crate::skill::write_skill_in(path, &project)
+        .map_err(|refusal| CliError::refusal(refusal.to_string()))?;
     writeln!(
         writer,
         "Wrote {}. Its SKILL.md carries the identity stamp of the engine that wrote it.",

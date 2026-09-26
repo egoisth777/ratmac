@@ -89,14 +89,13 @@ pub struct RunArtifacts {
 }
 
 impl RunArtifacts {
-    fn for_run(root: &Path, run_id: &str) -> Self {
-        let engine_root = crate::root::resolve(root).engine_root().to_path_buf();
+    fn for_run(engine_root: &Path, run_id: &str) -> Self {
         let run_dir = engine_root.join("runs").join(run_id);
         Self {
             record_path: run_dir.join("run.toml"),
             run_dir,
             log_path: engine_root.join("log.md"),
-            lock_path: crate::lock::run_path(&engine_root, run_id),
+            lock_path: crate::lock::run_path(engine_root, run_id),
         }
     }
 
@@ -171,8 +170,8 @@ impl Run {
         self.artifacts.as_ref().map(RunArtifacts::lock_path)
     }
 
-    pub(crate) fn with_artifacts(mut self, root: &Path, run_id: &str) -> Self {
-        self.artifacts = Some(RunArtifacts::for_run(root, run_id));
+    pub(crate) fn with_artifacts(mut self, engine_root: &Path, run_id: &str) -> Self {
+        self.artifacts = Some(RunArtifacts::for_run(engine_root, run_id));
         self.id = Some(run_id.to_owned());
         self
     }

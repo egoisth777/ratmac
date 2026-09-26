@@ -289,12 +289,12 @@ pub struct Scheduler {
     /// invoking checkout; for a child it is the durable ledger binding.
     /// Guards, goal reads, and gate-program resolution use this root.
     root: Option<PathBuf>,
-    /// The checkout that invoked this Scheduler. Machine Class and runbook-pin
+    /// The context resolved once for the invocation that opened this
+    /// Scheduler: the invoking checkout, whose Machine Class and runbook-pin
     /// reads remain invocation inputs so linked-worktree pin drift stays
-    /// observable under ENS-002.
-    invoking_root: Option<PathBuf>,
-    /// The resolved runtime root, shared by linked worktrees.
-    engine_root: Option<PathBuf>,
+    /// observable under ENS-002, and the runtime root shared by linked
+    /// worktrees.
+    roots: Option<crate::root::Roots>,
     run_id: Option<String>,
     /// The exact Machine Class recorded for an addressed child. Its state
     /// names can overlap sibling classes, so state lookup never guesses.
@@ -413,8 +413,7 @@ impl Scheduler {
             workflow_roots: ValidatedWorkflowRoots::default(),
             runbook_snapshot: None,
             root: None,
-            invoking_root: None,
-            engine_root: None,
+            roots: None,
             run_id: None,
             child_class: None,
             store: None,
@@ -516,12 +515,9 @@ impl Scheduler {
             Err(error) => failed(written, error),
         }
     }
-    /// Open a project without creating or modifying any scheduler-owned file.
-    ///
-    /// No run is addressed yet: `start` mints one, and `open_run` binds to an
-    /// existing one. State operations refuse until a run is addressed.
-    pub fn open(root: impl AsRef<Path>) -> Result<Self, StateError> {
-        let roots = crate::root::resolve(root);
+    /// Open a project through the roots already resolved for this invocation;
+    /// the path-taking `Scheduler::open` lives in `src/root.rs`.
+    pub(crate) fn open_with_roots(roots: &crate::root::Roots) -> Result<Self, StateError> {
         let root = roots.invoking_checkout_root().to_path_buf();
         let engine_root = roots.engine_root().to_path_buf();
         Self::refuse_flat_residue_at(&root, &engine_root)?;
@@ -535,17 +531,9 @@ impl Scheduler {
             run_id: None,
             child_class: None,
             store: None,
-            root: Some(root.clone()),
-            invoking_root: Some(root),
-            engine_root: Some(engine_root),
+            root: Some(root),
+            roots: Some(roots.clone()),
         })
-    }
-
-    /// Open a project addressed at one canonical, minted roster member under
-    /// `.ratmac/runs/<run_id>/`.
-    pub fn open_run(root: impl AsRef<Path>, run_id: impl AsRef<str>) -> Result<Self, StateError> {
-        let roots = crate::root::resolve(root);
-        Self::open_run_with_roots(&roots, run_id)
     }
 
     /// Open an addressed Run using the roots already resolved for this invocation.
@@ -565,7 +553,7 @@ impl Scheduler {
         // keeps that caller's checkout as its workspace.
         let (workspace, child_class) = match Self::ledger_record_of_at(&engine_root, run_id)? {
             Some((ledger_path, entry)) => (
-                Self::workspace_from_ledger_entry(&engine_root, &ledger_path, &entry)?,
+                Self::workspace_from_ledger_entry(roots, &ledger_path, &entry)?,
                 Some(entry.class),
             ),
             None => (invoking_root.clone(), None),
@@ -592,10 +580,9 @@ impl Scheduler {
             runbook_snapshot: Some(snapshot),
             run_id: Some(run_id.to_owned()),
             child_class,
-            store: Some(StateStore::for_run(&workspace, run_id)),
+            store: Some(StateStore::for_engine_root(&engine_root, run_id)),
             root: Some(workspace),
-            invoking_root: Some(invoking_root),
-            engine_root: Some(engine_root),
+            roots: Some(roots.clone()),
         })
     }
 
@@ -617,7 +604,7 @@ impl Scheduler {
         Self::validate_run_address_at(engine_root, run_id)?;
         let spawned = match Self::ledger_record_of_at(engine_root, run_id)? {
             Some((ledger_path, entry)) => {
-                Self::workspace_from_ledger_entry(engine_root, &ledger_path, &entry)?;
+                Self::workspace_from_ledger_entry(roots, &ledger_path, &entry)?;
                 let parent = ledger_path
                     .parent()
                     .and_then(Path::file_name)
@@ -663,17 +650,16 @@ impl Scheduler {
     /// without requiring that Run to remain admitted. Direct existing-Run
     /// routes use this before they inspect a retired Run's lock or Run Record.
     pub(crate) fn refuse_addressed_run_residue(
-        root: &Path,
+        roots: &crate::root::Roots,
         run_id: &str,
     ) -> Result<(), StateError> {
-        let roots = crate::root::resolve(root);
         let invoking_root = roots.invoking_checkout_root().to_path_buf();
         let engine_root = roots.engine_root().to_path_buf();
         Self::refuse_flat_residue_at(&invoking_root, &engine_root)?;
         Self::validate_run_address_at(&engine_root, run_id)?;
         let workspace = match Self::ledger_record_of_at(&engine_root, run_id)? {
             Some((ledger_path, entry)) => {
-                Self::workspace_from_ledger_entry(&engine_root, &ledger_path, &entry)?
+                Self::workspace_from_ledger_entry(roots, &ledger_path, &entry)?
             }
             None => invoking_root.clone(),
         };
@@ -685,12 +671,6 @@ impl Scheduler {
     /// and the repair, and modifies nothing — the legacy-lock precedent,
     /// never an auto-migration. The check runs at every Engine entry point and
     /// again inside root-domain mint transactions.
-    pub(crate) fn refuse_flat_residue(root: &Path) -> Result<(), StateError> {
-        let roots = crate::root::resolve(root);
-        Self::refuse_flat_residue_with_roots(&roots)
-    }
-
-    /// Check pre-split residue against roots already selected for an invocation.
     pub(crate) fn refuse_flat_residue_with_roots(
         roots: &crate::root::Roots,
     ) -> Result<(), StateError> {
@@ -842,7 +822,10 @@ impl Scheduler {
     ) -> Result<(), StateError> {
         Self::refuse_flat_residue_at(invoking_root, engine_root)?;
         if workspace != invoking_root {
-            Self::refuse_flat_residue(workspace)?;
+            // A workspace is judged against the repository already resolved
+            // and is never resolved itself: its own tracked files and the
+            // one Engine root are the residue it can carry.
+            Self::refuse_flat_residue_at(workspace, engine_root)?;
         }
         Ok(())
     }
@@ -952,21 +935,17 @@ impl Scheduler {
         self.run_id.as_deref()
     }
 
-    /// The plural runs directory for an invoking checkout.
-    pub fn runs_dir(root: impl AsRef<Path>) -> PathBuf {
-        let engine_root = crate::root::resolve(root).engine_root().to_path_buf();
-        Self::runs_dir_at(&engine_root)
-    }
-
-    fn runs_dir_at(engine_root: &Path) -> PathBuf {
+    /// The plural runs directory under a resolved Engine root.
+    pub(crate) fn runs_dir_at(engine_root: &Path) -> PathBuf {
         engine_root.join("runs")
     }
 
-    /// Listing the resolved `.ratmac/runs/` is the roster: direct
-    /// run-directory artifacts, sorted. Symlinks are not Run directories and
-    /// cannot put a roster member outside the plural residency path.
-    pub fn run_roster(root: impl AsRef<Path>) -> Result<Vec<String>, StateError> {
-        let roots = crate::root::resolve(root);
+    /// The roster of an invocation's resolved Engine root, after its residue
+    /// preflight; the path-taking `Scheduler::run_roster` lives in
+    /// `src/root.rs`.
+    pub(crate) fn run_roster_with_roots(
+        roots: &crate::root::Roots,
+    ) -> Result<Vec<String>, StateError> {
         let invoking_root = roots.invoking_checkout_root();
         let engine_root = roots.engine_root();
         Self::refuse_flat_residue_at(invoking_root, engine_root)?;
@@ -996,11 +975,6 @@ impl Scheduler {
     /// A usable address is exactly the canonical spelling minted by `start`
     /// and exactly equals one direct roster member. Every refusal carries the
     /// roster so command surfaces can report it without probing a candidate.
-    pub(crate) fn validate_run_address(root: &Path, run_id: &str) -> Result<(), StateError> {
-        let engine_root = crate::root::resolve(root).engine_root().to_path_buf();
-        Self::validate_run_address_at(&engine_root, run_id)
-    }
-
     pub(crate) fn validate_run_address_at(
         engine_root: &Path,
         run_id: &str,
@@ -1052,8 +1026,13 @@ impl Scheduler {
     }
 
     fn engine_root(&self) -> Result<&Path, StateError> {
-        self.engine_root
-            .as_deref()
+        self.roots().map(crate::root::Roots::engine_root)
+    }
+
+    /// The context resolved for the invocation that opened this Scheduler.
+    fn roots(&self) -> Result<&crate::root::Roots, StateError> {
+        self.roots
+            .as_ref()
             .ok_or_else(|| StateError::new("operation requires Scheduler::open"))
     }
 
@@ -1067,9 +1046,7 @@ impl Scheduler {
     }
 
     fn invoking_root(&self) -> Result<&Path, StateError> {
-        self.invoking_root
-            .as_deref()
-            .ok_or_else(|| StateError::new("operation requires Scheduler::open"))
+        self.roots().map(crate::root::Roots::invoking_checkout_root)
     }
 
     fn run_dir(&self) -> Result<PathBuf, StateError> {
@@ -1083,10 +1060,9 @@ impl Scheduler {
     }
 
     /// Load the invoking checkout's Machine Class and validate every declared
-    /// workflow root before a non-Scheduler lifecycle entry point can mutate
+    /// Workflow root before a non-Scheduler lifecycle entry point can mutate
     /// Engine state.
-    pub(crate) fn validate_project_roots(root: &Path) -> Result<(), StateError> {
-        let roots = crate::root::resolve(root);
+    pub(crate) fn validate_project_roots(roots: &crate::root::Roots) -> Result<(), StateError> {
         Self::refuse_flat_residue_at(roots.invoking_checkout_root(), roots.engine_root())?;
         let snapshot = Self::load_runbook_snapshot(
             roots.invoking_checkout_root(),
@@ -1192,7 +1168,7 @@ impl Scheduler {
     }
 
     fn workspace_from_ledger_entry(
-        engine_root: &Path,
+        roots: &crate::root::Roots,
         ledger_path: &Path,
         entry: &LedgerEntry,
     ) -> Result<PathBuf, StateError> {
@@ -1217,7 +1193,7 @@ impl Scheduler {
                 ledger_path.displayed()
             )));
         }
-        Self::refuse_flat_residue(&workspace)?;
+        Self::refuse_flat_residue_at(&workspace, roots.engine_root())?;
         let canonical = fs::canonicalize(&workspace).map_err(|error| {
             if error.kind() == std::io::ErrorKind::NotFound {
                 StateError::new(format!(
@@ -1261,7 +1237,7 @@ impl Scheduler {
                 ledger_path.displayed()
             )));
         }
-        Self::ensure_workspace_in_repository(engine_root, &canonical)?;
+        Self::ensure_workspace_in_repository(roots, &canonical)?;
         Ok(canonical)
     }
 
@@ -1273,16 +1249,16 @@ impl Scheduler {
         }
     }
     /// Canonicalize a caller-supplied spawn workspace before the mint
-    /// transaction. Relative spellings are interpreted from the invocation
-    /// checkout, not from a parent Run's stored workspace.
+    /// transaction. Relative spellings are interpreted from `base` - the
+    /// invocation checkout, not a parent Run's stored workspace.
     fn canonical_spawn_workspace(
-        invoking_root: &Path,
-        engine_root: &Path,
+        roots: &crate::root::Roots,
+        base: &Path,
         workspace: &Path,
     ) -> Result<PathBuf, StateError> {
         let spelling = workspace.displayed();
-        let candidate = Self::spawn_workspace_candidate(invoking_root, workspace);
-        Self::refuse_flat_residue(&candidate)?;
+        let candidate = Self::spawn_workspace_candidate(base, workspace);
+        Self::refuse_flat_residue_at(&candidate, roots.engine_root())?;
         let metadata = fs::metadata(&candidate).map_err(|error| {
             if error.kind() == std::io::ErrorKind::NotFound {
                 StateError::new(format!("workspace {spelling:?} does not exist"))
@@ -1302,24 +1278,20 @@ impl Scheduler {
                 "workspace {spelling:?} cannot be canonicalized: {error}"
             ))
         })?;
-        Self::ensure_workspace_in_repository(engine_root, &canonical)?;
+        Self::ensure_workspace_in_repository(roots, &canonical)?;
         Ok(canonical)
     }
 
-    /// Repository confinement follows the Engine root rather than a lexical
-    /// parent-directory prefix, so linked worktrees remain legitimate
-    /// workspaces while a symlink or traversal that resolves elsewhere does
-    /// not escape the runtime namespace.
+    /// Repository confinement follows the repository the invocation already
+    /// resolved rather than a lexical parent-directory prefix, so linked
+    /// worktrees remain legitimate workspaces while a symlink or traversal
+    /// that resolves elsewhere does not escape the runtime namespace. The
+    /// workspace is judged, never resolved itself.
     fn ensure_workspace_in_repository(
-        engine_root: &Path,
+        roots: &crate::root::Roots,
         workspace: &Path,
     ) -> Result<(), StateError> {
-        let workspace_engine_root = crate::root::resolve(workspace).engine_root().to_path_buf();
-        let engine_root =
-            fs::canonicalize(engine_root).unwrap_or_else(|_| engine_root.to_path_buf());
-        let workspace_engine_root =
-            fs::canonicalize(&workspace_engine_root).unwrap_or(workspace_engine_root);
-        if workspace_engine_root == engine_root {
+        if roots.holds_workspace(workspace) {
             Ok(())
         } else {
             Err(StateError::new(format!(
@@ -1473,7 +1445,7 @@ impl Scheduler {
         self.store = Some(store);
         self.run_id = Some(run_id.clone());
         self.child_class = None;
-        Ok(Run::new(state, initial_status).with_artifacts(&root, &run_id))
+        Ok(Run::new(state, initial_status).with_artifacts(&engine_root, &run_id))
     }
 
     /// Reserve the next durable id, then create its directory, Run Record,
@@ -1752,35 +1724,24 @@ impl Scheduler {
     /// cap - checked before the retired-run admission check, so an abandoned
     /// child and a superseded record refuse by the cap's name, exactly like
     /// a live child. Only then is the parent opened and the spawn attempted.
-    pub fn spawn_to(
-        root: impl AsRef<Path>,
-        parent_id: &str,
-        spawn_name: &str,
-        bindings: &BTreeMap<String, String>,
-    ) -> Result<String, StateError> {
-        Self::spawn_to_with_workspace(root, parent_id, spawn_name, bindings, None)
-    }
-
-    /// Spawn with an optional workspace spelling from the invocation. Keeping
-    /// the original `spawn_to` entry point preserves callers that inherit the
-    /// parent workspace by default.
-    pub fn spawn_to_with_workspace(
-        root: impl AsRef<Path>,
+    /// The path-taking `spawn_to` and `spawn_to_with_workspace` live in
+    /// `src/root.rs`.
+    pub(crate) fn spawn_to_with_roots(
+        roots: &crate::root::Roots,
         parent_id: &str,
         spawn_name: &str,
         bindings: &BTreeMap<String, String>,
         workspace: Option<&Path>,
     ) -> Result<String, StateError> {
-        let roots = crate::root::resolve(root);
         let invoking_root = roots.invoking_checkout_root().to_path_buf();
         let engine_root = roots.engine_root().to_path_buf();
         Self::refuse_flat_residue_at(&invoking_root, &engine_root)?;
         if let Some(workspace) = workspace {
             let candidate = Self::spawn_workspace_candidate(&invoking_root, workspace);
-            Self::refuse_flat_residue(&candidate)?;
+            Self::refuse_flat_residue_at(&candidate, &engine_root)?;
         }
-        Self::validate_run_address(&invoking_root, parent_id)?;
-        if crate::ledger::is_recorded_child(&Self::runs_dir(&invoking_root), parent_id)
+        Self::validate_run_address_at(&engine_root, parent_id)?;
+        if crate::ledger::is_recorded_child(&Self::runs_dir_at(&engine_root), parent_id)
             .map_err(|error| StateError::new(format!("spawn cap check refused: {error}")))?
         {
             return Err(StateError::new(format!(
@@ -1788,7 +1749,7 @@ impl Scheduler {
 composition is capped at one level (FDC-012)"
             )));
         }
-        let mut scheduler = Self::open_run(&invoking_root, parent_id)?;
+        let mut scheduler = Self::open_run_with_roots(roots, parent_id)?;
         scheduler.spawn_with_bindings_at_workspace(spawn_name, bindings, workspace)
     }
 
@@ -1823,16 +1784,15 @@ composition is capped at one level (FDC-012)"
             .clone();
         let invoking_root = self.invoking_root()?.to_path_buf();
         let engine_root = self.engine_root()?.to_path_buf();
+        let roots = self.roots()?.clone();
         Self::refuse_flat_residue_for_workspace(&invoking_root, &engine_root, &parent_workspace)?;
         let child_workspace = match workspace {
             Some(workspace) => {
                 let candidate = Self::spawn_workspace_candidate(&invoking_root, workspace);
-                Self::refuse_flat_residue(&candidate)?;
-                Self::canonical_spawn_workspace(&invoking_root, &engine_root, workspace)?
+                Self::refuse_flat_residue_at(&candidate, &engine_root)?;
+                Self::canonical_spawn_workspace(&roots, &invoking_root, workspace)?
             }
-            None => {
-                Self::canonical_spawn_workspace(&parent_workspace, &engine_root, &parent_workspace)?
-            }
+            None => Self::canonical_spawn_workspace(&roots, &parent_workspace, &parent_workspace)?,
         };
         Self::refuse_flat_residue_for_workspace(&invoking_root, &engine_root, &child_workspace)?;
         let parent_id = self.run_id.clone().ok_or_else(|| {
@@ -2045,8 +2005,10 @@ the ledger {} and minted child {} were left in place; inspect both paths before 
     /// successor is start-shaped this increment; class-faithful
     /// re-instantiation needs the ledger's recorded class and bindings
     /// (FDC-011, a later increment).
-    pub fn respawn(root: impl AsRef<Path>, request: &RespawnRequest) -> Result<String, StateError> {
-        let roots = crate::root::resolve(root);
+    pub(crate) fn respawn_with_roots(
+        roots: &crate::root::Roots,
+        request: &RespawnRequest,
+    ) -> Result<String, StateError> {
         let root = roots.invoking_checkout_root().to_path_buf();
         let engine_root = roots.engine_root().to_path_buf();
         Self::refuse_flat_residue_at(&root, &engine_root)?;
@@ -2105,7 +2067,7 @@ the ledger {} and minted child {} were left in place; inspect both paths before 
         // invoking checkout as its workspace.
         let workspace = match recorded.as_ref() {
             Some((ledger_path, entry)) => {
-                Self::workspace_from_ledger_entry(&engine_root, ledger_path, entry)?
+                Self::workspace_from_ledger_entry(roots, ledger_path, entry)?
             }
             None => root.clone(),
         };
@@ -2188,8 +2150,8 @@ the ledger {} and minted child {} were left in place; inspect both paths before 
             confirmation: Some(crate::abandon::required_phrase(&root, Some(&superseded))),
             run: Some(superseded.clone()),
         };
-        let retired = crate::abandon::plan_abandon(&root, &abandon_request)
-            .and_then(|plan| crate::abandon::apply_abandon(&root, &plan));
+        let retired = crate::abandon::plan_abandon_in(roots, &abandon_request)
+            .and_then(|plan| crate::abandon::apply_abandon_in(roots, &plan));
         if let Err(refusal) = retired {
             return match Self::rollback_minted_successor(
                 &engine_root,

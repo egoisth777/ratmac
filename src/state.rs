@@ -80,11 +80,6 @@ pub struct StateStore {
 }
 
 impl StateStore {
-    pub(crate) fn for_run(root: &Path, run_id: &str) -> Self {
-        let engine_root = crate::root::resolve(root).engine_root().to_path_buf();
-        Self::for_engine_root(&engine_root, run_id)
-    }
-
     pub(crate) fn for_engine_root(engine_root: &Path, run_id: &str) -> Self {
         Self::at(engine_root.join("runs").join(run_id).join("run.toml"))
     }

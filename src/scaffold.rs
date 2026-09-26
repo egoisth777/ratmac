@@ -7,6 +7,8 @@
 
 use std::path::Path;
 
+pub use crate::root::entries::write_scaffold;
+
 /// The smallest runbook that is both doctor-clean and runnable: one initial
 /// State, one terminal State, one edge between them, and no guards to argue
 /// with. Every schema fact it needs is a pointer, never a restatement.
@@ -68,9 +70,13 @@ impl std::fmt::Display for ScaffoldRefusal {
 ///
 /// The checks come before the write, so a refusal is a refusal: no partial
 /// file, no created directory, nothing to clean up.
-pub fn write_scaffold(path: &Path) -> Result<(), ScaffoldRefusal> {
-    let project_root = crate::root::addressed_project_root(path);
-    crate::Scheduler::refuse_flat_residue(&project_root)
+/// `project` is the resolved context of the project that owns `path`; the
+/// path-taking `write_scaffold` lives in `src/root.rs`.
+pub(crate) fn write_scaffold_in(
+    path: &Path,
+    project: &crate::root::Roots,
+) -> Result<(), ScaffoldRefusal> {
+    crate::Scheduler::refuse_flat_residue_with_roots(project)
         .map_err(|error| ScaffoldRefusal::Preflight(error.to_string()))?;
     let shown = crate::root::displayed(path);
     if path.exists() {

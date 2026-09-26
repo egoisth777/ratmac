@@ -44,6 +44,8 @@ use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+pub use crate::root::entries::{apply_abandon, plan_abandon, resolve_target};
+
 /// Why an abandonment cannot proceed.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AbandonRefusal {
@@ -137,15 +139,20 @@ fn requires_address(engine_root: &Path, roster: &[String]) -> AbandonRefusal {
 /// usage; no Run is ever chosen for the caller. With no admitted Run, only
 /// an extant leftover root lock makes the project phrase applicable;
 /// otherwise nothing is left to retire and no phrase is taught.
-pub fn resolve_target(root: &Path, run: Option<&str>) -> Result<Target, AbandonRefusal> {
-    crate::Scheduler::refuse_flat_residue(root)
+/// The path-taking `resolve_target` lives in `src/root.rs`.
+pub(crate) fn resolve_target_in(
+    roots: &crate::root::Roots,
+    run: Option<&str>,
+) -> Result<Target, AbandonRefusal> {
+    let root = roots.named_checkout();
+    crate::Scheduler::refuse_flat_residue_with_roots(roots)
         .map_err(|error| refusal(format!("abandonment refused: {error}")))?;
     let address = run.map(str::trim);
     if let Some(id) = address.filter(|id| !id.is_empty()) {
-        crate::Scheduler::refuse_addressed_run_residue(root, id)
+        crate::Scheduler::refuse_addressed_run_residue(roots, id)
             .map_err(|error| refusal(format!("abandonment refused: {error}")))?;
     }
-    let engine_root = crate::root::resolve(root).engine_root().to_path_buf();
+    let engine_root = roots.engine_root().to_path_buf();
     let roster = run_roster_at(&engine_root)?;
     match address {
         Some("") => {
@@ -161,7 +168,7 @@ pub fn resolve_target(root: &Path, run: Option<&str>) -> Result<Target, AbandonR
                 "abandon names no run: {id:?} is not on the roster; runs: {roster_line}; a Run is retired only by its own phrase: {ADDRESSED_USAGE}{rows}"
             )))
         }
-        None if roster.iter().any(|id| admitted(root, id)) => {
+        None if roster.iter().any(|id| admitted(&engine_root, id)) => {
             Err(requires_address(&engine_root, &roster))
         }
         // Only a true leftover-lock path teaches the project phrase: with no
@@ -175,8 +182,8 @@ pub fn resolve_target(root: &Path, run: Option<&str>) -> Result<Target, AbandonR
     }
 }
 
-fn admitted(root: &Path, id: &str) -> bool {
-    crate::Scheduler::runs_dir(root)
+fn admitted(engine_root: &Path, id: &str) -> bool {
+    crate::Scheduler::runs_dir_at(engine_root)
         .join(id)
         .join("run.toml")
         .is_file()
@@ -224,10 +231,15 @@ pub struct AbandonPlan {
 }
 
 /// Decide whether this project's Run may be retired. Writes nothing.
-pub fn plan_abandon(root: &Path, request: &AbandonRequest) -> Result<AbandonPlan, AbandonRefusal> {
+/// The path-taking `plan_abandon` lives in `src/root.rs`.
+pub(crate) fn plan_abandon_in(
+    roots: &crate::root::Roots,
+    request: &AbandonRequest,
+) -> Result<AbandonPlan, AbandonRefusal> {
+    let root = roots.named_checkout();
     // WRS-007: the address is validated before any phrase is checked, so a
     // refusal never teaches a phrase that cannot retire the intended Run.
-    let target = resolve_target(root, request.run.as_deref())?;
+    let target = resolve_target_in(roots, request.run.as_deref())?;
     let required = target.phrase(root);
     let scope = match target {
         Target::Run(_) => "",
@@ -246,16 +258,16 @@ pub fn plan_abandon(root: &Path, request: &AbandonRequest) -> Result<AbandonPlan
         }
         Some(_) => {}
     }
-    crate::Scheduler::validate_project_roots(root)
+    crate::Scheduler::validate_project_roots(roots)
         .map_err(|error| refusal(format!("abandonment refused: {error}")))?;
 
     // FDC-004: abandon acts on an existing Run through `--run <id>`.
-    let engine_root = crate::root::resolve(root).engine_root().to_path_buf();
+    let engine_root = roots.engine_root().to_path_buf();
     let roster = run_roster_at(&engine_root)?;
     let live: Vec<&String> = roster
         .iter()
         .filter(|id| {
-            crate::Scheduler::runs_dir(root)
+            crate::Scheduler::runs_dir_at(&engine_root)
                 .join(id.as_str())
                 .join("run.toml")
                 .is_file()
@@ -290,7 +302,7 @@ pub fn plan_abandon(root: &Path, request: &AbandonRequest) -> Result<AbandonPlan
 
     let run_dir = run_id
         .as_deref()
-        .map(|id| crate::Scheduler::runs_dir(root).join(id));
+        .map(|id| crate::Scheduler::runs_dir_at(&engine_root).join(id));
     let state_path = run_dir.as_ref().map(|dir| dir.join("run.toml"));
     let evidence_path = run_dir
         .as_ref()
@@ -429,14 +441,18 @@ fn revision_or_none(revision: &str) -> String {
 /// Perform a planned retirement. Its terminal history entry is the first
 /// durable mutation; later failures are named rather than rolled back through
 /// a shared append-only history.
-pub fn apply_abandon(root: &Path, plan: &AbandonPlan) -> Result<(), AbandonRefusal> {
+/// The path-taking `apply_abandon` lives in `src/root.rs`.
+pub(crate) fn apply_abandon_in(
+    roots: &crate::root::Roots,
+    plan: &AbandonPlan,
+) -> Result<(), AbandonRefusal> {
     match plan.run.as_deref() {
-        Some(run_id) => crate::Scheduler::refuse_addressed_run_residue(root, run_id),
-        None => crate::Scheduler::refuse_flat_residue(root),
+        Some(run_id) => crate::Scheduler::refuse_addressed_run_residue(roots, run_id),
+        None => crate::Scheduler::refuse_flat_residue_with_roots(roots),
     }
     .map_err(|error| refusal(format!("abandonment refused: {error}")))?;
 
-    let engine_root = crate::root::resolve(root).engine_root().to_path_buf();
+    let engine_root = roots.engine_root().to_path_buf();
     match plan.run.as_deref() {
         Some(run_id) if plan.event.is_none() => {
             if plan.state.is_some()

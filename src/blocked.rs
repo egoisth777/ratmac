@@ -41,6 +41,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::root::Displayed;
+
+pub use crate::root::entries::{apply_hold, plan_hold};
 #[cfg(windows)]
 use std::os::windows::ffi::OsStrExt;
 
@@ -188,20 +190,26 @@ pub fn confirmation_phrase(run_id: &str) -> String {
 }
 
 /// The `p5-blocked` route predicate: verify a hold without writing anything.
-pub fn plan_hold(root: &Path, request: &HoldRequest) -> Result<HoldPlan, HoldRefusal> {
-    crate::Scheduler::refuse_flat_residue(root).map_err(|error| refusal(error.to_string()))?;
+/// The path-taking `plan_hold` lives in `src/root.rs`.
+pub(crate) fn plan_hold_in(
+    roots: &crate::root::Roots,
+    request: &HoldRequest,
+) -> Result<HoldPlan, HoldRefusal> {
+    crate::Scheduler::refuse_flat_residue_with_roots(roots)
+        .map_err(|error| refusal(error.to_string()))?;
 
     // FDC-004/FDC-005: hold is an existing-Run operation. Resolve one exact
     // canonical roster member through Scheduler::open_run so flat residue and
     // the recorded runbook pin are checked before this plan can permit a
     // mutation.
-    let roster = crate::Scheduler::run_roster(root).map_err(|error| refusal(error.to_string()))?;
+    let roster = crate::Scheduler::run_roster_with_roots(roots)
+        .map_err(|error| refusal(error.to_string()))?;
     let Some(run_id) = request.run.as_deref().filter(|id| !id.is_empty()) else {
-        let engine_root = crate::root::resolve(root).engine_root().to_path_buf();
+        let engine_root = roots.engine_root();
         return Err(refusal(format!(
             "hold requires --run <id>; runs: {}{}",
-            crate::roster::summary(&engine_root, &roster, "none"),
-            crate::roster::rows(&engine_root, &roster)
+            crate::roster::summary(engine_root, &roster, "none"),
+            crate::roster::rows(engine_root, &roster)
         )));
     };
 
@@ -231,8 +239,8 @@ pub fn plan_hold(root: &Path, request: &HoldRequest) -> Result<HoldPlan, HoldRef
         ));
     }
 
-    let scheduler =
-        crate::Scheduler::open_run(root, run_id).map_err(|error| refusal(error.to_string()))?;
+    let scheduler = crate::Scheduler::open_run_with_roots(roots, run_id)
+        .map_err(|error| refusal(error.to_string()))?;
     verify_blocker(&scheduler, blocker)?;
 
     let state = scheduler
@@ -342,14 +350,17 @@ fn verify_blocker(scheduler: &crate::Scheduler, blocker: &str) -> Result<(), Hol
 /// document to read-modify-write any more (NRR-001). The exact planned state
 /// is compared after acquisition, and a failure after the record is durable is
 /// reported honestly rather than rewritten.
-pub fn apply_hold(root: &Path, plan: &HoldPlan) -> Result<(), HoldRefusal> {
+/// The path-taking `apply_hold` lives in `src/root.rs`.
+pub(crate) fn apply_hold_in(
+    roots: &crate::root::Roots,
+    plan: &HoldPlan,
+) -> Result<(), HoldRefusal> {
     // Planning and application are separate public boundaries. Resolve from
     // the addressed Run's workspace again before this path can mutate state.
-    let scheduler = crate::Scheduler::open_run(root, &plan.run_id)
+    let scheduler = crate::Scheduler::open_run_with_roots(roots, &plan.run_id)
         .map_err(|error| refusal(error.to_string()))?;
     verify_blocker(&scheduler, &plan.blocker)?;
 
-    let roots = crate::root::resolve(root);
     let engine_root = roots.engine_root().to_path_buf();
     let state_path = engine_root.join("runs").join(&plan.run_id).join("run.toml");
 
@@ -377,7 +388,7 @@ pub fn apply_hold(root: &Path, plan: &HoldPlan) -> Result<(), HoldRefusal> {
     // Reopen while holding the mutation lock. This binds the route to the same
     // freshly pinned class that permits this write, rather than trusting
     // the destination in a caller-supplied HoldPlan.
-    let current_scheduler = crate::Scheduler::open_run(root, &plan.run_id)
+    let current_scheduler = crate::Scheduler::open_run_with_roots(roots, &plan.run_id)
         .map_err(|error| refusal(error.to_string()))?;
     let Some(to_state) = current_scheduler
         .blocked_destination(&state.state)

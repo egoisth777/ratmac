@@ -440,16 +440,14 @@ impl MachineClass {
     /// The tracked file name a checkout's Machine Class always carries.
     pub const FILE_NAME: &'static str = "ratmac.toml";
 
-    /// Load the reviewed Machine Class from the invoking checkout.
+    /// Load the reviewed Machine Class a checkout carries. The public
+    /// path-taking entry, `load_from_project_root`, lives in `src/root.rs`.
     ///
     /// Loading is deliberately read-only: it only reads
     /// `.ratmac/ratmac.toml` from that checkout and never creates or replaces
     /// a class file.
-    pub fn load_from_project_root(
-        project_root: impl AsRef<Path>,
-    ) -> Result<Self, MachineClassParseError> {
-        let roots = crate::root::resolve(project_root);
-        let path = roots.machine_class_path();
+    pub(crate) fn load_from_checkout(checkout: &Path) -> Result<Self, MachineClassParseError> {
+        let path = crate::root::checkout_machine_class_path(checkout);
         let source = std::fs::read_to_string(&path).map_err(|error| {
             MachineClassParseError::at(
                 "RB101",

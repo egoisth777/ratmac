@@ -19,6 +19,8 @@ use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+pub use crate::root::entries::{gate_intake, gate_records, unproven_mechanization, work_items};
+
 /// The five files every issue folder carries.
 pub const ISSUE_FILES: [&str; 5] = [
     "design.md",
@@ -90,10 +92,11 @@ impl IssueLocation {
 
 /// PGE-001: verify intake completion over the working tree.
 ///
-/// This compatibility entry point resolves the contract's fixed role names
-/// from the reviewed runbook before reading any workflow record.
-pub fn gate_intake(workspace: &Path) -> Result<(), Vec<ContractDefect>> {
-    let (required, roots) = contract_roots_with_table(workspace, &["goal", "issue"])?;
+/// The compatibility entry point `gate_intake` (in `src/root.rs`) resolves
+/// the project once; this resolves the contract's fixed role names from the
+/// reviewed runbook before reading any workflow record.
+pub(crate) fn gate_intake_in(project: &crate::root::Roots) -> Result<(), Vec<ContractDefect>> {
+    let (required, roots) = contract_roots_with_table(project, &["goal", "issue"])?;
     // PCR-008: the working authority is optional. A project that declares no
     // such root simply keeps one place a requirement can live, which is
     // stricter than the second resolution rather than looser.
@@ -359,10 +362,13 @@ pub struct WorkItem {
 
 /// PCR-003: classify every work item from the tree alone.
 ///
-/// This compatibility entry point resolves the contract's fixed role names
-/// from the reviewed runbook before reading any record.
-pub fn work_items(workspace: &Path) -> Result<Vec<WorkItem>, Vec<ContractDefect>> {
-    let roots = contract_roots(workspace, &["residual", "ticket"])?;
+/// The compatibility entry point `work_items` (in `src/root.rs`) resolves
+/// the project once; this resolves the contract's fixed role names from the
+/// reviewed runbook before reading any record.
+pub(crate) fn work_items_in(
+    project: &crate::root::Roots,
+) -> Result<Vec<WorkItem>, Vec<ContractDefect>> {
+    let roots = contract_roots(project, &["residual", "ticket"])?;
     work_items_at(&roots[1], &roots[0])
 }
 
@@ -627,16 +633,17 @@ fn folders_in(dir: &Path) -> Vec<PathBuf> {
 
 /// PGE-002: verify residual and ticket record contracts.
 ///
-/// This compatibility entry point resolves the fixed contract roles from the
+/// The compatibility entry point `gate_records` (in `src/root.rs`) resolves
+/// the project once; this resolves the fixed contract roles from the
 /// reviewed runbook before reading workflow records.
-pub fn gate_records(
-    workspace: &Path,
+pub(crate) fn gate_records_in(
+    project: &crate::root::Roots,
     engine_root: &Path,
     run_id: &str,
 ) -> Result<(), Vec<ContractDefect>> {
-    let roots = contract_roots(workspace, &["goal", "residual", "ticket"])?;
+    let roots = contract_roots(project, &["goal", "residual", "ticket"])?;
     gate_records_at(
-        workspace,
+        project.invoking_checkout_root(),
         &roots[0],
         &roots[1],
         &roots[2],
@@ -646,6 +653,10 @@ pub fn gate_records(
 }
 
 /// Evaluate records using resolved fixed-role roots and schema-known leaves.
+///
+/// Nothing is resolved here: the workspace's runbook is read from the
+/// workspace itself and its optional roles are validated against the
+/// `engine_root` the caller already holds.
 pub fn gate_records_at(
     workspace: &Path,
     goal_root: &Path,
@@ -663,16 +674,16 @@ pub fn gate_records_at(
             "the goal is not frozen, so no residual can cite a frozen revision",
         ));
     }
-    let unmechanized = unproven_mechanization(workspace);
+    let unmechanized = unproven_mechanization_in(workspace);
     let goal = fs::read_to_string(goal_root.join("spec.md")).unwrap_or_default();
     let goal_ids = requirement_ids(&goal);
     // PCR-008: a requirement lives in either authority, so a record citing a
     // working-authority heading is a legal citation. The
     // one-record-per-requirement demand below still binds goal rows only,
     // because working-authority requirements deliberately mint no gap row.
-    let authority = contract_roots_with_table(workspace, &[])
+    let authority = workflow_table(workspace, engine_root)
         .ok()
-        .and_then(|(_, roots)| roots.resolve("authority").ok());
+        .and_then(|roots| roots.resolve("authority").ok());
     let authority_ids = authority_requirement_ids(authority.as_deref());
 
     // Active and archived residuals are one namespace.
@@ -858,9 +869,11 @@ pub fn gate_records_at(
 /// Requirements whose mechanizing gate the project's Runbook does not declare.
 ///
 /// A loop that never runs a gate cannot report the gate's requirement
-/// satisfied: absence of a check is not evidence.
-pub fn unproven_mechanization(root: &Path) -> Vec<ContractDefect> {
-    let declared = declared_gate_kinds(root);
+/// satisfied: absence of a check is not evidence. The runbook is read from
+/// the checkout itself; the public entry `unproven_mechanization` (in
+/// `src/root.rs`) resolves the project once before calling this.
+pub(crate) fn unproven_mechanization_in(checkout: &Path) -> Vec<ContractDefect> {
+    let declared = declared_gate_kinds(checkout);
     REQUIRED_GATES
         .iter()
         .filter(|(_, kind)| !declared.contains(*kind))
@@ -876,9 +889,9 @@ pub fn unproven_mechanization(root: &Path) -> Vec<ContractDefect> {
 }
 
 /// Every guard kind the project's Runbook declares.
-fn declared_gate_kinds(root: &Path) -> BTreeSet<String> {
+fn declared_gate_kinds(checkout: &Path) -> BTreeSet<String> {
     // TRP-001: the contract gate asks the parser what the runbook declares.
-    let Ok(class) = crate::machine::MachineClass::load_from_project_root(root) else {
+    let Ok(class) = crate::machine::MachineClass::load_from_checkout(checkout) else {
         return BTreeSet::new();
     };
     // A runbook may mechanize the per-ticket gates inside a child class (the
@@ -897,27 +910,20 @@ fn declared_gate_kinds(root: &Path) -> BTreeSet<String> {
         .collect()
 }
 
-fn contract_roots(workspace: &Path, roles: &[&str]) -> Result<Vec<PathBuf>, Vec<ContractDefect>> {
-    contract_roots_with_table(workspace, roles).map(|(paths, _)| paths)
+fn contract_roots(
+    project: &crate::root::Roots,
+    roles: &[&str],
+) -> Result<Vec<PathBuf>, Vec<ContractDefect>> {
+    contract_roots_with_table(project, roles).map(|(paths, _)| paths)
 }
 
 /// Resolve the required roles and hand back the validated table, so a caller
 /// needing an optional role does not load and validate the class twice.
 fn contract_roots_with_table(
-    workspace: &Path,
+    project: &crate::root::Roots,
     roles: &[&str],
 ) -> Result<(Vec<PathBuf>, crate::roots::ValidatedWorkflowRoots), Vec<ContractDefect>> {
-    let engine = crate::root::resolve(workspace);
-    let class =
-        crate::machine::MachineClass::load_from_project_root(workspace).map_err(|error| {
-            vec![defect(
-                "runbook",
-                format!("{}: {}", error.code(), error.message()),
-            )]
-        })?;
-    let roots = class
-        .validate_roots(engine.invoking_checkout_root(), engine.engine_root())
-        .map_err(|error| vec![defect("runbook", error.to_string())])?;
+    let roots = workflow_table(project.invoking_checkout_root(), project.engine_root())?;
     let paths = roles
         .iter()
         .map(|role| {
@@ -927,6 +933,23 @@ fn contract_roots_with_table(
         })
         .collect::<Result<Vec<PathBuf>, Vec<ContractDefect>>>()?;
     Ok((paths, roots))
+}
+
+/// Load the runbook a checkout carries and validate its declared roles
+/// against an Engine root the caller already holds.
+fn workflow_table(
+    checkout: &Path,
+    engine_root: &Path,
+) -> Result<crate::roots::ValidatedWorkflowRoots, Vec<ContractDefect>> {
+    let class = crate::machine::MachineClass::load_from_checkout(checkout).map_err(|error| {
+        vec![defect(
+            "runbook",
+            format!("{}: {}", error.code(), error.message()),
+        )]
+    })?;
+    class
+        .validate_roots(&crate::root::absolute(checkout), engine_root)
+        .map_err(|error| vec![defect("runbook", error.to_string())])
 }
 
 fn shown(path: &Path) -> String {

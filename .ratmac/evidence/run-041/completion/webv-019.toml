@@ -1,0 +1,10 @@
+ticket-id = "t-119"
+check-id = "WEBV-019"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test t119_single_root_resolution -- --test-threads=1"
+working-dir = "."
+exit-status = 0
+output-sha256 = "aefc8c942370d77eec15bb0530cbc91967e0c6b848aa38c39d61cab66157c445"
+tree-roots = ["src","test/qa","test-hidden","tools","Cargo.toml","Cargo.lock",".gitignore",".ratmac/lanes.toml"]
+tree-sha256 = "8b11e1b67b7029fefff70c0cb307eab32c4091686b0063a508d3a7c744758591"
+output = "\nrunning 4 tests\ntest webv_017 ... ok\ntest webv_018 ... ok\ntest webv_019 ... ok\ntest webv_020 ... ok\n\ntest result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 49.50s\n\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s\n     Running tests\\t119_single_root_resolution.rs (target\\debug\\deps\\t119_single_root_resolution-2d07aa9a5abfc1ff.exe)\n"

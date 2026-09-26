@@ -92,7 +92,7 @@ impl GitFixture {
             "fixture setup must start a primary Run: {}",
             combined(&start)
         );
-        let run = only_run(&primary);
+        let run = only_run(&primary.join(".ratmac"));
 
         Self {
             sandbox,
@@ -139,7 +139,7 @@ impl NonGitFixture {
             "fixture setup must start a non-Git Run: {}",
             combined(&start)
         );
-        let run = only_run(&root);
+        let run = only_run(&root.join(".ratmac"));
 
         Self { sandbox, root, run }
     }
@@ -193,8 +193,9 @@ fn git_success(root: &Path, args: &[&str]) {
     );
 }
 
-fn only_run(root: &Path) -> String {
-    let runs = ratmac::root::resolve(root).engine_root().join("runs");
+// WEB-005: the public resolver retired; the caller names the literal root.
+fn only_run(engine_root: &Path) -> String {
+    let runs = engine_root.join("runs");
     let mut ids = fs::read_dir(&runs)
         .expect("fixture Engine roster is listable")
         .map(|entry| entry.expect("fixture roster entry is readable"))
@@ -210,8 +211,9 @@ fn only_run(root: &Path) -> String {
     ids.pop().expect("one minted Run has an id")
 }
 
-fn spawned_child_run(root: &Path, parent: &str) -> String {
-    let runs = ratmac::root::resolve(root).engine_root().join("runs");
+// WEB-005: the public resolver retired; the caller names the literal root.
+fn spawned_child_run(engine_root: &Path, parent: &str) -> String {
+    let runs = engine_root.join("runs");
     let mut children = fs::read_dir(&runs)
         .expect("fixture Engine roster is listable")
         .map(|entry| entry.expect("fixture roster entry is readable"))
@@ -252,7 +254,7 @@ fn spawn_child(fixture: &GitFixture) -> String {
         "fixture setup must spawn a child Run: {}",
         combined(&spawn)
     );
-    spawned_child_run(&fixture.primary, &fixture.run)
+    spawned_child_run(&fixture.primary.join(".ratmac"), &fixture.run)
 }
 
 fn combined(output: &Output) -> String {
@@ -419,32 +421,30 @@ fn assert_path_doctor_reports_without_writing(
     );
 }
 
+// WEB-005: the expected root is the fixture's own literal, never resolved.
 fn assert_status_and_doctor_report_without_writing(
     fixture: &str,
     snapshot_root: &Path,
     invocation_root: &Path,
+    expected_root: &Path,
     run: &str,
 ) {
-    let expected_root = ratmac::root::resolve(invocation_root)
-        .engine_root()
-        .to_path_buf();
-
     let before_status = tree_snapshot(snapshot_root);
     let status = rtm_at(invocation_root, &["status", "--run", run]);
-    assert_human_reported_root("status", invocation_root, &expected_root, &status);
+    assert_human_reported_root("status", invocation_root, expected_root, &status);
     assert_eq!(
         tree_snapshot(snapshot_root),
         before_status,
         "ENS-010: `rtm status` must leave the {fixture} fixture byte-identical"
     );
 
-    assert_doctor_reports_without_writing(fixture, snapshot_root, invocation_root, &expected_root);
+    assert_doctor_reports_without_writing(fixture, snapshot_root, invocation_root, expected_root);
     assert_path_doctor_reports_without_writing(
         fixture,
         snapshot_root,
         invocation_root,
         &invocation_root.join(".ratmac/ratmac.toml"),
-        &expected_root,
+        expected_root,
     );
 }
 
@@ -458,22 +458,27 @@ fn status_and_doctor_report_the_actual_resolved_engine_root() {
     let unrelated = git.sandbox.join("unrelated");
     fs::create_dir_all(&unrelated).expect("create unrelated doctor invocation root");
 
-    assert_eq!(
-        ratmac::root::resolve(&git.linked).engine_root(),
-        ratmac::root::resolve(&git.primary).engine_root(),
-        "fixture setup must resolve the linked worktree to the primary Engine root"
+    // WEB-005 retired the resolver this check used; the linked checkout's
+    // shared runtime root is now carried by the literal primary Engine root
+    // every linked invocation below must report.
+    assert!(
+        git.primary.join(".ratmac/runs").join(&git.run).is_dir()
+            && !git.linked.join(".ratmac/runs").join(&git.run).exists(),
+        "fixture setup keeps the roster in the primary Engine root alone"
     );
 
     assert_status_and_doctor_report_without_writing(
         "primary Git checkout",
         &git.sandbox,
         &git.primary,
+        &git.primary.join(".ratmac"),
         &git.run,
     );
     assert_status_and_doctor_report_without_writing(
         "linked Git worktree",
         &git.sandbox,
         &git.linked,
+        &git.primary.join(".ratmac"),
         &git.run,
     );
     let child = spawn_child(&git);
@@ -481,18 +486,19 @@ fn status_and_doctor_report_the_actual_resolved_engine_root() {
         "linked Git worktree addressing a child Run",
         &git.sandbox,
         &git.linked,
+        &git.primary.join(".ratmac"),
         &child,
     );
     assert_status_and_doctor_report_without_writing(
         "non-Git checkout",
         &no_git.sandbox,
         &no_git.root,
+        &no_git.root.join(".ratmac"),
         &no_git.run,
     );
 
-    let primary_root = ratmac::root::resolve(&git.primary)
-        .engine_root()
-        .to_path_buf();
+    // WEB-005: the public resolver retired; the path is the fixture's own.
+    let primary_root = git.primary.join(".ratmac");
     assert_path_doctor_reports_without_writing(
         "primary Git checkout from an unrelated current directory",
         &git.sandbox,

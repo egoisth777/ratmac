@@ -1,0 +1,10 @@
+ticket-id = "t-119"
+check-id = "HT-119-05"
+kind = "hidden-lane"
+command = "cargo test --offline --locked --manifest-path test-hidden/t-119/Cargo.toml -- --test-threads=1"
+working-dir = "."
+exit-status = 0
+output-sha256 = "aa734befe1b2526ab94c53a40fdc5c2529338362f937f05e67603e306dd363e7"
+tree-roots = ["src","test/qa","test-hidden","tools","Cargo.toml","Cargo.lock",".gitignore",".ratmac/lanes.toml"]
+tree-sha256 = "8b11e1b67b7029fefff70c0cb307eab32c4091686b0063a508d3a7c744758591"
+output = "\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 6 tests\ntest ht_119_01 ... ok\ntest ht_119_02 ... ok\ntest ht_119_03 ... ok\ntest ht_119_04 ... ok\ntest ht_119_05 ... ok\ntest ht_119_06 ... ok\n\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 104.09s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s\n     Running unittests src\\lib.rs (test-hidden\\t-119\\target\\debug\\deps\\ratmac_t119_hidden-30d8b5360f3776eb.exe)\n     Running tests\\hidden.rs (test-hidden\\t-119\\target\\debug\\deps\\hidden-67d095c84d582a8c.exe)\n   Doc-tests ratmac_t119_hidden\n"

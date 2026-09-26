@@ -22,6 +22,8 @@ use std::path::{Path, PathBuf};
 
 use crate::machine::{GuardKind, MachineClass};
 
+pub use crate::root::entries::diagnose;
+
 /// How much a finding matters. Errors make a runbook unusable; warnings make
 /// it weaker than it looks.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -173,11 +175,10 @@ impl Diagnosis {
     }
 }
 
-/// Diagnose a runbook through the roots selected for its addressed project.
-pub fn diagnose(path: &Path) -> Vec<Finding> {
-    let project_root = crate::root::addressed_project_root(path);
-    let roots = crate::root::resolve(&project_root);
-    diagnose_with_roots(path, &roots).findings
+/// The findings for a runbook under its addressed project's roots; the
+/// path-taking `diagnose` lives in `src/root.rs`.
+pub(crate) fn diagnose_in(path: &Path, roots: &crate::root::Roots) -> Vec<Finding> {
+    diagnose_with_roots(path, roots).findings
 }
 
 /// Diagnose a runbook through roots already selected by the caller.
