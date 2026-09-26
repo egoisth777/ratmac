@@ -94,7 +94,7 @@ fn is_help(args: &[String]) -> bool {
 
 /// The roster line printed by every run-addressing refusal: the listing of
 /// the resolved `.ratmac/runs/`, read off artifacts.
-fn roster_line(project_root: &Path) -> Result<String, CliError> {
+fn roster_line(project_root: &Path) -> Result<Roster, CliError> {
     let roots = crate::root::resolve(project_root);
     Scheduler::refuse_flat_residue_with_roots(&roots)
         .map_err(|error| CliError::refusal(error.to_string()))?;
@@ -111,13 +111,26 @@ fn hard_error(command: &str, error: crate::state::StateError) -> CliError {
     ))
 }
 
+/// A rendered roster: the `runs: ...` summary a refusal's first line
+/// carries, and the descriptive rows (WRS-005) that follow that line.
+struct Roster {
+    line: String,
+    rows: String,
+}
+
 /// Render a roster whose Engine root has already been resolved and preflighted.
-fn roster_line_at(engine_root: &Path) -> String {
+fn roster_line_at(engine_root: &Path) -> Roster {
     let roster = Scheduler::run_roster_at(engine_root);
-    if roster.is_empty() {
-        "runs: none (.ratmac/runs/ lists no run; rtm start mints one)".to_owned()
-    } else {
-        format!("runs: {}", roster.join(", "))
+    Roster {
+        line: format!(
+            "runs: {}",
+            crate::roster::summary(
+                engine_root,
+                &roster,
+                "none (.ratmac/runs/ lists no run; rtm start mints one)"
+            )
+        ),
+        rows: crate::roster::rows(engine_root, &roster),
     }
 }
 
@@ -142,16 +155,20 @@ fn addressed_run_with_roots(
         match args[index].as_str() {
             "--run" => {
                 if run.is_some() {
+                    let roster = roster_line_at(roots.engine_root());
                     return Err(CliError::refusal(format!(
-                        "{command}: --run given twice; address exactly one run; {}\n{}",
-                        roster_line_at(roots.engine_root()),
+                        "{command}: --run given twice; address exactly one run; {}{}\n{}",
+                        roster.line,
+                        roster.rows,
                         crate::teach::addressing_next(roots.engine_root())
                     )));
                 }
                 let Some(value) = args.get(index + 1) else {
+                    let roster = roster_line_at(roots.engine_root());
                     return Err(CliError::refusal(format!(
-                        "{command}: --run needs a run id; {}\n{}",
-                        roster_line_at(roots.engine_root()),
+                        "{command}: --run needs a run id; {}{}\n{}",
+                        roster.line,
+                        roster.rows,
                         crate::teach::addressing_next(roots.engine_root())
                     )));
                 };
@@ -167,9 +184,11 @@ fn addressed_run_with_roots(
         }
     }
     let Some(id) = run.filter(|id| !id.is_empty()) else {
+        let roster = roster_line_at(roots.engine_root());
         return Err(CliError::refusal(format!(
-            "{command}: run addressing is always required — pass --run <id>; {}\n{}",
-            roster_line_at(roots.engine_root()),
+            "{command}: run addressing is always required — pass --run <id>; {}{}\n{}",
+            roster.line,
+            roster.rows,
             crate::teach::addressing_next(roots.engine_root())
         )));
     };
@@ -360,9 +379,10 @@ fn hold<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Resul
                     .filter(|value| !value.starts_with("--"))
                     .cloned()
                 else {
+                    let roster = roster_line(project_root)?;
                     return Err(CliError::refusal(format!(
-                        "hold: --run needs a run id; {}",
-                        roster_line(project_root)?
+                        "hold: --run needs a run id; {}{}",
+                        roster.line, roster.rows
                     )));
                 };
                 run = Some(value);
@@ -486,9 +506,10 @@ fn spawn<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Resu
                     .filter(|value| !value.starts_with("--"))
                     .cloned()
                 else {
+                    let roster = roster_line(project_root)?;
                     return Err(CliError::refusal(format!(
-                        "spawn: --run needs a run id; {}",
-                        roster_line(project_root)?
+                        "spawn: --run needs a run id; {}{}",
+                        roster.line, roster.rows
                     )));
                 };
                 run = Some(value);
@@ -511,9 +532,10 @@ fn spawn<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Resu
         )
     })?;
     let Some(run) = run else {
+        let roster = roster_line(project_root)?;
         return Err(CliError::refusal(format!(
-            "spawn requires --run <parent id>; {}",
-            roster_line(project_root)?
+            "spawn requires --run <parent id>; {}{}",
+            roster.line, roster.rows
         )));
     };
     let child = Scheduler::spawn_to_with_workspace(
@@ -545,9 +567,10 @@ fn respawn<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Re
                     .filter(|value| !value.starts_with("--"))
                     .cloned()
                 else {
+                    let roster = roster_line(project_root)?;
                     return Err(CliError::refusal(format!(
-                        "respawn: --run needs a run id; {}",
-                        roster_line(project_root)?
+                        "respawn: --run needs a run id; {}{}",
+                        roster.line, roster.rows
                     )));
                 };
                 run = Some(value);
@@ -598,17 +621,21 @@ fn abandon<W: Write>(args: &[String], project_root: &Path, writer: &mut W) -> Re
             else {
                 // WRS-007: a missing or blank address teaches the addressed
                 // usage and chooses no roster entry for the caller.
+                let roster = roster_line(project_root)?;
                 return Err(CliError::refusal(format!(
-                    "abandon: --run needs a run id; {}; a Run is retired only by its own phrase: {}",
-                    roster_line(project_root)?,
-                    crate::abandon::ADDRESSED_USAGE
+                    "abandon: --run needs a run id; {}; a Run is retired only by its own phrase: {}{}",
+                    roster.line,
+                    crate::abandon::ADDRESSED_USAGE,
+                    roster.rows
                 )));
             };
             if run.is_some() {
+                let roster = roster_line(project_root)?;
                 return Err(CliError::refusal(format!(
-                    "abandon: --run given twice; address exactly one run; {}; a Run is retired only by its own phrase: {}",
-                    roster_line(project_root)?,
-                    crate::abandon::ADDRESSED_USAGE
+                    "abandon: --run given twice; address exactly one run; {}; a Run is retired only by its own phrase: {}{}",
+                    roster.line,
+                    crate::abandon::ADDRESSED_USAGE,
+                    roster.rows
                 )));
             }
             run = Some(value);
@@ -903,6 +930,7 @@ fn environment_report<W: Write>(
              address it afterwards with --run <id>."
         )?;
     } else {
+        let records = crate::roster::Records::read(engine_root, &roster);
         for id in roster {
             let state_path = runs_dir.join(&id).join("run.toml");
             let shown = format!(".ratmac/runs/{id}/run.toml");
@@ -924,7 +952,16 @@ fn environment_report<W: Write>(
                     }
                 }
             } else {
-                writeln!(writer, "Run Record: {shown} (absent — run {id} is retired)")?;
+                let absence = match records.retirement(&id) {
+                    crate::roster::Retirement::Recorded => format!("run {id} is retired"),
+                    crate::roster::Retirement::NotRecorded => {
+                        format!("no retirement is recorded for run {id}")
+                    }
+                    crate::roster::Retirement::Unknown(reason) => {
+                        format!("retirement unknown: {reason}")
+                    }
+                };
+                writeln!(writer, "Run Record: {shown} (absent \u{2014} {absence})")?;
             }
         }
     }

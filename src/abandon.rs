@@ -115,9 +115,18 @@ impl Target {
     }
 }
 
-fn requires_address(roster_line: &str) -> AbandonRefusal {
+/// The roster summary after `runs: ` and its descriptive rows (WRS-005).
+fn roster_text(engine_root: &Path, roster: &[String]) -> (String, String) {
+    (
+        crate::roster::summary(engine_root, roster, "none"),
+        crate::roster::rows(engine_root, roster),
+    )
+}
+
+fn requires_address(engine_root: &Path, roster: &[String]) -> AbandonRefusal {
+    let (roster_line, rows) = roster_text(engine_root, roster);
     refusal(format!(
-        "abandon requires --run <id>; runs: {roster_line}; a Run is retired only by its own phrase: {ADDRESSED_USAGE}"
+        "abandon requires --run <id>; runs: {roster_line}; a Run is retired only by its own phrase: {ADDRESSED_USAGE}{rows}"
     ))
 }
 
@@ -138,20 +147,23 @@ pub fn resolve_target(root: &Path, run: Option<&str>) -> Result<Target, AbandonR
     }
     let engine_root = crate::root::resolve(root).engine_root().to_path_buf();
     let roster = run_roster_at(&engine_root)?;
-    let roster_line = if roster.is_empty() {
-        "none".to_owned()
-    } else {
-        roster.join(", ")
-    };
     match address {
-        Some("") => Err(refusal(format!(
-            "abandon: --run needs a run id; runs: {roster_line}; a Run is retired only by its own phrase: {ADDRESSED_USAGE}"
-        ))),
+        Some("") => {
+            let (roster_line, rows) = roster_text(&engine_root, &roster);
+            Err(refusal(format!(
+                "abandon: --run needs a run id; runs: {roster_line}; a Run is retired only by its own phrase: {ADDRESSED_USAGE}{rows}"
+            )))
+        }
         Some(id) if roster.iter().any(|entry| entry == id) => Ok(Target::Run(id.to_owned())),
-        Some(id) => Err(refusal(format!(
-            "abandon names no run: {id:?} is not on the roster; runs: {roster_line}; a Run is retired only by its own phrase: {ADDRESSED_USAGE}"
-        ))),
-        None if roster.iter().any(|id| admitted(root, id)) => Err(requires_address(&roster_line)),
+        Some(id) => {
+            let (roster_line, rows) = roster_text(&engine_root, &roster);
+            Err(refusal(format!(
+                "abandon names no run: {id:?} is not on the roster; runs: {roster_line}; a Run is retired only by its own phrase: {ADDRESSED_USAGE}{rows}"
+            )))
+        }
+        None if roster.iter().any(|id| admitted(root, id)) => {
+            Err(requires_address(&engine_root, &roster))
+        }
         // Only a true leftover-lock path teaches the project phrase: with no
         // admitted Run and no leftover root lock there is nothing to retire,
         // so the refusal teaches no phrase at all.
@@ -240,11 +252,6 @@ pub fn plan_abandon(root: &Path, request: &AbandonRequest) -> Result<AbandonPlan
     // FDC-004: abandon acts on an existing Run through `--run <id>`.
     let engine_root = crate::root::resolve(root).engine_root().to_path_buf();
     let roster = run_roster_at(&engine_root)?;
-    let roster_line = if roster.is_empty() {
-        "none".to_owned()
-    } else {
-        roster.join(", ")
-    };
     let live: Vec<&String> = roster
         .iter()
         .filter(|id| {
@@ -262,14 +269,15 @@ pub fn plan_abandon(root: &Path, request: &AbandonRequest) -> Result<AbandonPlan
     {
         Some(id) => {
             if !roster.iter().any(|entry| entry == id) {
+                let (roster_line, rows) = roster_text(&engine_root, &roster);
                 return Err(refusal(format!(
-                    "abandon names no run: {id:?} is not on the roster; runs: {roster_line}"
+                    "abandon names no run: {id:?} is not on the roster; runs: {roster_line}{rows}"
                 )));
             }
             Some(id.to_owned())
         }
         None if !live.is_empty() => {
-            return Err(requires_address(&roster_line));
+            return Err(requires_address(&engine_root, &roster));
         }
         None => None,
     };

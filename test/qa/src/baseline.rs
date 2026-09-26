@@ -79,6 +79,68 @@ pub fn canonical(text: &str) -> String {
         .collect()
 }
 
+/// t-117 / WRS-005: every refusal that prints the roster summary gained one
+/// descriptive row per entry after that line. They are new rows owned and
+/// proven by t117_descriptive_run_roster.rs, not a rewording of a freeze
+/// line, so a report comparison sets exactly these rows aside on today's side,
+/// from the raw report before any vocabulary is erased: lines shaped like a
+/// roster row - two spaces, a plain or quoted entry name, then `: ` - in the
+/// unbroken run directly after a refusal line (`rtm: ` first) that carries
+/// the `; runs: ` summary. The summary line itself is still compared, the
+/// freeze side is compared whole, and file bodies and assertions never pass
+/// through here.
+fn set_aside_roster_rows(report: &str) -> String {
+    let mut after_summary = false;
+    report
+        .lines()
+        .filter(|line| {
+            let row = after_summary && is_roster_row(line);
+            after_summary = row || (line.starts_with("rtm: ") && line.contains("; runs: "));
+            !row
+        })
+        .map(|line| format!("{line}\n"))
+        .collect()
+}
+
+/// Today's report as the comparison reads it: the WRS-005 rows set aside from
+/// the raw text, then the vocabulary erased.
+fn today_report(report: &str) -> String {
+    canonical(&set_aside_roster_rows(report))
+}
+
+/// Two spaces, then a plain entry name (ASCII letters, digits, `.`, `_`,
+/// `-`) or a Rust-debug-quoted one, then `: `.
+fn is_roster_row(line: &str) -> bool {
+    let Some(rest) = line.strip_prefix("  ") else {
+        return false;
+    };
+    let name_end = if let Some(quoted) = rest.strip_prefix('"') {
+        let mut escaped = false;
+        let mut end = None;
+        for (index, character) in quoted.char_indices() {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == '"' {
+                // Past the opening quote, the name, and the closing quote.
+                end = Some(index + 2);
+                break;
+            }
+        }
+        match end {
+            Some(end) => end,
+            None => return false,
+        }
+    } else {
+        rest.find(|character: char| {
+            !(character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-'))
+        })
+        .unwrap_or(rest.len())
+    };
+    name_end > 0 && rest[name_end..].starts_with(": ")
+}
+
 /// The repository this harness was compiled from.
 pub fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -829,7 +891,7 @@ impl Pair {
                 scenario.name, before.code, after.code
             ));
         }
-        let (expected, seen) = (canonical(&before.text), canonical(&after.text));
+        let (expected, seen) = (canonical(&before.text), today_report(&after.text));
         if expected != seen {
             differences.push(format!(
                 "`{}`: the report changed by more than its words\n--- freeze, vocabulary erased ---\n{expected}--- today, vocabulary erased ---\n{seen}",
@@ -1154,5 +1216,71 @@ mod supersession_audit {
             "{}",
             differences[0]
         );
+    }
+}
+
+#[cfg(test)]
+mod roster_rows {
+    use super::*;
+
+    const SUMMARY: &str = "rtm: status: --run given twice; address exactly one run; runs: run-001";
+
+    /// The WRS-005 rows after a refusal's summary go; the summary and the
+    /// `next:` line after the rows stay.
+    #[test]
+    fn rows_after_the_summary_are_set_aside_and_nothing_else() {
+        let report = "rtm: status: --run given twice; address exactly one run; runs: run-001, \"odd name\"\n  \
+             run-001: top-level; state intake; status planned\n  \
+             \"odd name\": Run Record missing (x)\n\
+             next: rtm status --run run-001\n";
+        assert_eq!(
+            set_aside_roster_rows(report),
+            "rtm: status: --run given twice; address exactly one run; runs: run-001, \"odd name\"\n\
+             next: rtm status --run run-001\n"
+        );
+    }
+
+    /// Indented text that is not row-shaped, a row-shaped line that does not
+    /// directly follow a refusal's summary or another row, and row-shaped
+    /// text under an ordinary `runs: ` line are all still compared.
+    #[test]
+    fn unrelated_indented_text_stays_detectable() {
+        for kept in [
+            format!("{SUMMARY}\n  unrelated = changed\n"),
+            format!("{SUMMARY}\n  : no name\n"),
+            format!("{SUMMARY}\n  \"unclosed: quote\n"),
+            format!("{SUMMARY}\n  run 001: space in name\n"),
+            format!("{SUMMARY}\nnext: rtm start\n  run-001: after another line\n"),
+            "no summary here\n  run-001: top-level\n".to_owned(),
+            "Known runs: list\n  note: keep evidence\n".to_owned(),
+            "rtm: runs: run-001\n  run-001: no summary separator\n".to_owned(),
+        ] {
+            assert_eq!(set_aside_roster_rows(&kept), kept, "{kept:?}");
+        }
+        // A change in such a line still reads as a difference.
+        assert_ne!(
+            today_report(&format!("{SUMMARY}\n  unrelated = before\n")),
+            today_report(&format!("{SUMMARY}\n  unrelated = after\n"))
+        );
+        // Identical row-shaped prompt text on both sides compares equal.
+        let prompt = "Known runs: list\n  note: keep evidence\n";
+        assert_eq!(canonical(prompt), today_report(prompt));
+    }
+
+    /// A roster name the vocabulary would rewrite is still recognized: rows
+    /// are set aside from the raw report, before the words are erased.
+    #[test]
+    fn a_row_named_by_a_vocabulary_word_is_set_aside() {
+        let freeze = "rtm: status: run id \"x\" is not an exact roster member; runs: state\n";
+        let today = format!("{freeze}  state: not a canonical run address; not addressable\n");
+        assert_eq!(today_report(&today), canonical(freeze));
+    }
+
+    /// File bodies and assertions go through `canonical` alone, which sets
+    /// no roster row aside.
+    #[test]
+    fn file_bodies_keep_every_line() {
+        let body = format!("{SUMMARY}\n  run-001: changed\n  unrelated = changed\n");
+        assert_eq!(canonical(&body), body);
     }
 }

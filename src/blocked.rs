@@ -196,14 +196,12 @@ pub fn plan_hold(root: &Path, request: &HoldRequest) -> Result<HoldPlan, HoldRef
     // the recorded runbook pin are checked before this plan can permit a
     // mutation.
     let roster = crate::Scheduler::run_roster(root).map_err(|error| refusal(error.to_string()))?;
-    let roster_line = if roster.is_empty() {
-        "none".to_owned()
-    } else {
-        roster.join(", ")
-    };
     let Some(run_id) = request.run.as_deref().filter(|id| !id.is_empty()) else {
+        let engine_root = crate::root::resolve(root).engine_root().to_path_buf();
         return Err(refusal(format!(
-            "hold requires --run <id>; runs: {roster_line}"
+            "hold requires --run <id>; runs: {}{}",
+            crate::roster::summary(&engine_root, &roster, "none"),
+            crate::roster::rows(&engine_root, &roster)
         )));
     };
 

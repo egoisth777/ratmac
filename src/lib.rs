@@ -20,6 +20,7 @@ pub mod pin;
 pub mod receipt;
 pub mod root;
 pub mod roots;
+mod roster;
 pub mod scaffold;
 pub mod scheduler;
 pub mod skill;

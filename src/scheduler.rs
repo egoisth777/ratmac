@@ -1006,20 +1006,18 @@ impl Scheduler {
         run_id: &str,
     ) -> Result<(), StateError> {
         let roster = Self::run_roster_at(engine_root);
-        let roster_line = if roster.is_empty() {
-            "none".to_owned()
-        } else {
-            roster.join(", ")
+        let refusal = |reason: &str| {
+            StateError::new(format!(
+                "run id {run_id:?} {reason}; runs: {}{}",
+                crate::roster::summary(engine_root, &roster, "none"),
+                crate::roster::rows(engine_root, &roster)
+            ))
         };
         if Self::canonical_run_ordinal(run_id).is_none() {
-            return Err(StateError::new(format!(
-                "run id {run_id:?} is not one canonical minted path segment; runs: {roster_line}"
-            )));
+            return Err(refusal("is not one canonical minted path segment"));
         }
         if !roster.iter().any(|entry| entry == run_id) {
-            return Err(StateError::new(format!(
-                "run id {run_id:?} is not an exact roster member; runs: {roster_line}"
-            )));
+            return Err(refusal("is not an exact roster member"));
         }
         Ok(())
     }
@@ -1034,6 +1032,11 @@ impl Scheduler {
             return None;
         }
         Some(ordinal)
+    }
+
+    /// Whether `run_id` is exactly the canonical spelling `start` mints.
+    pub(crate) fn is_canonical_run_id(run_id: &str) -> bool {
+        Self::canonical_run_ordinal(run_id).is_some()
     }
 
     /// Render the Engine root selected when this Scheduler was opened.
@@ -2048,10 +2051,12 @@ the ledger {} and minted child {} were left in place; inspect both paths before 
         let engine_root = roots.engine_root().to_path_buf();
         Self::refuse_flat_residue_at(&root, &engine_root)?;
         let roster = Self::run_roster_at(&engine_root);
-        let roster_line = if roster.is_empty() {
-            "none".to_owned()
-        } else {
-            roster.join(", ")
+        let roster_line = || {
+            format!(
+                "{}{}",
+                crate::roster::summary(&engine_root, &roster, "none"),
+                crate::roster::rows(&engine_root, &roster)
+            )
         };
         let superseded = match request
             .run
@@ -2062,7 +2067,8 @@ the ledger {} and minted child {} were left in place; inspect both paths before 
             Some(id) => id.to_owned(),
             None => {
                 return Err(StateError::new(format!(
-                    "respawn requires --run <id>; runs: {roster_line}"
+                    "respawn requires --run <id>; runs: {}",
+                    roster_line()
                 )))
             }
         };
@@ -2082,7 +2088,8 @@ the ledger {} and minted child {} were left in place; inspect both paths before 
         }
         if !roster.iter().any(|entry| entry == &superseded) {
             return Err(StateError::new(format!(
-                "respawn names no run: {superseded:?} is not on the roster; runs: {roster_line}"
+                "respawn names no run: {superseded:?} is not on the roster; runs: {}",
+                roster_line()
             )));
         }
         let superseded_run_dir = Self::runs_dir_at(&engine_root).join(&superseded);

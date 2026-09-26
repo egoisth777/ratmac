@@ -1,0 +1,10 @@
+ticket-id = "t-117"
+check-id = "WRSV-005-03"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test t117_descriptive_run_roster -- --test-threads=1"
+working-dir = "."
+exit-status = 0
+output-sha256 = "3cd72deb534a04b2c1c955c759a2b3231f1e6be8048fb7b9a2f79d24c1dcf011"
+tree-roots = ["src","test/qa","test-hidden","tools","Cargo.toml","Cargo.lock",".gitignore",".ratmac/lanes.toml"]
+tree-sha256 = "489148749941a273259b07293de934cc8a6e5db230144bd82474bbbc9503693b"
+output = "\nrunning 4 tests\ntest wrsv_005_01 ... ok\ntest wrsv_005_02 ... ok\ntest wrsv_005_03 ... ok\ntest wrsv_005_04 ... ok\n\ntest result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.16s\n\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t117_descriptive_run_roster.rs (target\\debug\\deps\\t117_descriptive_run_roster-cfed1dcfd6045cb1.exe)\n"
