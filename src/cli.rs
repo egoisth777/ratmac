@@ -2,6 +2,7 @@ use std::fmt;
 use std::io::{self, Write};
 use std::path::Path;
 
+use crate::root::Displayed;
 use crate::{Scheduler, StepOutcome, StepRequest};
 
 pub use crate::root::entries::run_from;
@@ -52,6 +53,9 @@ impl From<io::Error> for CliError {
 /// Render the policy-bearing help text for a supported command.
 pub fn help(command: impl AsRef<str>) -> &'static str {
     match command.as_ref() {
+        "init" => {
+            "Usage: rtm init\n\nInstall the Engine-root tracking policy before any Run is admitted: .ratmac/.gitignore carries the four runtime lines /runs/, /mint.toml, /locks/, and /log.md, each exactly once, while the runbook and evidence/ stay trackable. Existing bytes are preserved; a conflicting effective rule, a runtime file already in Git's index, or a failed repository inspection refuses and changes nothing. Idempotent and concurrency-safe: repeating it writes nothing, and no Run, runbook, commit, or configuration is created. rtm start runs the same policy step before admitting a Run.\n"
+        }
         "start" => {
             "Usage: rtm start\n\nA human may invoke rtm start directly. The Main-Agent may invoke it only after explicit human Run-start sign-off for the current target project. A Subagent never invokes any rtm command and only reads state.\n"
         }
@@ -89,8 +93,9 @@ pub fn help(command: impl AsRef<str>) -> &'static str {
 /// The one public route table (WEB-004): the verbs the general usage's
 /// `Commands:` line lists are exactly the commands `rtm` dispatches, and a
 /// verb added to dispatch is added here.
-const COMMANDS: [&str; 10] = [
-    "start", "status", "step", "hold", "abandon", "spawn", "respawn", "doctor", "scaffold", "skill",
+const COMMANDS: [&str; 11] = [
+    "init", "start", "status", "step", "hold", "abandon", "spawn", "respawn", "doctor", "scaffold",
+    "skill",
 ];
 
 /// The general usage, rendered from the route table so the table stays its
@@ -309,6 +314,7 @@ where
     }
 
     match command.as_str() {
+        "init" => init(command_args, &roots, writer),
         "doctor" => doctor(command_args, invocation, writer),
         "status" => {
             status(command_args, &roots, writer)?;
@@ -357,6 +363,49 @@ fn sole_workspace(args: &[String]) -> Option<&str> {
         index += 1;
     }
     workspace
+}
+
+/// WEB-002 (t-121): install the Engine-root tracking policy, the same step
+/// `Scheduler::start` runs before admitting a Run. The three stdout lines
+/// carry the install fact, the verification fact, and the next legitimate
+/// action; no runbook, Run, or Git state is created.
+fn init<W: Write>(
+    args: &[String],
+    roots: &crate::root::Roots,
+    writer: &mut W,
+) -> Result<i32, CliError> {
+    if !args.is_empty() {
+        return Err(CliError::refusal("init accepts no arguments"));
+    }
+    let outcome =
+        crate::ignore_policy::install(roots.invoking_checkout_root(), roots.engine_root())
+            .map_err(|refusal| CliError::new(format!("init: {refusal}")))?;
+    let policy = crate::ignore_policy::policy_path(roots.engine_root()).displayed();
+    let installed = if outcome.installed {
+        format!("rtm: installed the Engine-root tracking policy at {policy}")
+    } else {
+        format!("rtm: Engine-root tracking policy already present at {policy}")
+    };
+    let verified = if outcome.verified {
+        "rtm: verified: runs/, mint.toml, locks/, and log.md ignored; .gitignore, ratmac.toml, \
+         and evidence/ trackable"
+    } else {
+        "rtm: repository-level ignore rules were not verified: Git is absent or the directory \
+         is not inside a Git repository"
+    };
+    writeln!(writer, "{installed}")?;
+    writeln!(writer, "{verified}")?;
+    // WEBV-014: the runbook existence check that picks the `next:` line is
+    // a target operation.
+    crate::observe::operation("target");
+    let next = if crate::root::checkout_machine_class_path(roots.invoking_checkout_root()).exists()
+    {
+        "next: rtm start"
+    } else {
+        "next: rtm scaffold .ratmac/ratmac.toml"
+    };
+    writeln!(writer, "{next}")?;
+    Ok(0)
 }
 
 /// AAL-003/LGS-001: mint the project's next Run from the invoking checkout.

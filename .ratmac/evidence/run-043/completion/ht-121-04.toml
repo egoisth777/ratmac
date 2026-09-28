@@ -1,0 +1,10 @@
+ticket-id = "t-121"
+check-id = "HT-121-04"
+kind = "hidden-lane"
+command = "cargo test --offline --locked --manifest-path test-hidden/t-121/Cargo.toml -- --test-threads=1"
+working-dir = "."
+exit-status = 0
+output-sha256 = "3e37cf7fffb56370506c0991a679e8ff214ec3b04c38af6967358ff4737a5652"
+tree-roots = ["src","test/qa","test-hidden","tools","Cargo.toml","Cargo.lock",".gitignore",".ratmac/lanes.toml"]
+tree-sha256 = "b765d7f52bf47d4e6b705b25bd65dc378795805251f3e9682a341e1042502bfd"
+output = "\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 7 tests\ntest ht121_library_child ... ok\ntest ht_121_01 ... ok\ntest ht_121_02 ... ok\ntest ht_121_03 ... ok\ntest ht_121_04 ... ok\ntest ht_121_05 ... ok\ntest ht_121_06 ... ok\n\ntest result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 34.14s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n   Compiling ratmac-t121-hidden v0.1.0 (E:\\repos\\projs\\skill-dev\\ratmac-t-121\\test-hidden\\t-121)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.65s\n     Running unittests src\\lib.rs (test-hidden\\t-121\\target\\debug\\deps\\ratmac_t121_hidden-3e8a92464ae59a0c.exe)\n     Running tests\\hidden.rs (test-hidden\\t-121\\target\\debug\\deps\\hidden-9cd756e7f3af1b7c.exe)\n   Doc-tests ratmac_t121_hidden\n"

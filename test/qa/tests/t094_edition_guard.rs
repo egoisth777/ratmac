@@ -57,7 +57,11 @@ impl Fixture {
         fixture.git(&["config", "user.name", "Fixture"]);
         fixture.git(&["config", "core.autocrlf", "false"]);
         // The Engine's runtime is never a tracked file.
-        fs::write(fixture.root.join(".gitignore"), ".ratmac/\n").expect("write fixture ignores");
+        fs::write(
+            fixture.root.join(".gitignore"),
+            ".ratmac/runs/\n.ratmac/mint.toml\n.ratmac/locks/\n.ratmac/log.md\n",
+        )
+        .expect("write fixture ignores");
         fixture.commit("fixture base");
         fixture
     }

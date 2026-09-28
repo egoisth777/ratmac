@@ -577,7 +577,7 @@ fn git_common_dir(directory: &Path) -> Option<PathBuf> {
     common_dir.is_absolute().then(|| canonical(&common_dir))
 }
 
-fn git_command(invoking_checkout_root: &Path) -> Command {
+pub(crate) fn git_command(invoking_checkout_root: &Path) -> Command {
     let mut command = Command::new("git");
     command
         .current_dir(invoking_checkout_root)

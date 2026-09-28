@@ -19,6 +19,16 @@ use std::sync::LazyLock;
 /// The commit the goal bundle was frozen at, before the first rename landed.
 pub const FREEZE_COMMIT: &str = "4f78de5";
 
+/// t-121 / WEB-002: the fresh policy bytes `rtm init` installs at
+/// `.ratmac/.gitignore` under the Engine root - the four runtime lines,
+/// LF-terminated, exactly as the ticket's Observable Output defines them
+/// (copied from the contract, never from `src/`).
+pub const INIT_POLICY_FRESH_BYTES: &str = "/runs/
+/mint.toml
+/locks/
+/log.md
+";
+
 /// The words the cutover changed, longest first so a longer phrase is
 /// erased before any word inside it.
 ///
@@ -396,8 +406,12 @@ pub fn normalize(text: &str, root: &Path, engine: &Path) -> String {
         // AOP-003 (t-104): the `skill` verb joined the usage roster after the
         // freeze; a verb the freeze never had is a new surface, not a
         // rewording, so exactly that entry is set aside on the roster line.
+        // t-121 / WEB-002: the `init` verb is set aside the same way.
         if let Some(verbs) = line.strip_prefix("Commands: ") {
-            let kept: Vec<&str> = verbs.split(", ").filter(|verb| *verb != "skill").collect();
+            let kept: Vec<&str> = verbs
+                .split(", ")
+                .filter(|verb| *verb != "skill" && *verb != "init")
+                .collect();
             cleaned.push_str("Commands: ");
             cleaned.push_str(&mask_hex(&kept.join(", ")));
             cleaned.push('\n');
@@ -972,6 +986,14 @@ impl Pair {
         }
         for path in after.keys() {
             if !before.contains_key(path) {
+                // t-121 / WEB-002: `rtm init` now installs the Engine-root
+                // tracking policy the freeze Engine never had. Exactly the
+                // ticket's fresh policy bytes in exactly that file are set
+                // aside - a new surface, not a rewording; any other bytes in
+                // that file, or any other new file, stay a difference.
+                if fresh_policy_set_aside(path, after.get(path).map(String::as_str)) {
+                    continue;
+                }
                 differences.push(format!(
                     "today's Engine wrote `{path}`, which the freeze never wrote"
                 ));
@@ -991,6 +1013,14 @@ impl Pair {
             .map(|(path, body)| (canonical(path), canonical(&normalize(body, root, engine))))
             .collect()
     }
+}
+
+/// t-121 / WEB-002: whether one new tree entry is exactly the fresh policy
+/// file `rtm init` installs at `.ratmac/.gitignore` - the four runtime
+/// lines, LF-terminated, and nothing else. The comparison key arrives
+/// newline-tipped, like every canonical line.
+fn fresh_policy_set_aside(path: &str, body: Option<&str>) -> bool {
+    path.trim_end_matches('\n') == ".ratmac/.gitignore" && body == Some(INIT_POLICY_FRESH_BYTES)
 }
 
 /// Write one project, in the freeze's words or today's.

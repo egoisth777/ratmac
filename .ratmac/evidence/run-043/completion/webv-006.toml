@@ -1,0 +1,10 @@
+ticket-id = "t-121"
+check-id = "WEBV-006"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test t121_engine_ignore_initialization -- --test-threads=1"
+working-dir = "."
+exit-status = 0
+output-sha256 = "5a16a0489aad760d2c3b67adfc525fbd62202a65872c58fb09799538fec66045"
+tree-roots = ["src","test/qa","test-hidden","tools","Cargo.toml","Cargo.lock",".gitignore",".ratmac/lanes.toml"]
+tree-sha256 = "b765d7f52bf47d4e6b705b25bd65dc378795805251f3e9682a341e1042502bfd"
+output = "\nrunning 4 tests\ntest webv_005 ... ok\ntest webv_006 ... ok\ntest webv_007 ... ok\ntest webv_008 ... ok\n\ntest result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 26.91s\n\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s\n     Running tests\\t121_engine_ignore_initialization.rs (target\\debug\\deps\\t121_engine_ignore_initialization-50d33e80a89e033f.exe)\n"

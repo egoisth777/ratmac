@@ -72,7 +72,10 @@ impl Cycle {
         }
         let cycle = Self { root };
         cycle.write(".ratmac/ratmac.toml", &shipped_runbook());
-        cycle.write(".gitignore", ".ratmac/\n");
+        cycle.write(
+            ".gitignore",
+            ".ratmac/runs/\n.ratmac/mint.toml\n.ratmac/locks/\n.ratmac/log.md\n",
+        );
         cycle.write("src/lib.rs", "pub fn work() {}\n");
         cycle.write("test/fixture_test.rs", "fn the_planned_test() {}\n");
         cycle.write(

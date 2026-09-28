@@ -1447,31 +1447,68 @@ impl Scheduler {
         } else {
             Status::Passed
         };
+        // WEB-002 (t-121): the same policy step `rtm init` runs, after the
+        // runbook parse, the initial State, and the goal baseline succeed,
+        // but before the root lock or any runtime write - so no Run can be
+        // admitted over unprotected runtime through the library path
+        // either. A later start refusal rolls the step's bytes back
+        // exactly; a success keeps them and prints nothing about them.
+        let policy = crate::ignore_policy::install(&root, &engine_root)
+            .map_err(|refusal| StateError::new(refusal.to_string()))?;
+        match self.admit_run(
+            &root,
+            &engine_root,
+            snapshot,
+            state,
+            initial_status,
+            &goal_baseline,
+        ) {
+            Ok(run) => Ok(run),
+            Err(error) => {
+                policy.rollback.rollback();
+                Err(error)
+            }
+        }
+    }
+
+    /// The post-policy half of `start`: identity, the root lock, the
+    /// residue recheck, the runbook pin verification, and minting. Split
+    /// from `start` so a refusal anywhere after the policy step can roll
+    /// that step's bytes back.
+    fn admit_run(
+        &mut self,
+        root: &Path,
+        engine_root: &Path,
+        snapshot: RunbookSnapshot,
+        state: State,
+        initial_status: Status,
+        goal_baseline: &Option<String>,
+    ) -> Result<Run, StateError> {
         let engine_identity = crate::pin::engine_identity();
-        let root_lock = RootLock::acquire(&engine_root)?;
+        let root_lock = RootLock::acquire(engine_root)?;
         // Recheck this inexpensive existence fact after the final mutation
         // lock, before minting changes the roster.
-        Self::refuse_flat_residue_at(&root, &engine_root)?;
+        Self::refuse_flat_residue_at(root, engine_root)?;
         // FDC-006/ENS-004: no active-Run cap. Every allocation advances the
         // durable high-water record while this root lock is held, then creates
         // an independently addressed member of .ratmac/runs/.
-        Self::verify_runbook_snapshot(&snapshot, &root, None)?;
+        Self::verify_runbook_snapshot(&snapshot, root, None)?;
         let minted = Self::mint_run(
             &root_lock,
-            &engine_root,
+            engine_root,
             state.as_str(),
             initial_status,
             snapshot.pin(),
-            &goal_baseline,
+            goal_baseline,
             &engine_identity,
         )?;
         let run_id = minted.id.clone();
-        let store = StateStore::for_engine_root(&engine_root, &run_id);
+        let store = StateStore::for_engine_root(engine_root, &run_id);
         self.runbook_snapshot = Some(snapshot);
         self.store = Some(store);
         self.run_id = Some(run_id.clone());
         self.child_class = None;
-        Ok(Run::new(state, initial_status).with_artifacts(&engine_root, &run_id))
+        Ok(Run::new(state, initial_status).with_artifacts(engine_root, &run_id))
     }
 
     /// Reserve the next durable id, then create its directory, Run Record,

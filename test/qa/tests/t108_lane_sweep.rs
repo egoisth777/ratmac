@@ -896,8 +896,11 @@ fn the_close_guard_refuses_only_a_red_unexpired_verdict() {
     fs::create_dir_all(close.root.join(".arca/goal")).expect("create fixture goal");
     fs::write(close.root.join(".arca/goal/spec.md"), "# Fixture goal\n")
         .expect("write fixture goal");
-    fs::write(close.root.join(".gitignore"), ".ratmac/\ntest-hidden/\n")
-        .expect("the Engine's runtime is never tracked");
+    fs::write(
+        close.root.join(".gitignore"),
+        ".ratmac/runs/\n.ratmac/mint.toml\n.ratmac/locks/\n.ratmac/log.md\ntest-hidden/\n",
+    )
+    .expect("the Engine's runtime is never tracked");
     fs::write(close.root.join(".ratmac/ratmac.toml"), CLOSE_RUNBOOK)
         .expect("write fixture Machine Class");
     assert!(git_in(&close.root, &["init", "--quiet"]).status.success());

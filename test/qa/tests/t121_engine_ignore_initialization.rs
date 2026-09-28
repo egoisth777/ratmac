@@ -1104,6 +1104,7 @@ fn webv_007() {
         let primary = tree.join("primary");
         let linked = tree.join("linked");
         fs::create_dir_all(primary.join(".ratmac")).expect("create the runbook directory");
+        fs::create_dir_all(primary.join("work")).expect("create the work directory");
         fs::write(primary.join(".ratmac/ratmac.toml"), RUNBOOK).expect("write the runbook");
         fs::write(primary.join("work/item.md"), "Contributor-owned bytes.\n")
             .expect("write the work leaf");

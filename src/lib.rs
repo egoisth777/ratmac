@@ -10,6 +10,7 @@ pub mod declaration;
 pub mod doctor;
 pub mod goal;
 pub mod graph;
+mod ignore_policy;
 pub mod ledger;
 pub mod lock;
 pub mod machine;

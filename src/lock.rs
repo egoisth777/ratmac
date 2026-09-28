@@ -134,6 +134,90 @@ impl RunLock {
     }
 }
 
+/// A transient advisory claim directly in the Engine root, taken by the
+/// ignore-policy step (WEB-002) to serialize concurrent `init`/`start`
+/// policy writes. Unlike the lock domains above it never creates `locks/`:
+/// its pathname sits in the Engine root itself and is removed on drop, so
+/// a completed step leaves no artifact.
+#[derive(Debug)]
+pub(crate) struct PolicyLock(
+    /// Held for its drop: the claim and its pathname removal are the guard.
+    #[allow(dead_code)]
+    OwnedLock,
+);
+
+impl PolicyLock {
+    /// Claim the Engine root's transient policy lock, waiting like any
+    /// lock domain.
+    pub(crate) fn acquire(engine_root: &Path) -> Result<Self, StateError> {
+        // WEBV-014: taking the policy step's serialization is a lock
+        // operation, recorded once before the retry loop can repeat it.
+        crate::observe::operation("lock");
+        let path = engine_root.join("gitignore.policy.lock");
+        let deadline = Instant::now() + WAIT_TIMEOUT;
+        loop {
+            if Instant::now() >= deadline {
+                return Err(wait_expired(&path));
+            }
+            if let Some(lock) = try_acquire_transient(&path)? {
+                return Ok(Self(lock));
+            }
+            wait_for_retry(&path, deadline)?;
+        }
+    }
+}
+
+/// One non-blocking attempt at a transient Engine-root lock file: the
+/// claim protocol of `try_acquire_once` minus its lock-domain
+/// bookkeeping. No `locks/` directory is created, the canonical-path
+/// restriction of the root and Run domains does not apply, and their fault
+/// and hold seams stay silent.
+fn try_acquire_transient(path: &Path) -> Result<Option<OwnedLock>, StateError> {
+    let mut file = match open_lock_file_checked(path) {
+        Ok(Some(file)) => file,
+        Ok(None) => return Ok(None),
+        // A releasing peer's delete-on-close leaves the pathname
+        // delete-pending: every open fails ERROR_ACCESS_DENIED, so the
+        // shared classifier reads it as a genuine refusal. For this
+        // transient claim that window is plain contention - keep waiting
+        // within the caller's deadline. A directory at the name, or a
+        // denial that hides the entry even from attributes, still refuses.
+        Err(error) if transient_release_window(path, &error) => return Ok(None),
+        Err(error) => {
+            return Err(StateError::new(format!(
+                "cannot open lock {}: {error}",
+                path.displayed()
+            )))
+        }
+    };
+    match lock_file(&file) {
+        Ok(()) => {}
+        Err(error) if lock_is_contended(&error) => return Ok(None),
+        Err(error) => {
+            return Err(StateError::new(format!(
+                "lock claim failed for {}: {error}",
+                path.displayed()
+            )))
+        }
+    }
+    if let Err(error) = ensure_claim_is_current(&file, path) {
+        unlock_after_failed_claim(&file, path);
+        return Err(error);
+    }
+    if let Err(error) = write_owner_token(&mut file, "ignore-policy") {
+        unlock_after_failed_claim(&file, path);
+        return Err(StateError::new(format!(
+            "write owner token for lock {}: {error}",
+            path.displayed()
+        )));
+    }
+    Ok(Some(OwnedLock {
+        path: path.to_path_buf(),
+        file: Some(file),
+        release_seam: false,
+    }))
+}
+
 /// Acquire root then Run with one monotonic deadline.
 ///
 /// The first attempt proves the required root-before-Run ordering. If its Run
@@ -187,6 +271,12 @@ pub(crate) fn acquire_root_then_run(
 struct OwnedLock {
     path: PathBuf,
     file: Option<File>,
+    /// Whether `Drop` honors the QA release-boundary hold seam. The durable
+    /// root and Run lock domains set it; the transient ignore-policy claim
+    /// does not - its release is no domain's test boundary, and firing the
+    /// seam there would consume a hold meant for a lock that does not exist
+    /// yet (the policy step runs before the root lock).
+    release_seam: bool,
 }
 
 impl OwnedLock {
@@ -217,12 +307,15 @@ impl Drop for OwnedLock {
         // QA-only release seam: with RATMAC_TEST_LOCK_HOLD=release this
         // marker is published before either unlink or kernel unlock. A
         // contender must therefore remain excluded until this guard removes
-        // its pathname and releases the claim.
-        if let Err(error) = hold_lock_if_requested("release", &self.path) {
-            eprintln!(
-                "warning: release-boundary hold for lock {} failed: {error}",
-                self.path.displayed()
-            );
+        // its pathname and releases the claim. Only the durable lock domains
+        // honor it; the transient policy claim skips it.
+        if self.release_seam {
+            if let Err(error) = hold_lock_if_requested("release", &self.path) {
+                eprintln!(
+                    "warning: release-boundary hold for lock {} failed: {error}",
+                    self.path.displayed()
+                );
+            }
         }
 
         // The held kernel claim and this handle's identity are the ownership
@@ -327,6 +420,7 @@ fn try_acquire_once(
     let lock = OwnedLock {
         path: path.clone(),
         file: Some(file),
+        release_seam: true,
     };
     if let Err(error) = refuse_legacy(engine_root) {
         drop(lock);
@@ -453,6 +547,31 @@ fn open_lock_file_checked(path: &Path) -> std::io::Result<Option<File>> {
             OpenFailure::NotContended => Err(original),
         },
     }
+}
+
+/// Whether a failed open of the transient policy lock names a peer's
+/// release window rather than a genuinely unopenable path. Only the
+/// delete-pending window (or a name that has just vanished) waits; a
+/// directory planted at the lock name refuses immediately, and an entry
+/// whose attributes cannot be read at all rides the deadline and refuses
+/// there - never past it, never having written a byte.
+#[cfg(windows)]
+fn transient_release_window(path: &Path, error: &std::io::Error) -> bool {
+    const ERROR_ACCESS_DENIED: i32 = 5;
+    if error.raw_os_error() != Some(ERROR_ACCESS_DENIED) {
+        return false;
+    }
+    match fs::symlink_metadata(path) {
+        Ok(metadata) => !metadata.is_dir(),
+        Err(_) => true,
+    }
+}
+
+/// Without the delete-on-close release window this classification is
+/// unnecessary: the shared classifier's verdict stands.
+#[cfg(not(windows))]
+fn transient_release_window(_path: &Path, _error: &std::io::Error) -> bool {
+    false
 }
 
 #[cfg(not(windows))]
