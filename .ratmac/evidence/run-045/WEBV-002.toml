@@ -1,0 +1,10 @@
+planned-test-id = "WEBV-002"
+ticket-id = "t-123"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t123_portable_goal_fingerprints webv_002 -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t123_portable_goal_fingerprints.rs"
+test-name = "webv_002"
+exit-status = 101
+output-sha256 = "389a901819b20f7185503e10871d42ac18ca75d9a63691519e14eb9565783fbc"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t123_portable_goal_fingerprints.rs (target\\debug\\deps\\t123_portable_goal_fingerprints-d4962ec82b4ad9b6.exe)\n\nrunning 1 test\ntest webv_002 ... FAILED\n\nfailures:\n\n---- webv_002 stdout ----\n\nthread 'webv_002' (15244) panicked at test\\qa\\tests\\t123_portable_goal_fingerprints.rs:719:5:\nassertion `left != right` failed: length framing distinguishes the path/content boundary combination\n  left: \"cf2c7f63055d2e84af6e3f01ac1bb7fce598d20cf213fab2b56b8e8047b46ced\"\n right: \"cf2c7f63055d2e84af6e3f01ac1bb7fce598d20cf213fab2b56b8e8047b46ced\"\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    webv_002\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 3.32s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t123_portable_goal_fingerprints`\n"
