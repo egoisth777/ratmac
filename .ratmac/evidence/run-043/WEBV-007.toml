@@ -1,0 +1,10 @@
+planned-test-id = "WEBV-007"
+ticket-id = "t-121"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t121_engine_ignore_initialization webv_007 -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t121_engine_ignore_initialization.rs"
+test-name = "webv_007"
+exit-status = 101
+output-sha256 = "dcaa8d6da298f9daadb9eb162372f34f110416b39e39e198ee8f1218f27fecb5"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t121_engine_ignore_initialization.rs (target\\debug\\deps\\t121_engine_ignore_initialization-50d33e80a89e033f.exe)\n\nrunning 1 test\ntest webv_007 ... FAILED\n\nfailures:\n\n---- webv_007 stdout ----\n\nthread 'webv_007' (16284) panicked at test\\qa\\tests\\t121_engine_ignore_initialization.rs:941:37:\nread the policy file: The system cannot find the file specified. (os error 2)\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    webv_007\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.57s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t121_engine_ignore_initialization`\n"

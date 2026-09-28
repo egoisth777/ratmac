@@ -1,0 +1,10 @@
+planned-test-id = "WEBV-008"
+ticket-id = "t-121"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t121_engine_ignore_initialization webv_008 -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t121_engine_ignore_initialization.rs"
+test-name = "webv_008"
+exit-status = 101
+output-sha256 = "0e336dab2dbe2b3d6af4c930582c1dd21953a4647d584e23a914dc530654ca5d"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t121_engine_ignore_initialization.rs (target\\debug\\deps\\t121_engine_ignore_initialization-50d33e80a89e033f.exe)\n\nrunning 1 test\ntest webv_008 ... FAILED\n\nfailures:\n\n---- webv_008 stdout ----\n\nthread 'webv_008' (78672) panicked at test\\qa\\tests\\t121_engine_ignore_initialization.rs:1240:5:\nassertion `left == right` failed: WEBV-008: the control `rtm init` succeeds: rtm: unsupported command or option: init\n\n  left: 1\n right: 0\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    webv_008\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.18s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t121_engine_ignore_initialization`\n"

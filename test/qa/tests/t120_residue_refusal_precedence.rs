@@ -1671,6 +1671,13 @@ fn webv_013() {
         Shape::Presplit(".arca/rtm.lock")
     };
     let mut rows = vec![
+        // t-121: `init` is an operational route with no arguments of its
+        // own; planted residue alone must still refuse first.
+        invoking(
+            "init",
+            vec!["init".into()],
+            Shape::Presplit(".arca/rtm.lock"),
+        ),
         invoking(
             "start",
             vec!["start".into(), "--no-such-option".into()],
@@ -2921,7 +2928,9 @@ fn webv_016() {
             cli::help("step"),
             0,
         ),
-        (vec!["init"], "", 1),
+        // t-121: `init` is an operational route now, so the unknown-command
+        // control is a still-unlisted token.
+        (vec!["run"], "", 1),
     ] {
         let output = rtm(&root, &args);
         assert_eq!(
@@ -2942,7 +2951,7 @@ fn webv_016() {
         } else {
             assert_eq!(
                 stderr(&output),
-                "rtm: unsupported command or option: init\n",
+                "rtm: unsupported command or option: run\n",
                 "WEBV-016: an unknown command keeps its usage refusal"
             );
             assert!(stdout(&output).is_empty());
@@ -2970,7 +2979,7 @@ fn webv_016() {
             (vec!["step", "--help"], cli::help("step"), 0),
             (vec!["step", "-h"], cli::help("step"), 0),
             (vec!["doctor", "-h"], cli::help("doctor"), 0),
-            (vec!["init"], "", 1),
+            (vec!["run"], "", 1),
         ] {
             let output = rtm_observed(&root, &log, &args);
             assert_eq!(
@@ -2988,7 +2997,7 @@ fn webv_016() {
             } else {
                 assert_eq!(
                     stderr(&output),
-                    "rtm: unsupported command or option: init\n",
+                    "rtm: unsupported command or option: run\n",
                     "WEBV-016: the unknown command stays a pure usage refusal with residue"
                 );
                 assert!(stdout(&output).is_empty());
@@ -3002,6 +3011,26 @@ fn webv_016() {
             tree_snapshot(&root),
             before,
             "WEBV-016: the pure forms and unknown commands change nothing"
+        );
+
+        // t-121: `init` is an operational route now, so with residue it
+        // answers the preflight residue refusal, not a usage error.
+        let init_log = logs.join("init-residue.log");
+        let init_output = rtm_observed(&root, &init_log, &["init"]);
+        assert_refusal(
+            "WEBV-016: `rtm init` with residue answers the preflight residue refusal",
+            &init_output,
+            Expect::Invoking {
+                command: "init",
+                trailing_next: false,
+            },
+            &planted,
+            &init_log,
+        );
+        assert_eq!(
+            tree_snapshot(&root),
+            before,
+            "WEBV-016: the refused `rtm init` changes nothing"
         );
 
         // A help token mixed with other arguments cannot bypass preflight.
@@ -3057,7 +3086,7 @@ fn webv_016() {
                 (vec!["--help"], 0),
                 (vec!["-h"], 0),
                 (vec!["step", "--help"], 0),
-                (vec!["init"], 1),
+                (vec!["run"], 1),
             ] {
                 let output = rtm_tracked(&root, &logs.join("pure-op.log"), &resolution_log, &args);
                 assert_eq!(
