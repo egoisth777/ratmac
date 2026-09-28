@@ -46,6 +46,17 @@ pub struct RespawnRequest {
     pub confirmation: Option<String>,
 }
 
+/// One recognized boundary of the respawn pause seam: `after-record` (B1)
+/// or `after-retire` (B2). The paused invocation holds the root lock and
+/// both Run locks until the test releases it or its deadline expires.
+#[cfg(feature = "test-fault-injection")]
+struct RespawnPause {
+    boundary: String,
+    marker: PathBuf,
+    release: PathBuf,
+    timeout_millis: u64,
+}
+
 /// Entry facts needed before a Run may proceed.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EntryPrerequisites {
@@ -573,6 +584,46 @@ impl Scheduler {
                  one with rtm start"
             )));
         }
+        Self::verify_runbook_pin_hash(&run_dir, snapshot.pin())?;
+        Ok(Self {
+            machine,
+            workflow_roots,
+            runbook_snapshot: Some(snapshot),
+            run_id: Some(run_id.to_owned()),
+            child_class,
+            store: Some(StateStore::for_engine_root(&engine_root, run_id)),
+            root: Some(workspace),
+            roots: Some(roots.clone()),
+        })
+    }
+
+    /// The open of the one ordinary motion (`rtm step`). Identical to
+    /// `open_run_with_roots` except that the retired-run refusal of FDC-006
+    /// is deferred to the Run lock `Scheduler::step` holds when it decides:
+    /// a peer holding a retired, still-recorded Run's lock makes the step
+    /// contender wait on that claim - the lock order of the successor
+    /// publication - instead of racing past it before any lock.
+    pub(crate) fn open_run_for_motion_with_roots(
+        roots: &crate::root::Roots,
+        run_id: impl AsRef<str>,
+    ) -> Result<Self, StateError> {
+        let invoking_root = roots.invoking_checkout_root().to_path_buf();
+        let engine_root = roots.engine_root().to_path_buf();
+        Self::refuse_flat_residue_at(&invoking_root, &engine_root)?;
+        let run_id = run_id.as_ref();
+        Self::validate_run_address_at(&engine_root, run_id)?;
+        let (workspace, child_class) = match Self::ledger_record_of_at(&engine_root, run_id)? {
+            Some((ledger_path, entry)) => (
+                Self::workspace_from_ledger_entry(roots, &ledger_path, &entry)?,
+                Some(entry.class),
+            ),
+            None => (invoking_root.clone(), None),
+        };
+        Self::refuse_flat_residue_for_workspace(&invoking_root, &engine_root, &workspace)?;
+        let snapshot = Self::load_runbook_snapshot(&invoking_root, &workspace, &engine_root)?;
+        let workflow_roots = snapshot.roots().clone();
+        let machine = Self::graph_of(snapshot.class());
+        let run_dir = Self::runs_dir_at(&engine_root).join(run_id);
         Self::verify_runbook_pin_hash(&run_dir, snapshot.pin())?;
         Ok(Self {
             machine,
@@ -2126,13 +2177,17 @@ the ledger {} and minted child {} were left in place; inspect both paths before 
                 roster_line()
             )));
         }
-        let superseded_run_dir = Self::runs_dir_at(&engine_root).join(&superseded);
-        if !superseded_run_dir.join("run.toml").is_file() {
-            return Err(StateError::new(format!(
-                "run {superseded} is already terminal: its admission state is retired; nothing to supersede"
-            )));
-        }
         let recorded = Self::ledger_record_of_at(&engine_root, &superseded)?;
+        let superseded_run_dir = Self::runs_dir_at(&engine_root).join(&superseded);
+        // WRS-001: the recovery table for a retired predecessor is decided
+        // from the durable records alone, before any lock - an admitted
+        // successor's Run lock held by any command never changes the answer.
+        let successors = Self::recorded_successors_of_at(&engine_root, &recorded, &superseded)?;
+        let ledger = recorded
+            .as_ref()
+            .map(|(path, _)| path.displayed().to_string())
+            .unwrap_or_default();
+        Self::recovery_table(&successors, &superseded, &superseded_run_dir, &ledger)?;
         // A successor cannot repair or replace a missing legacy binding: it
         // inherits exactly the durable workspace of the child it supersedes.
         // A top-level Run has no ledger entry and therefore retains the
@@ -2192,73 +2247,150 @@ the ledger {} and minted child {} were left in place; inspect both paths before 
             }
         };
 
-        // Minting is root-first and brief. It intentionally precedes terminal
-        // retirement so a failure leaves the existing admitted Run untouched.
-        let minted_successor = {
-            let root_lock = RootLock::acquire(&engine_root)?;
-            Self::refuse_flat_residue_for_workspace(&root, &engine_root, &workspace)?;
-            Self::verify_runbook_snapshot(&snapshot, &root, Some(&superseded_run_dir))?;
-            Self::mint_run(
-                &root_lock,
-                &engine_root,
-                state.as_str(),
-                status,
-                snapshot.pin(),
-                &goal_baseline,
-                &engine_identity,
-            )?
-        };
-        let MintedRun {
-            id: successor,
-            run_lock: successor_run_lock,
-            snapshot: successor_snapshot,
-        } = minted_successor;
-        // The successor is no longer part of the short mint domain. Any
-        // compensating delete later reacquires root then this Run and proves
-        // these exact minted artifacts first.
-        drop(successor_run_lock);
+        if recorded.is_none() {
+            // Top-level predecessor: today's mint-then-retire path. Minting
+            // is root-first and brief. It intentionally precedes terminal
+            // retirement so a failure leaves the existing admitted Run
+            // untouched.
+            let minted_successor = {
+                let root_lock = RootLock::acquire(&engine_root)?;
+                Self::refuse_flat_residue_for_workspace(&root, &engine_root, &workspace)?;
+                Self::verify_runbook_snapshot(&snapshot, &root, Some(&superseded_run_dir))?;
+                Self::mint_run(
+                    &root_lock,
+                    &engine_root,
+                    state.as_str(),
+                    status,
+                    snapshot.pin(),
+                    &goal_baseline,
+                    &engine_identity,
+                )?
+            };
+            let MintedRun {
+                id: successor,
+                run_lock: successor_run_lock,
+                snapshot: successor_snapshot,
+            } = minted_successor;
+            // The successor is no longer part of the short mint domain. Any
+            // compensating delete later reacquires root then this Run and
+            // proves these exact minted artifacts first.
+            drop(successor_run_lock);
 
-        let abandon_request = crate::abandon::AbandonRequest {
-            confirmation: Some(crate::abandon::required_phrase(&root, Some(&superseded))),
-            run: Some(superseded.clone()),
-        };
-        let retired = crate::abandon::plan_abandon_in(roots, &abandon_request)
-            .and_then(|plan| crate::abandon::apply_abandon_in(roots, &plan));
-        if let Err(refusal) = retired {
-            return match Self::rollback_minted_successor(
+            // The retirement boundary of the top-level path: a refusal here
+            // rolls the freshly minted successor back exactly as the abandon
+            // path's own refusals do.
+            if Self::respawn_fault_at("retire") {
+                return match Self::rollback_minted_successor(
                 &engine_root,
                 &successor,
                 &successor_snapshot,
             ) {
                 Ok(()) => Err(StateError::new(format!(
-                    "respawn interrupted retiring {superseded}: {refusal}; the successor mint was rolled back"
+                        "respawn interrupted retiring {superseded}: injected respawn fault at retire; \
+the successor mint was rolled back"
                 ))),
                 Err(rollback) => Err(StateError::new(format!(
-                    "respawn interrupted retiring {superseded}: {refusal}; \
+                        "respawn interrupted retiring {superseded}: injected respawn fault at retire; \
 the successor mint rollback is incomplete: {rollback}"
                 ))),
+        };
+            }
+            let abandon_request = crate::abandon::AbandonRequest {
+                confirmation: Some(crate::abandon::required_phrase(&root, Some(&superseded))),
+                run: Some(superseded.clone()),
             };
+            let retired = crate::abandon::plan_abandon_in(roots, &abandon_request)
+                .and_then(|plan| crate::abandon::apply_abandon_in(roots, &plan));
+            if let Err(refusal) = retired {
+                return match Self::rollback_minted_successor(
+                        &engine_root,
+                        &successor,
+                        &successor_snapshot,
+            ) {
+                        Ok(()) => Err(StateError::new(format!(
+                    "respawn interrupted retiring {superseded}: {refusal}; the successor mint was rolled back"
+                        ))),
+                        Err(rollback) => Err(StateError::new(format!(
+                    "respawn interrupted retiring {superseded}: {refusal}; \
+the successor mint rollback is incomplete: {rollback}"
+                        ))),
+        };
+            }
+            return Ok(successor);
         }
-        if let Some((ledger_path, entry)) = recorded {
-            let successor_entry = LedgerEntry {
-                id: successor.clone(),
-                class: entry.class.clone(),
-                bind: entry.bind.clone(),
-                spawned_at: successor_spawned_at,
-                workspace: entry.workspace.clone(),
-                abandoned: false,
-                supersedes: Some(superseded.clone()),
-            };
-            // Keep the root claim that classified a failed append through any
-            // compensating delete. Releasing it between "no entry landed" and
-            // the delete would let another root-domain writer record this
-            // successor in that ledger first.
-            let (root_lock, successor_run_lock) =
-                crate::lock::acquire_root_then_run(&engine_root, &successor)?;
-            root_lock.ensure_current()?;
-            successor_run_lock.ensure_current()?;
-            let aftermath = Self::append_ledger_entry(&ledger_path, &successor_entry);
-            match aftermath {
+
+        // Ledger-recorded predecessor: one root-locked decision does record,
+        // retire, and admit. The pause seam's companions are validated before
+        // the first lock so a refusal names the companion without reserving
+        // an ordinal or writing anything.
+        let pause = Self::respawn_pause_seam()?;
+        let (root_lock, predecessor_run_lock) =
+            crate::lock::acquire_root_then_run(&engine_root, &superseded)?;
+        root_lock.ensure_current()?;
+        predecessor_run_lock.ensure_current()?;
+        let Some((ledger_path, recorded_entry)) = recorded.as_ref() else {
+            unreachable!("the top-level path returned above");
+        };
+        let successors = Self::recorded_successors_of_at(&engine_root, &recorded, &superseded)?;
+        // The same recovery table the lock-free pre-check consulted decides
+        // again under the locks, so a peer's completion between the two
+        // reads cannot change which answer this invocation gives: a retired
+        // predecessor with an admitted successor is already terminal here,
+        // before the successor's Run lock is claimed.
+        let successor_to_finish = Self::recovery_table(
+            &successors,
+            &superseded,
+            &superseded_run_dir,
+            &ledger_path.displayed().to_string(),
+        )?;
+        let predecessor_admitted = superseded_run_dir.join("run.toml").is_file();
+        let (successor, successor_entry, fresh) = match successor_to_finish {
+            Some(entry) => (entry.id.clone(), entry, false),
+            None => {
+                // Never mint while a successor is recorded; here none is, so
+                // this invocation is the winner that records one.
+                root_lock.ensure_current()?;
+                let successor = crate::mint::next(&engine_root)?;
+                let successor_run_dir = Self::runs_dir_at(&engine_root).join(&successor);
+                if fs::symlink_metadata(&successor_run_dir).is_ok() {
+                    return Err(StateError::new(format!(
+                        "respawn cannot reserve the successor address {}: the path already exists; \
+remove or repair it, then retry",
+                        successor_run_dir.displayed()
+                    )));
+                }
+                let successor_entry = LedgerEntry {
+                    id: successor.clone(),
+                    class: recorded_entry.class.clone(),
+                    bind: recorded_entry.bind.clone(),
+                    spawned_at: successor_spawned_at,
+                    workspace: recorded_entry.workspace.clone(),
+                    abandoned: false,
+                    supersedes: Some(superseded.clone()),
+                };
+                (successor, successor_entry, true)
+            }
+        };
+        // Claim the successor's Run lock without waiting under root: a
+        // contended claim means another invocation is completing this exact
+        // recorded successor, and waiting on it here would hold root hostage.
+        let Some(successor_run_lock) = RunLock::try_acquire_under_root(&engine_root, &successor)?
+        else {
+            return Err(StateError::new(format!(
+                "run {superseded} already has its recorded successor {successor} in {}; \
+another invocation is completing it; repeat this command after that invocation finishes or fails",
+                ledger_path.displayed()
+            )));
+        };
+        root_lock.ensure_current()?;
+        successor_run_lock.ensure_current()?;
+        // The successor's admission pins the runbook it was planned
+        // against, so only the snapshot's freshness is re-proved here: no
+        // predecessor Run Record is read inside the publication, keeping
+        // every phase before the terminal event a ledger phase.
+        Self::verify_runbook_snapshot(&snapshot, &root, None)?;
+        if fresh {
+            match Self::append_successor_entry_seam(ledger_path, &successor_entry) {
                 LedgerAppendAftermath::Appended => {}
                 LedgerAppendAftermath::RecordedAfterError(error) => {
                     eprintln!(
@@ -2267,35 +2399,475 @@ the successor mint rollback is incomplete: {rollback}"
                     );
                 }
                 LedgerAppendAftermath::AbsentAfterError(error) => {
-                    let cleanup = Self::rollback_minted_run_while_locked(
-                        &root_lock,
-                        &successor_run_lock,
-                        &engine_root,
-                        &successor,
-                        &successor_snapshot,
-                        &format!("respawn rollback for unrecorded successor {successor}"),
-                    );
-                    return match cleanup {
-                        Ok(()) => Err(StateError::new(format!(
-                            "respawn cannot record the successor entry for {successor}: {error}; the successor mint was rolled back"
-                        ))),
-                        Err(rollback) => Err(StateError::new(format!(
-                            "respawn cannot record the successor entry for {successor}: {error}; \
-the successor mint rollback is incomplete: {rollback}"
-                        ))),
-                    };
+                    return Err(StateError::new(format!(
+                        "respawn cannot record the successor entry for {successor}: {error}; \
+nothing was admitted and {superseded} keeps its admission state; \
+the reserved id {successor} is never reused; repeat this command to respawn with a fresh id"
+                    )));
                 }
                 LedgerAppendAftermath::Indeterminate(detail) => {
                     return Err(StateError::new(format!(
                         "respawn cannot determine whether its successor entry committed for {successor}: {detail}; \
-the ledger {} and minted successor {} were left in place; inspect both paths before removing anything",
-                        ledger_path.displayed(),
-                        Self::runs_dir_at(&engine_root).join(&successor).displayed()
+nothing was admitted and {superseded} keeps its admission state; \
+the ledger {} was left exactly as it now reads; inspect it before retrying",
+                        ledger_path.displayed()
                     )));
                 }
             }
+            // B1: the record step is durable and every lock is held.
+            Self::hold_respawn_pause(&pause, "after-record")?;
         }
+        if predecessor_admitted {
+            if Self::respawn_fault_at("retire") {
+                return Err(StateError::new(format!(
+                    "respawn interrupted retiring {superseded}: injected respawn fault at retire; \
+the successor {successor} is recorded in {} and not yet admitted; \
+repeat this respawn command to finish it",
+                    ledger_path.displayed()
+                )));
+            }
+            crate::abandon::retire_run_under_locks(
+                &engine_root,
+                &superseded,
+                &root_lock,
+                &predecessor_run_lock,
+            )
+            .map_err(|refusal| {
+                StateError::new(format!(
+                    "respawn interrupted retiring {superseded}: {refusal}; \
+the successor {successor} is recorded in {} and not yet admitted; \
+repeat this respawn command to finish it",
+                    ledger_path.displayed()
+                ))
+            })?;
+            // B2: the predecessor is retired and every lock is held.
+            Self::hold_respawn_pause(&pause, "after-retire")?;
+        }
+        Self::admit_recorded_successor(
+            &engine_root,
+            &successor,
+            state.as_str(),
+            status,
+            snapshot.pin(),
+            &goal_baseline,
+            &engine_identity,
+        )
+        .map_err(|error| {
+            StateError::new(format!(
+                "respawn cannot admit the recorded successor {successor}: {error}; \
+{superseded} is retired and {} records {successor}; \
+repeat this respawn command to finish it",
+                ledger_path.displayed()
+            ))
+        })?;
+        drop(successor_run_lock);
+        drop(predecessor_run_lock);
+        drop(root_lock);
         Ok(successor)
+    }
+
+    /// The successor entries the owning parent's ledger records for one
+    /// predecessor. A top-level predecessor owns no ledger, so it can never
+    /// have a recorded successor.
+    /// WRS-001: the recovery table, decided from the durable records alone.
+    /// The lock-free pre-check and the post-lock recompute both consult this
+    /// one function, so their answers cannot drift. More than one recorded
+    /// successor of `superseded` is ambiguous. A retired predecessor whose
+    /// one recorded successor is already admitted - or that has none - is
+    /// already terminal: an admitted successor's Run lock held by any
+    /// command never changes the answer for its retired predecessor. The
+    /// decision returns the recorded successor this invocation must finish;
+    /// `None` means this invocation records one fresh: either the
+    /// predecessor is live with nothing recorded, or nothing at all is.
+    fn recovery_table(
+        successors: &[LedgerEntry],
+        superseded: &str,
+        superseded_run_dir: &Path,
+        ledger: &str,
+    ) -> Result<Option<LedgerEntry>, StateError> {
+        if successors.len() > 1 {
+            return Err(StateError::new(format!(
+                "the spawn ledger {ledger} records more than one successor of {superseded}; \
+exactly one recorded successor may be finished; repair the ledger, then retry"
+            )));
+        }
+        if !superseded_run_dir.join("run.toml").is_file() {
+            return match successors.first() {
+                Some(successor) if !superseded_run_dir
+                    .with_file_name(successor.id.as_str())
+                    .join("run.toml")
+                    .is_file() =>
+                {
+                    // The one recorded successor is not admitted: the only
+                    // lawful completion is admitting that same id.
+                    Ok(Some(successor.clone()))
+                }
+                _ => Err(StateError::new(format!(
+                    "run {superseded} is already terminal: its admission state is retired; nothing to supersede"
+                ))),
+            };
+        }
+        // A live predecessor may already carry a recorded successor - an
+        // interrupted publication - and finishing it is the recovery; with
+        // nothing recorded, this invocation mints fresh.
+        Ok(successors.first().cloned())
+    }
+
+    fn recorded_successors_of_at(
+        _engine_root: &Path,
+        recorded: &Option<(PathBuf, LedgerEntry)>,
+        superseded: &str,
+    ) -> Result<Vec<LedgerEntry>, StateError> {
+        let Some((ledger_path, _)) = recorded.as_ref() else {
+            return Ok(Vec::new());
+        };
+        crate::ledger::read_entries(ledger_path)
+            .map(|entries| {
+                entries
+                    .into_iter()
+                    .filter(|entry| {
+                        // A human-abandoned successor is terminal: never
+                        // admitted again, so it is no recorded successor.
+                        entry.supersedes.as_deref() == Some(superseded) && !entry.abandoned
+                    })
+                    .collect()
+            })
+            .map_err(|error| {
+                StateError::new(format!(
+                    "cannot read spawn ledger {} while resolving run {superseded}: {error}",
+                    ledger_path.displayed()
+                ))
+            })
+    }
+
+    /// Admit the recorded successor: `run.toml` lands last, so every refusal
+    /// below leaves an unadmitted successor that the repeated respawn
+    /// finishes idempotently. Artifacts already present and byte-identical
+    /// are kept; conflicting bytes refuse the whole admission naming that
+    /// path; nothing is ever deleted.
+    fn admit_recorded_successor(
+        engine_root: &Path,
+        successor: &str,
+        state: &str,
+        status: Status,
+        runbook_pin: &str,
+        goal_baseline: &Option<String>,
+        engine_identity: &Option<crate::pin::Identity>,
+    ) -> Result<(), StateError> {
+        if Self::respawn_fault_at("admit") {
+            return Err(StateError::new(
+                "injected respawn fault at admit".to_owned(),
+            ));
+        }
+        let run_dir = Self::runs_dir_at(engine_root).join(successor);
+        let conflict = |path: &Path| {
+            StateError::new(format!(
+                "the artifact {} conflicts with the admission this recorded successor requires; it was not modified",
+                path.displayed()
+            ))
+        };
+        match fs::symlink_metadata(&run_dir) {
+            Ok(metadata) if metadata.is_dir() => {}
+            Ok(_) => {
+                return Err(StateError::new(format!(
+                    "the successor address {} is not a directory; it was not modified",
+                    run_dir.displayed()
+                )))
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                fs::create_dir(&run_dir).map_err(|error| {
+                    StateError::new(format!(
+                        "cannot create the successor address {}: {error}",
+                        run_dir.displayed()
+                    ))
+                })?;
+            }
+            Err(error) => {
+                return Err(StateError::new(format!(
+                    "cannot inspect the successor address {}: {error}",
+                    run_dir.displayed()
+                )))
+            }
+        }
+        let mut evidence = crate::pin::Evidence::default();
+        if let Some(identity) = engine_identity {
+            evidence.set_engine(identity.clone());
+        }
+        evidence.goal_baseline = goal_baseline.clone();
+        evidence.goal_frozen = None;
+        evidence.runbook_sha256 = Some(runbook_pin.to_owned());
+        let evidence_path = crate::pin::evidence_path(&run_dir);
+        // WEBV-014: reading Run evidence is a record operation.
+        crate::observe::operation("record");
+        match fs::read(&evidence_path) {
+            Ok(observed) if observed == evidence.render().as_bytes() => {}
+            Ok(_) => return Err(conflict(&evidence_path)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                fs::write(&evidence_path, evidence.render()).map_err(|error| {
+                    StateError::new(format!(
+                        "cannot write {}: {error}",
+                        evidence_path.displayed()
+                    ))
+                })?;
+            }
+            Err(error) => {
+                return Err(StateError::new(format!(
+                    "cannot read {}: {error}",
+                    evidence_path.displayed()
+                )))
+            }
+        }
+        // An empty file reserves the successor's own spawn-ledger path.
+        let spawn_ledger = run_dir.join("spawn-ledger");
+        match fs::read(&spawn_ledger) {
+            Ok(observed) if observed.is_empty() => {}
+            Ok(_) => return Err(conflict(&spawn_ledger)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                OpenOptions::new()
+                    .create_new(true)
+                    .write(true)
+                    .open(&spawn_ledger)
+                    .map_err(|error| {
+                        StateError::new(format!(
+                            "cannot reserve spawn-ledger under {successor}: {error}"
+                        ))
+                    })?;
+            }
+            Err(error) => {
+                return Err(StateError::new(format!(
+                    "cannot read {}: {error}",
+                    spawn_ledger.displayed()
+                )))
+            }
+        }
+        // The admission Run Record lands last: until it exists, the
+        // successor is recorded but not admitted.
+        let record = RunState {
+            state: state.to_owned(),
+            status,
+            goal_revision: String::new(),
+            input_revision: String::new(),
+            output_revision: String::new(),
+            active_refs: Vec::new(),
+            blocker: String::new(),
+        };
+        let state_bytes = StateStore::serialize(&record)?;
+        let state_path = run_dir.join("run.toml");
+        let store = StateStore::for_engine_root(engine_root, successor);
+        // WEBV-014: reading a Run Record is a record operation.
+        crate::observe::operation("record");
+        match fs::read(&state_path) {
+            Ok(observed) if observed == state_bytes => {}
+            Ok(_) => return Err(conflict(&state_path)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                Self::require_durable_state_write(store.write(&record)?)?;
+            }
+            Err(error) => {
+                return Err(StateError::new(format!(
+                    "cannot read {}: {error}",
+                    state_path.displayed()
+                )))
+            }
+        }
+        Self::snapshot_minted_run(&run_dir)?;
+        Ok(())
+    }
+
+    /// The fault boundary of the respawn test seam. Unset, empty, or
+    /// unrecognized values - and every build without the feature - change
+    /// nothing.
+    #[cfg(feature = "test-fault-injection")]
+    fn respawn_fault_at(boundary: &str) -> bool {
+        std::env::var("RATMAC_TEST_RESPAWN_FAULT").ok().as_deref() == Some(boundary)
+    }
+
+    #[cfg(not(feature = "test-fault-injection"))]
+    fn respawn_fault_at(_boundary: &str) -> bool {
+        false
+    }
+
+    /// The record step of the successor-publication path, with its fault
+    /// seams. Only the injected failures differ from the shared append; a
+    /// real I/O failure is classified from the ledger bytes exactly as the
+    /// shared classifier does.
+    #[cfg(feature = "test-fault-injection")]
+    fn append_successor_entry_seam(
+        ledger_path: &Path,
+        entry: &LedgerEntry,
+    ) -> LedgerAppendAftermath {
+        let fault = std::env::var("RATMAC_TEST_RESPAWN_FAULT").unwrap_or_default();
+        match fault.as_str() {
+            "ledger-append" => Self::classify_injected_ledger_append(
+                ledger_path,
+                entry,
+                "injected successor-ledger append failure",
+            ),
+            "ledger-append-committed" => {
+                let error = match crate::ledger::append_entry(ledger_path, entry) {
+                    Ok(()) => "injected successor-ledger append failure".to_owned(),
+                    Err(real) => real.to_string(),
+                };
+                Self::classify_injected_ledger_append(ledger_path, entry, &error)
+            }
+            "ledger-append-partial" => {
+                let bytes = crate::ledger::render(entry).into_bytes();
+                let half = &bytes[..bytes.len() / 2];
+                let error = match OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(ledger_path)
+                    .and_then(|mut file| {
+                        use std::io::Write;
+                        file.write_all(half)?;
+                        file.sync_all()
+                    }) {
+                    Ok(()) => "injected successor-ledger append failure".to_owned(),
+                    Err(real) => real.to_string(),
+                };
+                Self::classify_injected_ledger_append(ledger_path, entry, &error)
+            }
+            _ => Self::append_ledger_entry(ledger_path, entry),
+        }
+    }
+
+    #[cfg(not(feature = "test-fault-injection"))]
+    fn append_successor_entry_seam(
+        ledger_path: &Path,
+        entry: &LedgerEntry,
+    ) -> LedgerAppendAftermath {
+        Self::append_ledger_entry(ledger_path, entry)
+    }
+
+    /// Classify an injected append failure from the ledger bytes that remain.
+    /// The detail stays exactly the injected error.
+    #[cfg(feature = "test-fault-injection")]
+    fn classify_injected_ledger_append(
+        ledger_path: &Path,
+        entry: &LedgerEntry,
+        error: &str,
+    ) -> LedgerAppendAftermath {
+        let after = Self::snapshot_ledger(ledger_path)
+            .ok()
+            .and_then(|snapshot| snapshot.bytes);
+        match (after, crate::ledger::read_entries(ledger_path)) {
+            (_, Ok(entries)) if entries.iter().any(|observed| observed == entry) => {
+                LedgerAppendAftermath::RecordedAfterError(error.to_owned())
+            }
+            (Some(_), Ok(_)) => LedgerAppendAftermath::AbsentAfterError(error.to_owned()),
+            _ => LedgerAppendAftermath::Indeterminate(error.to_owned()),
+        }
+    }
+
+    /// The pause boundary of the respawn test seam. Unset, empty, or
+    /// unrecognized values change nothing; a recognized boundary requires
+    /// its companions and the check runs before the first durable write, so
+    /// a refusal names the companion without reserving an ordinal.
+    #[cfg(feature = "test-fault-injection")]
+    fn respawn_pause_seam() -> Result<Option<RespawnPause>, StateError> {
+        let Some(value) =
+            std::env::var_os("RATMAC_TEST_RESPAWN_PAUSE").filter(|value| !value.is_empty())
+        else {
+            return Ok(None);
+        };
+        let Some(boundary) = value
+            .to_str()
+            .filter(|boundary| *boundary == "after-record" || *boundary == "after-retire")
+        else {
+            return Ok(None);
+        };
+        let companion = |name: &str, required: &str| {
+            std::env::var_os(name)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| {
+                    StateError::new(format!(
+                        "respawn test seam {name} is required when \
+RATMAC_TEST_RESPAWN_PAUSE is set to {required}"
+                    ))
+                })
+        };
+        let marker = companion("RATMAC_TEST_RESPAWN_PAUSE_MARKER", boundary)?.into();
+        let release = companion("RATMAC_TEST_RESPAWN_PAUSE_RELEASE", boundary)?.into();
+        let timeout_millis = std::env::var("RATMAC_TEST_RESPAWN_PAUSE_TIMEOUT_MILLIS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .filter(|millis| *millis > 0)
+            .ok_or_else(|| {
+                StateError::new(
+                    "respawn test seam RATMAC_TEST_RESPAWN_PAUSE_TIMEOUT_MILLIS must be a \
+positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
+                        .to_owned(),
+                )
+            })?;
+        Ok(Some(RespawnPause {
+            boundary: boundary.to_owned(),
+            marker,
+            release,
+            timeout_millis,
+        }))
+    }
+
+    #[cfg(not(feature = "test-fault-injection"))]
+    fn respawn_pause_seam() -> Result<Option<()>, StateError> {
+        Ok(None)
+    }
+
+    /// Hold every lock this invocation owns at a recognized pause boundary
+    /// until the test releases it or the deadline expires. An expired pause
+    /// refuses with the durable state exactly as the boundary left it.
+    #[cfg(feature = "test-fault-injection")]
+    fn hold_respawn_pause(pause: &Option<RespawnPause>, boundary: &str) -> Result<(), StateError> {
+        let Some(request) = pause.as_ref() else {
+            return Ok(());
+        };
+        if request.boundary != boundary {
+            return Ok(());
+        }
+        // The boundary name and its newline land in the marker path in one
+        // step: a temporary file beside the marker is written and flushed,
+        // then renamed onto the marker, so a reader that finds the marker
+        // always reads that whole line.
+        let temporary = request.marker.with_file_name(format!(
+            "{}.publishing.{}",
+            request
+                .marker
+                .file_name()
+                .map(crate::root::component)
+                .unwrap_or_else(|| "marker".to_owned()),
+            std::process::id()
+        ));
+        let publish = std::fs::File::create(&temporary)
+            .and_then(|mut file| {
+                use std::io::Write;
+                file.write_all(format!("{boundary}\n").as_bytes())
+                    .and_then(|()| file.flush())
+                    .and_then(|()| file.sync_all())
+            })
+            .and_then(|()| fs::rename(&temporary, &request.marker));
+        if let Err(error) = publish {
+            let _ = fs::remove_file(&temporary);
+            return Err(StateError::new(format!(
+                "injected respawn pause at {boundary} cannot write its marker {}: {error}",
+                request.marker.displayed()
+            )));
+        }
+        let deadline =
+            std::time::Instant::now() + std::time::Duration::from_millis(request.timeout_millis);
+        loop {
+            if Path::new(&request.release).is_file() {
+                return Ok(());
+            }
+            if std::time::Instant::now() >= deadline {
+                return Err(StateError::new(format!(
+                    "injected respawn pause at {boundary} expired"
+                )));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+
+    #[cfg(not(feature = "test-fault-injection"))]
+    fn hold_respawn_pause(_pause: &Option<()>, _boundary: &str) -> Result<(), StateError> {
+        Ok(())
     }
 
     /// Roll back only this invocation's freshly minted successor. It proves
@@ -2350,6 +2922,18 @@ the ledger {} and minted successor {} were left in place; inspect both paths bef
         // own lock. No root-domain lock is acquired during this motion.
         let run_lock = RunLock::acquire(&engine_root, &run_id)?;
         run_lock.ensure_current()?;
+        // FDC-006: a roster entry without a Run Record is a retired run -
+        // terminal, never resurrected. The motion open defers this refusal
+        // to the held Run lock, so a peer completing a successor publication
+        // that owns this claim is waited on here, exactly as a live peer
+        // would be.
+        if !state_path.is_file() {
+            return Err(StateError::new(format!(
+                "run {run_id} is terminal: its admission state is retired and no \
+                 transition may proceed on it; address a live run or mint a fresh \
+                 one with rtm start"
+            )));
+        }
         let (
             guarded_state_bytes,
             next,

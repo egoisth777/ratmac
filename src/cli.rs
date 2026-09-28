@@ -438,8 +438,8 @@ fn step<W: Write>(
 ) -> Result<i32, CliError> {
     let command = "step";
     let id = addressed_run_with_roots(command, args, roots)?;
-    let mut scheduler =
-        Scheduler::open_run_with_roots(roots, &id).map_err(|error| hard_error(command, error))?;
+    let mut scheduler = Scheduler::open_run_for_motion_with_roots(roots, &id)
+        .map_err(|error| hard_error(command, error))?;
     let outcome = scheduler
         .step(StepRequest::new(""))
         .map_err(|error| hard_error("step", error))?;
@@ -1103,8 +1103,8 @@ fn environment_report<W: Write>(
         )?;
     } else {
         let records = crate::roster::Records::read(engine_root, &roster);
-        for id in roster {
-            let state_path = runs_dir.join(&id).join("run.toml");
+        for id in &roster {
+            let state_path = runs_dir.join(id).join("run.toml");
             let shown = format!(".ratmac/runs/{id}/run.toml");
             if state_path.is_file() {
                 crate::observe::operation("record");
@@ -1125,7 +1125,7 @@ fn environment_report<W: Write>(
                     }
                 }
             } else {
-                let absence = match records.retirement(&id) {
+                let absence = match records.retirement(id) {
                     crate::roster::Retirement::Recorded => format!("run {id} is retired"),
                     crate::roster::Retirement::NotRecorded => {
                         format!("no retirement is recorded for run {id}")
@@ -1136,6 +1136,16 @@ fn environment_report<W: Write>(
                 };
                 writeln!(writer, "Run Record: {shown} (absent \u{2014} {absence})")?;
             }
+        }
+        // WRS-001: a spawn-ledger entry whose address never reached the
+        // roster is a recorded, unadmitted successor. The doctor reports
+        // the same facts its roster row renders - its recorded role and
+        // its absence - lock-free and writing nothing.
+        for (id, absence) in records.absent_recorded_children(&roster) {
+            writeln!(
+                writer,
+                "Run Record: .ratmac/runs/{id}/run.toml (absent \u{2014} {absence})"
+            )?;
         }
     }
 

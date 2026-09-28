@@ -441,10 +441,18 @@ fn binding<'a>(entry: &'a toml::value::Table, name: &str) -> &'a str {
 }
 
 /// The recorded successor of `predecessor` in its parent's ledger, if any.
+///
+/// Only a successor entry carries `supersedes`; an ordinary spawned entry
+/// has no such key, so the link is read optionally, never as a required
+/// field.
+fn supersedes_id(entry: &toml::value::Table) -> Option<&str> {
+    entry.get("supersedes").and_then(toml::Value::as_str)
+}
+
 fn recorded_successor(fixture: &Fixture, parent: &str, predecessor: &str) -> Option<String> {
     entries(&fixture.ledger_text(parent))
         .into_iter()
-        .find(|entry| field(entry, "supersedes") == predecessor)
+        .find(|entry| supersedes_id(entry) == Some(predecessor))
         .map(|entry| field(&entry, "id").to_owned())
 }
 
@@ -687,8 +695,12 @@ fn wrsv_001_01() {
         "B1: doctor reports the live predecessor: {doctor_text}"
     );
     assert!(
-        !doctor_text.contains(&successor),
-        "B1: doctor reports no successor record: {doctor_text}"
+        doctor_text.lines().any(|line| {
+            line.contains(&successor)
+                && line.contains("absent")
+                && line.contains(&format!("child of {parent}; class reviewer"))
+        }),
+        "B1: doctor reports the recorded successor absent with its role: {doctor_text}"
     );
 
     // The successor is exactly as usable as an id never minted.
@@ -1287,7 +1299,7 @@ fn wrsv_001_03() {
     assert_eq!(
         entries(&killed.ledger_text(&killed_parent))
             .iter()
-            .filter(|entry| field(entry, "supersedes") == killed_child)
+            .filter(|entry| supersedes_id(entry) == Some(killed_child.as_str()))
             .count(),
         1,
         "WRSV-001-03: exactly one recorded successor of the predecessor"
@@ -1308,7 +1320,7 @@ fn wrsv_001_03() {
     let human_successor = recorded_successor(&human, &human_parent, &human_child)
         .expect("B1: the successor entry is durable before the kill");
     human_paused.kill();
-    let abandoned = human.rtm(&[
+    let abandoned_predecessor = human.rtm(&[
         "abandon",
         "--run",
         &human_child,
@@ -1316,9 +1328,10 @@ fn wrsv_001_03() {
         &format!("abandon {human_child}"),
     ]);
     assert!(
-        abandoned.status.success() && combined(&abandoned).contains("Run abandoned"),
+        abandoned_predecessor.status.success()
+            && combined(&abandoned_predecessor).contains("Run abandoned"),
         "WRSV-001-03: the human abandonment of the live predecessor succeeds: {}",
-        combined(&abandoned)
+        combined(&abandoned_predecessor)
     );
     let human_repeat = human.respawn(&human_child);
     assert!(
@@ -1409,17 +1422,145 @@ fn wrsv_001_03() {
     assert_eq!(
         entries(&race.ledger_text(&race_parent))
             .iter()
-            .filter(|entry| field(entry, "supersedes") == race_child)
+            .filter(|entry| supersedes_id(entry) == Some(race_child.as_str()))
             .count(),
         1,
         "WRSV-001-03: exactly one successor entry of the predecessor"
+    );
+
+    // A second respawn parked at the root lock meets the winner's completed
+    // state when the winner is released well inside the 5 s deadline: today's
+    // already-terminal refusal, writing nothing beyond the winner's result.
+    let early = Fixture::create("03-early-release");
+    let (early_parent, early_child) = recorded_child(&early, "t-102");
+    let (early_marker, early_release) = marker_pair("03-early-release");
+    let mut early_winner =
+        early.spawn_paused_respawn("after-record", &early_marker, &early_release, &early_child);
+    wait_for_file(
+        &early_marker,
+        15,
+        "WRSV-001-03: the winning respawn pauses at after-record for the early release",
+    );
+    let early_successor =
+        recorded_successor(&early, &early_parent, &early_child).expect("the winner recorded once");
+    let mut early_loser = ChildGuard::spawn(
+        support::command(ratmac_qa::engine_bin!(), &early.root).args([
+            "respawn",
+            "--run",
+            &early_child,
+            "--confirm",
+            &format!("respawn {early_child}"),
+        ]),
+    );
+    // Park the loser at the root lock, then release the winner well inside
+    // the loser's 5 s deadline.
+    std::thread::sleep(Duration::from_millis(500));
+    fs::write(&early_release, "release\n").expect("write the pause release");
+    let early_won =
+        early_winner.wait_bounded(30, "WRSV-001-03: the early-released winner completes");
+    assert!(
+        early_won.status.success()
+            && stdout(&early_won)
+                == format!(
+                    "rtm: run superseded; successor run {early_successor} minted at \
+                     .ratmac/runs/{early_successor}/\n"
+                ),
+        "WRSV-001-03: the winner completes the one recorded successor: {}",
+        combined(&early_won)
+    );
+    let winner_result = early.engine_snapshot();
+    let early_lost = early_loser.wait_bounded(
+        15,
+        "WRSV-001-03: the loser refuses after the winner's early release",
+    );
+    assert!(
+        !early_lost.status.success() && stdout(&early_lost).is_empty(),
+        "WRSV-001-03: the loser meets the winner's completed state: {}",
+        combined(&early_lost)
+    );
+    assert_eq!(
+        stderr(&early_lost),
+        format!(
+            "rtm: respawn refused; run {early_child} is already terminal: its admission \
+             state is retired; nothing to supersede\n"
+        ),
+        "WRSV-001-03: after the winner completed, the loser prints today's \
+         already-terminal refusal"
+    );
+    assert_eq!(
+        early.engine_snapshot(),
+        winner_result,
+        "WRSV-001-03: the loser writes nothing beyond the winner's result"
+    );
+
+    // A successor a human has since abandoned is no recorded successor: the
+    // repeated respawn of its retired predecessor meets today's
+    // already-terminal refusal and the durable tree stays byte-identical.
+    let post = Fixture::create("03-abandoned-successor");
+    let (post_parent, post_child) = recorded_child(&post, "t-102");
+    let completed = post.respawn(&post_child);
+    assert!(
+        completed.status.success(),
+        "WRSV-001-03: the initial respawn succeeds: {}",
+        combined(&completed)
+    );
+    let post_successor = recorded_successor(&post, &post_parent, &post_child)
+        .expect("the successor entry is recorded");
+    let retire_successor = post.rtm(&[
+        "abandon",
+        "--run",
+        &post_successor,
+        "--confirm",
+        &format!("abandon {post_successor}"),
+    ]);
+    assert!(
+        retire_successor.status.success(),
+        "WRSV-001-03: the human abandons the successor: {}",
+        combined(&retire_successor)
+    );
+    let after_abandon = post.engine_snapshot();
+    assert!(
+        !post.record_path(&post_successor).exists(),
+        "WRSV-001-03: the abandoned successor stays retired"
+    );
+    let repeat = post.respawn(&post_child);
+    assert!(
+        !repeat.status.success() && stdout(&repeat).is_empty(),
+        "WRSV-001-03: the repeat after the successor's abandonment refuses: {}",
+        combined(&repeat)
+    );
+    assert_eq!(
+        stderr(&repeat),
+        format!(
+            "rtm: respawn refused; run {post_child} is already terminal: its admission \
+             state is retired; nothing to supersede\n"
+        ),
+        "WRSV-001-03: an abandoned successor is no recorded successor, so the \
+         repeat meets today's already-terminal refusal"
+    );
+    assert_eq!(
+        post.engine_snapshot(),
+        after_abandon,
+        "WRSV-001-03: the refused repeat leaves the durable tree byte-identical"
+    );
+    assert!(
+        !post.record_path(&post_successor).exists(),
+        "WRSV-001-03: no run.toml is recreated for the abandoned successor"
+    );
+    let successor_entry = entries(&post.ledger_text(&post_parent))
+        .into_iter()
+        .find(|entry| field(entry, "id") == post_successor)
+        .expect("the successor entry is durable");
+    assert!(
+        abandoned(&successor_entry),
+        "WRSV-001-03: the successor's ledger entry keeps its abandoned mark"
     );
 }
 
 /// WRSV-001-04: keep the unchanged behavior green - the inherited workspace,
 /// class, and bindings, the supersedes link, the confirmation refusal twins
 /// with untouched state, the unchanged top-level path, and the operation
-/// log's kinds and phase order.
+/// log's kinds and stage order.
 #[test]
 fn wrsv_001_04() {
     let fixture = Fixture::create("04-kept");
@@ -1564,7 +1705,7 @@ fn wrsv_001_04() {
     );
 
     // The operation log: only the documented kinds, the validation marks
-    // before the first lock, and the phase order - successor-append ledger
+    // before the first lock, and the stage order - successor-append ledger
     // marks first, records after the last lock, the reserved spawn-ledger
     // ledger mark last.
     let log_tree = support::TempTree::new("t122-04-oplog").expect("own the log tree");

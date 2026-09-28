@@ -239,8 +239,33 @@ pub(crate) fn plan_hold_in(
         ));
     }
 
-    let scheduler = crate::Scheduler::open_run_with_roots(roots, run_id)
+    let scheduler = crate::Scheduler::open_run_for_motion_with_roots(roots, run_id)
         .map_err(|error| refusal(error.to_string()))?;
+    // WRS-001: the plan waits on the addressed Run's own claim before it
+    // decides the Run terminal, so a peer completing a successor
+    // publication that owns this claim is waited on exactly as a live peer
+    // is. The plan's proof is still read-only; apply re-acquires and
+    // revalidates everything below before any write.
+    let engine_root = roots.engine_root().to_path_buf();
+    let run_lock = crate::lock::RunLock::acquire(&engine_root, run_id)
+        .map_err(|error| refusal(error.to_string()))?;
+    run_lock
+        .ensure_current()
+        .map_err(|error| refusal(error.to_string()))?;
+    // FDC-006: a roster entry without a Run Record is a retired run -
+    // terminal, never resurrected - decided here under the held claim.
+    if !engine_root
+        .join("runs")
+        .join(run_id)
+        .join("run.toml")
+        .is_file()
+    {
+        return Err(refusal(format!(
+            "run {run_id} is terminal: its admission state is retired and no \
+             transition may proceed on it; address a live run or mint a fresh \
+             one with rtm start"
+        )));
+    }
     verify_blocker(&scheduler, blocker)?;
 
     let state = scheduler

@@ -111,6 +111,23 @@ impl Records {
         }
     }
 
+    /// Every child a readable spawn ledger records whose address is not
+    /// on the roster, with its rendered role: the recorded-but-unadmitted
+    /// Runs a roster row renders as absent. Sorted by child id, so every
+    /// reader lists them in one order.
+    pub(crate) fn absent_recorded_children(&self, roster: &[String]) -> Vec<(String, String)> {
+        self.children
+            .keys()
+            .filter(|id| !roster.iter().any(|member| member == *id))
+            .map(|id| {
+                (
+                    id.clone(),
+                    format!("{}; recorded, not yet admitted", self.role(id)),
+                )
+            })
+            .collect()
+    }
+
     /// Retirement of `id` as recorded: its abandonment event in the
     /// transition log, or the abandoned mark on its spawn-ledger entry.
     pub(crate) fn retirement(&self, id: &str) -> Retirement {

@@ -571,6 +571,112 @@ fn apply_live_abandon(
     Ok(())
 }
 
+/// Retire one admitted Run under the root and Run locks the caller already
+/// holds. This is the same retirement `rtm abandon` performs - the ledger
+/// mark flips, the terminal event is appended exactly once, and the
+/// admission state, Run evidence, and lock are retired - published in the
+/// successor-publication order respawn's coordinated decision requires:
+/// every ledger mark precedes the first retirement `record` read, so a
+/// concurrent observer never sees the terminal event before the mark that
+/// makes the successor's entry meaningful. Every step is idempotent: a
+/// refusal after the flip leaves the Run exactly as far as the durable steps
+/// reached, and the caller's retry or a human `rtm abandon` finishes it
+/// without a second terminal event.
+pub(crate) fn retire_run_under_locks(
+    engine_root: &Path,
+    run: &str,
+    root_lock: &crate::lock::RootLock,
+    run_lock: &crate::lock::RunLock,
+) -> Result<(), AbandonRefusal> {
+    let run_dir = engine_root.join("runs").join(run);
+    let state_path = run_dir.join("run.toml");
+    let evidence_path = run_dir.join(crate::pin::EVIDENCE_FILE);
+
+    // FDC-011: a retired child's ledger entry keeps its address; only its
+    // abandoned mark flips. A corrupt ledger that names the run in its raw
+    // bytes refuses the retirement rather than leaving a live-looking entry
+    // behind.
+    let mut annotate = Vec::new();
+    for id in run_roster_at(engine_root)? {
+        let path = engine_root.join("runs").join(&id).join("spawn-ledger");
+        match crate::ledger::read_entries(&path) {
+            Ok(entries) => {
+                if entries
+                    .iter()
+                    .any(|entry| entry.id == run && !entry.abandoned)
+                {
+                    annotate.push(path);
+                }
+            }
+            Err(error) => {
+                crate::observe::operation("ledger");
+                let raw = fs::read_to_string(&path).map_err(|read_error| {
+                    refusal(format!(
+                        "abandon cannot inspect defective spawn ledger {}: {read_error}; parse error: {error}",
+                        path.displayed()
+                    ))
+                })?;
+                if raw.contains(&format!("id = {run:?}")) {
+                    return Err(refusal(format!(
+                        "the spawn ledger recording {run} is defective: {error}"
+                    )));
+                }
+            }
+        }
+    }
+    for path in &annotate {
+        root_lock
+            .ensure_current()
+            .map_err(|error| refusal(error.to_string()))?;
+        if let Err(error) = crate::ledger::annotate_abandoned(path, run) {
+            return Err(refusal(format!("cannot record the ledger mark: {error}")));
+        }
+    }
+
+    // FDC-002: the durable terminal event identifies the addressed Run and
+    // its last state before the admission retirement begins. Deduplicated by
+    // content, so a retry after a refusal appends nothing.
+    let record = crate::state::StateStore::at(state_path.clone())
+        .load()
+        .map_err(|error| refusal(format!("abandon cannot read the Run Record: {error}")))?;
+    let event = format!(
+        "- Abandoned: Run {run} retired at state {} (status {}, goal revision {}) on an explicit human confirmation; admission state, Run evidence, and lock retired. The Run is terminal: no transition may proceed on it.\n",
+        record.state,
+        record.status,
+        revision_or_none(&record.goal_revision),
+    );
+    append_event_once(root_lock, engine_root, &event)?;
+
+    // Retire evidence before the admission Run Record, exactly as the
+    // confirmed abandonment does, so a failure between the removals leaves
+    // the Run admitted and the compensating history entry truthful.
+    let mut retire = Vec::new();
+    if evidence_path.exists() {
+        retire.push(evidence_path);
+    }
+    retire.push(state_path);
+    for path in &retire {
+        ensure_retirement_file(path)?;
+    }
+    for path in &retire {
+        run_lock
+            .ensure_current()
+            .map_err(|error| refusal(error.to_string()))?;
+        if let Err(error) = fs::remove_file(path) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                return Err(retirement_failure_after_event(
+                    engine_root,
+                    root_lock,
+                    run,
+                    true,
+                    format!("cannot retire {}: {error}", path.displayed()),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Re-check the Run facts that formed an abandonment plan after its final
 /// lock acquisition. A caller asked to retire this exact admitted Run, not
 /// whatever a concurrent lawful motion may have made it become.

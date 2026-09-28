@@ -324,7 +324,7 @@ pub fn annotate_abandoned(path: &Path, child_id: &str) -> Result<bool, LedgerErr
 }
 
 /// Render one entry as the TOML block `append_entry` writes.
-fn render(entry: &LedgerEntry) -> String {
+pub(crate) fn render(entry: &LedgerEntry) -> String {
     let mut block = String::from("[[children]]\n");
     block.push_str(&format!("id = {}\n", toml_string(&entry.id)));
     block.push_str(&format!("class = {}\n", toml_string(&entry.class)));

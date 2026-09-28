@@ -1,0 +1,10 @@
+ticket-id = "t-122"
+check-id = "WRSV-001-02"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test t122_successor_ownership -- --test-threads=1"
+working-dir = "."
+exit-status = 0
+output-sha256 = "4793ed552191ca88e5fbe5613e942b3dd9231ab682300d7b63d686ec478d0830"
+tree-roots = ["src","test/qa","test-hidden","tools","Cargo.toml","Cargo.lock",".gitignore",".ratmac/lanes.toml"]
+tree-sha256 = "b4520f96436bb22e8beece404ea1d9174fcc0c1ae5eff0d302b35da567fea200"
+output = "\nrunning 4 tests\ntest wrsv_001_01 ... ok\ntest wrsv_001_02 ... ok\ntest wrsv_001_03 ... ok\ntest wrsv_001_04 ... ok\n\ntest result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 69.91s\n\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s\n     Running tests\\t122_successor_ownership.rs (target\\debug\\deps\\t122_successor_ownership-3fcd23980f62ec9c.exe)\n"

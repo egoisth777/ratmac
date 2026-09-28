@@ -119,6 +119,29 @@ impl RunLock {
             run_path(engine_root, run_id),
             &format!("run:{run_id}"),
             "run",
+            false,
+        )
+        .map(|lock| lock.map(Self))
+    }
+
+    /// Try once to acquire the addressed Run lock without waiting while a
+    /// caller already holds the root lock. A Windows peer releasing its
+    /// claim leaves the pathname delete-pending and every open fails
+    /// `ERROR_ACCESS_DENIED`; for this claim that window is contention, not
+    /// a filesystem refusal, because the caller must never wait on a Run
+    /// claim while holding root. `None` therefore means either a live kernel
+    /// claimant or that release window.
+    pub(crate) fn try_acquire_under_root(
+        engine_root: &Path,
+        run_id: &str,
+    ) -> Result<Option<Self>, StateError> {
+        validate_run_id(run_id)?;
+        try_acquire_once(
+            engine_root,
+            run_path(engine_root, run_id),
+            &format!("run:{run_id}"),
+            "run",
+            true,
         )
         .map(|lock| lock.map(Self))
     }
@@ -363,7 +386,8 @@ fn acquire_until(
         if Instant::now() >= deadline {
             return Err(wait_expired(&path));
         }
-        if let Some(lock) = try_acquire_once(engine_root, path.clone(), guard, fault_domain)? {
+        if let Some(lock) = try_acquire_once(engine_root, path.clone(), guard, fault_domain, false)?
+        {
             return Ok(lock);
         }
         wait_for_retry(&path, deadline)?;
@@ -375,6 +399,7 @@ fn try_acquire_once(
     path: PathBuf,
     guard: &str,
     fault_domain: &str,
+    release_window_is_contention: bool,
 ) -> Result<Option<OwnedLock>, StateError> {
     // WEBV-014: attempting to acquire the root or a Run lock is a lock
     // operation, recorded before the attempt can create its lock directory.
@@ -385,6 +410,12 @@ fn try_acquire_once(
     let mut file = match open_lock_file_checked(&path) {
         Ok(Some(file)) => file,
         Ok(None) => return Ok(None),
+        // Only a caller that must not wait on this Run claim while holding
+        // root reads the delete-pending release window as contention; the
+        // waiting domains keep the shared classifier's verdict.
+        Err(error) if release_window_is_contention && transient_release_window(&path, &error) => {
+            return Ok(None);
+        }
         Err(error) => {
             return Err(StateError::new(format!(
                 "cannot open lock {}: {error}",

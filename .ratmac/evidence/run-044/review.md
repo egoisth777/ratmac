@@ -1,0 +1,30 @@
+# Independent review before full proof
+
+Accepted on 2026-09-28, before executing the full workspace proof.
+
+- Two independent reviewers split the work; neither edited, built, or ran anything. One reviewed the source change (`src/scheduler.rs`, `src/abandon.rs`, `src/blocked.rs`, `src/cli.rs`, `src/ledger.rs`, `src/lock.rs`, `src/roster.rs`) and the public suite `test/qa/tests/t122_successor_ownership.rs` against the ticket. The other reviewed the new private crate `test-hidden/t-122`, written without reading the public suite or the source, judged from the ticket and the red engine bytes alone.
+- Before red, the contract was corrected three times from test-writer findings, never by the implementer: the operation log may carry a `target` mark, which the landed WEBV-014 rule requires; `rtm doctor` alone promises exit 0 while `rtm status` keeps today's exit code; and admission writes `run.toml` last, with a conflicting byte refusing the admission by path.
+- After red, the implementer's dispute list was settled against the ticket and today's engine: four were private-crate defects fixed by the private owner (a path-key prefix, a lock filter that never matched, today's exit 2 for an addressing refusal, and one path spelling), and one public doctor assertion contradicted the ticket, so its public owner changed it to match. An engine change that wrote `supersedes = "none"` on every spawned entry was reverted, because the ticket keeps every ledger byte unchanged; the public helper now reads the key as optional.
+- The source review took two rounds. The first asked for two repairs: a second respawn whose lock-free check ran before the winner completed re-admitted the successor and printed success instead of today's already-terminal refusal; and a successor a human had abandoned could be admitted again by repeating the predecessor's respawn. The ticket's Terms now say an abandoned successor is no recorded successor, public proof for both outcomes was added to `wrsv_001_03` before the fix, and the implementer moved the decision into one recovery check used both before and after the locks. The second round accepted with no finding.
+- The private review took two rounds. The first asked for one high repair, the successor's hold refusal checked only by fragments, so a hold that waited on a lock before checking the address would pass; and five medium ones: the spawn refusal's exact text, an operation-log order check that could pass with no marks, the exit code of bare `rtm status`, a kill fixture that released the paused child before killing it, and a repeat under a held successor that did not prove no lock was taken. The ticket settled that a missing or invalid pause companion refuses before any lock or write. The second round accepted with two low notes: refusals still allow roster-shaped trailing lines where the ticket text is complete, and one wait-expiry check still accepts a second path spelling next to the exact one.
+- The whole workspace, run without stopping, failed three live-surface audits (`t034_rat005`, `t037_rat008`, `t084_state_audit`) and the `t-084` lane, only because the new ticket and both suites used a retired word. Each now says "stage"; the frozen HT-122-05 oracle and its ticket row changed the same way.
+- The first deliberate-damage run then caught a real race in the accepted source: after restoring a fault, the private lane `ht_122_05` once read the respawn pause marker empty, because the pause created the marker file before writing its line and both suites read the file as soon as it exists. The ticket now says the line is written in one step, so a reader that finds the file reads the whole line; the implementer changed only the pause seam in `src/scheduler.rs` to write a temporary file beside the marker and rename it into place, and the source reviewer accepted it in a third round. The next full workspace proof then failed one landed check, `t079_root_spelling`: the fix named the temporary file by turning a path into text itself, which only `src/root.rs` may do. That one line now calls `crate::root::component`, the helper other modules use for a file name, and the source reviewer accepted it in a fourth round with no findings. The damage run was then repeated in full from a fresh safety commit.
+- The ticket's regression paragraph names every landed test that mentions respawn and why each stays green; no landed public or private assertion was changed.
+- `.ratmac/lanes.toml` gains only the `t-122` roster entry in sorted order, which the schema requires in the same change as the crate; the lane sweep proves it mechanically.
+
+| Reviewed input | SHA-256 |
+| :--- | :--- |
+| `.arca/ticket/t-122.md` | `f64d188d4f3ba335c9b1c08fcb36dd007205cab8cc58b34de6deed048d6701d8` |
+| `.ratmac/lanes.toml` | `6defa3b33429c057f5cdaf8a52948c9542c831346a9da0aafb1a6117e87ccc2a` |
+| `src/abandon.rs` | `360a97cc777681a717e989026942692b9e13dd4648fdb26e5db4ace73f1747aa` |
+| `src/blocked.rs` | `38b83363ae92533f5fa59c03360ad43ec60c86f803d74ace2100303132a84751` |
+| `src/cli.rs` | `ee8aa43390de9f0568721ccf80ba5557efc7f2b40ff66519d3efe7ad60f7fe61` |
+| `src/ledger.rs` | `6c4070a9d84b0886740bb5c8c9d4859b787775c58301ee20ea332daa4d036d6d` |
+| `src/lock.rs` | `4dd9d9a2e4deed6644bd23aa5b2815636bf9c6ac76302d3ce3dad40d5679139b` |
+| `src/roster.rs` | `ef13f21f453778b72f9d455680950c21c6363b16ca5aa031fd08da21f0b1b0fc` |
+| `src/scheduler.rs` | `6b0b722bddaaf1dfdec5f934093151b115e522cffdf12d33736f020207539f01` |
+| `test/qa/tests/t122_successor_ownership.rs` | `cf2ce2fb0e080f0ddbd9b92f462506feffe5ddfa386a30541400397869a6799b` |
+| `test-hidden/t-122/Cargo.toml` | `b3709dfd29b84bd2b253636422dec2f138a1d4037a984a8c1040eb2fb454308e` |
+| `test-hidden/t-122/Cargo.lock` | `974fac8a601c11bcd5cfcd946035ccf608ad95ad912481b7e3375102f730898b` |
+| `test-hidden/t-122/src/lib.rs` | `7abfea8863149aa35786d7d290169135c03f70179795d6967ba0bdbb55d78f55` |
+| `test-hidden/t-122/tests/hidden.rs` | `fa5ba27c37f691f65c2828d6e04afb936e8c9615fa12f47b277202c6492387bf` |
