@@ -1,0 +1,10 @@
+planned-test-id = "WRSV-001-03"
+ticket-id = "t-122"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t122_successor_ownership wrsv_001_03 -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t122_successor_ownership.rs"
+test-name = "wrsv_001_03"
+exit-status = 101
+output-sha256 = "0eb517b5c4dec31e4a68f6f411d47894b6921e7904171d0dc1ef45111b7fb2ee"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t122_successor_ownership.rs (target\\debug\\deps\\t122_successor_ownership-3fcd23980f62ec9c.exe)\n\nrunning 1 test\ntest wrsv_001_03 ... FAILED\n\nfailures:\n\n---- wrsv_001_03 stdout ----\n\nthread 'wrsv_001_03' (13644) panicked at test\\qa\\tests\\t122_successor_ownership.rs:356:9:\nWRSV-001: WRSV-001-03: the after-record pause publishes its marker (the kill fixture needs the RATMAC_TEST_RESPAWN_PAUSE seam) within 15s: C:\\Users\\egois\\AppData\\Local\\Temp\\ratmac-t122-03-kill-b1-65904-1790605767768062900.marker\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    wrsv_001_03\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 16.61s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t122_successor_ownership`\n"

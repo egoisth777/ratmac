@@ -1,0 +1,10 @@
+planned-test-id = "WRSV-001-02"
+ticket-id = "t-122"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t122_successor_ownership wrsv_001_02 -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t122_successor_ownership.rs"
+test-name = "wrsv_001_02"
+exit-status = 101
+output-sha256 = "e16d191b97e5eadc5d3483bfb994eca94b8d8b9ee0f40982247bdc94975ce7a7"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t122_successor_ownership.rs (target\\debug\\deps\\t122_successor_ownership-3fcd23980f62ec9c.exe)\n\nrunning 1 test\ntest wrsv_001_02 ... FAILED\n\nfailures:\n\n---- wrsv_001_02 stdout ----\n\nthread 'wrsv_001_02' (32352) panicked at test\\qa\\tests\\t122_successor_ownership.rs:1003:5:\nWRSV-001-02 ledger-append: the refusal exits 1 with empty stdout: rtm: run superseded; successor run run-003 minted at .ratmac/runs/run-003/\n\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    wrsv_001_02\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 1.22s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t122_successor_ownership`\n"

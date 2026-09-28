@@ -1,0 +1,10 @@
+planned-test-id = "WRSV-001-04"
+ticket-id = "t-122"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t122_successor_ownership wrsv_001_04 -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t122_successor_ownership.rs"
+test-name = "wrsv_001_04"
+exit-status = 101
+output-sha256 = "3d0133613b60bab440195c8dc538cd29483f62e59c016d8389084744ae5f297b"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t122_successor_ownership.rs (target\\debug\\deps\\t122_successor_ownership-3fcd23980f62ec9c.exe)\n\nrunning 1 test\ntest wrsv_001_04 ... FAILED\n\nfailures:\n\n---- wrsv_001_04 stdout ----\n\nthread 'wrsv_001_04' (80412) panicked at test\\qa\\tests\\t122_successor_ownership.rs:1624:5:\nWRSV-001-04: the retirement and admission records follow the recording step's locks: [\"roster\", \"roster\", \"ledger\", \"target\", \"runbook\", \"lock\", \"record\", \"roster\", \"lock\", \"record\", \"record\", \"record\", \"ledger\", \"roster\", \"roster\", \"ledger\", \"target\", \"roster\", \"runbook\", \"roster\", \"record\", \"roster\", \"ledger\", \"ledger\", \"ledger\", \"roster\", \"roster\", \"ledger\", \"target\", \"lock\", \"lock\", \"record\", \"roster\", \"ledger\", \"ledger\", \"ledger\", \"ledger\", \"ledger\", \"lock\", \"lock\", \"ledger\", \"ledger\"]\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    wrsv_001_04\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 1.97s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t122_successor_ownership`\n"

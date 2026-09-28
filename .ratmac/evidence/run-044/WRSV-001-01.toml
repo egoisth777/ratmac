@@ -1,0 +1,10 @@
+planned-test-id = "WRSV-001-01"
+ticket-id = "t-122"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t122_successor_ownership wrsv_001_01 -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t122_successor_ownership.rs"
+test-name = "wrsv_001_01"
+exit-status = 101
+output-sha256 = "dc960a3b40e746a527a9f668fd5d100d31ea6e228cfe895b04ee7d30a1f80cd6"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t122_successor_ownership.rs (target\\debug\\deps\\t122_successor_ownership-3fcd23980f62ec9c.exe)\n\nrunning 1 test\ntest wrsv_001_01 ... FAILED\n\nfailures:\n\n---- wrsv_001_01 stdout ----\n\nthread 'wrsv_001_01' (73820) panicked at test\\qa\\tests\\t122_successor_ownership.rs:356:9:\nWRSV-001: WRSV-001-01: the after-record pause publishes its marker (the RATMAC_TEST_RESPAWN_PAUSE seam must stop the respawn after the entry is durable and before the predecessor is retired) within 15s: C:\\Users\\egois\\AppData\\Local\\Temp\\ratmac-t122-01-b1-63248-1790605749979401400.marker\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    wrsv_001_01\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 16.01s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t122_successor_ownership`\n"
