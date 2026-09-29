@@ -1489,7 +1489,7 @@ impl Scheduler {
         self.workflow_roots = snapshot.roots().clone();
         self.machine = Self::graph_of(snapshot.class());
         let state = self.initial_state()?;
-        let goal_baseline = self.goal_revision(&root)?;
+        let goal_baseline = self.goal_revision(&root, crate::goal::Version::V2)?;
         // FDC-002: a Run beginning in a terminal State — no ordinary outgoing
         // edge — is complete from its first Run Record. The Engine writes the
         // terminal fact; no agent claim participates.
@@ -2965,8 +2965,19 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
             let (mut failures, guarded_ledgers) = self.guard_failures(definition)?;
             let evidence = crate::pin::Evidence::load(&run_dir);
             if let Some(frozen) = evidence.goal_frozen.as_deref() {
+                // WEB-001 (t-123): a recorded frozen value that is present
+                // and non-empty but matches neither revision grammar
+                // refuses before any comparison or write; nothing is
+                // auto-upgraded.
+                if crate::goal::Version::of_revision(frozen).is_none() {
+                    return Err(StateError::new(format!(
+                        "goal revision \"{frozen}\" in .ratmac/runs/{run_id}/evidence.toml \
+                         carries an unknown fingerprint version; no evidence was updated"
+                    )));
+                }
+                let version = self.goal_version(&evidence, &run_id)?;
                 let observed = self
-                    .goal_revision(&root)?
+                    .goal_revision(&root, version)?
                     .unwrap_or_else(|| "absent".to_owned());
                 if observed != frozen {
                     failures.push(guard_failure(
@@ -3024,7 +3035,8 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
             let consumes_verdict = transition_input.is_some();
             let to = transition.to().clone();
             let frozen_revision = if transition.freezes_goal() {
-                Some(self.goal_revision(&root)?.ok_or_else(|| {
+                let version = self.goal_version(&evidence, &run_id)?;
+                Some(self.goal_revision(&root, version)?.ok_or_else(|| {
                     StateError::new("cannot freeze goal: declared root role \"goal\" is absent")
                 })?)
             } else {
@@ -3419,12 +3431,44 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
         self.workflow_roots.resolve("goal").ok()
     }
 
-    fn goal_revision(&self, workspace: &Path) -> Result<Option<String>, StateError> {
+    /// The revision of the workspace's goal root under `version` - the
+    /// calculation the addressed Run's own recorded baseline selects, never
+    /// the other algorithm's verdict.
+    fn goal_revision(
+        &self,
+        workspace: &Path,
+        version: crate::goal::Version,
+    ) -> Result<Option<String>, StateError> {
         match self.goal_directory(workspace) {
-            Some(goal) => crate::goal::revision(&goal)
-                .map_err(|error| StateError::new(format!("read declared goal root: {error}"))),
+            Some(goal) => {
+                let computed = match version {
+                    crate::goal::Version::V2 => crate::goal::revision(&goal),
+                    crate::goal::Version::Legacy => crate::goal::legacy_revision(&goal),
+                };
+                computed
+                    .map_err(|error| StateError::new(format!("read declared goal root: {error}")))
+            }
             None => Ok(None),
         }
+    }
+
+    /// The fingerprint version the addressed Run's recorded baseline
+    /// selects. A baseline matching neither grammar refuses by the same
+    /// unknown-version text the frozen value refuses by; an absent or empty
+    /// baseline recorded no version, so the legacy calculation stays
+    /// selected.
+    fn goal_version(
+        &self,
+        evidence: &crate::pin::Evidence,
+        run_id: &str,
+    ) -> Result<crate::goal::Version, StateError> {
+        crate::goal::Version::of_baseline(evidence.goal_baseline.as_deref()).ok_or_else(|| {
+            StateError::new(format!(
+                "goal revision \"{}\" in .ratmac/runs/{run_id}/evidence.toml \
+                 carries an unknown fingerprint version; no evidence was updated",
+                evidence.goal_baseline.as_deref().unwrap_or_default()
+            ))
+        })
     }
 
     fn goal_address(&self) -> String {

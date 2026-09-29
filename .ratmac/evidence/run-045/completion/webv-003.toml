@@ -1,0 +1,10 @@
+ticket-id = "t-123"
+check-id = "WEBV-003"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test t123_portable_goal_fingerprints -- --test-threads=1"
+working-dir = "."
+exit-status = 0
+output-sha256 = "0b615ba6c226ea7375a06bade25714ca6d7d2a0a053bc7c2e84067b45fa0dcb7"
+tree-roots = ["src","test/qa","test-hidden","tools","Cargo.toml","Cargo.lock",".gitignore",".ratmac/lanes.toml"]
+tree-sha256 = "3aa8ac2822322d63ad3c910a13918c7f410c8d2f8ff315940f9c5fc849e4425d"
+output = "\nrunning 4 tests\ntest webv_001 ... ok\ntest webv_002 ... ok\ntest webv_003 ... ok\ntest webv_004 ... ok\n\ntest result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.71s\n\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t123_portable_goal_fingerprints.rs (target\\debug\\deps\\t123_portable_goal_fingerprints-d4962ec82b4ad9b6.exe)\n"

@@ -733,17 +733,41 @@ pub fn gate_records_at(
             .push(shown.clone());
 
         let cited = yaml_field(&text, "frozen-goal-bundle-revision").unwrap_or_default();
-        if cited.trim().is_empty() || !cited.contains("goal-sha256:") {
+        // WEB-001 (t-123): the goal citation is one exact token - the
+        // revision string that follows the `goal-sha256:` marker, read up
+        // to the end of the field value or the next `+` - and it must be
+        // well-formed and equal the frozen revision; substring coincidence
+        // no longer verifies. The citation itself is still required to be
+        // present and well-formed wherever the record lives.
+        let token = cited
+            .split_once("goal-sha256:")
+            .and_then(|(_, rest)| rest.split('+').next());
+        let parseable =
+            token.is_some_and(|token| crate::goal::Version::of_revision(token).is_some());
+        if cited.trim().is_empty() || !parseable {
             defects.push(defect(
                 &shown,
                 "records no parseable frozen-goal-bundle-revision citation",
             ));
         } else if !archived {
             if let Some(frozen) = frozen.as_deref() {
-                if !cited.contains(frozen) {
+                let token = token.unwrap_or_default();
+                if token != frozen {
+                    // A value that contains the frozen revision without
+                    // citing it exactly switched verdicts under this rule;
+                    // its refusal names the parsed token. A plain mismatch
+                    // refused under the substring rule too and keeps that
+                    // text byte-for-byte.
+                    let shown_citation = if cited.contains(frozen) {
+                        token
+                    } else {
+                        cited.as_str()
+                    };
                     defects.push(defect(
                         &shown,
-                        format!("cites goal revision {cited}, but the frozen revision is {frozen}"),
+                        format!(
+                            "cites goal revision {shown_citation}, but the frozen revision is {frozen}"
+                        ),
                     ));
                 }
             }

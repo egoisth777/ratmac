@@ -28,7 +28,7 @@ use sha2::{Digest, Sha256};
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 /// The contract's four fixed vectors (t-123 `Observable Output`): the
@@ -75,8 +75,11 @@ impl Proc {
 }
 
 fn run_rtm(root: &Path, args: &[&str], env: &[(&str, &str)]) -> Proc {
-    let mut command = Command::new(ratmac_qa::engine_bin!());
-    command.args(args).current_dir(root);
+    // The shared harness command scrubs inherited test-only variables
+    // (`RATMAC_TEST_*`, `GIT_*`, cargo-harness noise) and pins the working
+    // directory; only the explicit envs below reach the engine.
+    let mut command = ratmac_qa::support::command(ratmac_qa::engine_bin!(), root);
+    command.args(args);
     for (name, value) in env {
         command.env(name, value);
     }
@@ -499,6 +502,13 @@ fn webv_001() {
     }
     let crlf = Fixture::new("webv001-crlf");
     for (name, bytes) in trees {
+        if *name == "mixed.md" {
+            // One file keeps mixed endings on the CRLF side too, so the twin
+            // exercises mixed CRLF/LF content rather than only whole-file
+            // conversion; its canonical form is the LF tree's `a\nb\nc\n`.
+            crlf.write_goal_bytes(name, b"a\r\nb\nc\r\n");
+            continue;
+        }
         let mut styled = Vec::with_capacity(bytes.len());
         for &byte in *bytes {
             if byte == b'\n' {
