@@ -1,0 +1,10 @@
+planned-test-id = "WCPV-014"
+ticket-id = "t-124"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t124_byte_verified_restores wcpv_014 -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t124_byte_verified_restores.rs"
+test-name = "wcpv_014"
+exit-status = 101
+output-sha256 = "a54d2cd714e81bcda8b391481680c6033708487fd662ff8d53c1695f07092d48"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t124_byte_verified_restores.rs (target\\debug\\deps\\t124_byte_verified_restores-062fc77d34f07464.exe)\n\nrunning 1 test\ntest wcpv_014 ... FAILED\n\nfailures:\n\n---- wcpv_014 stdout ----\n\nthread 'wcpv_014' (50540) panicked at test\\qa\\tests\\t124_byte_verified_restores.rs:303:5:\nt124 WCPV-014: checkpoint freezes both declared targets (the checkpoint verb must exist): turn.ps1: A parameter cannot be found that matches parameter name 'Target'.\r\n\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    wcpv_014\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 3.89s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t124_byte_verified_restores`\n"

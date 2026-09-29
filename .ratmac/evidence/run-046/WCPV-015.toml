@@ -1,0 +1,10 @@
+planned-test-id = "WCPV-015"
+ticket-id = "t-124"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t124_byte_verified_restores wcpv_015 -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t124_byte_verified_restores.rs"
+test-name = "wcpv_015"
+exit-status = 101
+output-sha256 = "c8b90955a30c45b03465e2965359f36b51d960779db2d9fabde9e0c65279eecc"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t124_byte_verified_restores.rs (target\\debug\\deps\\t124_byte_verified_restores-062fc77d34f07464.exe)\n\nrunning 1 test\ntest wcpv_015 ... FAILED\n\nfailures:\n\n---- wcpv_015 stdout ----\n\nthread 'wcpv_015' (24740) panicked at test\\qa\\tests\\t124_byte_verified_restores.rs:90:5:\nassertion `left == right` failed: t124: the round-trip refusal must be exactly these lines\n  left: [\"turn.ps1: A parameter cannot be found that matches parameter name 'Target'.\"]\n right: [\"turn refused; the checkout round-trip for filtered.txt is not proven\", \"  checking the recorded blob out through the effective settings must reproduce the current bytes, and cleaning the current bytes must reproduce the recorded blob;\", \"  the effective line-ending or checkout-filter settings cannot reproduce these bytes after a restore; fix the attributes, filters, or core.autocrlf and core.eol, or correct the file, then run checkpoint again.\", \"  nothing was written.\"]\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    wcpv_015\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 3.19s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t124_byte_verified_restores`\n"
