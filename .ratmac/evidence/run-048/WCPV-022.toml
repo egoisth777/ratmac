@@ -1,0 +1,10 @@
+planned-test-id = "WCPV-022"
+ticket-id = "t-127"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t127_edition_proof_preflight wcpv_022 -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t127_edition_proof_preflight.rs"
+test-name = "wcpv_022"
+exit-status = 101
+output-sha256 = "cd834e2bdbe400114d5304b7b95e729be597b78e539a0b26e25a79d00584e34e"
+output = "   Compiling ratmac-qa v0.1.0 (E:\\repos\\projs\\skill-dev\\ratmac-t-127\\test\\qa)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.73s\n     Running tests\\t127_edition_proof_preflight.rs (target\\debug\\deps\\t127_edition_proof_preflight-ed4f16172b6f0e44.exe)\n\nrunning 1 test\ntest wcpv_022 ... FAILED\n\nfailures:\n\n---- wcpv_022 stdout ----\n\nthread 'wcpv_022' (70024) panicked at test\\qa\\tests\\t127_edition_proof_preflight.rs:37:24:\nWCPV-022/023/024: `cargo build --offline -p ratmac-qa --bin edition-cut` must succeed; the edition-cut carrier does not exist yet:\nerror: no bin target named `edition-cut` in `ratmac-qa` package\nhelp: available bin targets:\n    guard-probe\n    lock-barrier\n    rtm-qa\n    snapshot-manifest\n\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    wcpv_022\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.07s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t127_edition_proof_preflight`\n"
