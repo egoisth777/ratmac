@@ -364,8 +364,8 @@ fn wcpv_014() {
         let fields: Vec<&str> = row.split('\t').collect();
         assert_eq!(
             fields.len(),
-            7,
-            "t124 WCPV-014: a target row is its label and six fields: {row}"
+            6,
+            "t124 WCPV-014: a target row is `target <path>` and five tab-separated fields: {row}"
         );
         let path = fields[0].strip_prefix("target ").expect("the row's label");
         assert_eq!(
@@ -467,7 +467,7 @@ fn wcpv_014() {
     );
 }
 
-/// WCPV-015: a checkout filter the effective settings cannot round-trip refuses the checkpoint before anything is written, and a restore that leaves a tracked path dirty never claims success or touches an unrelated file.
+/// WCPV-015: a clean or smudge filter the effective settings cannot round-trip refuses the checkpoint before anything is written, and a restore that leaves a tracked path dirty never claims success or touches an unrelated file.
 #[test]
 fn wcpv_015() {
     let (_isolation, global) = isolation("wcpv015");
@@ -524,6 +524,85 @@ fn wcpv_015() {
     );
     assert!(
         !manifest_path(&turn).exists(),
+        "t124 WCPV-015: the refused checkpoint freezes no manifest"
+    );
+
+    let clean_fixture = Turn::new("wcpv015clean");
+    let cleaned = clean_fixture.root.join("cleaned.txt");
+    fs::write(&cleaned, "payload\n").expect("write the clean-direction target");
+    // Age the file past git's racy-clean window, then commit it with no
+    // filter in force anywhere: the recorded blob is the raw worktree bytes,
+    // and the untouched file's stat data will be trusted afterwards.
+    std::thread::sleep(std::time::Duration::from_secs(2));
+    git_ok(&global, &clean_fixture.root, &["add", "cleaned.txt"]);
+    git_ok(
+        &global,
+        &clean_fixture.root,
+        &["commit", "-m", "clean-direction target"],
+    );
+    // The filter is attached only AFTER the commit, through untracked
+    // `.git/info/attributes`: git status trusts its stat cache for the
+    // untouched file, so the tracked tree stays clean, while the altering
+    // clean half - the smudge half is the identity - makes cleaning the
+    // current bytes produce something other than the recorded blob. Only
+    // the proof's clean direction fails here, so a tool that kept the
+    // checkout check but dropped the clean check passes the smudge twin
+    // above yet cannot pass this one.
+    fs::create_dir_all(clean_fixture.root.join(".git/info"))
+        .expect("create the attributes directory");
+    fs::write(
+        clean_fixture.root.join(".git/info/attributes"),
+        "cleaned.txt filter=alter\n",
+    )
+    .expect("declare the clean-direction filter");
+    git_ok(
+        &global,
+        &clean_fixture.root,
+        &["config", "filter.alter.smudge", "cat"],
+    );
+    git_ok(
+        &global,
+        &clean_fixture.root,
+        &["config", "filter.alter.clean", "cat; echo c"],
+    );
+    assert_eq!(
+        porcelain(&global, &clean_fixture.root),
+        Vec::<String>::new(),
+        "t124 WCPV-015: the clean-direction fixture's tracked tree is clean"
+    );
+
+    let clean_before = tree(&clean_fixture);
+    let clean_proof = turn_isolated(
+        &global,
+        &clean_fixture.root,
+        &["checkpoint", "-Item", ITEM, "-Target", "cleaned.txt"],
+    );
+    assert!(
+        !clean_proof.status.success(),
+        "t124 WCPV-015: a filter whose clean half mangles the bytes refuses the checkpoint"
+    );
+    assert_lines(
+        &clean_proof.stdout,
+        &[],
+        "the refusal prints no success line",
+    );
+    assert_lines(
+        &clean_proof.stderr,
+        &[
+            "turn refused; the checkout round-trip for cleaned.txt is not proven",
+            "  checking the recorded blob out through the effective settings must reproduce the current bytes, and cleaning the current bytes must reproduce the recorded blob;",
+            "  the effective line-ending or checkout-filter settings cannot reproduce these bytes after a restore; fix the attributes, filters, or core.autocrlf and core.eol, or correct the file, then run checkpoint again.",
+            "  nothing was written.",
+        ],
+        "the clean-direction round-trip refusal",
+    );
+    assert_eq!(
+        changed_paths(&clean_before, &tree(&clean_fixture)),
+        Vec::<String>::new(),
+        "t124 WCPV-015: the refused checkpoint writes nothing anywhere"
+    );
+    assert!(
+        !manifest_path(&clean_fixture).exists(),
         "t124 WCPV-015: the refused checkpoint freezes no manifest"
     );
 

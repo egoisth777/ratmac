@@ -18,6 +18,8 @@
         pwsh -File tools/turn.ps1 open   -Item <string>
         pwsh -File tools/turn.ps1 close  -Item <string> [-Line <words>]
                                          [-Obsolete <artifact>...]
+        pwsh -File tools/turn.ps1 checkpoint -Item <string> -Target <path>...
+        pwsh -File tools/turn.ps1 restore -Item <string>
 
     `status` is the dry run: it prints the declared data, the live turns,
     and each mutating verb's planned mutations and recovery commands. It
@@ -54,12 +56,26 @@
     and landing log) are left uncommitted in the trunk for the caller to
     land with the record flips they own.
 
+    `checkpoint` and `restore` are the damage pair. Before deliberate
+    damage, `checkpoint` proves the effective checkout settings round-trip
+    every declared -Target path's bytes in both directions through Git's
+    own conversion, then freezes one manifest recording each target's exact
+    worktree digest, the checkpoint commit's blob id, the effective
+    text/eol/filter attributes, and the effective core.autocrlf and core.eol
+    settings. `restore` returns exactly the manifest's targets from the
+    recorded commit through `git restore --staged --worktree`, then accepts
+    only when every recomputed digest matches its frozen digest and the
+    tracked tree is clean - a clean status alone never passes bytes that
+    differ. Neither verb writes configuration, refs, or the index, and
+    neither refuses from a linked worktree: the damage turn lives there,
+    deliberately.
+
     Ownership (the trial lifecycle's table): a human or the Main-Agent
     invokes these verbs from the primary checkout with the trunk checked
     out. An Advisor authors content only. A Subagent invokes no lifecycle
-    verb. Every verb - the dry run included - refuses from inside a linked
-    worktree and prints the `cd` that fixes it: on Windows a shell standing
-    in a worktree keeps a handle on it.
+    verb. Every lifecycle verb - the dry run included - refuses from inside
+    a linked worktree and prints the `cd` that fixes it: on Windows a shell
+    standing in a worktree keeps a handle on it.
 
     `-Force` is accepted so that muscle memory meets the same refusal; it
     never changes a verdict. Nothing here reaches the network, installs
@@ -88,6 +104,11 @@ param(
     [string] $Line = '',
 
     [string[]] $Obsolete = @(),
+
+    # One declared damage target spelling, or several comma-joined:
+    # `pwsh -File` delivers `-Target a,b` as one string, so the damage
+    # pair splits every value on commas and drops the empty pieces.
+    [string[]] $Target = @(),
 
     # Accepted and never honored: no refusal in this lifecycle has a force
     # variant, so the flag exists only to meet the same refusal.
@@ -1328,6 +1349,545 @@ function Invoke-Status {
     exit 0
 }
 
+# --- checkpoint and restore (WCP-005) ----------------------------------------
+
+# The damage pair's one test seam, dormant unless the QA harness sets
+# RATMAC_TEST_TURN_PAUSE explicitly on the child: validated after the item
+# guard and before any write, so an invalid request refuses having written
+# nothing. Each boundary belongs to exactly one verb.
+function Get-TestPause {
+    param([Parameter(Mandatory)][string[]] $Boundaries)
+
+    $requested = [Environment]::GetEnvironmentVariable('RATMAC_TEST_TURN_PAUSE')
+    if ([string]::IsNullOrEmpty($requested)) { return $null }
+
+    if ($Boundaries -notcontains $requested) {
+        $known = 'after-freeze', 'after-validate', 'after-restore', 'after-verify'
+        $fact = if ($known -contains $requested) { "$requested does not belong to this verb" }
+        else { "unknown boundary '$requested'" }
+        Deny -Reason "the test pause request is invalid: $fact" -Guidance @(
+            'set RATMAC_TEST_TURN_PAUSE to a known boundary with its marker, release, and timeout companions, or unset it.'
+        )
+    }
+
+    $marker = [Environment]::GetEnvironmentVariable('RATMAC_TEST_TURN_PAUSE_MARKER')
+    $release = [Environment]::GetEnvironmentVariable('RATMAC_TEST_TURN_PAUSE_RELEASE')
+    $timeoutText = [Environment]::GetEnvironmentVariable('RATMAC_TEST_TURN_PAUSE_TIMEOUT_MILLIS')
+    if ([string]::IsNullOrEmpty($marker)) {
+        Deny -Reason 'the test pause request is invalid: RATMAC_TEST_TURN_PAUSE_MARKER is missing' -Guidance @(
+            'set RATMAC_TEST_TURN_PAUSE to a known boundary with its marker, release, and timeout companions, or unset it.'
+        )
+    }
+    if ([string]::IsNullOrEmpty($release)) {
+        Deny -Reason 'the test pause request is invalid: RATMAC_TEST_TURN_PAUSE_RELEASE is missing' -Guidance @(
+            'set RATMAC_TEST_TURN_PAUSE to a known boundary with its marker, release, and timeout companions, or unset it.'
+        )
+    }
+    $timeout = 0
+    if ([string]::IsNullOrEmpty($timeoutText) -or -not [int]::TryParse($timeoutText, [ref]$timeout) -or $timeout -le 0) {
+        Deny -Reason "the test pause request is invalid: RATMAC_TEST_TURN_PAUSE_TIMEOUT_MILLIS is not a positive integer: '$timeoutText'" -Guidance @(
+            'set RATMAC_TEST_TURN_PAUSE to a known boundary with its marker, release, and timeout companions, or unset it.'
+        )
+    }
+
+    [pscustomobject]@{ Boundary = $requested; Marker = $marker; Release = $release; TimeoutMillis = $timeout }
+}
+
+# Hold the verb at a proven boundary: the marker line lands in one step,
+# then the verb waits for the release path, refusing on timeout with that
+# boundary's disk state left exactly as it is.
+function Invoke-TestPause {
+    param([Parameter(Mandatory)] $Pause)
+    try {
+        [System.IO.File]::WriteAllText($Pause.Marker, "$($Pause.Boundary)`n", [System.Text.UTF8Encoding]::new($false))
+    }
+    catch {
+        Deny -Reason "the test pause request is invalid: RATMAC_TEST_TURN_PAUSE_MARKER is not a writable file path: '$($Pause.Marker)'" -Guidance @(
+            'set RATMAC_TEST_TURN_PAUSE to a known boundary with its marker, release, and timeout companions, or unset it.'
+        )
+    }
+    $deadline = [DateTime]::UtcNow.AddMilliseconds($Pause.TimeoutMillis)
+    while (-not (Test-Path -LiteralPath $Pause.Release -PathType Leaf)) {
+        if ([DateTime]::UtcNow -ge $deadline) {
+            Deny -Reason "injected turn pause at $($Pause.Boundary) expired"
+        }
+        Start-Sleep -Milliseconds 50
+    }
+}
+
+# Git's raw stdout bytes into a file, so a content digest never passes
+# through a decoded PowerShell string; stderr lands in a sibling file the
+# caller's temporary directory owns and takes with it.
+function Save-GitBytes {
+    param(
+        [Parameter(Mandatory)][string[]] $Arguments,
+        [Parameter(Mandatory)][string] $Destination
+    )
+    $errorFile = "$Destination.err"
+    & git @Arguments 1> $Destination 2> $errorFile
+    $code = $LASTEXITCODE
+    $text = ''
+    if (Test-Path -LiteralPath $errorFile -PathType Leaf) {
+        $text = [System.IO.File]::ReadAllText($errorFile).TrimEnd("`r", "`n")
+        [System.IO.File]::Delete($errorFile)
+    }
+    [pscustomobject]@{ ExitCode = $code; Text = $text; Ok = ($code -eq 0) }
+}
+
+# The effective configuration value a manifest line records: the value Git
+# answers, or `unset` when no scope configures it.
+function Get-ConfigFact {
+    param(
+        [Parameter(Mandatory)] $Facts,
+        [Parameter(Mandatory)][string] $Name
+    )
+    $result = Invoke-Git -Arguments @('-C', $Facts.RepoRoot, 'config', $Name)
+    if ($result.Ok) { $result.Text.Trim() } else { 'unset' }
+}
+
+# The effective text, eol, and filter attribute values Git spells for a
+# path, read through `-z`: its NUL-separated records carry the path
+# verbatim whatever a host's quoting rule would escape, and the records
+# come from git's raw bytes, so no console decoding touches them.
+function Get-AttrFacts {
+    param(
+        [Parameter(Mandatory)] $Facts,
+        [Parameter(Mandatory)][string] $Path,
+        [Parameter(Mandatory)][string] $ProofDirectory
+    )
+    $attrFile = Join-Path $ProofDirectory 'attr-bytes'
+    $result = Save-GitBytes -Arguments @('-C', $Facts.RepoRoot, 'check-attr', '-z', 'text', 'eol', 'filter', '--', $Path) -Destination $attrFile
+    if (-not $result.Ok) {
+        Deny -Reason "git -C $($Facts.RepoRoot) check-attr -z text eol filter -- $Path failed: $($result.Text)"
+    }
+    $raw = [System.IO.File]::ReadAllText($attrFile, [System.Text.UTF8Encoding]::new($false))
+    $parts = @($raw -split "`0")
+    $found = @{}
+    for ($index = 0; $index + 2 -lt $parts.Count; $index += 3) {
+        $found[$parts[$index + 1]] = $parts[$index + 2]
+    }
+    $values = [System.Collections.Generic.List[string]]::new()
+    foreach ($attr in 'text', 'eol', 'filter') {
+        if (-not $found.ContainsKey($attr)) {
+            Deny -Reason "git -C $($Facts.RepoRoot) check-attr -z text eol filter -- $Path failed: unexpected output without a $attr row"
+        }
+        $values.Add([string]$found[$attr])
+    }
+    [string[]]$values.ToArray()
+}
+
+# Every -Target spelling: each value splits on commas, empty pieces drop,
+# and exact duplicate spellings collapse to one.
+function Get-CheckpointTargets {
+    $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    $targets = [System.Collections.Generic.List[string]]::new()
+    foreach ($value in @($Target)) {
+        foreach ($piece in ($value -split ',')) {
+            if ($piece -ne '' -and $seen.Add($piece)) { $targets.Add($piece) }
+        }
+    }
+    if ($targets.Count -eq 0) {
+        Deny -Reason 'checkpoint needs -Target <path>...' -Guidance @(
+            'declare every repository-relative path deliberate damage may mutate; at least one is required.'
+        )
+    }
+    [string[]]$targets.ToArray()
+}
+
+# A repository-relative regular-file spelling: no drive, no leading '/', no
+# backslash, no '..' component, no tab, no newline.
+function Test-TargetSpelling {
+    param([Parameter(Mandatory)][string] $Path)
+    ($Path -cmatch '^[A-Za-z]:') -or
+        $Path.StartsWith('/') -or
+        $Path.Contains('\') -or
+        (@($Path -split '/') -contains '..') -or
+        $Path.Contains("`t") -or
+        $Path.Contains("`n")
+}
+
+# The manifest's row order: paths sorted bytewise ascending - the UTF-8
+# bytes of each spelling compared unit by unit, so the order holds beyond
+# the basic multilingual plane and never depends on a culture or on UTF-16
+# code-unit order.
+function Get-BytewiseAscendingPaths {
+    param([Parameter(Mandatory)][string[]] $Paths)
+    $list = [System.Collections.Generic.List[string]]::new([string[]]$Paths)
+    $list.Sort([System.Comparison[string]]{
+        param($Left, $Right)
+        $leftBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($Left)
+        $rightBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($Right)
+        $shared = [Math]::Min($leftBytes.Length, $rightBytes.Length)
+        for ($index = 0; $index -lt $shared; $index++) {
+            if ($leftBytes[$index] -lt $rightBytes[$index]) { return -1 }
+            if ($leftBytes[$index] -gt $rightBytes[$index]) { return 1 }
+        }
+        if ($leftBytes.Length -lt $rightBytes.Length) { return -1 }
+        if ($leftBytes.Length -gt $rightBytes.Length) { return 1 }
+        return 0
+    })
+    [string[]]$list.ToArray()
+}
+
+# The round-trip proof for one target, through Git's own conversion both
+# ways: checking the recorded blob out through the effective settings
+# reproduces the current worktree bytes, and cleaning the current worktree
+# bytes reproduces the recorded blob. The proof's own bytes live outside
+# the repository, in the caller's temporary directory.
+function Test-TargetRoundTrip {
+    param(
+        [Parameter(Mandatory)] $Facts,
+        [Parameter(Mandatory)][string] $Head,
+        [Parameter(Mandatory)][string] $Path,
+        [Parameter(Mandatory)][string] $ProofDirectory
+    )
+    $blob = (Get-GitText -Arguments @('-C', $Facts.RepoRoot, 'rev-parse', "$($Head):$Path")).Trim()
+    $checkoutFile = Join-Path $ProofDirectory 'checkout-bytes'
+    $checkout = Save-GitBytes -Arguments @('-C', $Facts.RepoRoot, 'cat-file', '--filters', "--path=$Path", "$($Head):$Path") -Destination $checkoutFile
+    if (-not $checkout.Ok) {
+        Deny -Reason "git -C $($Facts.RepoRoot) cat-file --filters --path=$Path $($Head):$Path failed: $($checkout.Text)"
+    }
+    $cleaned = (Get-GitText -Arguments @('-C', $Facts.RepoRoot, 'hash-object', "--path=$Path", '--', $Path)).Trim()
+    $proven = $false
+    try {
+        $checkoutDigest = (Get-FileHash -LiteralPath $checkoutFile -Algorithm SHA256).Hash.ToLowerInvariant()
+        $worktreeDigest = (Get-FileHash -LiteralPath (Join-Path $Facts.RepoRoot $Path) -Algorithm SHA256).Hash.ToLowerInvariant()
+        $proven = ($checkoutDigest -eq $worktreeDigest) -and ($cleaned -eq $blob)
+    }
+    catch {
+        $proven = $false
+    }
+    $proven
+}
+
+function Invoke-Checkpoint {
+    param(
+        [Parameter(Mandatory)] $Facts,
+        [Parameter(Mandatory)] $Decl,
+        $Pause
+    )
+
+    # Validate, in the contract's order; every refusal writes nothing.
+    # @() keeps a single spelling an array: a one-element [string[]] would
+    # unroll to a scalar through the pipeline and lose .Count under StrictMode.
+    $targets = @(Get-CheckpointTargets)
+    foreach ($path in $targets) {
+        if (Test-TargetSpelling -Path $path) {
+            Deny -Reason "the declared target $path must stay repository-relative" -Guidance @(
+                "a target is one repository-relative path: no drive, no leading '/', no backslash, no '..' component, no tab, no newline."
+            )
+        }
+    }
+    $recordsRoot = Join-Path $Facts.RepoRoot $Decl.ItemRecords
+    if (-not (Test-Path -LiteralPath $recordsRoot -PathType Container)) {
+        Deny -Reason "the declared item-records root $($Decl.ItemRecords) does not exist" -Guidance @(
+            'create it, or fix item-records in .ratmac/turn.toml.'
+        )
+    }
+    $head = (Get-GitText -Arguments @('-C', $Facts.RepoRoot, 'rev-parse', 'HEAD')).Trim()
+    foreach ($path in $targets) {
+        $kind = Invoke-Git -Arguments @('-C', $Facts.RepoRoot, 'cat-file', '-t', "$($head):$path")
+        if (-not $kind.Ok -or $kind.Text.Trim() -ne 'blob') {
+            Deny -Reason "the declared target $path is not a tracked regular file at $head" -Guidance @(
+                'damage may be planned only for targets the checkpoint commit tracks;',
+                'commit the file first, or drop it from -Target.'
+            )
+        }
+    }
+    $trackedDirty = @($Facts.Porcelain | Where-Object { -not $_.StartsWith('??') })
+    if ($trackedDirty.Count -gt 0) {
+        Deny -Reason 'the working tree must be clean before a checkpoint freezes it; commit or put aside these entries first:' -Guidance (
+            @($trackedDirty | ForEach-Object { "  $_" })
+        )
+    }
+
+    # The manifest's rows, bytewise ascending by path.
+    $ordered = @(Get-BytewiseAscendingPaths -Paths $targets)
+
+    # The facts the manifest records.
+    $autocrlf = Get-ConfigFact -Facts $Facts -Name 'core.autocrlf'
+    $coreEol = Get-ConfigFact -Facts $Facts -Name 'core.eol'
+
+    # Prove both directions before anything is written; the proof's
+    # temporary bytes live outside the repository and are removed before
+    # the verb ends, refusal or not.
+    $proofDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ("ratmac-turn-proof-" + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $proofDirectory -Force | Out-Null
+    $rows = [System.Collections.Generic.List[string]]::new()
+    try {
+        foreach ($path in $ordered) {
+            if (-not (Test-TargetRoundTrip -Facts $Facts -Head $head -Path $path -ProofDirectory $proofDirectory)) {
+                Deny -Reason "the checkout round-trip for $path is not proven" -Guidance @(
+                    'checking the recorded blob out through the effective settings must reproduce the current bytes, and cleaning the current bytes must reproduce the recorded blob;',
+                    'the effective line-ending or checkout-filter settings cannot reproduce these bytes after a restore; fix the attributes, filters, or core.autocrlf and core.eol, or correct the file, then run checkpoint again.',
+                    'nothing was written.'
+                )
+            }
+            $digest = (Get-FileHash -LiteralPath (Join-Path $Facts.RepoRoot $path) -Algorithm SHA256).Hash.ToLowerInvariant()
+            $blob = (Get-GitText -Arguments @('-C', $Facts.RepoRoot, 'rev-parse', "$($head):$path")).Trim()
+            $attrs = Get-AttrFacts -Facts $Facts -Path $path -ProofDirectory $proofDirectory
+            $rows.Add("target $path`t$digest`t$blob`t$($attrs[0])`t$($attrs[1])`t$($attrs[2])")
+        }
+    }
+    finally {
+        # The proof's own temporary bytes, outside the repository; a host
+        # that cannot take them away never fails the verb on it.
+        $null = try { [System.IO.Directory]::Delete($proofDirectory, $true) } catch { }
+    }
+
+    # Freeze: the whole manifest in one step, beside the item record.
+    $manifestRelative = ("$($Decl.ItemRecords)/$Item-checkpoint-manifest.txt" -replace '\\', '/')
+    $manifestPath = Join-Path $recordsRoot "$Item-checkpoint-manifest.txt"
+    $content = "item $Item`ncommit $head`nsetting core.autocrlf $autocrlf`nsetting core.eol $coreEol`n"
+    foreach ($row in $rows) { $content += "$row`n" }
+    $temporaryPath = "$manifestPath.tmp"
+    try {
+        [System.IO.File]::WriteAllText($temporaryPath, $content, [System.Text.UTF8Encoding]::new($false))
+        [System.IO.File]::Move($temporaryPath, $manifestPath, $true)
+    }
+    catch {
+        Deny -Reason "writing the checkpoint manifest $manifestRelative failed: $($_.Exception.Message)" -Guidance @(
+            'nothing was frozen; clear the path and run checkpoint again.'
+        )
+    }
+
+    if ($null -ne $Pause) { Invoke-TestPause -Pause $Pause }
+
+    $noun = if ($ordered.Count -eq 1) { 'target' } else { 'targets' }
+    Write-Report 'turn checkpoint frozen'
+    Write-Report "  item:      $Item"
+    Write-Report "  commit:    $head"
+    Write-Report "  manifest:  $manifestRelative ($($ordered.Count) $noun, round-trip proven)"
+    Write-Report "  damage:    mutate only the declared targets, then run: pwsh -File tools/turn.ps1 restore -Item $Item"
+    exit 0
+}
+
+# The manifest's malformed-refusal row, shared by every parse fact.
+function Deny-Manifest {
+    param(
+        [Parameter(Mandatory)][string] $Relative,
+        [Parameter(Mandatory)][string] $Fact
+    )
+    Deny -Reason "the checkpoint manifest $Relative is malformed: $Fact" -Guidance @(
+        "repair the manifest, or re-run checkpoint -Item $Item from the green state."
+    )
+}
+
+# The frozen manifest, parsed to its exact format: four header rows and one
+# six-field tab-separated target row per declared path. Anything else
+# refuses as malformed, the bytes left exactly as they read.
+function Read-CheckpointManifest {
+    param(
+        [Parameter(Mandatory)][string] $Path,
+        [Parameter(Mandatory)][string] $Relative
+    )
+    $bytes = [System.IO.File]::ReadAllBytes($Path)
+    if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
+        Deny-Manifest -Relative $Relative -Fact 'it carries a UTF-8 byte-order mark'
+    }
+    $text = $null
+    try {
+        $text = [System.Text.UTF8Encoding]::new($false, $true).GetString($bytes)
+    }
+    catch {
+        Deny-Manifest -Relative $Relative -Fact 'it is not valid UTF-8'
+    }
+    if ($text.Contains("`r")) {
+        Deny-Manifest -Relative $Relative -Fact 'a line carries a carriage return'
+    }
+    if (-not $text.EndsWith("`n")) {
+        Deny-Manifest -Relative $Relative -Fact 'the last line is not LF-terminated'
+    }
+    $split = @($text -split "`n")
+    $lines = @($split | Select-Object -First ($split.Count - 1))
+    if ($lines.Count -lt 5) {
+        Deny-Manifest -Relative $Relative -Fact "it carries $($lines.Count) lines, fewer than the four header rows and one target row"
+    }
+    foreach ($line in $lines) {
+        if ($line -eq '') {
+            Deny-Manifest -Relative $Relative -Fact 'it carries an empty line'
+        }
+    }
+    if (-not ($lines[0] -cmatch '^item (.+)$')) {
+        Deny-Manifest -Relative $Relative -Fact "the first line is not an item row: $($lines[0])"
+    }
+    $manifestItem = $Matches[1]
+    if (-not ($lines[1] -cmatch '^commit ([0-9a-f]{40})$')) {
+        Deny-Manifest -Relative $Relative -Fact "the commit row is not a 40-hex object id: $($lines[1])"
+    }
+    $commit = $Matches[1]
+    if (-not ($lines[2] -cmatch '^setting core\.autocrlf (.*)$')) {
+        Deny-Manifest -Relative $Relative -Fact "the core.autocrlf row is malformed: $($lines[2])"
+    }
+    $autocrlf = $Matches[1]
+    if (-not ($lines[3] -cmatch '^setting core\.eol (.*)$')) {
+        Deny-Manifest -Relative $Relative -Fact "the core.eol row is malformed: $($lines[3])"
+    }
+    $coreEol = $Matches[1]
+    $rows = [System.Collections.Generic.List[object]]::new()
+    for ($index = 4; $index -lt $lines.Count; $index++) {
+        if (-not ($lines[$index] -cmatch '^target ([^\t]+)\t([0-9a-f]{64})\t([0-9a-f]{40})\t([^\t]+)\t([^\t]+)\t([^\t]+)$')) {
+            Deny-Manifest -Relative $Relative -Fact "a target row is not the six-field tab-separated shape: $($lines[$index])"
+        }
+        $rows.Add([pscustomobject]@{
+            Path   = $Matches[1]
+            Digest = $Matches[2]
+            Blob   = $Matches[3]
+            Text   = $Matches[4]
+            Eol    = $Matches[5]
+            Filter = $Matches[6]
+        })
+    }
+    if ($rows.Count -eq 0) {
+        Deny-Manifest -Relative $Relative -Fact 'it carries no target row'
+    }
+    [pscustomobject]@{
+        Item     = $manifestItem
+        Commit   = $commit
+        Autocrlf = $autocrlf
+        CoreEol  = $coreEol
+        Rows     = @($rows.ToArray())
+    }
+}
+
+function Invoke-Restore {
+    param(
+        [Parameter(Mandatory)] $Facts,
+        [Parameter(Mandatory)] $Decl,
+        $Pause
+    )
+
+    $manifestRelative = ("$($Decl.ItemRecords)/$Item-checkpoint-manifest.txt" -replace '\\', '/')
+    $manifestPath = Join-Path $Facts.RepoRoot "$($Decl.ItemRecords)/$Item-checkpoint-manifest.txt"
+    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+        Deny -Reason "the checkpoint manifest $manifestRelative does not exist" -Guidance @(
+            "run checkpoint -Item $Item from the green state before restoring."
+        )
+    }
+    $manifest = Read-CheckpointManifest -Path $manifestPath -Relative $manifestRelative
+    if ($manifest.Item -cne $Item) {
+        Deny -Reason "the checkpoint manifest $manifestRelative records item $($manifest.Item), not $Item" -Guidance @(
+            "re-run checkpoint -Item $Item from the green state."
+        )
+    }
+    $commit = $manifest.Commit
+    if (-not (Test-RefExists -Ref $commit)) {
+        Deny -Reason "the recorded checkpoint commit $commit does not resolve in this repository" -Guidance @(
+            'the manifest was frozen in another repository, or the commit was removed;',
+            'inspect the manifest before freezing again.'
+        )
+    }
+    foreach ($row in $manifest.Rows) {
+        $kind = Invoke-Git -Arguments @('-C', $Facts.RepoRoot, 'cat-file', '-t', "$($commit):$($row.Path)")
+        if (-not $kind.Ok -or $kind.Text.Trim() -ne 'blob') {
+            Deny -Reason "the manifest names $($row.Path), which the recorded checkpoint commit $commit does not carry" -Guidance @(
+                "the manifest and the commit disagree; re-run checkpoint -Item $Item from the green state, or repair the manifest."
+            )
+        }
+        $recomputed = (Get-GitText -Arguments @('-C', $Facts.RepoRoot, 'rev-parse', "$($commit):$($row.Path)")).Trim()
+        if ($recomputed -cne $row.Blob) {
+            Deny -Reason "the manifest row for $($row.Path) does not match the recorded checkpoint $($commit): blob $recomputed where the manifest carries $($row.Blob)" -Guidance @(
+                'the manifest was edited, or it records a different commit;',
+                "re-run checkpoint -Item $Item from the green state, or repair the manifest to the recorded facts."
+            )
+        }
+    }
+
+    if ($null -ne $Pause -and $Pause.Boundary -ceq 'after-validate') { Invoke-TestPause -Pause $Pause }
+
+    $paths = @($manifest.Rows | ForEach-Object { $_.Path })
+
+    # Each target's index entry re-set to the checkpoint blob with no
+    # cached file facts: an entry whose stat still matches bytes an earlier
+    # setting wrote would make the restore skip that target, so fixing the
+    # settings a digest-mismatch refusal named and re-running restore would
+    # refuse the same way forever. One invocation for every target, in
+    # manifest order, through the modes and blobs the recorded commit
+    # carries; the worktree bytes are untouched.
+    $proofDirectory = Join-Path ([System.IO.Path]::GetTempPath()) "ratmac-turn-restore-$([guid]::NewGuid().ToString('N'))"
+    $null = New-Item -ItemType Directory -Path $proofDirectory -Force
+    try {
+        $treeFile = Join-Path $proofDirectory 'tree-bytes'
+        $tree = Save-GitBytes -Arguments (@('-C', $Facts.RepoRoot, 'ls-tree', '-z', $commit, '--') + $paths) -Destination $treeFile
+        if (-not $tree.Ok) {
+            Deny -Reason "git -C $($Facts.RepoRoot) ls-tree -z $commit -- $($paths -join ' ') failed: $($tree.Text)"
+        }
+        $entries = @{}
+        foreach ($entry in @([System.IO.File]::ReadAllText($treeFile, [System.Text.UTF8Encoding]::new($false)) -split "`0")) {
+            if ($entry.Length -eq 0) { continue }
+            $tab = $entry.IndexOf("`t")
+            $head = $entry.Substring(0, $tab) -split ' '
+            $entries[$entry.Substring($tab + 1)] = @{ Mode = $head[0]; Object = $head[2] }
+        }
+        $triples = [System.Collections.Generic.List[string]]::new()
+        $resetArgs = [System.Collections.Generic.List[string]]::new([string[]]@('-C', $Facts.RepoRoot, 'update-index', '--add'))
+        foreach ($row in $manifest.Rows) {
+            $entry = $entries[$row.Path]
+            if ($null -eq $entry -or $entry.Object -cne $row.Blob) {
+                Deny -Reason "git -C $($Facts.RepoRoot) ls-tree -z $commit -- $($paths -join ' ') failed: unexpected output without $($row.Path) at its recorded blob"
+            }
+            $triples.Add("$($entry.Mode),$($row.Blob),$($row.Path)")
+            $resetArgs.Add('--cacheinfo')
+            $resetArgs.Add($triples[$triples.Count - 1])
+        }
+        $reset = Invoke-Git -Arguments $resetArgs.ToArray()
+        if (-not $reset.Ok) {
+            Deny -Reason "git update-index --add --cacheinfo $($triples -join ' ') failed: $($reset.Text)"
+        }
+
+    # Exactly the working rules' undo, one invocation for every target.
+        $restore = Invoke-Git -Arguments (@('-C', $Facts.RepoRoot, 'restore', "--source=$commit", '--staged', '--worktree', '--') + $paths)
+        if (-not $restore.Ok) {
+            Deny -Reason "git restore --source=$commit --staged --worktree -- $($paths -join ' ') failed: $($restore.Text)"
+        }
+    }
+    finally {
+        # The verb's own temporary bytes, outside the repository; a host
+        # that cannot take them away never fails the verb on it.
+        $null = try { [System.IO.Directory]::Delete($proofDirectory, $true) } catch { }
+    }
+
+    if ($null -ne $Pause -and $Pause.Boundary -ceq 'after-restore') { Invoke-TestPause -Pause $Pause }
+
+    # Verify: every recomputed digest against its frozen digest, then a
+    # clean tracked tree. Both must hold; nothing is deleted on failure and
+    # no unrelated file is touched.
+    foreach ($row in $manifest.Rows) {
+        $digest = ''
+        try {
+            $digest = (Get-FileHash -LiteralPath (Join-Path $Facts.RepoRoot $row.Path) -Algorithm SHA256).Hash.ToLowerInvariant()
+        }
+        catch {
+            Deny -Reason "recomputing the digest of $($row.Path) failed: $($_.Exception.Message)" -Guidance @(
+                'free or repair the path, then run restore again.'
+            )
+        }
+        if ($digest -cne $row.Digest) {
+            Deny -Reason "the restored bytes of $($row.Path) do not match its frozen digest" -Guidance @(
+                'a clean Git status is not acceptance: the effective line-ending or checkout-filter settings changed since the checkpoint froze these bytes;',
+                "restore the settings the manifest records for $($row.Path) (text $($row.Text), eol $($row.Eol), filter $($row.Filter); core.autocrlf $($manifest.Autocrlf), core.eol $($manifest.CoreEol)), then run restore again;",
+                'no unrelated file was touched.'
+            )
+        }
+    }
+    $trackedDirty = @(Get-GitLines -Arguments @('-C', $Facts.RepoRoot, 'status', '--porcelain') | Where-Object { -not $_.StartsWith('??') })
+    if ($trackedDirty.Count -gt 0) {
+        Deny -Reason 'the tracked tree is not clean after the restore' -Guidance (
+            @($trackedDirty) +
+            @("the targets' digests matched, but the index or a tracked path still differs; repair the rows above, then run restore again.")
+        )
+    }
+
+    if ($null -ne $Pause -and $Pause.Boundary -ceq 'after-verify') { Invoke-TestPause -Pause $Pause }
+
+    Write-Report 'turn restore verified'
+    Write-Report "  item:      $Item"
+    Write-Report "  commit:    $commit"
+    Write-Report "  manifest:  $manifestRelative"
+    Write-Report "  targets:   $($manifest.Rows.Count) restored; every recomputed digest matches its frozen digest; index and tracked tree clean"
+    exit 0
+}
+
 # --- dispatch ----------------------------------------------------------------
 
 $facts = Get-Facts
@@ -1354,12 +1914,26 @@ switch ($Verb) {
         $declaration = Get-Declaration -RepoRoot $facts.RepoRoot
         Invoke-Close -Facts $facts -Decl $declaration
     }
+    'checkpoint' {
+        Guard-Item
+        $pause = Get-TestPause -Boundaries @('after-freeze')
+        $declaration = Get-Declaration -RepoRoot $facts.RepoRoot
+        Invoke-Checkpoint -Facts $facts -Decl $declaration -Pause $pause
+    }
+    'restore' {
+        Guard-Item
+        $pause = Get-TestPause -Boundaries @('after-validate', 'after-restore', 'after-verify')
+        $declaration = Get-Declaration -RepoRoot $facts.RepoRoot
+        Invoke-Restore -Facts $facts -Decl $declaration -Pause $pause
+    }
     default {
         Deny -Reason "unknown verb '$Verb'" -Guidance @(
-            'available verbs: status, open, close',
+            'available verbs: status, open, close, checkpoint, restore',
             'pwsh -File tools/turn.ps1 status [-Item <string>]',
             'pwsh -File tools/turn.ps1 open -Item <string>',
-            "pwsh -File tools/turn.ps1 close -Item <string> [-Line <words>] [-Obsolete <artifact>...]"
+            "pwsh -File tools/turn.ps1 close -Item <string> [-Line <words>] [-Obsolete <artifact>...]",
+            "pwsh -File tools/turn.ps1 checkpoint -Item <string> -Target <path>...",
+            'pwsh -File tools/turn.ps1 restore -Item <string>'
         )
     }
 }
