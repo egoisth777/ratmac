@@ -1,0 +1,10 @@
+planned-test-id = "WEBV-003"
+ticket-id = "t-123"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t123_portable_goal_fingerprints webv_003 -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t123_portable_goal_fingerprints.rs"
+test-name = "webv_003"
+exit-status = 101
+output-sha256 = "b946ec729385280b9731dad77d4e694e931535fc47c5e361255a3719606fe752"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t123_portable_goal_fingerprints.rs (target\\debug\\deps\\t123_portable_goal_fingerprints-d4962ec82b4ad9b6.exe)\n\nrunning 1 test\ntest webv_003 ... FAILED\n\nfailures:\n\n---- webv_003 stdout ----\n\nthread 'webv_003' (28564) panicked at test\\qa\\tests\\t123_portable_goal_fingerprints.rs:953:5:\nthe baseline carries exactly v2: plus 64 lowercase hex digits: afcc5072570a09202c7fcb3bc0491027a3e8b4a40f46d12c855713e862e9be44\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    webv_003\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.16s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t123_portable_goal_fingerprints`\n"

@@ -943,12 +943,58 @@ fn a_rejudged_archived_record_refuses_until_it_moves_back() {
 #[test]
 fn the_record_gate_passes_on_this_repository_as_it_stands() {
     let root = ratmac_qa::baseline::repo_root();
-    // The freeze is computed from the tracked goal bundle, exactly as the
-    // Engine computes it, so this check needs no machine-local Run state and
-    // keeps running on a fresh clone as the archive grows.
-    let frozen = ratmac::goal::revision(&root.join(".arca/goal"))
-        .expect("read the goal bundle")
-        .expect("this repository has a goal bundle");
+    // Historical goal stamps are provenance, not a request to recompute them
+    // with today's algorithm (t-123): the expected freeze is the revision
+    // this repository's live residual records themselves cite - every live
+    // record under `.arca/residual/` that is not archived, all agreeing on
+    // one value - so this check needs no machine-local Run state and keeps
+    // asserting the same green verdict with a legacy or a `v2:` citation as
+    // the archive grows.
+    let mut live: Vec<PathBuf> = fs::read_dir(root.join(".arca/residual"))
+        .expect("list this repository's residual records")
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("md")
+        })
+        .collect();
+    live.sort();
+    assert!(
+        !live.is_empty(),
+        "this repository keeps live residual records to cite its freeze"
+    );
+    let mut cited: Option<(PathBuf, String)> = None;
+    for record in &live {
+        let text = fs::read_to_string(record).expect("read the live residual record");
+        let value = text
+            .lines()
+            .find_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                (name.trim() == "frozen-goal-bundle-revision")
+                    .then(|| value.trim().trim_matches('"').to_owned())
+            })
+            .unwrap_or_default();
+        let token = value
+            .split_once("goal-sha256:")
+            .map(|(_, rest)| rest.split('+').next().unwrap_or("").to_owned())
+            .unwrap_or_default();
+        assert!(
+            !token.is_empty(),
+            "{} cites one goal-sha256 revision: {value}",
+            record.display()
+        );
+        match &cited {
+            None => cited = Some((record.clone(), token)),
+            Some((first, first_token)) => assert_eq!(
+                &token,
+                first_token,
+                "{} and {} cite the same freeze",
+                record.display(),
+                first.display()
+            ),
+        }
+    }
+    let (_, frozen) = cited.expect("the live records above cited one freeze");
     let engine = std::env::temp_dir().join(format!(
         "ratmac-t048-selfcheck-{}-{}",
         std::process::id(),
