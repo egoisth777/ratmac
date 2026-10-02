@@ -406,6 +406,9 @@ fn wcpv_022() {
             EXAMPLE_BAR_MESSAGE.strip_suffix('\n').unwrap(),
         ),
         ("blank-line", &format!("{EXAMPLE_BAR_MESSAGE}\n")),
+        // The amended ticket: a blank line is one holding nothing or only
+        // spaces and tabs, so a whitespace-only final line is blank too.
+        ("blank-spaces", &format!("{EXAMPLE_BAR_MESSAGE} \t \n")),
     ] {
         let (twin_files, message, checks) =
             files(&format!("t127-022-shape-{label}"), tail, GREEN_CHECKS);
@@ -498,18 +501,31 @@ fn wcpv_023() {
     assert_eq!(porcelain(&dirty), "?? dirt.txt\n", "the dirt is untouched");
 
     // Stale proof: the declared check passed at the parent commit but fails
-    // at the candidate, so only its execution can count.
+    // at the candidate, so only its execution can count. The fixture proves
+    // its own premise by running the declared check raw at both commits.
     let stale = TempRepo::new("t127-023-stale");
     stale.write("src/lib.rs", "pub fn fixture() {}\n");
     stale.write("flag", "still proven\n");
     stale.commit_all("base with the proven flag");
+    let at_parent = stale.git(&["ls-files", "--error-unmatch", "flag"]);
+    assert_eq!(
+        at_parent.status.code(),
+        Some(0),
+        "the declared check passes at the parent commit"
+    );
     let removed = stale.git(&["rm", "--quiet", "--", "flag"]);
     assert!(removed.status.success(), "remove the proven flag");
     stale.commit_all("the flag is gone");
+    let at_candidate = stale.git(&["ls-files", "--error-unmatch", "flag"]);
+    assert_eq!(
+        at_candidate.status.code(),
+        Some(1),
+        "the same declared check fails at the candidate commit: the proof is stale"
+    );
     let (carrier, message, checks) = files(
         "t127-023-stale-files",
         EXAMPLE_BAR_MESSAGE,
-        "git cat-file -e HEAD:flag\n",
+        "git ls-files --error-unmatch flag\n",
     );
     let before = refs(&stale);
     let output = run_edition_cut(
@@ -527,7 +543,7 @@ fn wcpv_023() {
     assert_refused(
         &output,
         &format!(
-            "the declared check at {} line 1 (git cat-file -e HEAD:flag) exited 1",
+            "the declared check at {} line 1 (git ls-files --error-unmatch flag) exited 1",
             checks.display()
         ),
         "the stale proof",

@@ -18,6 +18,12 @@ path = "src/bin/snapshot_manifest.rs"
 name = "lock-barrier"
 path = "src/bin/lock_barrier.rs"
 
+# WCP-008: the edition-cut preflight carrier reuses the shared edition
+# oracle, so the suites judge one proof-text contract.
+[[bin]]
+name = "edition-cut"
+path = "src/bin/edition_cut.rs"
+
 # DEB-001: the harness copy of the Engine command is named for what it is,
 # so it never writes over the shipped `rtm`.
 [[bin]]

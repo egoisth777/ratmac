@@ -49,6 +49,18 @@ impl std::fmt::Display for AuditFinding {
     }
 }
 
+/// The `RECORDED_BAR` entries `message` lacks, in `RECORDED_BAR` order - the
+/// one proof-text validator both the audit's `documented` finding and the
+/// `edition-cut` preflight call, so the same bytes always yield the same
+/// missing phrases from either caller.
+pub fn missing_phrases(message: &str) -> Vec<&'static str> {
+    RECORDED_BAR
+        .iter()
+        .copied()
+        .filter(|phrase| !message.contains(phrase))
+        .collect()
+}
+
 /// Run a read-only version-control command, or say why the answer is
 /// unavailable. A missing answer is never silently a pass.
 pub fn git(root: &Path, args: &[&str]) -> Result<String, String> {
@@ -128,11 +140,7 @@ pub fn audit_editions(root: &Path) -> Result<Vec<AuditFinding>, String> {
                 detail: "the message is empty, so the bar is recorded nowhere".to_owned(),
             });
         } else {
-            let missing: Vec<&str> = RECORDED_BAR
-                .iter()
-                .copied()
-                .filter(|phrase| !message.contains(phrase))
-                .collect();
+            let missing = missing_phrases(&message);
             if !missing.is_empty() {
                 findings.push(AuditFinding {
                     tag: tag.clone(),

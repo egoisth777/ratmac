@@ -1,0 +1,10 @@
+ticket-id = "t-127"
+check-id = "WCPV-024"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test t127_edition_proof_preflight -- --test-threads=1"
+working-dir = "."
+exit-status = 0
+output-sha256 = "1621662e8dbd82852722fc9acf59a83847b5a119fdc39bb72c26f0f53459d443"
+tree-roots = ["src","test/qa","test-hidden","tools","Cargo.toml","Cargo.lock",".gitignore",".ratmac/lanes.toml"]
+tree-sha256 = "666182676fb078547854053a6737318ae4e4700866b20c0e76b1ec65f8d17e61"
+output = "\nrunning 3 tests\ntest wcpv_022 ... ok\ntest wcpv_023 ... ok\ntest wcpv_024 ... ok\n\ntest result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.80s\n\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t127_edition_proof_preflight.rs (target\\debug\\deps\\t127_edition_proof_preflight-41b445b7ab0f32b5.exe)\n"
