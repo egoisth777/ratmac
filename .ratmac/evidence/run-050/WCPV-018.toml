@@ -1,0 +1,10 @@
+planned-test-id = "WCPV-018"
+ticket-id = "t-125"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t125_checkpoint_only_restoration wcpv_018 -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t125_checkpoint_only_restoration.rs"
+test-name = "wcpv_018"
+exit-status = 101
+output-sha256 = "e51d6d7b92b34cbc202e1ee017bb3e2243ee8b0ce4b286d208a12e197151b081"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t125_checkpoint_only_restoration.rs (target\\debug\\deps\\t125_checkpoint_only_restoration-609f1f199a84e334.exe)\n\nrunning 1 test\ntest wcpv_018 ... FAILED\n\nfailures:\n\n---- wcpv_018 stdout ----\n\nthread 'wcpv_018' (67428) panicked at test\\qa\\tests\\t125_checkpoint_only_restoration.rs:169:5:\nt125: the amend-into-landing restore refuses: turn restore verified\r\n  item:      item-1\r\n  commit:    4436a0f5bd075438e9662d6521a5e4010328453c\r\n  manifest:  items/item-1-checkpoint-manifest.txt\r\n  targets:   1 restored; every recomputed digest matches its frozen digest; index and tracked tree clean\r\n\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    wcpv_018\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 8.37s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t125_checkpoint_only_restoration`\n"

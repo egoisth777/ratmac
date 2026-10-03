@@ -1,0 +1,10 @@
+planned-test-id = "WCPV-017"
+ticket-id = "t-125"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t125_checkpoint_only_restoration wcpv_017 -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t125_checkpoint_only_restoration.rs"
+test-name = "wcpv_017"
+exit-status = 101
+output-sha256 = "11bbe01f00e6f17f95b6f2ad996f2b842b99c2bb3b1b8e3713144256f7892b8c"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t125_checkpoint_only_restoration.rs (target\\debug\\deps\\t125_checkpoint_only_restoration-609f1f199a84e334.exe)\n\nrunning 1 test\ntest wcpv_017 ... FAILED\n\nfailures:\n\n---- wcpv_017 stdout ----\n\nthread 'wcpv_017' (56976) panicked at test\\qa\\tests\\t125_checkpoint_only_restoration.rs:142:5:\nassertion `left == right` failed: t125: the arbitrary-revision manifest restore must be exactly these lines\n  left: [\"turn refused; the tracked tree is not clean after the restore\", \"  M  README.md\", \"  the targets' digests matched, but the index or a tracked path still differs; repair the rows above, then run restore again.\"]\n right: [\"turn refused; the recorded checkpoint 9e9244da82d029782949076c7109dd310841fe65 is stale: HEAD is f12da91c1a8824367702966ee0601c94ea7cc785\", \"  the damage protocol never moves HEAD; this manifest does not name the commit the checkout stands on.\", \"  re-run checkpoint -Item item-1 from the current safety commit, or inspect the manifest before restoring.\", \"  nothing was written.\"]\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    wcpv_017\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 7.91s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t125_checkpoint_only_restoration`\n"

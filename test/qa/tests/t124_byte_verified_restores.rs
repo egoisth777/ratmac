@@ -188,6 +188,19 @@ fn wcpv_013() {
     let turn = Turn::new("wcpv013");
     status_control(&global, &turn);
 
+    // t-125 (WCP-006) tightens this verb: checkpoint records only a HEAD
+    // committed under the fixed safety subject, so the fixture's green work
+    // lands under it before the freeze - a fixture-only adjustment.
+    git_ok(
+        &global,
+        &turn.root,
+        &[
+            "commit",
+            "--allow-empty",
+            "-m",
+            "item-1: checkpoint - not a landing",
+        ],
+    );
     let head = turn.head_of(TRUNK);
     let readme = turn.root.join("README.md");
     let manifest = manifest_path(&turn);
@@ -283,6 +296,19 @@ fn wcpv_014() {
     let turn = Turn::new("wcpv014");
     status_control(&global, &turn);
 
+    // t-125 (WCP-006) tightens this verb: checkpoint records only a HEAD
+    // committed under the fixed safety subject, so the fixture's green work
+    // lands under it before the freeze - a fixture-only adjustment.
+    git_ok(
+        &global,
+        &turn.root,
+        &[
+            "commit",
+            "--allow-empty",
+            "-m",
+            "item-1: checkpoint - not a landing",
+        ],
+    );
     let head = turn.head_of(TRUNK);
     let readme = turn.root.join("README.md");
     let record = turn.root.join("items/item-1.md");
@@ -494,7 +520,13 @@ fn wcpv_015() {
         &["config", "filter.mangle.smudge", "cat; echo x"],
     );
     git_ok(&global, &turn.root, &["add", "-A"]);
-    git_ok(&global, &turn.root, &["commit", "-m", "filtered target"]);
+    // t-125 (WCP-006): the round-trip refusal must stay reachable behind the
+    // new safety-commit check, so the fixture commits under its subject.
+    git_ok(
+        &global,
+        &turn.root,
+        &["commit", "-m", "item-1: checkpoint - not a landing"],
+    );
 
     let before = tree(&turn);
     let proof = turn_isolated(
@@ -535,10 +567,11 @@ fn wcpv_015() {
     // and the untouched file's stat data will be trusted afterwards.
     std::thread::sleep(std::time::Duration::from_secs(2));
     git_ok(&global, &clean_fixture.root, &["add", "cleaned.txt"]);
+    // t-125 (WCP-006): same fixture-only subject adjustment as above.
     git_ok(
         &global,
         &clean_fixture.root,
-        &["commit", "-m", "clean-direction target"],
+        &["commit", "-m", "item-1: checkpoint - not a landing"],
     );
     // The filter is attached only AFTER the commit, through untracked
     // `.git/info/attributes`: git status trusts its stat cache for the
@@ -606,10 +639,24 @@ fn wcpv_015() {
         "t124 WCPV-015: the refused checkpoint freezes no manifest"
     );
 
-    // A restore whose digests match but whose tracked tree stays dirty: the
-    // refusal names the row, claims no success, and changes nothing but the
-    // declared target.
+    // A restore with unrelated unsaved work beside the declared damage:
+    // t-125 (WCP-006) moves this boundary ahead of the mutation, so the
+    // refusal names the unrelated rows, claims no success, and leaves the
+    // damaged target, the index, and every unrelated file exactly as found.
     let restore_fixture = Turn::new("wcpv015restore");
+    // t-125 (WCP-006) tightens this verb: checkpoint records only a HEAD
+    // committed under the fixed safety subject, so the fixture's green work
+    // lands under it before the freeze - a fixture-only adjustment.
+    git_ok(
+        &global,
+        &restore_fixture.root,
+        &[
+            "commit",
+            "--allow-empty",
+            "-m",
+            "item-1: checkpoint - not a landing",
+        ],
+    );
     let head = restore_fixture.head_of(TRUNK);
     let frozen = turn_isolated(
         &global,
@@ -638,11 +685,12 @@ fn wcpv_015() {
     fs::write(&readme, "# damaged\n").expect("damage the declared target");
     fs::write(&landlog, "# landings\nunrelated dirt\n").expect("dirty an unrelated tracked file");
     let before = tree(&restore_fixture);
+    let rows_before = porcelain(&global, &restore_fixture.root);
 
     let dirty = turn_isolated(&global, &restore_fixture.root, &["restore", "-Item", ITEM]);
     assert!(
         !dirty.status.success(),
-        "t124 WCPV-015: a restore that leaves a tracked path dirty never claims success: {}{}",
+        "t124 WCPV-015: unrelated unsaved work refuses the restore before any write: {}{}",
         String::from_utf8_lossy(&dirty.stdout),
         String::from_utf8_lossy(&dirty.stderr)
     );
@@ -650,16 +698,17 @@ fn wcpv_015() {
     assert_lines(
         &dirty.stderr,
         &[
-            "turn refused; the tracked tree is not clean after the restore",
+            "turn refused; the working tree carries unsaved work unrelated to the declared targets; commit or put aside these entries first:",
             "   M landlog.md",
-            "  the targets' digests matched, but the index or a tracked path still differs; repair the rows above, then run restore again.",
+            "  a restore may undo only the declared targets' damage;",
+            "  nothing was written.",
         ],
-        "the dirty-tree refusal",
+        "the unrelated-unsaved-work refusal",
     );
     assert_eq!(
         fs::read(&readme).expect("reread the target"),
-        b"# fixture\n".as_slice(),
-        "t124 WCPV-015: the target's digest matched, so it holds the checkpoint bytes"
+        b"# damaged\n".as_slice(),
+        "t124 WCPV-015: the refusal leaves the damaged target exactly as found"
     );
     assert_eq!(
         fs::read(&landlog).expect("reread the unrelated file"),
@@ -667,8 +716,13 @@ fn wcpv_015() {
         "t124 WCPV-015: the refused restore leaves the unrelated file untouched"
     );
     assert_eq!(
+        porcelain(&global, &restore_fixture.root),
+        rows_before,
+        "t124 WCPV-015: the refusal leaves the index and the tracked rows exactly as found"
+    );
+    assert_eq!(
         changed_paths(&before, &tree(&restore_fixture)),
-        vec!["README.md".to_owned()],
-        "t124 WCPV-015: the restore's writes are limited to the manifest's own target paths"
+        Vec::<String>::new(),
+        "t124 WCPV-015: the refused restore writes nothing anywhere"
     );
 }
