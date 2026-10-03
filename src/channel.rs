@@ -184,6 +184,8 @@ fn git_commit(root: &Path, reference: &str) -> Result<String, String> {
     let output = Command::new("git")
         .args(["rev-parse", "--verify", &format!("{reference}^{{commit}}")])
         .current_dir(root)
+        // t-128: a child never inherits the Engine's trace channel.
+        .env_remove(crate::diag::TRACE_VARIABLE)
         .output()
         .map_err(|error| format!("git rev-parse could not run: {error}"))?;
     if !output.status.success() {

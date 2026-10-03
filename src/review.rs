@@ -1601,6 +1601,9 @@ fn ssh_verify(
         .arg(namespace)
         .arg("-s")
         .arg(&temporary)
+        // t-128: the pinned verifier child never inherits the Engine's
+        // trace channel.
+        .env_remove(crate::diag::TRACE_VARIABLE)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())

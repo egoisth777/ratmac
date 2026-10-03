@@ -39,6 +39,19 @@ pub fn next(engine_root: &Path) -> Result<String, StateError> {
     let record_path = engine_root.join(RECORD_FILE);
     let recorded = read_highest(&record_path)?;
     let roster_max = highest_roster_ordinal(engine_root)?;
+    // t-128: both reads succeeded, so the mint decision reports what each
+    // held before reserving.
+    crate::diag::event("mint_read", |record| {
+        match recorded {
+            Some(highest) => {
+                record.field("recorded", highest.to_string());
+            }
+            None => {
+                record.field("recorded", "absent");
+            }
+        }
+        record.field("roster", roster_max.to_string());
+    });
     let highest = recorded.unwrap_or(roster_max).max(roster_max);
     let next = highest.checked_add(1).ok_or_else(|| {
         StateError::new(format!(
@@ -49,6 +62,11 @@ pub fn next(engine_root: &Path) -> Result<String, StateError> {
     })?;
 
     persist(&record_path, next)?;
+    // t-128: the record durably holds the new ordinal, so the reservation
+    // is a committed decision.
+    crate::diag::event("mint_write", |record| {
+        record.field("reserved", format!("run-{next:03}"));
+    });
     Ok(format!("run-{next:03}"))
 }
 

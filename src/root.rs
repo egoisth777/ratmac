@@ -136,6 +136,18 @@ impl Invocation {
             return roots.clone();
         }
         let roots = Roots::resolve(project);
+        // t-128: the first resolution of a project rides the context cache,
+        // so the decision trace reports it once per distinct project.
+        crate::diag::event("root_selection", |record| {
+            record.field(
+                "resolution",
+                if roots.repository.is_some() {
+                    "repository-primary"
+                } else {
+                    "checkout-local"
+                },
+            );
+        });
         self.resolved.borrow_mut().push((key, roots.clone()));
         roots
     }
@@ -583,7 +595,9 @@ pub(crate) fn git_command(invoking_checkout_root: &Path) -> Command {
         .current_dir(invoking_checkout_root)
         .env_remove("GIT_DIR")
         .env_remove("GIT_COMMON_DIR")
-        .env_remove("GIT_WORK_TREE");
+        .env_remove("GIT_WORK_TREE")
+        // t-128: a child never inherits the Engine's trace channel.
+        .env_remove(crate::diag::TRACE_VARIABLE);
     command
 }
 

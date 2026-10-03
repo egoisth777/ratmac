@@ -43,6 +43,90 @@ const CLAIM_OFFSET: u64 = 1_073_741_824;
 const CLAIM_LENGTH: u32 = 1;
 static TOKEN_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
+/// The lock's trace identity (t-128): which domain a successful claim took,
+/// with the Run ordinal for a Run lock. Derived allocation-free from the
+/// acquisition guard.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TraceDomain {
+    Root,
+    Run(u64),
+    Policy,
+    /// A claim on a not-yet-addressed freshly minted Run: part of minting
+    /// mechanics, never a Run-domain decision, so it reports nothing. The
+    /// contract's pinned `rtm start` record sequence carries no Run lock
+    /// records for the id it is minting.
+    Silent,
+}
+
+/// One lock_acquire record for a successful claim (t-128).
+fn trace_acquired(domain: TraceDomain) {
+    if let TraceDomain::Run(ordinal) = domain {
+        crate::diag::event("lock_acquire", |record| {
+            record
+                .field("domain", "run")
+                .field("run", format!("run-{ordinal:03}"));
+        });
+    } else {
+        let name = match domain {
+            TraceDomain::Root => "root",
+            TraceDomain::Policy => "policy",
+            TraceDomain::Run(_) | TraceDomain::Silent => return,
+        };
+        crate::diag::event("lock_acquire", |record| {
+            record.field("domain", name);
+        });
+    }
+}
+
+/// One lock_release record, the first write of the guard's drop, before any
+/// cleanup warning the drop may also produce (t-128).
+fn trace_released(domain: TraceDomain) {
+    if let TraceDomain::Run(ordinal) = domain {
+        crate::diag::event("lock_release", |record| {
+            record
+                .field("domain", "run")
+                .field("run", format!("run-{ordinal:03}"));
+        });
+    } else {
+        let name = match domain {
+            TraceDomain::Root => "root",
+            TraceDomain::Policy => "policy",
+            TraceDomain::Run(_) | TraceDomain::Silent => return,
+        };
+        crate::diag::event("lock_release", |record| {
+            record.field("domain", name);
+        });
+    }
+}
+
+/// The trace identity of an acquisition guard: `root`, or `run:<run-NNN>`
+/// with the canonical ordinal.
+fn trace_domain(guard: &str) -> TraceDomain {
+    match guard.strip_prefix("run:") {
+        Some(run_id) => TraceDomain::Run(
+            run_id
+                .strip_prefix("run-")
+                .unwrap_or_default()
+                .parse()
+                .unwrap_or_default(),
+        ),
+        None => TraceDomain::Root,
+    }
+}
+
+/// The Run-domain trace identity, straight from the run id: the same parse
+/// `trace_domain` performs, without the intermediate `run:` string, so an
+/// acquisition allocates nothing for tracing while the channel is off.
+fn run_domain(run_id: &str) -> TraceDomain {
+    TraceDomain::Run(
+        run_id
+            .strip_prefix("run-")
+            .unwrap_or_default()
+            .parse()
+            .unwrap_or_default(),
+    )
+}
+
 /// The one root-domain lock path for an Engine root.
 pub fn root_path(engine_root: &Path) -> PathBuf {
     engine_root.join("locks").join("root.lock")
@@ -108,10 +192,13 @@ impl RunLock {
 
     /// Try once to acquire the addressed Run lock without waiting.
     ///
-    /// `None` means another kernel lock holder currently owns this Run.
+    /// `None` means another kernel lock holder currently owns this Run. The
+    /// caller names the claim's trace identity: a Run-domain decision
+    /// reports, the fresh-mint claim of an unaddressed id stays silent.
     pub(crate) fn try_acquire(
         engine_root: &Path,
         run_id: &str,
+        trace: TraceDomain,
     ) -> Result<Option<Self>, StateError> {
         validate_run_id(run_id)?;
         try_acquire_once(
@@ -120,6 +207,7 @@ impl RunLock {
             &format!("run:{run_id}"),
             "run",
             false,
+            trace,
         )
         .map(|lock| lock.map(Self))
     }
@@ -142,6 +230,7 @@ impl RunLock {
             &format!("run:{run_id}"),
             "run",
             true,
+            run_domain(run_id),
         )
         .map(|lock| lock.map(Self))
     }
@@ -234,10 +323,12 @@ fn try_acquire_transient(path: &Path) -> Result<Option<OwnedLock>, StateError> {
             path.displayed()
         )));
     }
+    trace_acquired(TraceDomain::Policy);
     Ok(Some(OwnedLock {
         path: path.to_path_buf(),
         file: Some(file),
         release_seam: false,
+        trace: TraceDomain::Policy,
     }))
 }
 
@@ -273,7 +364,7 @@ pub(crate) fn acquire_root_then_run(
             drop(root);
             return Err(wait_expired(&root_path));
         }
-        match RunLock::try_acquire(engine_root, run_id)? {
+        match RunLock::try_acquire(engine_root, run_id, run_domain(run_id))? {
             // This attempt began before the deadline, so it may complete just
             // afterward without starting another retry.
             Some(run) => return Ok((root, run)),
@@ -294,6 +385,8 @@ pub(crate) fn acquire_root_then_run(
 struct OwnedLock {
     path: PathBuf,
     file: Option<File>,
+    /// The claim's trace identity (t-128), reported first on drop.
+    trace: TraceDomain,
     /// Whether `Drop` honors the QA release-boundary hold seam. The durable
     /// root and Run lock domains set it; the transient ignore-policy claim
     /// does not - its release is no domain's test boundary, and firing the
@@ -323,6 +416,9 @@ impl OwnedLock {
 
 impl Drop for OwnedLock {
     fn drop(&mut self) {
+        // t-128: the release record is the drop's first write, before any
+        // cleanup warning the drop below may also produce.
+        trace_released(self.trace);
         let Some(file) = self.file.take() else {
             return;
         };
@@ -334,10 +430,10 @@ impl Drop for OwnedLock {
         // honor it; the transient policy claim skips it.
         if self.release_seam {
             if let Err(error) = hold_lock_if_requested("release", &self.path) {
-                eprintln!(
+                crate::diag::diagnostic(format_args!(
                     "warning: release-boundary hold for lock {} failed: {error}",
                     self.path.displayed()
-                );
+                ));
             }
         }
 
@@ -347,26 +443,26 @@ impl Drop for OwnedLock {
         match same_file_at_path(&file, &self.path) {
             Ok(true) => {
                 if let Err(error) = remove_owned_lock(&file, &self.path) {
-                    eprintln!(
+                    crate::diag::diagnostic(format_args!(
                         "warning: released lock {} but could not remove its residue: {error}",
                         self.path.displayed()
-                    );
+                    ));
                 }
             }
-            Ok(false) => eprintln!(
+            Ok(false) => crate::diag::diagnostic(format_args!(
                 "warning: released lock {} but did not remove it because the pathname now names another file",
                 self.path.displayed()
-            ),
-            Err(error) => eprintln!(
+            )),
+            Err(error) => crate::diag::diagnostic(format_args!(
                 "warning: released lock {} but could not revalidate its pathname before cleanup: {error}",
                 self.path.displayed()
-            ),
+            )),
         }
         if let Err(error) = unlock_file(&file) {
-            eprintln!(
+            crate::diag::diagnostic(format_args!(
                 "warning: released lock {} but kernel unlock failed: {error}; closing its handle may release it",
                 self.path.displayed()
-            );
+            ));
         }
         drop(file);
     }
@@ -386,20 +482,28 @@ fn acquire_until(
         if Instant::now() >= deadline {
             return Err(wait_expired(&path));
         }
-        if let Some(lock) = try_acquire_once(engine_root, path.clone(), guard, fault_domain, false)?
-        {
+        if let Some(lock) = try_acquire_once(
+            engine_root,
+            path.clone(),
+            guard,
+            fault_domain,
+            false,
+            trace_domain(guard),
+        )? {
             return Ok(lock);
         }
         wait_for_retry(&path, deadline)?;
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn try_acquire_once(
     engine_root: &Path,
     path: PathBuf,
     guard: &str,
     fault_domain: &str,
     release_window_is_contention: bool,
+    trace: TraceDomain,
 ) -> Result<Option<OwnedLock>, StateError> {
     // WEBV-014: attempting to acquire the root or a Run lock is a lock
     // operation, recorded before the attempt can create its lock directory.
@@ -452,7 +556,9 @@ fn try_acquire_once(
         path: path.clone(),
         file: Some(file),
         release_seam: true,
+        trace,
     };
+    trace_acquired(trace);
     if let Err(error) = refuse_legacy(engine_root) {
         drop(lock);
         return Err(error);
@@ -645,10 +751,10 @@ fn classify_open_failure(path: &Path, error: &std::io::Error) -> OpenFailure {
     };
     if matches!(result, OpenFailure::RetryPrimary) {
         if let Err(unlock_error) = unlock_file(&probe) {
-            eprintln!(
+            crate::diag::diagnostic(format_args!(
                 "warning: Windows shared lock probe on {} could not unlock: {unlock_error}; closing its handle may release it",
                 path.displayed()
-            );
+            ));
         }
     }
     drop(probe);
@@ -798,10 +904,10 @@ fn is_link_or_reparse(metadata: &fs::Metadata) -> bool {
 
 fn unlock_after_failed_claim(file: &File, path: &Path) {
     if let Err(error) = unlock_file(file) {
-        eprintln!(
+        crate::diag::diagnostic(format_args!(
             "warning: failed acquisition could not unlock {}: {error}; closing its handle may release it",
             path.displayed()
-        );
+        ));
     }
 }
 

@@ -1,0 +1,10 @@
+ticket-id = "t-128"
+check-id = "WEBV-027"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test t128_deterministic_trace_channel -- --test-threads=1"
+working-dir = "."
+exit-status = 0
+output-sha256 = "5d1350a281ca46837db1d5a34424938bdbbf94470c5acc625e2c75f9f08b5db3"
+tree-roots = ["src","test/qa","test-hidden","tools","Cargo.toml","Cargo.lock",".gitignore",".ratmac/lanes.toml"]
+tree-sha256 = "c133af788d6f3ec312eccfe6fe098dea94cd147d3fad01ee2cd87722c2ab83ca"
+output = "\nrunning 4 tests\ntest webv_025 ... ok\ntest webv_026 ... ok\ntest webv_027 ... ok\ntest webv_028 ... ok\n\ntest result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.28s\n\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t128_deterministic_trace_channel.rs (target\\debug\\deps\\t128_deterministic_trace_channel-b197bec5f14b1e88.exe)\n"

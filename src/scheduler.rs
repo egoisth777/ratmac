@@ -1215,6 +1215,8 @@ impl Scheduler {
             .arg("-C")
             .arg(root)
             .args(["rev-parse", "HEAD"])
+            // t-128: a child never inherits the Engine's trace channel.
+            .env_remove(crate::diag::TRACE_VARIABLE)
             .output()
             .ok()
             .filter(|output| output.status.success())
@@ -1643,23 +1645,24 @@ impl Scheduler {
         // minting for a caller's ledger transaction. A new id should have no
         // ordinary contender; do not wait on the unlikely foreign claim while
         // holding root.
-        let run_lock = match RunLock::try_acquire(engine_root, &run_id) {
-            Ok(Some(lock)) => lock,
-            Ok(None) => {
-                let error = StateError::new(format!(
-                    "mint cannot claim fresh Run lock {} without waiting while root is held",
-                    crate::lock::run_path(engine_root, &run_id).displayed()
-                ));
-                return Err(Self::cleanup_incomplete_mint(
-                    root_lock, None, &run_dir, error,
-                ));
-            }
-            Err(error) => {
-                return Err(Self::cleanup_incomplete_mint(
-                    root_lock, None, &run_dir, error,
-                ));
-            }
-        };
+        let run_lock =
+            match RunLock::try_acquire(engine_root, &run_id, crate::lock::TraceDomain::Silent) {
+                Ok(Some(lock)) => lock,
+                Ok(None) => {
+                    let error = StateError::new(format!(
+                        "mint cannot claim fresh Run lock {} without waiting while root is held",
+                        crate::lock::run_path(engine_root, &run_id).displayed()
+                    ));
+                    return Err(Self::cleanup_incomplete_mint(
+                        root_lock, None, &run_dir, error,
+                    ));
+                }
+                Err(error) => {
+                    return Err(Self::cleanup_incomplete_mint(
+                        root_lock, None, &run_dir, error,
+                    ));
+                }
+            };
 
         let record = RunState {
             state: state.to_string(),
@@ -2188,10 +2191,10 @@ composition is capped at one level (FDC-012)"
         match Self::append_ledger_entry(&ledger_path, &entry) {
             LedgerAppendAftermath::Appended => {}
             LedgerAppendAftermath::RecordedAfterError(error) => {
-                eprintln!(
+                crate::diag::diagnostic(format_args!(
                     "warning: spawn ledger append for {child} reported {error}, but {} records the complete entry; treating the child as committed",
                     ledger_path.displayed()
-                );
+                ));
             }
             LedgerAppendAftermath::AbsentAfterError(error) => {
                 let cleanup = Self::rollback_minted_run_while_locked(
@@ -2522,10 +2525,10 @@ another invocation is completing it; repeat this command after that invocation f
             match Self::append_successor_entry_seam(ledger_path, &successor_entry) {
                 LedgerAppendAftermath::Appended => {}
                 LedgerAppendAftermath::RecordedAfterError(error) => {
-                    eprintln!(
+                    crate::diag::diagnostic(format_args!(
                         "warning: successor ledger append for {successor} reported {error}, but {} records the complete entry; treating the successor as committed",
                         ledger_path.displayed()
-                    );
+                    ));
                 }
                 LedgerAppendAftermath::AbsentAfterError(error) => {
                     return Err(StateError::new(format!(
@@ -3496,6 +3499,7 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
             to,
             consumes_verdict,
             transition_input_value,
+            addressed_state_declares_inputs,
             frozen_evidence,
             guarded_ledgers,
         ) = {
@@ -3518,14 +3522,15 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
             let (definition, scope_machine) =
                 Self::resolve_state_scope(class, &recorded_state, self.child_class.as_deref())?;
             if state.status == Status::Passed {
-                return Ok(StepOutcome::Refused {
-                    failures: vec![guard_failure(
+                return Ok(refused_step(
+                    &run_id,
+                    vec![guard_failure(
                         "terminal",
                         recorded_state,
                         "run is terminal (status passed): no transition may proceed",
                         "a live, non-terminal Run",
                     )],
-                });
+                ));
             }
 
             let (mut failures, guarded_ledgers) = self.guard_failures(definition)?;
@@ -3555,7 +3560,7 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
                 }
             }
             if !failures.is_empty() {
-                return Ok(StepOutcome::Refused { failures });
+                return Ok(refused_step(&run_id, failures));
             }
 
             let from = State::new(state.state.clone());
@@ -3563,40 +3568,43 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
                 match crate::verdict::load_live(&run_dir, &state.state, inputs) {
                     Ok(record) => Some(record.input().to_owned()),
                     Err(refusal) => {
-                        return Ok(StepOutcome::Refused {
-                            failures: vec![guard_failure(
+                        return Ok(refused_step(
+                            &run_id,
+                            vec![guard_failure(
                                 "verdict",
                                 "verdict.toml",
                                 refusal.observed(),
                                 refusal.expected(),
                             )],
-                        })
+                        ))
                     }
                 }
             } else {
                 if crate::verdict::live_slot_is_occupied(&run_dir)? {
-                    return Ok(StepOutcome::Refused {
-                        failures: vec![guard_failure(
+                    return Ok(refused_step(
+                        &run_id,
+                        vec![guard_failure(
                             "verdict",
                             "verdict.toml",
                             "live record presented to a straight-line State",
                             "absent live verdict slot",
                         )],
-                    });
+                    ));
                 }
                 None
             };
             let Some(transition) =
                 Self::route_for(&scope_machine, &from, transition_input.as_deref())
             else {
-                return Ok(StepOutcome::Refused {
-                    failures: vec![guard_failure(
+                return Ok(refused_step(
+                    &run_id,
+                    vec![guard_failure(
                         "transition",
                         state.state,
                         "no matching outgoing transition",
                         "one transition selected by the current State and input",
                     )],
-                });
+                ));
             };
             let consumes_verdict = transition_input.is_some();
             let to = transition.to().clone();
@@ -3631,6 +3639,7 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
                 to,
                 consumes_verdict,
                 transition_input.clone().unwrap_or_default(),
+                definition.inputs().is_some(),
                 frozen_evidence,
                 guarded_ledgers,
             )
@@ -3675,13 +3684,23 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
             ) {
                 Ok(verified) => verified,
                 Err(failure) => {
-                    return Ok(StepOutcome::Refused {
-                        failures: vec![failure],
-                    })
+                    return Ok(refused_step(&run_id, vec![failure]));
                 }
             };
             authorization = Some(verified);
         }
+        // t-128: guards, routing, and any governed authorization all passed,
+        // so the edge is the step's committed decision; a refused step fires
+        // its refusal codes instead and never this code. `input` rides
+        // exactly when the addressed State declares inputs.
+        crate::diag::event("edge_selection", |record| {
+            record.field("run", run_id.as_str());
+            record.field("from", from.as_ref());
+            if addressed_state_declares_inputs {
+                record.field("input", transition_input_value.as_str());
+            }
+            record.field("to", to.as_ref());
+        });
         let committed_state_bytes = StateStore::serialize(&next)?;
         let mut archived_verdict = None;
         if consumes_verdict {
@@ -3806,10 +3825,10 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
         match self.store()?.write(&next)? {
             StateWriteOutcome::Durable => {}
             StateWriteOutcome::ReplacedWithParentSyncWarning(error) => {
-                eprintln!(
+                crate::diag::diagnostic(format_args!(
                     "warning: Run Record {} was replaced but its parent directory could not be synced: {error}; continuing because the Run Record is committed and transition history will be appended",
                     state_path.displayed()
-                );
+                ));
             }
         }
         if consumes_verdict {
@@ -4748,6 +4767,8 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
         let output = std::process::Command::new(program)
             .args(args)
             .current_dir(root)
+            // t-128: a gate child never inherits the Engine's trace channel.
+            .env_remove(crate::diag::TRACE_VARIABLE)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -5226,6 +5247,68 @@ fn bounded_diagnostic(stderr: &[u8], stdout: &[u8]) -> String {
     format!("{source}: {retained}")
 }
 
+/// One trace record per failure of a refused `rtm step`, in the refusal's
+/// failure order, reusing each failure's refusal code (t-128).
+fn trace_refused(run_id: &str, failures: &[GuardFailure]) {
+    for failure in failures {
+        let Some(code) = refusal_code(failure.kind.as_str()) else {
+            continue;
+        };
+        // The contract kinds carry resolved absolute root paths as their
+        // failure path, and a record never carries a path for them.
+        let path = failure.path.as_str();
+        let carries_path = !path.is_empty()
+            && !matches!(
+                failure.kind.as_str(),
+                "goal drift" | "intake_contract" | "record_contract"
+            );
+        crate::diag::event(code, |record| {
+            record.field("run", run_id);
+            if carries_path {
+                record.field("path", path);
+            }
+        });
+    }
+}
+
+/// One refused step outcome, its trace records fired before the held lock
+/// guard drops (t-128).
+fn refused_step(run_id: &str, failures: Vec<GuardFailure>) -> StepOutcome {
+    trace_refused(run_id, &failures);
+    StepOutcome::Refused { failures }
+}
+
+/// The static spelling of a refusal kind (t-128), so a record reuses the
+/// failure's refusal code verbatim without storing a second copy in the
+/// failure itself. Every kind today's guards spell is listed; a kind with
+/// no static spelling - none exists - fires no record.
+fn refusal_code(kind: &str) -> Option<&'static str> {
+    Some(match kind {
+        "files_exact" => "files_exact",
+        "file_contains" => "file_contains",
+        "command_exit" => "command_exit",
+        "sensitivity_receipts" => "sensitivity_receipts",
+        "completion_gate" => "completion_gate",
+        "intake_contract" => "intake_contract",
+        "record_contract" => "record_contract",
+        "join" => "join",
+        "scheduler" => "scheduler",
+        "terminal" => "terminal",
+        "goal drift" => "goal drift",
+        "verdict" => "verdict",
+        "transition" => "transition",
+        "authorization" => "authorization",
+        "authorization: enrollment" => "authorization: enrollment",
+        "authorization: signatures" => "authorization: signatures",
+        "authorization: reviews" => "authorization: reviews",
+        "authorization: approval" => "authorization: approval",
+        "authorization: replay" => "authorization: replay",
+        "authorization: engine" => "authorization: engine",
+        "authorization: review" => "authorization: review",
+        _ => return None,
+    })
+}
+
 pub(crate) fn guard_failure(
     kind: impl Into<String>,
     path: impl Into<String>,
@@ -5257,10 +5340,10 @@ fn restore_exact_file(path: &Path, bytes: &[u8]) -> Result<(), StateError> {
     match replace_file_atomically(path, bytes) {
         Ok(ReplaceFileOutcome::Durable) => Ok(()),
         Ok(ReplaceFileOutcome::ReplacedWithParentSyncWarning(error)) => {
-            eprintln!(
+            crate::diag::diagnostic(format_args!(
                 "warning: restored {} but could not sync its parent directory: {error}",
                 path.displayed()
-            );
+            ));
             Ok(())
         }
         Err(error) => Err(StateError::new(format!(
@@ -5351,10 +5434,10 @@ fn restore_evidence(evidence: &EvidenceRollback) -> Result<(), StateError> {
                 ))
             })?;
             if let Err(error) = sync_parent(parent) {
-                eprintln!(
+                crate::diag::diagnostic(format_args!(
                     "warning: removed newly written evidence {} but could not sync its parent directory: {error}",
                     evidence.path.displayed()
-                );
+                ));
             }
             Ok(())
         }
@@ -5441,11 +5524,11 @@ fn restore_archived_verdict(verdict: &ArchivedVerdictRollback) -> Result<(), Sta
             ))
         })?;
     } else if let Err(error) = sync_parent(archive_dir) {
-        eprintln!(
+        crate::diag::diagnostic(format_args!(
             "warning: restored live verdict {} but could not sync archive directory {}: {error}",
             verdict.live_path.displayed(),
             archive_dir.displayed()
-        );
+        ));
     }
     let run_dir = verdict.live_path.parent().ok_or_else(|| {
         StateError::new(format!(
@@ -5454,10 +5537,10 @@ fn restore_archived_verdict(verdict: &ArchivedVerdictRollback) -> Result<(), Sta
         ))
     })?;
     if let Err(error) = sync_parent(run_dir) {
-        eprintln!(
+        crate::diag::diagnostic(format_args!(
             "warning: restored live verdict {} but could not sync its Run directory: {error}",
             verdict.live_path.displayed()
-        );
+        ));
     }
     Ok(())
 }

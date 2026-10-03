@@ -624,10 +624,10 @@ pub(crate) fn apply_hold_in(
         }
         Ok(crate::state::StateWriteOutcome::Durable) => {}
         Ok(crate::state::StateWriteOutcome::ReplacedWithParentSyncWarning(error)) => {
-            eprintln!(
+            crate::diag::diagnostic(format_args!(
                 "warning: hold Run Record {} was replaced but its parent directory could not be synced: {error}; continuing because the Run Record is committed and the hold will append history",
                 state_path.displayed()
-            );
+            ));
         }
     }
 
@@ -709,10 +709,10 @@ fn restore_state_bytes(
     match replace_file_atomically(state_path, bytes) {
         Ok(ReplaceFileOutcome::Durable) => Ok(()),
         Ok(ReplaceFileOutcome::ReplacedWithParentSyncWarning(error)) => {
-            eprintln!(
+            crate::diag::diagnostic(format_args!(
                 "warning: restored pre-hold Run Record {} but could not sync its parent directory: {error}",
                 state_path.displayed()
-            );
+            ));
             Ok(())
         }
         Err(error) => Err(crate::state::StateError::new(format!(
