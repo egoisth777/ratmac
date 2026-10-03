@@ -1560,6 +1560,19 @@ function Test-TargetRoundTrip {
     $proven
 }
 
+# The commit's subject as Git itself renders it: the first line of
+# `git log -1 --format=%s <commit>`, whose rendering drops trailing
+# whitespace. The safety comparison is byte-exact against the expected
+# string, with no further trimming and no case folding; the refusal
+# renders it verbatim, empty when the subject is empty.
+function Get-CommitSubject {
+    param(
+        [Parameter(Mandatory)] $Facts,
+        [Parameter(Mandatory)][string] $Commit
+    )
+    [string](@((Get-GitText -Arguments @('-C', $Facts.RepoRoot, 'log', '-1', '--format=%s', $Commit)) -split "`n")[0])
+}
+
 function Invoke-Checkpoint {
     param(
         [Parameter(Mandatory)] $Facts,
@@ -1585,6 +1598,14 @@ function Invoke-Checkpoint {
         )
     }
     $head = (Get-GitText -Arguments @('-C', $Facts.RepoRoot, 'rev-parse', 'HEAD')).Trim()
+    $subject = Get-CommitSubject -Facts $Facts -Commit $head
+    if (-not [string]::Equals($subject, "${Item}: checkpoint - not a landing", [System.StringComparison]::Ordinal)) {
+        Deny -Reason "HEAD $head is not the safety commit of ${Item}: its subject is $subject" -Guidance @(
+            "the working rules fix the safety commit's subject exactly '${Item}: checkpoint - not a landing';",
+            'commit the reviewed green work under that subject, then run checkpoint again.',
+            'nothing was written.'
+        )
+    }
     foreach ($path in $targets) {
         $kind = Invoke-Git -Arguments @('-C', $Facts.RepoRoot, 'cat-file', '-t', "$($head):$path")
         if (-not $kind.Ok -or $kind.Text.Trim() -ne 'blob') {
@@ -1750,6 +1771,84 @@ function Read-CheckpointManifest {
     }
 }
 
+# A manifest spelling's plain repository form: empty and `.` components
+# dropped, so `./a.txt` names `a.txt` - the form Git's own rows and index
+# entries carry. The manifest itself keeps the spelling it was given.
+function Get-PlainPath {
+    param([Parameter(Mandatory)][string] $Path)
+    (@($Path -split '/') | Where-Object { $_ -ne '' -and $_ -ne '.' }) -join '/'
+}
+
+# One porcelain row side as Git names it: a C-quoted side (it starts with
+# `"`) is decoded - Git's `\a \b \t \n \v \f \r \" \\` and three-digit
+# octal byte escapes - into bytes, then UTF-8. A side that cannot be read
+# that way returns $null, and the caller counts its row as unrelated work:
+# the guard fails closed on bytes it cannot name. An unquoted side is the
+# path verbatim.
+function ConvertFrom-GitRowPath {
+    param([Parameter(Mandatory)][string] $Side)
+    if (-not $Side.StartsWith('"')) { return $Side }
+    if ($Side.Length -lt 2 -or -not $Side.EndsWith('"')) { return $null }
+    $inner = $Side.Substring(1, $Side.Length - 2)
+    $escapes = @{
+        a = 7;  b = 8;  t = 9;  n = 10
+        v = 11; f = 12; r = 13; '"' = 34; '\' = 92
+    }
+    $bytes = [System.Collections.Generic.List[byte]]::new()
+    $index = 0
+    while ($index -lt $inner.Length) {
+        if ($inner[$index] -ne '\') {
+            $bytes.Add([byte][char]$inner[$index])
+            $index++
+            continue
+        }
+        $index++
+        if ($index -ge $inner.Length) { return $null }
+        $escape = [string]$inner[$index]
+        if ($escapes.ContainsKey($escape)) {
+            $bytes.Add([byte]$escapes[$escape])
+            $index++
+            continue
+        }
+        $digits = ''
+        while ($digits.Length -lt 3 -and $index -lt $inner.Length) {
+            $octal = [int]$inner[$index]
+            if ($octal -lt 48 -or $octal -gt 55) { break }
+            $digits += $inner[$index]
+            $index++
+        }
+        if ($digits.Length -eq 0) { return $null }
+        $bytes.Add([byte][Convert]::ToInt32($digits, 8))
+    }
+    try {
+        $text = [System.Text.UTF8Encoding]::new($false, $true).GetString([byte[]]$bytes.ToArray())
+    }
+    catch {
+        return $null
+    }
+    if ($text.Contains([char]0)) { return $null }
+    $text
+}
+
+# A rename or copy row's two sides, split around ` -> ` with quoted sides
+# honored: the separator is the first ` -> ` outside every quoted span,
+# and no other split is made.
+function Split-GitRowSides {
+    param([Parameter(Mandatory)][string] $Rest)
+    $inQuotes = $false
+    $escaped = $false
+    for ($index = 0; $index -le $Rest.Length - 4; $index++) {
+        $glyph = $Rest[$index]
+        if ($escaped) { $escaped = $false; continue }
+        if ($glyph -eq '\') { $escaped = $true; continue }
+        if ($glyph -eq '"') { $inQuotes = -not $inQuotes; continue }
+        if (-not $inQuotes -and $glyph -eq ' ' -and $Rest.Substring($index, 4) -ceq ' -> ') {
+            return @($Rest.Substring(0, $index), $Rest.Substring($index + 4))
+        }
+    }
+    @($Rest)
+}
+
 function Invoke-Restore {
     param(
         [Parameter(Mandatory)] $Facts,
@@ -1777,6 +1876,22 @@ function Invoke-Restore {
             'inspect the manifest before freezing again.'
         )
     }
+    $headId = (Get-GitText -Arguments @('-C', $Facts.RepoRoot, 'rev-parse', 'HEAD')).Trim()
+    if ($headId -cne $commit) {
+        Deny -Reason "the recorded checkpoint $commit is stale: HEAD is $headId" -Guidance @(
+            'the damage protocol never moves HEAD; this manifest does not name the commit the checkout stands on.',
+            "re-run checkpoint -Item $Item from the current safety commit, or inspect the manifest before restoring.",
+            'nothing was written.'
+        )
+    }
+    $headSubject = Get-CommitSubject -Facts $Facts -Commit $headId
+    if (-not [string]::Equals($headSubject, "${Item}: checkpoint - not a landing", [System.StringComparison]::Ordinal)) {
+        Deny -Reason "HEAD $headId is not the safety commit of ${Item}: its subject is $headSubject" -Guidance @(
+            "the working rules fix the safety commit's subject exactly '${Item}: checkpoint - not a landing';",
+            "restore only from a manifest the tool froze from that commit; re-run checkpoint -Item $Item, or repair the manifest.",
+            'nothing was written.'
+        )
+    }
     foreach ($row in $manifest.Rows) {
         $kind = Invoke-Git -Arguments @('-C', $Facts.RepoRoot, 'cat-file', '-t', "$($commit):$($row.Path)")
         if (-not $kind.Ok -or $kind.Text.Trim() -ne 'blob') {
@@ -1795,7 +1910,41 @@ function Invoke-Restore {
 
     if ($null -ne $Pause -and $Pause.Boundary -ceq 'after-validate') { Invoke-TestPause -Pause $Pause }
 
-    $paths = @($manifest.Rows | ForEach-Object { $_.Path })
+    # Guard the tree, after the pause and before the first mutation:
+    # every non-`??` row must be a declared damage row - a row every path
+    # it names is a manifest target, a rename row naming both its paths -
+    # so target bytes mutated, staged, deleted, or renamed by the damage
+    # protocol are all expected, while any unrelated unsaved work refuses
+    # with everything exactly as found. The rows are read fresh here, so
+    # dirt planted while the invocation was paused is caught. Each row's
+    # paths are read as Git names them - a C-quoted side decoded, both
+    # sides of a rename or copy row split around ` -> ` - and compared
+    # against each manifest spelling's plain repository form; a side the
+    # tool cannot read counts as unrelated, so the guard fails closed.
+    # The refusal shows each row exactly as Git printed it.
+    $targetSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    foreach ($row in $manifest.Rows) { $null = $targetSet.Add((Get-PlainPath -Path $row.Path)) }
+    $unrelated = [System.Collections.Generic.List[string]]::new()
+    foreach ($row in @(Get-GitLines -Arguments @('-C', $Facts.RepoRoot, 'status', '--porcelain'))) {
+        if ($row.StartsWith('??')) { continue }
+        $code = $row.Substring(0, 2)
+        $rest = $row.Substring(3)
+        $sides = if ($code -cmatch '[RC]') { @(Split-GitRowSides -Rest $rest) } else { @($rest) }
+        $isDamage = $true
+        foreach ($side in $sides) {
+            $path = ConvertFrom-GitRowPath -Side $side
+            if ($null -eq $path -or -not $targetSet.Contains($path)) { $isDamage = $false }
+        }
+        if (-not $isDamage) { $unrelated.Add($row) }
+    }
+    if ($unrelated.Count -gt 0) {
+        Deny -Reason 'the working tree carries unsaved work unrelated to the declared targets; commit or put aside these entries first:' -Guidance (
+            @($unrelated) +
+            @('a restore may undo only the declared targets'' damage;', 'nothing was written.')
+        )
+    }
+
+    $paths = @($manifest.Rows | ForEach-Object { Get-PlainPath -Path $_.Path })
 
     # Each target's index entry re-set to the checkpoint blob with no
     # cached file facts: an entry whose stat still matches bytes an earlier
@@ -1822,11 +1971,12 @@ function Invoke-Restore {
         $triples = [System.Collections.Generic.List[string]]::new()
         $resetArgs = [System.Collections.Generic.List[string]]::new([string[]]@('-C', $Facts.RepoRoot, 'update-index', '--add'))
         foreach ($row in $manifest.Rows) {
-            $entry = $entries[$row.Path]
+            $plain = Get-PlainPath -Path $row.Path
+            $entry = $entries[$plain]
             if ($null -eq $entry -or $entry.Object -cne $row.Blob) {
                 Deny -Reason "git -C $($Facts.RepoRoot) ls-tree -z $commit -- $($paths -join ' ') failed: unexpected output without $($row.Path) at its recorded blob"
             }
-            $triples.Add("$($entry.Mode),$($row.Blob),$($row.Path)")
+            $triples.Add("$($entry.Mode),$($row.Blob),$plain")
             $resetArgs.Add('--cacheinfo')
             $resetArgs.Add($triples[$triples.Count - 1])
         }

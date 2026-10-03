@@ -1,0 +1,10 @@
+ticket-id = "t-125"
+check-id = "WCPV-018"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test t125_checkpoint_only_restoration -- --test-threads=1"
+working-dir = "."
+exit-status = 0
+output-sha256 = "b1e78d4f5c332693ca78bab7135a563c300714d02f9a9d8a18b53f4e25de3900"
+tree-roots = ["src","test/qa","test-hidden","tools","Cargo.toml","Cargo.lock",".gitignore",".ratmac/lanes.toml"]
+tree-sha256 = "8b9dfa93d4d483b70ad2b8b1164df44ce169f752b35c3888174a92c355c4d2b4"
+output = "\nrunning 3 tests\ntest wcpv_016 ... ok\ntest wcpv_017 ... ok\ntest wcpv_018 ... ok\n\ntest result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 40.67s\n\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t125_checkpoint_only_restoration.rs (target\\debug\\deps\\t125_checkpoint_only_restoration-609f1f199a84e334.exe)\n"

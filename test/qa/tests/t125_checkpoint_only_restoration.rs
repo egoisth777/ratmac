@@ -65,6 +65,10 @@ fn turn_isolated(global: &Path, directory: &Path, args: &[&str]) -> Output {
 fn paused_restore(global: &Path, turn: &Turn, marker: &Path, release: &Path) -> Child {
     let mut invocation = command("pwsh", &turn.root);
     invocation
+        // The spawned verb's streams must be piped, or wait_with_output
+        // below has nothing to capture: command() only nulls stdin.
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
         .args([
             "-NoProfile",
             "-File",

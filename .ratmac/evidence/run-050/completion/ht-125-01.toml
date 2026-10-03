@@ -1,0 +1,10 @@
+ticket-id = "t-125"
+check-id = "HT-125-01"
+kind = "hidden-lane"
+command = "cargo test --offline --locked --manifest-path test-hidden/t-125/Cargo.toml -- --test-threads=1"
+working-dir = "."
+exit-status = 0
+output-sha256 = "94c67ed05b5b28361526837a5b329ecfb2757db341324ccb2fd1af6fac6c85a1"
+tree-roots = ["src","test/qa","test-hidden","tools","Cargo.toml","Cargo.lock",".gitignore",".ratmac/lanes.toml"]
+tree-sha256 = "8b9dfa93d4d483b70ad2b8b1164df44ce169f752b35c3888174a92c355c4d2b4"
+output = "\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 6 tests\ntest ht_125_01_regression ... ok\ntest ht_125_02_input_routing ... ok\ntest ht_125_03_lifecycle_model ... ok\ntest ht_125_04_durability_recovery ... ok\ntest ht_125_05_output_filesystem ... ok\ntest ht_125_06_cross_feature ... ok\n\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 88.57s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\nwarning: unused variable: `dirt_head`\n   --> tests\\hidden.rs:971:9\n    |\n971 |     let dirt_head = lane.head();\n    |         ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_dirt_head`\n    |\n    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default\n\nwarning: `ratmac-t125-hidden` (test \"hidden\") generated 1 warning (run `cargo fix --test \"hidden\" -p ratmac-t125-hidden` to apply 1 suggestion)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running unittests src\\lib.rs (test-hidden\\t-125\\target\\debug\\deps\\ratmac_t125_hidden-0d11e6bcf6b1431b.exe)\n     Running tests\\hidden.rs (test-hidden\\t-125\\target\\debug\\deps\\hidden-bbb5e6791fb91978.exe)\n   Doc-tests ratmac_t125_hidden\n"
