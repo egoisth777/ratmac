@@ -1,0 +1,10 @@
+planned-test-id = "WEBV-027"
+ticket-id = "t-128"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t128_deterministic_trace_channel webv_027 -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t128_deterministic_trace_channel.rs"
+test-name = "webv_027"
+exit-status = 101
+output-sha256 = "15618c3284da7112593a9ecfd0a2129c71b8b01142836108d38cf0c6341b3c7f"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t128_deterministic_trace_channel.rs (target\\debug\\deps\\t128_deterministic_trace_channel-b197bec5f14b1e88.exe)\n\nrunning 1 test\ntest webv_027 ... FAILED\n\nfailures:\n\n---- webv_027 stdout ----\n\nthread 'webv_027' (23580) panicked at test\\qa\\tests\\t128_deterministic_trace_channel.rs:951:5:\nWEBV-027: start with tracing enabled must emit trace records; stderr held \"\"\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    webv_027\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.16s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t128_deterministic_trace_channel`\n"

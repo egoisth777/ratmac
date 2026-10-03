@@ -1,0 +1,10 @@
+planned-test-id = "WEBV-028"
+ticket-id = "t-128"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t128_deterministic_trace_channel webv_028 -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t128_deterministic_trace_channel.rs"
+test-name = "webv_028"
+exit-status = 101
+output-sha256 = "c1241abe805431c3c13da3877624a9a7f436dcdec752baacc5ba0c9295edc4b5"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t128_deterministic_trace_channel.rs (target\\debug\\deps\\t128_deterministic_trace_channel-b197bec5f14b1e88.exe)\n\nrunning 1 test\ntest webv_028 ... FAILED\n\nfailures:\n\n---- webv_028 stdout ----\n\nthread 'webv_028' (8616) panicked at test\\qa\\tests\\t128_deterministic_trace_channel.rs:1260:5:\nWEBV-028: only src/diag.rs may touch the standard error stream; today's sites must route through the owning module: [\"bin/rtm.rs:8: stderr(\", \"bin/rtm.rs:14: stderr(\", \"blocked.rs:627: eprintln!\", \"blocked.rs:712: eprintln!\", \"lock.rs:337: eprintln!\", \"lock.rs:350: eprintln!\", \"lock.rs:356: eprintln!\", \"lock.rs:360: eprintln!\", \"lock.rs:366: eprintln!\", \"lock.rs:648: eprintln!\", \"lock.rs:801: eprintln!\", \"scheduler.rs:2191: eprintln!\", \"scheduler.rs:2525: eprintln!\", \"scheduler.rs:3809: eprintln!\", \"scheduler.rs:5260: eprintln!\", \"scheduler.rs:5354: eprintln!\", \"scheduler.rs:5444: eprintln!\", \"scheduler.rs:5457: eprintln!\"]\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    webv_028\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.03s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t128_deterministic_trace_channel`\n"

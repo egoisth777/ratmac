@@ -1,0 +1,10 @@
+planned-test-id = "WEBV-026"
+ticket-id = "t-128"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t128_deterministic_trace_channel webv_026 -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t128_deterministic_trace_channel.rs"
+test-name = "webv_026"
+exit-status = 101
+output-sha256 = "9eedfe1fc34d91739cd3759571334c10b308b27014f9402623dccf49bdb75084"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t128_deterministic_trace_channel.rs (target\\debug\\deps\\t128_deterministic_trace_channel-b197bec5f14b1e88.exe)\n\nrunning 1 test\ntest webv_026 ... FAILED\n\nfailures:\n\n---- webv_026 stdout ----\n\nthread 'webv_026' (22824) panicked at test\\qa\\tests\\t128_deterministic_trace_channel.rs:132:5:\nassertion `left == right` failed: WEBV-026 traced start: records must match the pinned sequence\n  left: []\n right: [\"code=\\\"root_selection\\\" resolution=\\\"checkout-local\\\"\", \"code=\\\"lock_acquire\\\" domain=\\\"policy\\\"\", \"code=\\\"lock_release\\\" domain=\\\"policy\\\"\", \"code=\\\"lock_acquire\\\" domain=\\\"root\\\"\", \"code=\\\"mint_read\\\" recorded=\\\"absent\\\" roster=\\\"0\\\"\", \"code=\\\"mint_write\\\" reserved=\\\"run-001\\\"\", \"code=\\\"lock_release\\\" domain=\\\"root\\\"\"]\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    webv_026\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.28s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t128_deterministic_trace_channel`\n"
