@@ -306,6 +306,31 @@ fn defect_catalogue() -> Vec<(&'static str, &'static str, &'static str)> {
             "RB506",
             "[states.a]\nprompt = \"p\"\nguards = [{ kind = \"join\", require = \"any_passed\" }]\n",
         ),
+        (
+            "rb701",
+            "RB701",
+            "[states.a]\nprompt = \"p\"\n\n[review]\nmanifest = \"C:/enrollment/manifest.toml\"\npolicy-digest = \"0000000000000000000000000000000000000000000000000000000000000000\"\nverifier-digest = \"0000000000000000000000000000000000000000000000000000000000000000\"\nsigners-digest = \"0000000000000000000000000000000000000000000000000000000000000000\"\nminimum-reviews = 0\napprover = \"a\"\napprover-may-review = false\n\n[[review.reviewers]]\nlabel = \"a\"\nkey = \"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP3hR2KFzPNj4kMi9OqHk8v4tcZp3Lj7YOXhWf7wYmjY rb701-fix\"\n",
+        ),
+        (
+            "rb702",
+            "RB702",
+            "[states.a]\nprompt = \"p\"\n\n[review]\nmanifest = \"C:/enrollment/manifest.toml\"\npolicy-digest = \"0000000000000000000000000000000000000000000000000000000000000000\"\nverifier-digest = \"0000000000000000000000000000000000000000000000000000000000000000\"\nsigners-digest = \"0000000000000000000000000000000000000000000000000000000000000000\"\nminimum-reviews = 1\napprover = \"a\"\napprover-may-review = false\n\n[[review.reviewers]]\nlabel = \"a\"\nkey = \"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP3hR2KFzPNj4kMi9OqHk8v4tcZp3Lj7YOXhWf7wYmjY rb701-fix\"\n\n[[review.reviewers]]\nlabel = \"a\"\nkey = \"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIF7BGYDikO/mdNujniY8L7DtunXKQX3/2s4787tWLpH0 rb702-fix\"\n",
+        ),
+        (
+            "rb703",
+            "RB703",
+            "[states.a]\nprompt = \"p\"\n\n[review]\nmanifest = \"C:/enrollment/manifest.toml\"\npolicy-digest = \"0000000000000000000000000000000000000000000000000000000000000000\"\nverifier-digest = \"0000000000000000000000000000000000000000000000000000000000000000\"\nsigners-digest = \"0000000000000000000000000000000000000000000000000000000000000000\"\nminimum-reviews = 1\napprover = \"ghost\"\napprover-may-review = false\n\n[[review.reviewers]]\nlabel = \"a\"\nkey = \"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP3hR2KFzPNj4kMi9OqHk8v4tcZp3Lj7YOXhWf7wYmjY rb701-fix\"\n",
+        ),
+        (
+            "rb704",
+            "RB704",
+            "[states.a]\nprompt = \"p\"\n\n[review]\nmanifest = \"C:/enrollment/manifest.toml\"\npolicy-digest = \"0000000000000000000000000000000000000000000000000000000000000000\"\nverifier-digest = \"0000000000000000000000000000000000000000000000000000000000000000\"\nsigners-digest = \"0000000000000000000000000000000000000000000000000000000000000000\"\nminimum-reviews = 2\napprover = \"a\"\napprover-may-review = false\n\n[[review.reviewers]]\nlabel = \"a\"\nkey = \"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP3hR2KFzPNj4kMi9OqHk8v4tcZp3Lj7YOXhWf7wYmjY rb701-fix\"\n\n[[review.reviewers]]\nlabel = \"lead\"\nkey = \"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIF7BGYDikO/mdNujniY8L7DtunXKQX3/2s4787tWLpH0 rb702-fix\"\n",
+        ),
+        (
+            "rb705",
+            "RB705",
+            "[states.a]\nprompt = \"p\"\n\n[review]\nmanifest = \"C:/enrollment/manifest.toml\"\npolicy-digest = \"0000000000000000000000000000000000000000000000000000000000000000\"\nverifier-digest = \"0000000000000000000000000000000000000000000000000000000000000000\"\nsigners-digest = \"0000000000000000000000000000000000000000000000000000000000000000\"\nminimum-reviews = 1\napprover = \"a\"\napprover-may-review = false\nwork = [\"../outside\"]\n\n[[review.reviewers]]\nlabel = \"a\"\nkey = \"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP3hR2KFzPNj4kMi9OqHk8v4tcZp3Lj7YOXhWf7wYmjY rb701-fix\"\n",
+        ),
     ]
 }
 

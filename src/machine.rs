@@ -14,6 +14,14 @@ pub struct MachineClass {
     states: BTreeMap<String, StateDefinition>,
     transitions: Vec<Transition>,
     classes: BTreeMap<String, ChildClass>,
+    review: Option<crate::review::ReviewDeclaration>,
+}
+
+impl MachineClass {
+    /// The top-level review declaration, when the class governs its Runs.
+    pub fn review(&self) -> Option<&crate::review::ReviewDeclaration> {
+        self.review.as_ref()
+    }
 }
 
 /// A State declaration: its prompt text and its Exit Guards, in the order the
@@ -36,9 +44,15 @@ pub struct ChildClass {
     states: BTreeMap<String, StateDefinition>,
     transitions: Vec<Transition>,
     bindings: BTreeMap<String, BindingDeclaration>,
+    review: Option<crate::review::ReviewDeclaration>,
 }
 
 impl ChildClass {
+    /// The class's review declaration, when it governs its Runs.
+    pub fn review(&self) -> Option<&crate::review::ReviewDeclaration> {
+        self.review.as_ref()
+    }
+
     pub fn states(&self) -> &BTreeMap<String, StateDefinition> {
         &self.states
     }
@@ -486,7 +500,7 @@ impl MachineClass {
         }
         Self::reject_unknown_keys(
             root,
-            &["roots", "states", "transitions", "classes"],
+            &["roots", "states", "transitions", "classes", "review"],
             "top-level",
         )?;
         let roots = WorkflowRoots::parse(root.get("roots")).map_err(Self::roots_parse_error)?;
@@ -497,6 +511,7 @@ impl MachineClass {
             None => BTreeMap::new(),
             Some(value) => Self::parse_classes(value)?,
         };
+        let review = crate::review::parse_review_table(root.get("review"), "review")?;
         let (states, transitions) = Self::parse_machine_body(root, "", true)?;
         Self::validate_spawns(&states, &classes)?;
         Self::validate_guard_roots(&states, &classes, &roots)?;
@@ -506,6 +521,7 @@ impl MachineClass {
             states,
             transitions,
             classes,
+            review,
         })
     }
 
@@ -662,10 +678,14 @@ impl MachineClass {
             }
             Self::reject_unknown_keys(
                 body,
-                &["states", "transitions", "bindings"],
+                &["states", "transitions", "bindings", "review"],
                 &format!("class {name:?}"),
             )?;
             let bindings = Self::parse_bindings(body.get("bindings"), name)?;
+            let review = crate::review::parse_review_table(
+                body.get("review"),
+                &format!("class {name:?} review"),
+            )?;
             let scope = format!("class {name:?} ");
             let (states, transitions) = Self::parse_machine_body(body, &scope, false)?;
             classes.insert(
@@ -674,6 +694,7 @@ impl MachineClass {
                     states,
                     transitions,
                     bindings,
+                    review,
                 },
             );
         }

@@ -117,12 +117,31 @@ fn wait_before_hold_boundary_if_requested(boundary: &str) -> Result<(), HoldRefu
             ))
         })?;
     }
-    fs::write(&marker, format!("holding before {boundary}\n")).map_err(|error| {
-        refusal(format!(
-            "hold test barrier cannot write marker {}: {error}",
-            marker.displayed()
-        ))
-    })?;
+    // WRA-001: the authorization-archive barrier's marker lands whole in
+    // one step, so an observer never sees it half-written.
+    let marker_bytes = format!("holding before {boundary}\n");
+    if boundary == "before-authorization-archive" {
+        let temporary = marker.with_extension(format!(
+            "tmp-{}-{}",
+            std::process::id(),
+            HOLD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::write(&temporary, marker_bytes)
+            .and_then(|()| fs::rename(&temporary, &marker))
+            .map_err(|error| {
+                refusal(format!(
+                    "hold test barrier cannot write marker {}: {error}",
+                    marker.displayed()
+                ))
+            })?;
+    } else {
+        fs::write(&marker, marker_bytes).map_err(|error| {
+            refusal(format!(
+                "hold test barrier cannot write marker {}: {error}",
+                marker.displayed()
+            ))
+        })?;
+    }
 
     let deadline = Instant::now() + hold_barrier_timeout()?;
     loop {
@@ -164,6 +183,12 @@ pub struct HoldPlan {
     from_state: String,
     from_status: crate::model::Status,
     to_state: String,
+    /// WRA-001: the verified authorization a governed hold archives when it
+    /// applies. `None` plans an ungoverned hold, which writes today's bytes
+    /// and nothing more.
+    authorization: Option<crate::review::VerifiedAuthorization>,
+    /// The submitted options, re-verified under the Run lock at apply.
+    options: crate::review::AuthorizationOptions,
 }
 
 impl HoldPlan {
@@ -181,6 +206,10 @@ impl HoldPlan {
 
     pub(crate) fn to_state(&self) -> &str {
         &self.to_state
+    }
+
+    pub(crate) fn options(&self) -> &crate::review::AuthorizationOptions {
+        &self.options
     }
 }
 
@@ -304,7 +333,64 @@ pub(crate) fn plan_hold_in(
         from_state,
         from_status: state.status,
         to_state,
+        authorization: None,
+        options: crate::review::AuthorizationOptions::default(),
     })
+}
+
+/// WRA-001: plan a governed hold - [`plan_hold_in`]'s whole proof, then the
+/// authorization boundary over the planned blocked route. The authorization
+/// rides the plan; `apply` re-verifies it under the Run lock.
+pub(crate) fn plan_authorized_hold_in(
+    roots: &crate::root::Roots,
+    request: &HoldRequest,
+    authorization: &crate::review::AuthorizationOptions,
+) -> Result<HoldPlan, HoldRefusal> {
+    let mut plan = plan_hold_in(roots, request)?;
+    // The full verification boundary of `rtm step` runs here, after the
+    // plan's own checks; `apply` re-verifies under the Run lock before the
+    // first write. Both verifications re-read the archive and evidence the
+    // plan already observed, so each runs in a record-quiet scope: the
+    // hold's one extra record mark is the landing authorization archive.
+    let _quiet = crate::observe::quiet_records();
+    let scheduler = crate::Scheduler::open_run_for_motion_with_roots(roots, plan.run_id())
+        .map_err(|error| refusal(error.to_string()))?;
+    let engine_root = roots.engine_root().to_path_buf();
+    let run_dir = engine_root.join("runs").join(plan.run_id());
+    let governed = scheduler
+        .governed_review_of(&run_dir, plan.run_id())
+        .map_err(|error| refusal(error.to_string()))?;
+    let Some(declaration) = governed else {
+        return Ok(plan);
+    };
+    if authorization.is_empty() {
+        let minimum = declaration.minimum_reviews();
+        return Err(refusal(format!(
+            "authorization: signatures: observed none; expected {minimum} distinct review \
+             signature(s) and one approval signature over the canonical intent (rtm intent \
+             --run {})",
+            plan.run_id()
+        )));
+    }
+    let verified = scheduler
+        .authorize_motion(
+            &engine_root,
+            &run_dir,
+            plan.run_id(),
+            &declaration,
+            "hold",
+            &plan.from_state,
+            &plan.to_state,
+            "",
+            plan.blocker(),
+            scheduler.runbook_pin_of(),
+            authorization,
+        )
+        .map_err(|failure| refusal(failure.to_string()))?;
+    drop(_quiet);
+    plan.authorization = Some(verified);
+    plan.options = authorization.clone();
+    Ok(plan)
 }
 
 /// NRR-001: the blocker is an opaque reference. The Engine checks that it
@@ -438,6 +524,52 @@ pub(crate) fn apply_hold_in(
         )));
     }
 
+    // WRA-001: a governed hold re-verifies its whole authorization under
+    // the Run lock this apply owns, then archives it between the barrier and
+    // the record write. An ungoverned hold writes today's bytes only.
+    let run_dir = engine_root.join("runs").join(&plan.run_id);
+    let mut authorization_archive: Option<(std::path::PathBuf, bool)> = None;
+    if let Some(declaration) = current_scheduler
+        .governed_review_of(&run_dir, &plan.run_id)
+        .map_err(|error| refusal(error.to_string()))?
+    {
+        let _verify_quiet = crate::observe::quiet_records();
+        let verified = current_scheduler
+            .authorize_motion(
+                &engine_root,
+                &run_dir,
+                &plan.run_id,
+                &declaration,
+                "hold",
+                &plan.from_state,
+                &plan.to_state,
+                "",
+                plan.blocker(),
+                current_scheduler.runbook_pin_of(),
+                plan.options(),
+            )
+            .map_err(|failure| refusal(failure.to_string()))?;
+        wait_before_hold_boundary_if_requested("before-authorization-archive")?;
+        run_lock
+            .ensure_current()
+            .map_err(|error| refusal(error.to_string()))?;
+        drop(_verify_quiet);
+        let (path, dir_created) = crate::review::write_archive(
+            &run_dir,
+            &verified,
+            "hold",
+            &plan.from_state,
+            &plan.to_state,
+        )
+        .map_err(|error| {
+            refusal(format!(
+                "hold cannot write the authorization record: {error}; nothing was \
+                         modified"
+            ))
+        })?;
+        authorization_archive = Some((path, dir_created));
+    }
+
     // Snapshot the pre-existing append target through the Scheduler before
     // committing state: an unusable or missing log refuses without a
     // half-motion.
@@ -455,16 +587,43 @@ pub(crate) fn apply_hold_in(
     run_lock
         .ensure_current()
         .map_err(|error| refusal(error.to_string()))?;
-    wait_before_hold_boundary_if_requested("before-state-write")?;
-    current_scheduler
-        .verify_open_runbook_snapshot()
-        .map_err(|error| refusal(error.to_string()))?;
-    match store
-        .write(&state)
-        .map_err(|error| refusal(format!("hold cannot write state: {error}")))?
-    {
-        crate::state::StateWriteOutcome::Durable => {}
-        crate::state::StateWriteOutcome::ReplacedWithParentSyncWarning(error) => {
+    // The authorization record is already durable at every boundary from
+    // here on, so each later failure rolls the whole governed hold back:
+    // restore the pre-hold Run Record bytes, then remove the record this
+    // apply just wrote, keeping today's reason strings.
+    if let Err(error) = wait_before_hold_boundary_if_requested("before-state-write") {
+        return Err(finish_governed_hold_rollback(
+            &run_lock,
+            &state_path,
+            &old_state_bytes,
+            &run_dir,
+            authorization_archive.as_ref(),
+            error.reason,
+        ));
+    }
+    if let Err(error) = current_scheduler.verify_open_runbook_snapshot() {
+        return Err(finish_governed_hold_rollback(
+            &run_lock,
+            &state_path,
+            &old_state_bytes,
+            &run_dir,
+            authorization_archive.as_ref(),
+            error.to_string(),
+        ));
+    }
+    match store.write(&state) {
+        Err(error) => {
+            return Err(finish_governed_hold_rollback(
+                &run_lock,
+                &state_path,
+                &old_state_bytes,
+                &run_dir,
+                authorization_archive.as_ref(),
+                format!("hold cannot write state: {error}"),
+            ))
+        }
+        Ok(crate::state::StateWriteOutcome::Durable) => {}
+        Ok(crate::state::StateWriteOutcome::ReplacedWithParentSyncWarning(error)) => {
             eprintln!(
                 "warning: hold Run Record {} was replaced but its parent directory could not be synced: {error}; continuing because the Run Record is committed and the hold will append history",
                 state_path.displayed()
@@ -476,25 +635,24 @@ pub(crate) fn apply_hold_in(
     // sits between the durable record and its history entry: the last point at
     // which an interruption can be observed mid-hold.
     if let Err(error) = wait_before_hold_boundary_if_requested("before-history-append") {
-        let restore = restore_state_bytes(&run_lock, &state_path, &old_state_bytes);
-        return match restore {
-            Ok(()) => Err(refusal(format!("{}; nothing was written", error.reason))),
-            Err(restore_error) => Err(refusal(format!(
-                "{}; state rollback incomplete: {restore_error}",
-                error.reason
-            ))),
-        };
+        return Err(finish_governed_hold_rollback(
+            &run_lock,
+            &state_path,
+            &old_state_bytes,
+            &run_dir,
+            authorization_archive.as_ref(),
+            format!("{}; nothing was written", error.reason),
+        ));
     }
     if let Err(error) = run_lock.ensure_current() {
-        let restore = restore_state_bytes(&run_lock, &state_path, &old_state_bytes);
-        return match restore {
-            Ok(()) => Err(refusal(format!(
-                "hold cannot verify the Run mutation lock: {error}; nothing was written"
-            ))),
-            Err(restore_error) => Err(refusal(format!(
-                "hold cannot verify the Run mutation lock: {error}; state rollback incomplete: {restore_error}"
-            ))),
-        };
+        return Err(finish_governed_hold_rollback(
+            &run_lock,
+            &state_path,
+            &old_state_bytes,
+            &run_dir,
+            authorization_archive.as_ref(),
+            format!("hold cannot verify the Run mutation lock: {error}; nothing was written"),
+        ));
     }
 
     // Keep the addressed Run lock through its own route and append-only record.
@@ -508,6 +666,34 @@ pub(crate) fn apply_hold_in(
             "hold cannot append history; the Run Record was updated and no history rewrite was attempted: {}",
             failure.into_operator_error()
         ))),
+    }
+}
+
+/// Finish a governed hold's rollback: restore the Run Record, then remove
+/// the authorization record this apply just wrote, reporting honestly when
+/// either step cannot complete.
+fn finish_governed_hold_rollback(
+    run_lock: &crate::lock::RunLock,
+    state_path: &Path,
+    old_state_bytes: &[u8],
+    run_dir: &Path,
+    authorization: Option<&(std::path::PathBuf, bool)>,
+    reason: String,
+) -> HoldRefusal {
+    let outcome = (|| -> Result<(), String> {
+        restore_state_bytes(run_lock, state_path, old_state_bytes)
+            .map_err(|error| error.to_string())?;
+        if let Some((path, dir_created)) = authorization {
+            run_lock
+                .ensure_current()
+                .map_err(|error| error.to_string())?;
+            crate::review::remove_archive(run_dir, path, *dir_created)?;
+        }
+        Ok(())
+    })();
+    match outcome {
+        Ok(()) => refusal(reason),
+        Err(rollback_error) => refusal(format!("{reason}; rollback incomplete: {rollback_error}")),
     }
 }
 

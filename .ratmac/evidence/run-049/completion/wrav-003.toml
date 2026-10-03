@@ -1,0 +1,10 @@
+ticket-id = "t-129"
+check-id = "WRAV-003"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test t129_authorized_review_transitions -- --test-threads=1"
+working-dir = "."
+exit-status = 0
+output-sha256 = "d1b1d3c9e2883dc7c89784d0ac1c511703318af436c56e6a60d62d452e7f39a8"
+tree-roots = ["src","test/qa","test-hidden","tools","Cargo.toml","Cargo.lock",".gitignore",".ratmac/lanes.toml"]
+tree-sha256 = "3fc25f04d433fe7a5590ad8cab8bcedafb12eb21deaad3ed4bdefcad9e708c1e"
+output = "\nrunning 6 tests\ntest wrav_001 ... ok\ntest wrav_002 ... ok\ntest wrav_003 ... ok\ntest wrav_004 ... ok\ntest wrav_005 ... ok\ntest wrav_006 ... ok\n\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 37.51s\n\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t129_authorized_review_transitions.rs (target\\debug\\deps\\t129_authorized_review_transitions-587f44e4edda5718.exe)\n"

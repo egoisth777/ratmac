@@ -1,6 +1,8 @@
 use std::fmt;
+use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
+type AuthorizationArguments = (Vec<String>, Vec<(String, String)>, Option<String>, usize);
 
 use crate::root::Displayed;
 use crate::{Scheduler, StepOutcome, StepRequest};
@@ -63,10 +65,13 @@ pub fn help(command: impl AsRef<str>) -> &'static str {
             "Usage: rtm status --run <id>\n\nReport the named Run without changing it. Run addressing is always required; a missing --run refuses and prints the roster (the listing of .ratmac/runs/).\n"
         }
         "step" => {
-            "Usage: rtm step --run <id> [--help]\n\nAdvance exactly the named Run. Run addressing is always required; a missing --run refuses and prints the roster. Only the Main-Agent or a human invokes rtm step. Subagents only read state and never invoke rtm.\n"
+            "Usage: rtm step --run <id> [--review <label>:<sig>]... [--approve <sig>] [--help]\n\nAdvance exactly the named Run. Run addressing is always required; a missing --run refuses and prints the roster. Only the Main-Agent or a human invokes rtm step. Subagents only read state and never invoke rtm.\n"
         }
         "hold" => {
-            "Usage: rtm hold --run <id> --blocker <reference beneath a declared root> --confirm \"hold <id>\"\n\nA human confirms pausing a Run that is blocked for an out-of-scope reason. The Run Record records the pause and its blocker reference, and the named Run routes along the Runbook's blocked route; it stays not-passed until a human resumes it. The blocker is an opaque reference: rtm checks that it exists beneath a declared root and judges nothing else about it. The confirmation phrase is typed at invocation; it is never read from a file.\n"
+            "Usage: rtm hold --run <id> --blocker <reference beneath a declared root> --confirm \"hold <id>\" [--review <label>:<sig>]... [--approve <sig>]\n\nA human confirms pausing a Run that is blocked for an out-of-scope reason. The Run Record records the pause and its blocker reference, and the named Run routes along the Runbook's blocked route; it stays not-passed until a human resumes it. The blocker is an opaque reference: rtm checks that it exists beneath a declared root and judges nothing else about it. The confirmation phrase is typed at invocation; it is never read from a file.\n"
+        }
+        "intent" => {
+            "Usage: rtm intent --run <id> [--hold --blocker <ref>] [--review <label>:<sig>]... --out <path> [--help]\n\nRender the canonical intent a governed Run's next motion binds, for review and approval signatures to be taken over. The bytes cover the motion's every varying fact; reviewers sign them under the review namespace and the Approver signs them plus the review-set digest under the approval namespace. --hold renders the blocked-route motion instead of the ordinary one. The render writes one file at the caller-named --out, never under the Engine root, and changes no Run state.\n"
         }
         "abandon" => {
             "Usage: rtm abandon --run <id> --confirm \"abandon <run id>\"\n\nA human retires a broken Run: rtm records a terminal abandoned event, then retires the admission state, the Run evidence, and the lock so a fresh Run can start. The confirmation phrase names the addressed run id (FDC-007), is typed at invocation, and is never read from a file. Retiring only a leftover lock - no Run admitted anywhere - omits --run and confirms with \"abandon <project directory name>\"; that phrase never retires a Run, and while any Run is admitted abandon without --run refuses and lists the roster. No bypass flag exists - a stale lock is retired through this path.\n"
@@ -93,9 +98,9 @@ pub fn help(command: impl AsRef<str>) -> &'static str {
 /// The one public route table (WEB-004): the verbs the general usage's
 /// `Commands:` line lists are exactly the commands `rtm` dispatches, and a
 /// verb added to dispatch is added here.
-const COMMANDS: [&str; 11] = [
-    "init", "start", "status", "step", "hold", "abandon", "spawn", "respawn", "doctor", "scaffold",
-    "skill",
+const COMMANDS: [&str; 12] = [
+    "init", "start", "status", "step", "hold", "intent", "abandon", "spawn", "respawn", "doctor",
+    "scaffold", "skill",
 ];
 
 /// The general usage, rendered from the route table so the table stays its
@@ -326,6 +331,7 @@ where
             hold(command_args, &roots, writer)?;
             Ok(0)
         }
+        "intent" => intent(command_args, &roots, invocation, writer),
         "abandon" => {
             abandon(command_args, &roots, writer)?;
             Ok(0)
@@ -430,6 +436,99 @@ fn start<W: Write>(
     Ok(0)
 }
 
+/// WRA-001: split `--review <label>:<sig>` and `--approve <sig>` options -
+/// space or `=` form - out of a command's arguments, leaving every other
+/// argument in place for the command's own parse. The values are paths and
+/// labels as typed; the authorization boundary interprets them.
+fn split_authorization_args(
+    command: &str,
+    args: &[String],
+) -> Result<AuthorizationArguments, CliError> {
+    let review_option = |value: &str| -> Result<(String, String), CliError> {
+        let (label, signature) = value.split_once(':').ok_or_else(|| {
+            CliError::new(format!(
+                "{command}: --review {value:?} is not shaped <label>:<signature file>"
+            ))
+        })?;
+        if label.is_empty() || signature.is_empty() {
+            return Err(CliError::new(format!(
+                "{command}: --review {value:?} names no label or no signature file"
+            )));
+        }
+        Ok((label.to_owned(), signature.to_owned()))
+    };
+    let mut rest = Vec::new();
+    let mut reviews = Vec::new();
+    let mut approve: Option<String> = None;
+    let mut approval_count: usize = 0;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--review" => {
+                let Some(value) = args.get(index + 1).filter(|value| !value.starts_with("--"))
+                else {
+                    return Err(CliError::new(format!(
+                        "{command}: --review needs <label>:<signature file>"
+                    )));
+                };
+                reviews.push(review_option(value)?);
+                index += 2;
+            }
+            other if other.starts_with("--review=") => {
+                reviews.push(review_option(
+                    other.strip_prefix("--review=").unwrap_or_default(),
+                )?);
+                index += 1;
+            }
+            "--approve" => {
+                let Some(value) = args.get(index + 1).filter(|value| !value.starts_with("--"))
+                else {
+                    return Err(CliError::new(format!(
+                        "{command}: --approve needs the approver's signature file"
+                    )));
+                };
+                // A repeated --approve is judged at the verification
+                // boundary, not here: the last value is carried and the
+                // count is reported.
+                if approve.replace(value.clone()).is_none() {
+                    approval_count = 1;
+                } else {
+                    approval_count += 1;
+                }
+                index += 2;
+            }
+            other if other.starts_with("--approve=") => {
+                let value = other
+                    .strip_prefix("--approve=")
+                    .unwrap_or_default()
+                    .to_owned();
+                if approve.replace(value).is_none() {
+                    approval_count = 1;
+                } else {
+                    approval_count += 1;
+                }
+                index += 1;
+            }
+            other => {
+                rest.push(other.to_owned());
+                index += 1;
+            }
+        }
+    }
+    Ok((rest, reviews, approve, approval_count))
+}
+
+/// WRA-001: whether the addressed Run carries its recorded governance
+/// marker. Presence alone decides governance.
+fn run_is_governed(roots: &crate::root::Roots, id: &str) -> bool {
+    roots
+        .engine_root()
+        .join("runs")
+        .join(id)
+        .join(crate::review::GOVERNANCE_FILE)
+        .is_file()
+}
+
 /// FDC-004/R-019: advance exactly the addressed Run one ordinary motion.
 fn step<W: Write>(
     args: &[String],
@@ -437,11 +536,24 @@ fn step<W: Write>(
     writer: &mut W,
 ) -> Result<i32, CliError> {
     let command = "step";
-    let id = addressed_run_with_roots(command, args, roots)?;
+    let (rest, reviews, approve, approval_count) = split_authorization_args(command, args)?;
+    let id = addressed_run_with_roots(command, &rest, roots)?;
+    // WRA-001: the authorization options address a review policy. On a Run
+    // with none recorded they address nothing, which is an invocation
+    // refusal, never a motion refusal.
+    if (!reviews.is_empty() || approve.is_some()) && !run_is_governed(roots, &id) {
+        return Err(CliError::refusal(
+            "step: --review and --approve address no declared review policy",
+        ));
+    }
     let mut scheduler = Scheduler::open_run_for_motion_with_roots(roots, &id)
         .map_err(|error| hard_error(command, error))?;
+    let mut request = StepRequest::new("");
+    request.reviews = reviews;
+    request.approve = approve;
+    request.approval_count = approval_count;
     let outcome = scheduler
-        .step(StepRequest::new(""))
+        .step(request)
         .map_err(|error| hard_error("step", error))?;
     if let StepOutcome::Refused { .. } = &outcome {
         writeln!(writer, "rtm: {outcome}")?;
@@ -513,6 +625,8 @@ fn hold<W: Write>(
     roots: &crate::root::Roots,
     writer: &mut W,
 ) -> Result<(), CliError> {
+    let (split_rest, reviews, approve, approval_count) = split_authorization_args("hold", args)?;
+    let args: &[String] = &split_rest;
     let mut blocker: Option<String> = None;
     let mut confirmation: Option<String> = None;
     let mut run: Option<String> = None;
@@ -566,13 +680,50 @@ fn hold<W: Write>(
         }
     }
 
+    // WRA-001: on a roster-resolved Run with no recorded review policy the
+    // authorization options address nothing - an invocation refusal before
+    // the plan's own checks change it. A run id that resolves nowhere falls
+    // through to the plan's own addressing refusals.
+    let offered = !reviews.is_empty() || approve.is_some();
+    // The roster is consulted only when authorization options are offered:
+    // an ungoverned invocation logs exactly what it logs today, and the
+    // roster read is an operation-log mark of its own.
+    let id_on_roster = if offered {
+        run.as_deref()
+            .filter(|id| !id.is_empty())
+            .map(|id| {
+                Scheduler::run_roster_with_roots(roots)
+                    .map(|roster| roster.iter().any(|entry| entry == id))
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false)
+    } else {
+        false
+    };
+    let governed = id_on_roster && run_is_governed(roots, run.as_deref().unwrap_or_default());
+    if offered && id_on_roster && !governed {
+        return Err(CliError::refusal(
+            "hold: --review and --approve address no declared review policy",
+        ));
+    }
     let request = crate::blocked::HoldRequest {
         blocker,
         confirmation,
         run,
     };
-    let plan = crate::blocked::plan_hold_in(roots, &request)
-        .map_err(|refusal| CliError::new(format!("hold refused; {refusal}")))?;
+    let approval_count = approval_count.max(usize::from(approve.is_some()));
+    let options = crate::review::AuthorizationOptions {
+        reviews,
+        approve,
+        approval_count,
+    };
+    let plan = if governed {
+        crate::blocked::plan_authorized_hold_in(roots, &request, &options)
+            .map_err(|refusal| CliError::new(format!("hold refused; {refusal}")))?
+    } else {
+        crate::blocked::plan_hold_in(roots, &request)
+            .map_err(|refusal| CliError::new(format!("hold refused; {refusal}")))?
+    };
     crate::blocked::apply_hold_in(roots, &plan)
         .map_err(|refusal| CliError::new(format!("hold refused; {refusal}")))?;
     writeln!(
@@ -588,6 +739,295 @@ fn hold<W: Write>(
         "The Run is not passed; a human resumes it when the blocker clears."
     )?;
     Ok(())
+}
+
+/// One path spelled with no `.` or `..` components: `.` drops out and
+/// `..` cancels the component before it, so prefix tests answer for paths
+/// whose parents do not exist to canonicalize.
+fn lexical(path: &Path) -> std::path::PathBuf {
+    let mut parts: Vec<std::ffi::OsString> = Vec::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                if parts.pop().is_none() {
+                    parts.push(std::ffi::OsString::from(".."));
+                }
+            }
+            other => parts.push(other.as_os_str().to_owned()),
+        }
+    }
+    let mut result = std::path::PathBuf::new();
+    for part in parts {
+        result.push(part);
+    }
+    result
+}
+
+/// WRA-001: render the canonical intent of a governed Run's next motion.
+///
+/// The render is read-only for the Engine: it resolves the motion a
+/// signature would authorize, derives its canonical bytes, and writes them
+/// to the caller-named `--out`, which may never address inside the Engine
+/// root.
+fn intent<W: Write>(
+    args: &[String],
+    roots: &crate::root::Roots,
+    _invocation: &crate::root::Invocation,
+    writer: &mut W,
+) -> Result<i32, CliError> {
+    let refused = |detail: String| CliError::new(format!("intent refused; {detail}"));
+    let mut reviews: Vec<(String, String)> = Vec::new();
+    let review_pair = |value: &str| -> Result<(String, String), CliError> {
+        let (label, signature) = value.split_once(':').ok_or_else(|| {
+            CliError::new(format!(
+                "intent: --review {value:?} is not shaped <label>:<signature file>"
+            ))
+        })?;
+        if label.is_empty() || signature.is_empty() {
+            return Err(CliError::new(format!(
+                "intent: --review {value:?} names no label or no signature file"
+            )));
+        }
+        Ok((label.to_owned(), signature.to_owned()))
+    };
+    let mut hold = false;
+    let mut blocker: Option<String> = None;
+    let mut out: Option<String> = None;
+    let mut rest: Vec<String> = Vec::new();
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--run" => {
+                rest.push(args[index].clone());
+                if let Some(value) = args.get(index + 1) {
+                    rest.push(value.clone());
+                }
+                index += 2;
+            }
+            "--hold" => {
+                hold = true;
+                index += 1;
+            }
+            "--blocker" => {
+                blocker = Some(
+                    args.get(index + 1)
+                        .filter(|value| !value.starts_with("--"))
+                        .cloned()
+                        .ok_or_else(|| {
+                            CliError::new(
+                                "intent: --blocker needs a reference beneath a declared root",
+                            )
+                        })?,
+                );
+                index += 2;
+            }
+            "--out" => {
+                out = Some(
+                    args.get(index + 1)
+                        .filter(|value| !value.starts_with("--"))
+                        .cloned()
+                        .ok_or_else(|| {
+                            CliError::new("intent: --out needs the intent file's path")
+                        })?,
+                );
+                index += 2;
+            }
+            "--review" => {
+                let Some(value) = args.get(index + 1).filter(|value| !value.starts_with("--"))
+                else {
+                    return Err(CliError::new(
+                        "intent: --review needs <label>:<signature file>",
+                    ));
+                };
+                reviews.push(review_pair(value)?);
+                index += 2;
+            }
+            other if other.starts_with("--review=") => {
+                reviews.push(review_pair(
+                    other.strip_prefix("--review=").unwrap_or_default(),
+                )?);
+                index += 1;
+            }
+            other => {
+                rest.push(other.to_owned());
+                index += 1;
+            }
+        }
+    }
+
+    let id = addressed_run_with_roots("intent", &rest, roots)?;
+    // WRA-001: governance is recorded fact; an ungoverned Run has no
+    // canonical intent to render.
+    if !run_is_governed(roots, &id) {
+        return Err(refused(format!(
+            "run {id} resolves in no review-governed class; the canonical intent exists \
+             only under a declared review policy"
+        )));
+    }
+    let scheduler = Scheduler::open_run_for_motion_with_roots(roots, &id)
+        .map_err(|error| hard_error("intent", error))?;
+    let state = scheduler
+        .load_state()
+        .map_err(|error| hard_error("intent", error))?;
+    if state.status == crate::model::Status::Passed {
+        // Today's terminal refusal, in the guard's own shape, so the
+        // render's refusals never invent a second wording.
+        return Err(refused(
+            crate::scheduler::guard_failure(
+                "terminal",
+                state.state.clone(),
+                "run is terminal (status passed): no transition may proceed",
+                "a live, non-terminal Run",
+            )
+            .to_string(),
+        ));
+    }
+    if state.status == crate::model::Status::Blocked {
+        return Err(refused(format!(
+            "run {id} is already blocked against {}",
+            if state.blocker.is_empty() {
+                "an unnamed blocker"
+            } else {
+                state.blocker.as_str()
+            }
+        )));
+    }
+    if hold && blocker.is_none() {
+        return Err(refused(
+            "hold has no blocker link: pass --blocker <reference beneath a declared root>"
+                .to_owned(),
+        ));
+    }
+    let Some(out_as_given) = out else {
+        return Err(refused(
+            "--out <path> is required; the canonical intent is written to the caller-named \
+             file"
+                .to_owned(),
+        ));
+    };
+    // A relative `--out` resolves against the process's working
+    // directory, like any file the caller names - never a silent
+    // repository-relative rebasing.
+    let candidate = std::path::Path::new(&out_as_given);
+    let resolved = if candidate.is_absolute() {
+        candidate.to_path_buf()
+    } else {
+        let cwd = std::env::current_dir().map_err(|error| {
+            refused(format!(
+                "--out {out_as_given:?} cannot be resolved against the process directory: \
+                 {error}"
+            ))
+        })?;
+        cwd.join(candidate)
+    };
+    let engine_root = roots.engine_root();
+    // A relative `--out` is judged under both bases the caller may mean:
+    // the process directory the write lands in, and the invoking checkout
+    // the string may name. Either basis inside the Engine root, or an
+    // existing directory under either, refuses.
+    let checkout_basis = if candidate.is_absolute() {
+        resolved.clone()
+    } else {
+        roots.invoking_checkout_root().join(candidate)
+    };
+    let inside_engine_root = |target: &Path| -> bool {
+        let parent = target.parent().unwrap_or(Path::new("."));
+        match (fs::canonicalize(parent), fs::canonicalize(engine_root)) {
+            (Ok(parent), Ok(engine)) => parent.starts_with(engine),
+            // A parent the host cannot canonicalize - one that does not
+            // exist yet - still answers lexically, with `.` and `..`
+            // components resolved first: `<root>/sub/../.ratmac/x.bin`
+            // must not slip past the prefix test.
+            _ => lexical(target).starts_with(lexical(engine_root)),
+        }
+    };
+    if [&resolved, &checkout_basis]
+        .iter()
+        .any(|basis| inside_engine_root(basis))
+    {
+        return Err(refused(format!(
+            "--out {out_as_given:?} resolves inside the Engine root; the canonical intent \
+             never lands there"
+        )));
+    }
+    if resolved.is_dir() || checkout_basis.is_dir() {
+        return Err(refused(format!(
+            "--out {out_as_given:?} names an existing directory; the canonical intent renders \
+             to a file"
+        )));
+    }
+    // The render runs under the Run lock, today's acquire-with-deadline, and
+    // holds it through the --out publish: a peer motion cannot interleave.
+    let run_lock = crate::lock::RunLock::acquire(engine_root, &id).map_err(|error| {
+        // A lock wait names a live peer motion on this very run: the next
+        // act is that run's status, exactly as the next-act table renders
+        // run-scoped hard errors.
+        let text = error.to_string();
+        if text.starts_with("lock wait expired") {
+            CliError::new(format!("intent: {text}\nnext: rtm status --run {id}"))
+        } else {
+            hard_error("intent", error)
+        }
+    })?;
+    let blocker = blocker.unwrap_or_default();
+    let outcome = scheduler
+        .intent_view(engine_root, &id, hold, &blocker)
+        .map_err(|error| hard_error("intent", error))?;
+    let (mut facts, _enrollment) = outcome.map_err(refused)?;
+    // With review signatures offered, the render binds their review-set
+    // digest: that is the approval intent the Approver signs.
+    if !reviews.is_empty() {
+        let mut offered = Vec::new();
+        for (label, signature) in &reviews {
+            let bytes = fs::read(signature).map_err(|error| {
+                hard_error(
+                    "intent",
+                    crate::state::StateError::new(format!(
+                        "cannot read the review signature {signature:?}: {error}"
+                    )),
+                )
+            })?;
+            offered.push((label.clone(), bytes));
+        }
+        facts.review_set_digest = crate::review::review_set_digest(&offered);
+    }
+    let engine_identity = crate::review::engine_identity_sha256()
+        .map_err(|detail| hard_error("intent", crate::state::StateError::new(detail)))?;
+    let bytes = facts.canonical_bytes(&Scheduler::project_scope(engine_root), &engine_identity);
+    // Publish through a same-directory temporary sibling and one rename, so
+    // no reader ever sees a half-written intent file.
+    let file_name = resolved
+        .file_name()
+        .map(crate::root::component)
+        .unwrap_or_else(|| "intent".to_owned());
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_nanos())
+        .unwrap_or_default();
+    let temporary =
+        resolved.with_file_name(format!(".{file_name}.tmp-{}-{stamp}", std::process::id()));
+    if let Err(error) =
+        fs::write(&temporary, &bytes).and_then(|()| fs::rename(&temporary, &resolved))
+    {
+        let _ = fs::remove_file(&temporary);
+        return Err(hard_error(
+            "intent",
+            crate::state::StateError::new(format!("cannot write {out_as_given:?}: {error}")),
+        ));
+    }
+    let digest = crate::review::sha256_hex(&bytes);
+    // The echoed --out is the argument exactly as given in the displayed
+    // spelling - the one renderer's separators, never canonicalized or
+    // made absolute.
+    let echoed = crate::root::displayed(std::path::Path::new(&out_as_given));
+    writeln!(
+        writer,
+        "rtm: canonical {} intent for run {id} written to {echoed} (sha256 {digest})",
+        facts.purpose
+    )?;
+    drop(run_lock);
+    Ok(0)
 }
 
 /// PGE-007: safe human-confirmed Run abandonment.
@@ -1166,4 +1606,21 @@ fn sha256_file(path: &Path) -> std::io::Result<String> {
         hasher.update(&buffer[..n]);
     }
     Ok(format!("{:x}", hasher.finalize()))
+}
+
+#[cfg(test)]
+mod lexical_tests {
+    use super::lexical;
+    use std::path::Path;
+
+    #[test]
+    fn dots_resolve_and_dotdots_cancel() {
+        assert_eq!(lexical(Path::new("a/./b")), Path::new("a/b"));
+        assert_eq!(lexical(Path::new("a/b/../c")), Path::new("a/c"));
+        assert_eq!(
+            lexical(Path::new("r/sub/../.ratmac/newdir/x.bin")),
+            Path::new("r/.ratmac/newdir/x.bin")
+        );
+        assert_eq!(lexical(Path::new("../outside")), Path::new("../outside"));
+    }
 }

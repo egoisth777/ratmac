@@ -57,6 +57,11 @@ answer, and the row says so.
 | `RB602` | A guard names an undeclared root role, including a fixed contract role. | Declare that role in `[roots]`, or rename/remove the guard reference. | `restore-location` |
 | `RB603` | A declared root path is absent or unreadable in this repository. | Create or restore the intended directory, or change the role to an existing repository-relative directory. | `restore-location` |
 | `RB604` | A declared root overlaps the Engine runtime root. | Point the role at a non-overlapping project directory; never use the Engine root or an ancestor of it. | `restore-location` |
+| `RB701` | A declared [review policy](runbook-spec.md#review-policy) table or one of its scalar values has the wrong shape or type. | Fix the named field against the specification; drop the table only if the class should not be governed. | `restore-file` |
+| `RB702` | The policy's reviewer list is malformed: a missing or duplicated label, a bad key line, or one key under two labels. | Give every reviewer one label and one valid key; keep each key to a single label. | `restore-file` |
+| `RB703` | The policy names an Approver that is not one of its declared reviewers. | Point the approver field at a declared reviewer's label. | `restore-file` |
+| `RB704` | The policy demands more distinct reviews than its declared roles can supply. | Lower the minimum to what the roles supply, or declare more reviewers. | `restore-file` |
+| `RB705` | A work-path entry in the policy is empty, duplicated, absolute, or escapes the repository. | Fix the named path to a unique repository-relative one. | `restore-file` |
 | `RB201` | The runbook declares no [State](runbook-spec.md#transitions) at all. | Start again from a scaffold; a machine needs somewhere to be. | `restore-file` |
 | `RB202` | Every [State](runbook-spec.md#transitions) has a way in, so a Run has nowhere to start. | Remove one edge to break the cycle. | `break-cycle` |
 | `RB203` | More than one [State](runbook-spec.md#transitions) has no way in, so the entry point is ambiguous. | Route the extra entry points into the machine, leaving exactly one. | `merge-initial` |
@@ -126,3 +131,17 @@ A respawn mints a fresh successor id - the superseded record keeps its
 address - and retires the superseded Run by the abandon path. Retiring only
 a leftover lock, with no live run anywhere, still confirms with the project
 directory name.
+
+## Declaring a review policy
+
+A class admits governed Runs when its body carries a
+[review policy](runbook-spec.md#review-policy) table. Declare one only when a
+human authority must sign off every motion: each governed step, hold, and
+intent render then requires the operator-enrolled trust origin - a manifest
+and allowed-signers file the builder cannot write - plus the declared review
+signatures and the Approver's approval over the canonical intent. The ceremony
+is: render the intents, have the reviewers sign the review intent, render the
+approval intent over exactly those signature files, and have the Approver sign
+it. The minimum counts distinct accepted reviews; the Approver's own review
+counts only when the policy allows it. Nothing about the policy changes an
+ungoverned Run.

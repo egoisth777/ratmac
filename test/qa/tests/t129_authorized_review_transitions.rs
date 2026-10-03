@@ -184,8 +184,28 @@ impl KeySet {
             .unwrap_or_else(|| panic!("fixture key {name} exists"))
     }
 
-    /// One detached signature over `payload` under `namespace`.
+    /// One detached signature over `payload`'s bytes under `namespace`. The
+    /// host ssh-keygen never overwrites an existing `.sig` (it prompts, meets
+    /// end of input, and leaves the first signature), so every signer signs
+    /// a fresh per-signer copy of the same bytes and the copy's signature is
+    /// returned - over the identical canonical intent.
     fn sign(&self, name: &str, namespace: &str, payload: &Path) -> PathBuf {
+        let stem = payload
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
+        let copy = payload.with_file_name(format!("{stem}.{name}.{namespace}"));
+        let signature = PathBuf::from(format!("{}.sig", shown(&copy)));
+        assert!(
+            !copy.is_file() && !signature.is_file(),
+            "each signer needs a fresh payload copy, both for its own              signature and because the host ssh-keygen never overwrites one:              {}",
+            shown(&copy)
+        );
+        let bytes = fs::read(payload)
+            .unwrap_or_else(|error| panic!("read the payload to copy for {name}: {error}"));
+        fs::write(&copy, bytes)
+            .unwrap_or_else(|error| panic!("write the per-signer copy {}: {error}", shown(&copy)));
         let key = self.dir.join(name);
         let signed = ssh(
             self.dir.path(),
@@ -196,7 +216,7 @@ impl KeySet {
                 &key.to_string_lossy(),
                 "-n",
                 namespace,
-                &payload.to_string_lossy(),
+                &copy.to_string_lossy(),
             ],
         );
         assert!(
@@ -204,7 +224,6 @@ impl KeySet {
             "sign with {name} under {namespace}: {}",
             support::text(&signed)
         );
-        let signature = PathBuf::from(format!("{}.sig", shown(payload)));
         assert!(
             signature.is_file(),
             "the detached signature {} exists",
@@ -279,6 +298,14 @@ struct Declaration {
     builder_keys: Vec<String>,
     /// The digest the manifest records, when it is not the true one.
     enrolled_policy_digest: Option<String>,
+    /// The digest the runbook declares, when it is not the recomputed one.
+    declared_policy_digest: Option<String>,
+    /// The verifier digest the runbook declares, when substituted.
+    declared_verifier_digest: Option<String>,
+    /// The signers digest the runbook declares, when substituted.
+    declared_signers_digest: Option<String>,
+    /// The signers digest the enrollment binds, when substituted.
+    manifest_signers_digest: Option<String>,
     /// The verifier digest the trust reader binds, when substituted.
     verifier_sha256: Option<String>,
     /// Install the trust reader at all; `false` leaves the production one.
@@ -288,8 +315,9 @@ struct Declaration {
 }
 
 impl Declaration {
-    /// The independent default: reviewers a, b, and lead, approver lead,
-    /// minimum two, the Approver never reviewing.
+    /// The independent default for a fixture with the full a/b/lead bench:
+    /// reviewers a, b, and lead, approver lead, minimum two, the Approver
+    /// never reviewing.
     fn independent(keys: &KeySet) -> Self {
         Self {
             reviewers: ["a", "b", "lead"]
@@ -301,6 +329,30 @@ impl Declaration {
             approver_may_review: false,
             builder_keys: Vec::new(),
             enrolled_policy_digest: None,
+            declared_policy_digest: None,
+            declared_verifier_digest: None,
+            declared_signers_digest: None,
+            manifest_signers_digest: None,
+            verifier_sha256: None,
+            trust: true,
+            manifest_on_disk: true,
+        }
+    }
+
+    /// The same independent defaults with the reviewer rows given
+    /// explicitly, for a fixture whose bench is not the full a/b/lead set.
+    fn with_reviewers(reviewers: Vec<(String, String)>) -> Self {
+        Self {
+            reviewers,
+            approver: "lead".to_owned(),
+            minimum_reviews: 2,
+            approver_may_review: false,
+            builder_keys: Vec::new(),
+            enrolled_policy_digest: None,
+            declared_policy_digest: None,
+            declared_verifier_digest: None,
+            declared_signers_digest: None,
+            manifest_signers_digest: None,
             verifier_sha256: None,
             trust: true,
             manifest_on_disk: true,
@@ -315,6 +367,7 @@ struct Fixture {
     keys: KeySet,
     declaration: Declaration,
     runbook_bytes: Vec<u8>,
+    manifest_text: String,
     _trust: Option<TrustGuard>,
 }
 
@@ -369,7 +422,13 @@ impl Fixture {
         manifest.push_str(&format!("verifier-path = \"{KEYGEN}\"\n"));
         manifest.push_str(&format!("verifier-digest = \"{verifier_digest}\"\n"));
         manifest.push_str(&format!("signers-path = \"{}\"\n", shown(&signers_path)));
-        manifest.push_str(&format!("signers-digest = \"{signers_digest}\"\n"));
+        manifest.push_str(&format!(
+            "signers-digest = \"{}\"\n",
+            declaration
+                .manifest_signers_digest
+                .clone()
+                .unwrap_or_else(|| signers_digest.clone())
+        ));
         manifest.push_str("[builder]\n");
         manifest.push_str(&format!(
             "actor = \"{}\"\n",
@@ -386,7 +445,7 @@ impl Fixture {
             manifest.push_str(&format!("label = \"{label}\"\n"));
             manifest.push_str(&format!("key = \"{public}\"\n"));
         }
-        let manifest_bytes = manifest.into_bytes();
+        let manifest_bytes = manifest.clone().into_bytes();
         let manifest_path = keys.dir.join("enrollment-manifest.toml");
         if declaration.manifest_on_disk {
             keys.dir.write("enrollment-manifest.toml", &manifest_bytes);
@@ -394,9 +453,27 @@ impl Fixture {
         let mut runbook = String::from(body);
         runbook.push_str("\n[review]\n");
         runbook.push_str(&format!("manifest = \"{}\"\n", shown(&manifest_path)));
-        runbook.push_str(&format!("policy-digest = \"{true_digest}\"\n"));
-        runbook.push_str(&format!("verifier-digest = \"{verifier_digest}\"\n"));
-        runbook.push_str(&format!("signers-digest = \"{signers_digest}\"\n"));
+        runbook.push_str(&format!(
+            "policy-digest = \"{}\"\n",
+            declaration
+                .declared_policy_digest
+                .clone()
+                .unwrap_or_else(|| true_digest.clone())
+        ));
+        runbook.push_str(&format!(
+            "verifier-digest = \"{}\"\n",
+            declaration
+                .declared_verifier_digest
+                .clone()
+                .unwrap_or_else(|| verifier_digest.clone())
+        ));
+        runbook.push_str(&format!(
+            "signers-digest = \"{}\"\n",
+            declaration
+                .declared_signers_digest
+                .clone()
+                .unwrap_or_else(|| signers_digest.clone())
+        ));
         runbook.push_str(&format!(
             "minimum-reviews = {}\n",
             declaration.minimum_reviews
@@ -434,6 +511,7 @@ impl Fixture {
             keys,
             declaration,
             runbook_bytes,
+            manifest_text: manifest,
             _trust: trust,
         }
     }
@@ -459,13 +537,24 @@ impl Fixture {
                 approver_may_review: false,
                 builder_keys: Vec::new(),
                 enrolled_policy_digest: None,
+                declared_policy_digest: None,
+                declared_verifier_digest: None,
+                declared_signers_digest: None,
+                manifest_signers_digest: None,
                 verifier_sha256: None,
                 trust: false,
                 manifest_on_disk: false,
             },
             runbook_bytes: body.as_bytes().to_vec(),
+            manifest_text: String::new(),
             _trust: None,
         }
+    }
+
+    /// Swap the installed trust reader for a substituted one.
+    fn reseat_trust(&mut self, trust: TestTrust) {
+        self._trust = None;
+        self._trust = Some(install(&self.repo.root().join(".ratmac"), trust));
     }
 
     fn root(&self) -> &Path {
@@ -533,11 +622,11 @@ impl Fixture {
     /// report line - purpose word and all - against the bytes on disk.
     fn intent(&self, run: &str, purpose: &str, extra: &[&str], tag: &str) -> PathBuf {
         let out = self.keys.dir.join(format!("{tag}.bin"));
-        let out_text = out.to_string_lossy().into_owned();
+        let out_argument = out.to_string_lossy().into_owned();
         let mut args = vec!["intent", "--run", run];
         args.extend_from_slice(extra);
         args.push("--out");
-        args.push(&out_text);
+        args.push(&out_argument);
         let rendered = rtm(self.root(), &args);
         assert_eq!(
             rendered.code, 0,
@@ -548,13 +637,49 @@ impl Fixture {
         assert_eq!(
             rendered.stdout,
             format!(
-                "rtm: canonical {purpose} intent for run {run} written to {out_text} \
+                "rtm: canonical {purpose} intent for run {run} written to {} \
                  (sha256 {})\n",
+                shown(&out),
                 sha256_hex(&bytes)
             ),
             "WRAV: the {tag} intent report is the pinned one line"
         );
         out
+    }
+
+    /// One `rtm intent` with a relative `--out`, run with the process cwd
+    /// outside the Engine root: the report echoes the relative string in
+    /// the displayed spelling, never canonicalized or made absolute, and
+    /// the bytes land under that cwd.
+    fn intent_relative(&self, run: &str, purpose: &str, tag: &str) {
+        let name = format!("{tag}.bin");
+        let previous = std::env::current_dir().expect("read the process cwd");
+        // The cwd is process-wide; the caller's test holds the shared
+        // environment lane for its whole body, so no parallel test observes
+        // this change.
+        std::env::set_current_dir(self.keys.dir.path()).unwrap_or_else(|error| {
+            panic!("move the process cwd outside the Engine root: {error}")
+        });
+        let args = vec!["intent", "--run", run, "--out", name.as_str()];
+        let rendered = rtm(self.root(), &args);
+        std::env::set_current_dir(&previous)
+            .unwrap_or_else(|error| panic!("restore the process cwd: {error}"));
+        assert_eq!(
+            rendered.code, 0,
+            "WRAV: render the {tag} {purpose} intent relatively: {}{}",
+            rendered.stdout, rendered.message
+        );
+        let bytes = fs::read(self.keys.dir.join(&name))
+            .unwrap_or_else(|error| panic!("read the relative {tag} bytes: {error}"));
+        assert_eq!(
+            rendered.stdout,
+            format!(
+                "rtm: canonical {purpose} intent for run {run} written to {name} \
+                 (sha256 {})\n",
+                sha256_hex(&bytes)
+            ),
+            "WRAV: the relative intent report echoes the given string, not an absolute one"
+        );
     }
 
     /// One fully signed authorization bundle: the named reviewers' detached
@@ -793,6 +918,9 @@ fn step_refused(run: &str, detail: &str) -> String {
 /// WRAV-001: an allowed independent group review plus its Approver authorizes exactly one fresh normal transition and one blocked transition.
 #[test]
 fn wrav_001() {
+    // The Engine runs in-process and its seams and cwd are process-wide, so
+    // each test holds the shared lane for its whole body.
+    let _lane = support::hook_lane();
     let keys = KeySet::new("wrav001", &["a", "b", "lead"]);
     let declaration = Declaration::independent(&keys);
     let fixture = Fixture::governed("wrav001", ORDINARY_BODY, keys, declaration);
@@ -806,6 +934,16 @@ fn wrav_001() {
         fixture.snapshot(),
         before_intent,
         "WRAV-001: rtm intent writes nothing under the Engine root"
+    );
+
+    // A relative `--out`: the echo stays the relative string in the
+    // displayed spelling, and the bytes land outside the Engine root.
+    let before_relative = fixture.snapshot();
+    fixture.intent_relative(&run, "step", "w1-relative");
+    assert_eq!(
+        fixture.snapshot(),
+        before_relative,
+        "WRAV-001: a relative --out still writes nothing under the Engine root"
     );
 
     // One fresh normal transition.
@@ -854,6 +992,7 @@ fn wrav_001() {
 /// WRAV-002: builder-only review, an outsider, a non-approving member, a forged signer field, a missing signature, and an insufficient count all refuse with state and evidence byte-identical.
 #[test]
 fn wrav_002() {
+    let _lane = support::hook_lane();
     let keys = KeySet::new("wrav002", &["a", "b", "lead", "builder", "outsider"]);
     let declaration = Declaration::independent(&keys);
     let fixture = Fixture::governed("wrav002", ORDINARY_BODY, keys, declaration);
@@ -893,17 +1032,15 @@ fn wrav_002() {
     // Twin: a builder-only review - the builder's own key at both labels
     // over the true review intent, with an internally consistent approval.
     let review_intent = fixture.intent(&run, "step", &[], "w2-builder-intent");
-    let builder_a = fixture
-        .keys
-        .sign("builder", REVIEW_NAMESPACE, &review_intent);
-    let builder_b = fixture
+    // One builder signature, deliberately submitted under both labels.
+    let builder_sig = fixture
         .keys
         .sign("builder", REVIEW_NAMESPACE, &review_intent);
     let builder_approval = {
         let mut args = Vec::new();
-        for (label, signature) in [("a", &builder_a), ("b", &builder_b)] {
+        for label in ["a", "b"] {
             args.push("--review".to_owned());
-            args.push(format!("{label}:{}", shown(signature)));
+            args.push(format!("{label}:{}", shown(&builder_sig)));
         }
         let refs: Vec<&str> = args.iter().map(|value| value.as_str()).collect();
         let approval_intent = fixture.intent(&run, "step", &refs, "w2-builder-approval");
@@ -915,7 +1052,10 @@ fn wrav_002() {
     let builder_ran = fixture.step_with(
         &run,
         &Bundle {
-            reviews: vec![("a".to_owned(), builder_a), ("b".to_owned(), builder_b)],
+            reviews: vec![
+                ("a".to_owned(), builder_sig.clone()),
+                ("b".to_owned(), builder_sig),
+            ],
             approve: builder_approval,
         },
     );
@@ -1107,6 +1247,7 @@ fn wrav_002() {
 /// WRAV-003: changes to work, policy, Run, State, target, selected input, or sequence invalidate the same otherwise-valid approval.
 #[test]
 fn wrav_003() {
+    let _lane = support::hook_lane();
     let body = "\
 [roots]
 issue = \"work\"
@@ -1169,6 +1310,12 @@ to = \"done\"
         stepped.stdout, stepped.message
     );
     assert_eq!(fixture.record_state(&run), "build");
+
+    // `build` is a branching State and verdict validation precedes the
+    // authorization boundary (the ticket's step order), so the lanes below
+    // need a live verdict to reach their pinned authorization refusals at
+    // all; refusals write nothing, so it stays live for both.
+    fixture.publish_verdict(&run, "build", "ship");
 
     // State: reviews signed at intake no longer verify at build, even with
     // a freshly rendered approval over exactly those review files.
@@ -1371,6 +1518,7 @@ to = \"done\"
 /// WRAV-004: replaying consumed approval and interrupting at each evidence/state boundary never authorizes a second transition or loses accepted history.
 #[test]
 fn wrav_004() {
+    let _lane = support::hook_lane();
     let body = "\
 [roots]
 issue = \"work\"
@@ -1605,8 +1753,9 @@ to = \"gate\"
 }
 
 /// One governed step under one injected `RATMAC_TEST_STEP_FAULT` boundary.
+/// The caller's test holds the shared environment lane for its whole body,
+/// so the fault variable reaches this in-process call alone.
 fn fault_step(fixture: &Fixture, run: &str, bundle: &Bundle, boundary: &str) -> Ran {
-    let _lane = support::hook_lane();
     let _fault = support::StepFault::set(boundary);
     fixture.step_with(run, bundle)
 }
@@ -1614,6 +1763,7 @@ fn fault_step(fixture: &Fixture, run: &str, bundle: &Bundle, boundary: &str) -> 
 /// WRAV-005: malformed policy refuses at parsing/diagnosis, historical Runs retain truthful no-policy provenance, and the live governed workflow refuses without its independent trust anchor.
 #[test]
 fn wrav_005() {
+    let _lane = support::hook_lane();
     // A malformed policy refuses at parse through each loader's own shape.
     let keys = KeySet::new("wrav005", &["a", "lead"]);
     let malformed = |minimum: u32, approver: &str, duplicate: bool| {
@@ -1870,6 +2020,7 @@ fn wrav_005() {
 /// WRAV-006: the production signature verifier accepts independently enrolled fixture identities but rejects self-enrollment, a builder key under a second label, the builder acting as Approver after an outside review, a review signature reused as approval, a substituted policy or verifier, and an authority amendment signed only by its proposed replacement authority.
 #[test]
 fn wrav_006() {
+    let _lane = support::hook_lane();
     // Positive: the production verifier accepts the independently enrolled
     // fixture identities and the transition moves.
     let positive_keys = KeySet::new("wrav006-positive", &["a", "b", "lead"]);
@@ -1892,11 +2043,10 @@ fn wrav_006() {
 
     // Self-enrollment: the builder's own key among the reviewers.
     let self_keys = KeySet::new("wrav006-self", &["builder", "lead"]);
-    let mut self_declaration = Declaration::independent(&self_keys);
-    self_declaration.reviewers = vec![
+    let mut self_declaration = Declaration::with_reviewers(vec![
         ("a".to_owned(), self_keys.public("builder").to_owned()),
         ("lead".to_owned(), self_keys.public("lead").to_owned()),
-    ];
+    ]);
     self_declaration.minimum_reviews = 1;
     self_declaration.builder_keys = vec![self_keys.public("builder").to_owned()];
     let self_fixture =
@@ -1914,12 +2064,11 @@ fn wrav_006() {
 
     // The same builder key under a second label.
     let alias_keys = KeySet::new("wrav006-alias", &["a", "builder", "lead"]);
-    let mut alias_declaration = Declaration::independent(&alias_keys);
-    alias_declaration.reviewers = vec![
+    let mut alias_declaration = Declaration::with_reviewers(vec![
         ("a".to_owned(), alias_keys.public("a").to_owned()),
         ("b".to_owned(), alias_keys.public("builder").to_owned()),
         ("lead".to_owned(), alias_keys.public("lead").to_owned()),
-    ];
+    ]);
     alias_declaration.minimum_reviews = 1;
     alias_declaration.builder_keys = vec![alias_keys.public("builder").to_owned()];
     let alias_fixture = Fixture::governed(
@@ -1938,14 +2087,13 @@ fn wrav_006() {
 
     // The builder acting as Approver after an outside review.
     let approver_keys = KeySet::new("wrav006-approver", &["a", "builder"]);
-    let mut approver_declaration = Declaration::independent(&approver_keys);
-    approver_declaration.reviewers = vec![
+    let mut approver_declaration = Declaration::with_reviewers(vec![
         ("a".to_owned(), approver_keys.public("a").to_owned()),
         (
             "lead".to_owned(),
             approver_keys.public("builder").to_owned(),
         ),
-    ];
+    ]);
     approver_declaration.minimum_reviews = 1;
     approver_declaration.builder_keys = vec![approver_keys.public("builder").to_owned()];
     let approver_fixture = Fixture::governed(
@@ -1964,11 +2112,10 @@ fn wrav_006() {
 
     // A review signature reused as the approval.
     let reuse_keys = KeySet::new("wrav006-reuse", &["a", "lead"]);
-    let mut reuse_declaration = Declaration::independent(&reuse_keys);
-    reuse_declaration.reviewers = vec![
+    let mut reuse_declaration = Declaration::with_reviewers(vec![
         ("a".to_owned(), reuse_keys.public("a").to_owned()),
         ("lead".to_owned(), reuse_keys.public("lead").to_owned()),
-    ];
+    ]);
     reuse_declaration.minimum_reviews = 1;
     let reuse_fixture = Fixture::governed(
         "wrav006-reuse",
@@ -2053,6 +2200,196 @@ fn wrav_006() {
              {substituted_policy}"
         )),
         "WRAV-006: the policy digest is named from both sides"
+    );
+
+    // A declared policy digest that disagrees with the recomputed one.
+    let fake_declared_policy = sha256_hex(b"w9-declared-policy");
+    let recomputed_keys = KeySet::new("wrav006-recomputed", &["a", "b", "lead"]);
+    let recomputed_roles: Vec<(String, String)> = ["a", "b", "lead"]
+        .iter()
+        .map(|label| {
+            (
+                (*label).to_owned(),
+                recomputed_keys.public(label).to_owned(),
+            )
+        })
+        .collect();
+    let mut recomputed_declaration = Declaration::independent(&recomputed_keys);
+    recomputed_declaration.declared_policy_digest = Some(fake_declared_policy.clone());
+    let recomputed_fixture = Fixture::governed(
+        "wrav006-recomputed",
+        ORDINARY_BODY,
+        recomputed_keys,
+        recomputed_declaration,
+    );
+    let recomputed = policy_digest("lead", 2, false, &recomputed_roles);
+    let before = recomputed_fixture.snapshot();
+    let refused = rtm(recomputed_fixture.root(), &["start"]);
+    assert_eq!(
+        refused.code, 1,
+        "WRAV-006: a declared digest off the recomputed one refuses admission"
+    );
+    assert_eq!(
+        refused.message,
+        start_trust_origin(&format!(
+            "the declared policy digest {fake_declared_policy} does not match the recomputed \
+             {recomputed}"
+        )),
+        "WRAV-006: the recomputed disagreement is named from both sides"
+    );
+    assert_eq!(
+        recomputed_fixture.snapshot(),
+        before,
+        "WRAV-006: the recomputed-digest refusal writes nothing"
+    );
+
+    // A declared verifier digest that disagrees with the enrollment binding.
+    let real_verifier = sha256_hex(&fs::read(KEYGEN).expect("read the pinned verifier"));
+    let fake_declared_verifier = sha256_hex(b"w9-declared-verifier");
+    let declared_verifier_keys = KeySet::new("wrav006-declared-verifier", &["a", "b", "lead"]);
+    let mut declared_verifier_declaration = Declaration::independent(&declared_verifier_keys);
+    declared_verifier_declaration.declared_verifier_digest = Some(fake_declared_verifier.clone());
+    let declared_verifier_fixture = Fixture::governed(
+        "wrav006-declared-verifier",
+        ORDINARY_BODY,
+        declared_verifier_keys,
+        declared_verifier_declaration,
+    );
+    let before = declared_verifier_fixture.snapshot();
+    let refused = rtm(declared_verifier_fixture.root(), &["start"]);
+    assert_eq!(
+        refused.code, 1,
+        "WRAV-006: a substituted declared verifier digest refuses admission"
+    );
+    assert_eq!(
+        refused.message,
+        start_trust_origin(&format!(
+            "the declared verifier digest {fake_declared_verifier} does not match the \
+             enrollment's {real_verifier}"
+        )),
+        "WRAV-006: the declared verifier digest is named from both sides"
+    );
+    assert_eq!(
+        declared_verifier_fixture.snapshot(),
+        before,
+        "WRAV-006: the declared-verifier refusal writes nothing"
+    );
+
+    // A declared signers digest that disagrees with the enrollment binding.
+    let declared_signers_keys = KeySet::new("wrav006-declared-signers", &["a", "b", "lead"]);
+    let fake_declared_signers = sha256_hex(b"w9-declared-signers");
+    let mut declared_signers_declaration = Declaration::independent(&declared_signers_keys);
+    declared_signers_declaration.declared_signers_digest = Some(fake_declared_signers.clone());
+    let declared_signers_fixture = Fixture::governed(
+        "wrav006-declared-signers",
+        ORDINARY_BODY,
+        declared_signers_keys,
+        declared_signers_declaration,
+    );
+    let real_declared_signers = sha256_hex(
+        &fs::read(declared_signers_fixture.keys.dir.join("allowed_signers"))
+            .expect("read the allowed-signers file"),
+    );
+    let before = declared_signers_fixture.snapshot();
+    let refused = rtm(declared_signers_fixture.root(), &["start"]);
+    assert_eq!(
+        refused.code, 1,
+        "WRAV-006: a substituted declared signers digest refuses admission"
+    );
+    assert_eq!(
+        refused.message,
+        start_trust_origin(&format!(
+            "the declared signers digest {fake_declared_signers} does not match the \
+             enrollment's {real_declared_signers}"
+        )),
+        "WRAV-006: the declared signers digest is named from both sides"
+    );
+    assert_eq!(
+        declared_signers_fixture.snapshot(),
+        before,
+        "WRAV-006: the declared-signers refusal writes nothing"
+    );
+
+    // The stated order: with a substituted declared verifier digest AND a
+    // substituted declared signers digest, the verifier pair refuses first.
+    let order_keys = KeySet::new("wrav006-order", &["a", "b", "lead"]);
+    let fake_order_verifier = sha256_hex(b"w9-order-verifier");
+    let mut order_declaration = Declaration::independent(&order_keys);
+    order_declaration.declared_verifier_digest = Some(fake_order_verifier.clone());
+    order_declaration.declared_signers_digest = Some(sha256_hex(b"w9-order-signers"));
+    let order_fixture = Fixture::governed(
+        "wrav006-order",
+        ORDINARY_BODY,
+        order_keys,
+        order_declaration,
+    );
+    let before = order_fixture.snapshot();
+    let refused = rtm(order_fixture.root(), &["start"]);
+    assert_eq!(refused.code, 1, "WRAV-006: two digest disagreements refuse");
+    assert_eq!(
+        refused.message,
+        start_trust_origin(&format!(
+            "the declared verifier digest {fake_order_verifier} does not match the \
+             enrollment's {real_verifier}"
+        )),
+        "WRAV-006: the digest checks refuse in the stated order, verifier before signers"
+    );
+    assert_eq!(
+        order_fixture.snapshot(),
+        before,
+        "WRAV-006: the ordered refusal writes nothing"
+    );
+
+    // The same boundary composes as the enrollment sub-boundary of one
+    // governed step: the Run is admitted under a valid origin, the signers
+    // binding turns substituted, and an otherwise-valid authorization meets
+    // the refusal at the step's verification boundary.
+    let frame_keys = KeySet::new("wrav006-frame", &["a", "b", "lead"]);
+    let frame_declaration = Declaration::independent(&frame_keys);
+    let mut frame_fixture = Fixture::governed(
+        "wrav006-frame",
+        ORDINARY_BODY,
+        frame_keys,
+        frame_declaration,
+    );
+    let frame_run = frame_fixture.admit();
+    let frame_bundle = frame_fixture.authorize(&frame_run, None, &["a", "b"], "w6-frame");
+    let frame_signers = frame_fixture.keys.dir.join("allowed_signers");
+    let real_frame_signers =
+        sha256_hex(&fs::read(&frame_signers).expect("read the allowed-signers file"));
+    let fake_frame_signers = sha256_hex(b"w9-frame-signers");
+    let edited_manifest = frame_fixture
+        .manifest_text
+        .replace(&real_frame_signers, &fake_frame_signers);
+    let frame_trust = TestTrust {
+        manifest_bytes: edited_manifest.into_bytes(),
+        signers_path: frame_signers.clone(),
+        verifier_path: PathBuf::from(KEYGEN),
+        verifier_sha256: real_verifier.clone(),
+    };
+    frame_fixture.reseat_trust(frame_trust);
+    let before = frame_fixture.snapshot();
+    let framed = frame_fixture.step_with(&frame_run, &frame_bundle);
+    assert_eq!(
+        framed.code, 0,
+        "WRAV-006: the enrollment refusal is a refused step"
+    );
+    assert_eq!(
+        framed.stdout,
+        step_refused(
+            &frame_run,
+            &format!(
+                "enrollment: observed the allowed-signers file at {} hashes {real_frame_signers}, \
+                 the enrollment binds {fake_frame_signers}; expected the enrolled trust origin",
+                shown(&frame_signers)
+            ),
+        ),
+        "WRAV-006: the step frame composes the enrollment detail exactly"
+    );
+    assert_eq!(
+        frame_fixture.snapshot(),
+        before,
+        "WRAV-006: the enrollment step refusal writes nothing"
     );
 
     // An authority amendment signed only by its proposed replacement: the

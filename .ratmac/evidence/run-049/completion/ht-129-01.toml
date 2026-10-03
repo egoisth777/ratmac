@@ -1,0 +1,10 @@
+ticket-id = "t-129"
+check-id = "HT-129-01"
+kind = "hidden-lane"
+command = "cargo test --offline --locked --manifest-path test-hidden/t-129/Cargo.toml -- --test-threads=1"
+working-dir = "."
+exit-status = 0
+output-sha256 = "d6a716f9ba4d9edd3370393238e253c5188dbb6d98db7c39f9af8f4fc357c162"
+tree-roots = ["src","test/qa","test-hidden","tools","Cargo.toml","Cargo.lock",".gitignore",".ratmac/lanes.toml"]
+tree-sha256 = "3fc25f04d433fe7a5590ad8cab8bcedafb12eb21deaad3ed4bdefcad9e708c1e"
+output = "\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 6 tests\ntest ht_129_01_regression ... ok\ntest ht_129_02_input_routing ... rtm: step refused; authorization: enrollment: observed the enrollment manifest C:/Users/egois/AppData/Local/Temp/ratmac-t129-keys-l02-lock-keys-22576-1791025344117255000-16/enrollment-manifest.toml is missing or unreadable; expected the enrolled trust origin\nnext: rtm step --run run-001\nok\ntest ht_129_03_lifecycle_model ... Good \"ratmac-review-v1\" signature for rev1 with ED25519 key SHA256:KZd3zGVi9PjCLS5LoCfYyZrfVnluDjdA7297i/PR+Js\r\nok\ntest ht_129_04_durability_recovery ... ok\ntest ht_129_05_output_filesystem ... ok\ntest ht_129_06_cross_feature ... ok\n\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 55.31s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s\n     Running unittests src\\lib.rs (test-hidden\\t-129\\target\\debug\\deps\\ratmac_t129_hidden-d595535888d6888a.exe)\n     Running tests\\hidden.rs (test-hidden\\t-129\\target\\debug\\deps\\hidden-9944cd93c8a78fad.exe)\n   Doc-tests ratmac_t129_hidden\n"

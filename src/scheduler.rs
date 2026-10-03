@@ -78,12 +78,23 @@ impl EntryPrerequisites {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StepRequest {
     pub claim: String,
+    /// Each review signature offered for an authorized transition, as
+    /// (label, signature-file path) in submission order.
+    pub reviews: Vec<(String, String)>,
+    /// The Approver's approval signature file.
+    pub approve: Option<String>,
+    /// How many --approve options the invocation carried; one approval is
+    /// the contract, and the boundary refuses a repeated option.
+    pub approval_count: usize,
 }
 
 impl StepRequest {
     pub fn new(claim: impl Into<String>) -> Self {
         Self {
             claim: claim.into(),
+            reviews: Vec::new(),
+            approve: None,
+            approval_count: 0,
         }
     }
 }
@@ -101,6 +112,20 @@ fn inject_step_fault(boundary: &str) -> Result<(), StateError> {
 #[cfg(not(feature = "test-fault-injection"))]
 fn inject_step_fault(_boundary: &str) -> Result<(), StateError> {
     Ok(())
+}
+
+/// Whether the QA step-fault seam requests one boundary. Unlike
+/// [`inject_step_fault`], the caller decides what a requested fault does -
+/// the WRA-001 governed boundaries roll their whole motion back instead of
+/// refusing mid-flight.
+#[cfg(feature = "test-fault-injection")]
+fn step_fault_requested(boundary: &str) -> bool {
+    std::env::var("RATMAC_TEST_STEP_FAULT").ok().as_deref() == Some(boundary)
+}
+
+#[cfg(not(feature = "test-fault-injection"))]
+fn step_fault_requested(_boundary: &str) -> bool {
+    false
 }
 
 /// Local result of the one shared-log write. The funnel retains its byte
@@ -321,6 +346,7 @@ struct MintedRunSnapshot {
     state_bytes: Vec<u8>,
     evidence_bytes: Vec<u8>,
     spawn_ledger_bytes: Vec<u8>,
+    review_bytes: Option<Vec<u8>>,
 }
 
 /// A fresh Run remains motion-locked while a caller completes the transaction
@@ -1488,6 +1514,17 @@ impl Scheduler {
         let snapshot = Self::load_runbook_snapshot(&root, &root, &engine_root)?;
         self.workflow_roots = snapshot.roots().clone();
         self.machine = Self::graph_of(snapshot.class());
+        // WRA-001: a Run whose runbook declares a review policy is admitted
+        // only under its enrolled trust origin. Nothing a builder can write
+        // satisfies that check, so this refuses before any runtime byte.
+        if let Some(declaration) = snapshot.class().review() {
+            Self::require_admission_origin(&engine_root, declaration).map_err(|detail| {
+                StateError::new(format!(
+                    "the runbook declares a review policy; admission requires its enrolled \
+                     trust origin: {detail}"
+                ))
+            })?;
+        }
         let state = self.initial_state()?;
         let goal_baseline = self.goal_revision(&root, crate::goal::Version::V2)?;
         // FDC-002: a Run beginning in a terminal State — no ordinary outgoing
@@ -1544,6 +1581,7 @@ impl Scheduler {
         // durable high-water record while this root lock is held, then creates
         // an independently addressed member of .ratmac/runs/.
         Self::verify_runbook_snapshot(&snapshot, root, None)?;
+        let review = snapshot.class().review().cloned();
         let minted = Self::mint_run(
             &root_lock,
             engine_root,
@@ -1552,6 +1590,7 @@ impl Scheduler {
             snapshot.pin(),
             goal_baseline,
             &engine_identity,
+            review.as_ref(),
         )?;
         let run_id = minted.id.clone();
         let store = StateStore::for_engine_root(engine_root, &run_id);
@@ -1562,6 +1601,7 @@ impl Scheduler {
         Ok(Run::new(state, initial_status).with_artifacts(engine_root, &run_id))
     }
 
+    #[allow(clippy::too_many_arguments)]
     /// Reserve the next durable id, then create its directory, Run Record,
     /// evidence, and reserved spawn-ledger path. Used by `start` for the
     /// project machine and by `spawn`/`respawn` for children and successors.
@@ -1575,6 +1615,7 @@ impl Scheduler {
         runbook_pin: &str,
         goal_baseline: &Option<String>,
         engine_identity: &Option<crate::pin::Identity>,
+        review: Option<&crate::review::ReviewDeclaration>,
     ) -> Result<MintedRun, StateError> {
         // A new Engine root receives its empty shared history under the root
         // domain. This is deliberately not restored on a later mint failure:
@@ -1649,6 +1690,24 @@ impl Scheduler {
                 .write(&run_dir)
                 .map_err(|error| StateError::new(format!("write evidence.toml: {error}")))?;
 
+            // WRA-001: a governed admission records its provenance marker
+            // before the Run is addressable. Presence alone fixes the Run as
+            // governed for its whole life; the bytes name the exact policy.
+            if let Some(declaration) = review {
+                root_lock.ensure_current()?;
+                run_lock.ensure_current()?;
+                crate::observe::operation("record");
+                fs::write(
+                    run_dir.join(crate::review::GOVERNANCE_FILE),
+                    declaration.governance_bytes(),
+                )
+                .map_err(|error| {
+                    StateError::new(format!(
+                        "write the review governance marker under {run_id}: {error}"
+                    ))
+                })?;
+            }
+
             // FDC-003/FDC-004: an empty Verdict slot is absence. Only the
             // per-run spawn-ledger path remains reserved by name here.
             root_lock.ensure_current()?;
@@ -1718,10 +1777,26 @@ impl Scheduler {
         crate::observe::operation("ledger");
         let spawn_ledger_bytes = fs::read(run_dir.join("spawn-ledger"))
             .map_err(|error| StateError::new(format!("snapshot minted spawn-ledger: {error}")))?;
+        let review_path = run_dir.join(crate::review::GOVERNANCE_FILE);
+        let review_bytes = match fs::symlink_metadata(&review_path) {
+            Ok(_) => {
+                crate::observe::operation("record");
+                Some(fs::read(&review_path).map_err(|error| {
+                    StateError::new(format!("snapshot minted governance marker: {error}"))
+                })?)
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => {
+                return Err(StateError::new(format!(
+                    "snapshot minted governance marker: {error}"
+                )))
+            }
+        };
         Ok(MintedRunSnapshot {
             state_bytes,
             evidence_bytes,
             spawn_ledger_bytes,
+            review_bytes,
         })
     }
 
@@ -1761,6 +1836,15 @@ impl Scheduler {
                 "run.toml" => snapshot.state_bytes.as_slice(),
                 crate::pin::EVIDENCE_FILE => snapshot.evidence_bytes.as_slice(),
                 "spawn-ledger" => snapshot.spawn_ledger_bytes.as_slice(),
+                crate::review::GOVERNANCE_FILE => match snapshot.review_bytes.as_deref() {
+                    Some(bytes) => bytes,
+                    None => {
+                        return Err(StateError::new(format!(
+                            "{operation} refused: minted Run directory {} changed (unexpected entry {name:?})",
+                            run_dir.displayed()
+                        )))
+                    }
+                },
                 _ => {
                     return Err(StateError::new(format!(
                         "{operation} refused: minted Run directory {} changed (unexpected entry {name:?})",
@@ -1798,8 +1882,15 @@ impl Scheduler {
             }
             seen.insert(name, ());
         }
-        for name in ["run.toml", crate::pin::EVIDENCE_FILE, "spawn-ledger"] {
-            if !seen.contains_key(name) {
+        for name in [
+            "run.toml",
+            crate::pin::EVIDENCE_FILE,
+            "spawn-ledger",
+            crate::review::GOVERNANCE_FILE,
+        ] {
+            if !seen.contains_key(name)
+                && (name != crate::review::GOVERNANCE_FILE || snapshot.review_bytes.is_some())
+            {
                 return Err(StateError::new(format!(
                     "{operation} refused: minted Run entry {} is missing; it was not removed",
                     run_dir.join(name).displayed()
@@ -2006,6 +2097,15 @@ composition is capped at one level (FDC-012)"
                     declaration.class()
                 ))
             })?;
+            if let Some(child_review) = child_class.review() {
+                Self::require_admission_origin(&engine_root, child_review).map_err(|detail| {
+                    StateError::new(format!(
+                        "spawn refused: the class {:?} declares a review policy; admission \
+                         requires its enrolled trust origin: {detail}",
+                        declaration.class()
+                    ))
+                })?;
+            }
             let child_machine = MachineGraph::new(
                 child_class
                     .states()
@@ -2063,6 +2163,10 @@ composition is capped at one level (FDC-012)"
             snapshot.pin(),
             &goal_baseline,
             &engine_identity,
+            class
+                .classes()
+                .get(&child_class_name)
+                .and_then(|declared| declared.review()),
         )?;
         let entry = LedgerEntry {
             id: child.clone(),
@@ -2247,6 +2351,30 @@ the ledger {} and minted child {} were left in place; inspect both paths before 
             }
         };
 
+        // WRA-001: a successor is admitted only under the review policy its
+        // owning class declares. A top-level successor's owning class is the
+        // runbook itself.
+        let successor_review = match recorded.as_ref() {
+            Some((_, entry)) => match class.classes().get(&entry.class) {
+                Some(declared) => declared.review(),
+                None => None,
+            },
+            None => class.review(),
+        };
+        let successor_class_name = match recorded.as_ref() {
+            Some((_, entry)) => entry.class.clone(),
+            None => "runbook".to_owned(),
+        };
+        if let Some(declaration) = successor_review {
+            Self::require_admission_origin(&engine_root, declaration).map_err(|detail| {
+                StateError::new(format!(
+                    "the class {:?} declares a review policy; admission \
+                     requires its enrolled trust origin: {detail}",
+                    successor_class_name
+                ))
+            })?;
+        }
+
         if recorded.is_none() {
             // Top-level predecessor: today's mint-then-retire path. Minting
             // is root-first and brief. It intentionally precedes terminal
@@ -2264,6 +2392,7 @@ the ledger {} and minted child {} were left in place; inspect both paths before 
                     snapshot.pin(),
                     &goal_baseline,
                     &engine_identity,
+                    successor_review,
                 )?
             };
             let MintedRun {
@@ -2451,6 +2580,7 @@ repeat this respawn command to finish it",
             snapshot.pin(),
             &goal_baseline,
             &engine_identity,
+            successor_review,
         )
         .map_err(|error| {
             StateError::new(format!(
@@ -2540,6 +2670,7 @@ exactly one recorded successor may be finished; repair the ledger, then retry"
             })
     }
 
+    #[allow(clippy::too_many_arguments)]
     /// Admit the recorded successor: `run.toml` lands last, so every refusal
     /// below leaves an unadmitted successor that the repeated respawn
     /// finishes idempotently. Artifacts already present and byte-identical
@@ -2553,6 +2684,7 @@ exactly one recorded successor may be finished; repair the ledger, then retry"
         runbook_pin: &str,
         goal_baseline: &Option<String>,
         engine_identity: &Option<crate::pin::Identity>,
+        review: Option<&crate::review::ReviewDeclaration>,
     ) -> Result<(), StateError> {
         if Self::respawn_fault_at("admit") {
             return Err(StateError::new(
@@ -2638,6 +2770,27 @@ exactly one recorded successor may be finished; repair the ledger, then retry"
                     "cannot read {}: {error}",
                     spawn_ledger.displayed()
                 )))
+            }
+        }
+        // WRA-001: the governance marker lands before the admission Run
+        // Record, idempotently, so a retried respawn finds the same bytes.
+        if let Some(declaration) = review {
+            let marker = run_dir.join(crate::review::GOVERNANCE_FILE);
+            crate::observe::operation("record");
+            match fs::read(&marker) {
+                Ok(observed) if observed == declaration.governance_bytes() => {}
+                Ok(_) => return Err(conflict(&marker)),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    fs::write(&marker, declaration.governance_bytes()).map_err(|error| {
+                        StateError::new(format!("cannot write {}: {error}", marker.displayed()))
+                    })?;
+                }
+                Err(error) => {
+                    return Err(StateError::new(format!(
+                        "cannot read {}: {error}",
+                        marker.displayed()
+                    )))
+                }
             }
         }
         // The admission Run Record lands last: until it exists, the
@@ -2893,8 +3046,409 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
     /// guard passes. One addressed Run lock serializes the entire motion,
     /// including its append-only transition record; `step` never takes the
     /// root lock.
+    /// WRA-001: the project scope a canonical intent binds - the displayed
+    /// canonical spelling of the primary checkout the Engine root lives in.
+    pub(crate) fn project_scope(engine_root: &Path) -> String {
+        let primary = engine_root.parent().unwrap_or(engine_root);
+        fs::canonicalize(primary)
+            .map(|path| path.displayed())
+            .unwrap_or_else(|_| primary.displayed())
+    }
+
+    /// The authorization options one step request carries.
+    fn authorization_options_of(request: &StepRequest) -> crate::review::AuthorizationOptions {
+        crate::review::AuthorizationOptions {
+            reviews: request.reviews.clone(),
+            approve: request.approve.clone(),
+            approval_count: request
+                .approval_count
+                .max(usize::from(request.approve.is_some())),
+        }
+    }
+
+    /// The enrolled trust origin one governed admission requires.
+    fn require_admission_origin(
+        engine_root: &Path,
+        declaration: &crate::review::ReviewDeclaration,
+    ) -> Result<(), String> {
+        crate::review::read_enrollment(engine_root, declaration, &Self::project_scope(engine_root))
+            .map(|_| ())
+    }
+
+    /// WRA-001: the declaration governing the addressed Run, when its
+    /// recorded marker says the Run is governed.
+    pub(crate) fn governed_review_of(
+        &self,
+        run_dir: &Path,
+        run_id: &str,
+    ) -> Result<Option<crate::review::ReviewDeclaration>, StateError> {
+        if !Self::run_is_governed(run_dir) {
+            return Ok(None);
+        }
+        let Some(snapshot) = self.runbook_snapshot.as_ref() else {
+            return Err(StateError::new(format!(
+                "run {run_id}: no pinned runbook is loaded"
+            )));
+        };
+        Ok(Some(self.governing_declaration(
+            snapshot.class(),
+            run_dir,
+            run_id,
+        )?))
+    }
+
+    /// The pinned runbook's digest for the Run this Scheduler addresses.
+    pub(crate) fn runbook_pin_of(&self) -> &str {
+        self.runbook_snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.pin())
+            .unwrap_or("")
+    }
+
+    /// WRA-001: whether the addressed Run carries its governance marker.
+    /// Presence alone decides - the Run was admitted under a declaring
+    /// runbook, and later runbook drift cannot un-declare its governance.
+    fn run_is_governed(run_dir: &Path) -> bool {
+        run_dir.join(crate::review::GOVERNANCE_FILE).is_file()
+    }
+
+    /// The review declaration that governs the addressed Run, proven against
+    /// its recorded marker bytes. A runbook that no longer declares the same
+    /// policy refuses every motion until the shop resolves the drift.
+    fn governing_declaration(
+        &self,
+        class: &MachineClass,
+        run_dir: &Path,
+        run_id: &str,
+    ) -> Result<crate::review::ReviewDeclaration, StateError> {
+        let declared = match self.child_class.as_deref() {
+            Some(name) => class.classes().get(name).and_then(|child| child.review()),
+            None => class.review(),
+        };
+        let Some(declaration) = declared else {
+            return Err(StateError::new(format!(
+                "run {run_id} is governed by a review policy the pinned runbook no longer \
+                 declares; no transition may proceed until the runbook declares it again"
+            )));
+        };
+        let marker = fs::read(run_dir.join(crate::review::GOVERNANCE_FILE)).map_err(|error| {
+            StateError::new(format!(
+                "run {run_id}: read the review governance marker: {error}"
+            ))
+        })?;
+        if marker != declaration.governance_bytes() {
+            return Err(StateError::new(format!(
+                "run {run_id} is governed by policy-sha256 {}; the pinned runbook declares \
+                 policy-sha256 {}; no transition may proceed until they agree",
+                crate::review::marker_policy(&marker)
+                    .unwrap_or_else(|| "an unreadable value".to_owned()),
+                declaration.policy_digest()
+            )));
+        }
+        Ok(declaration.clone())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    /// The full verification boundary: enrollment, archive sequence, work
+    /// digest, canonical intent, every signature. Returns the refusal as a
+    /// GuardFailure for the caller's Refused outcome.
+    pub(crate) fn authorize_motion(
+        &self,
+        engine_root: &Path,
+        run_dir: &Path,
+        run_id: &str,
+        declaration: &crate::review::ReviewDeclaration,
+        purpose: &str,
+        from_state: &str,
+        to_state: &str,
+        input: &str,
+        blocker: &str,
+        runbook_pin: &str,
+        options: &crate::review::AuthorizationOptions,
+    ) -> Result<crate::review::VerifiedAuthorization, GuardFailure> {
+        // A governed `rtm step`/`rtm hold`/`rtm intent` adds `target` marks
+        // for the verification itself and one `record` mark when the
+        // authorization archive lands. The verification re-reads the
+        // archive and evidence earlier stages already observed, so it runs
+        // in a `record`-quiet scope: no scan of the motion leaves a
+        // `record` mark, whichever surface invoked it.
+        let _quiet = crate::observe::quiet_records();
+        let enrollment = crate::review::read_enrollment(
+            engine_root,
+            declaration,
+            &Self::project_scope(engine_root),
+        )
+        .map_err(|detail| {
+            guard_failure(
+                "authorization: enrollment",
+                "",
+                detail,
+                "the enrolled trust origin",
+            )
+        })?;
+        let facts = self.motion_facts(
+            engine_root,
+            run_dir,
+            run_id,
+            declaration,
+            &enrollment,
+            purpose,
+            from_state,
+            to_state,
+            input,
+            blocker,
+            runbook_pin,
+        )?;
+        crate::review::verify(
+            declaration,
+            &enrollment,
+            &Self::project_scope(engine_root),
+            &facts,
+            options,
+        )
+        .map_err(|refusal| {
+            guard_failure(
+                format!("authorization: {}", refusal.kind),
+                "",
+                refusal.observed,
+                refusal.expected,
+            )
+        })
+    }
+
+    /// WRA-001: the step motion's (to, input) view for an intent render or
+    /// an early authorization verification. A live verdict selects the
+    /// transition it names; with no verdict file at all the render binds
+    /// the current State with empty destination and input - the facts a
+    /// fresh signature must match. A present-but-invalid verdict, an
+    /// occupied straight-line slot, or an unroutable input refuses with
+    /// the step flow's own guard wording.
+    fn step_motion_view(
+        &self,
+        run_dir: &Path,
+        definition: &crate::machine::StateDefinition,
+        scope_machine: &MachineGraph,
+        from_state: &str,
+    ) -> Result<(String, String), String> {
+        let live = crate::verdict::live_path(run_dir);
+        let _ = &live;
+        if let Some(inputs) = definition.inputs() {
+            // A branching State names its motion only through a live
+            // verdict; missing or invalid, the render refuses with the
+            // step flow's own verdict wording.
+            let input = match crate::verdict::load_live(run_dir, from_state, inputs) {
+                Ok(record) => record.input().to_owned(),
+                Err(refusal) => {
+                    return Err(guard_failure(
+                        "verdict",
+                        "verdict.toml",
+                        refusal.observed(),
+                        refusal.expected(),
+                    )
+                    .to_string())
+                }
+            };
+            let from = State::new(from_state.to_owned());
+            return match Self::route_for(scope_machine, &from, Some(input.as_str())) {
+                Some(transition) => Ok((transition.to().to_string(), input)),
+                None => Err(guard_failure(
+                    "transition",
+                    from_state.to_owned(),
+                    "no matching outgoing transition",
+                    "one transition selected by the current State and input",
+                )
+                .to_string()),
+            };
+        }
+        if crate::verdict::live_slot_is_occupied(run_dir).map_err(|error| error.to_string())? {
+            return Err(guard_failure(
+                "verdict",
+                "verdict.toml",
+                "live record presented to a straight-line State",
+                "absent live verdict slot",
+            )
+            .to_string());
+        }
+        let from = State::new(from_state.to_owned());
+        match Self::route_for(scope_machine, &from, None) {
+            Some(transition) => Ok((transition.to().to_string(), String::new())),
+            None => Err(guard_failure(
+                "transition",
+                from_state.to_owned(),
+                "no matching outgoing transition",
+                "one transition selected by the current State and input",
+            )
+            .to_string()),
+        }
+    }
+
+    /// WRA-001: render the canonical intent of the addressed governed Run's
+    /// next motion for `rtm intent`. The inner `Err` carries the one refusal
+    /// line - a verdict or routing guard's rendered refusal, or the hold
+    /// route's own wording.
+    pub(crate) fn intent_view(
+        &self,
+        engine_root: &Path,
+        run_id: &str,
+        hold: bool,
+        blocker: &str,
+    ) -> Result<Result<(crate::review::IntentFacts, crate::review::Enrollment), String>, StateError>
+    {
+        let run_dir = self.run_dir()?;
+        let Some(snapshot) = self.runbook_snapshot.as_ref() else {
+            return Err(StateError::new(format!(
+                "run {run_id}: no pinned runbook is loaded"
+            )));
+        };
+        let class = snapshot.class();
+        let declaration = self.governing_declaration(class, &run_dir, run_id)?;
+        // Today's checks first, the same order as step and hold: the State
+        // and its verdict/route view resolve before the verification, so a
+        // refusal both would raise is today's verdict or route refusal.
+        let state = self.load_state()?;
+        let from_state = state.state.clone();
+        let purpose = if hold { "hold" } else { "step" };
+        let (to_state, input): (String, String) = if hold {
+            match self.blocked_destination(&from_state)? {
+                Some(to_state) => (to_state, String::new()),
+                None => {
+                    return Ok(Err(format!(
+                        "State {from_state:?} declares no blocked route; add a transition with \
+                         blocked-route = true"
+                    )))
+                }
+            }
+        } else {
+            let (definition, scope_machine) =
+                Self::resolve_state_scope(class, &from_state, self.child_class.as_deref())?;
+            match self.step_motion_view(&run_dir, definition, &scope_machine, &from_state) {
+                Ok(motion) => motion,
+                Err(detail) => return Ok(Err(detail)),
+            }
+        };
+        // The render's verification boundary: the same record-quiet rule as
+        // step and hold - the enrollment read and the motion-facts scans
+        // observe nothing, the render lands no archive. The Run-record
+        // reads above stay marked like any reader's.
+        let _quiet = crate::observe::quiet_records();
+        let enrollment = match crate::review::read_enrollment(
+            engine_root,
+            &declaration,
+            &Self::project_scope(engine_root),
+        ) {
+            Ok(enrollment) => enrollment,
+            // The ticket's enrollment boundary: the render reads the
+            // addressed manifest like every verification and refuses
+            // through the operational form when it cannot be verified.
+            Err(detail) => return Ok(Err(detail)),
+        };
+        let facts = match self.motion_facts(
+            engine_root,
+            &run_dir,
+            run_id,
+            &declaration,
+            &enrollment,
+            purpose,
+            &from_state,
+            &to_state,
+            &input,
+            if hold { blocker } else { "" },
+            snapshot.pin(),
+        ) {
+            Ok(facts) => facts,
+            // An operational detail - an unparseable archive, an unreadable
+            // work tree - refuses the render through the command's own
+            // refusal channel, never the hard-error frame.
+            Err(failure) => {
+                return Ok(Err(if failure.expected().is_empty() {
+                    failure.observed().to_owned()
+                } else {
+                    failure.expected().to_owned()
+                }))
+            }
+        };
+        Ok(Ok((facts, enrollment)))
+    }
+
+    /// The canonical intent facts of one motion, shared by the verification
+    /// boundary and `rtm intent`'s render.
+    #[allow(clippy::too_many_arguments)]
+    fn motion_facts(
+        &self,
+        engine_root: &Path,
+        run_dir: &Path,
+        run_id: &str,
+        declaration: &crate::review::ReviewDeclaration,
+        enrollment: &crate::review::Enrollment,
+        purpose: &str,
+        from_state: &str,
+        to_state: &str,
+        input: &str,
+        blocker: &str,
+        runbook_pin: &str,
+    ) -> Result<crate::review::IntentFacts, GuardFailure> {
+        let workspace = self
+            .workspace_root()
+            .map_err(|error| {
+                guard_failure("authorization", "", "a workspace root", error.to_string())
+            })?
+            .to_path_buf();
+        // The canonical intent binds the workspace in its canonical
+        // forward-slash spelling, the same spelling the project scope
+        // carries.
+        let workspace_text = std::fs::canonicalize(&workspace)
+            .unwrap_or(workspace.clone())
+            .displayed();
+        let sequence = crate::review::next_sequence(run_dir)
+            .map_err(|detail| guard_failure("authorization", "", "a readable archive", detail))?;
+        let evidence = crate::pin::Evidence::load(run_dir);
+        let goal_identity = evidence
+            .goal_frozen
+            .clone()
+            .or_else(|| evidence.goal_baseline.clone())
+            .unwrap_or_default();
+        let bindings = match self.child_class.as_deref() {
+            None => None,
+            Some(_) => Self::ledger_record_of_at(engine_root, run_id)
+                .map_err(|error| {
+                    guard_failure("authorization", "", "a recorded ledger", error.to_string())
+                })?
+                .map(|(_, entry)| entry.bind.clone()),
+        };
+        let owning_class = self
+            .child_class
+            .clone()
+            .unwrap_or_else(|| "runbook".to_owned());
+        let work_digest =
+            crate::review::work_digest(&workspace, declaration.work()).map_err(|detail| {
+                guard_failure("authorization", "", "the declared work tree", detail)
+            })?;
+        let facts = crate::review::IntentFacts {
+            purpose: purpose.to_owned(),
+            run_id: run_id.to_owned(),
+            run_dir_path: run_dir.to_path_buf(),
+            engine_root_path: engine_root.to_path_buf(),
+            owning_class,
+            workspace: workspace_text,
+            bindings,
+            sequence,
+            from_state: from_state.to_owned(),
+            to_state: to_state.to_owned(),
+            input: input.to_owned(),
+            blocker: blocker.to_owned(),
+            runbook_sha256: runbook_pin.to_owned(),
+            goal_identity,
+            policy_digest: declaration.policy_digest().to_owned(),
+            enrollment_sha256: enrollment.manifest_sha256.clone(),
+            builder_actor: crate::review::builder_actor(),
+            work_digest,
+            review_set_digest: String::new(),
+        };
+        Ok(facts)
+    }
+
     pub fn step(&mut self, request: StepRequest) -> Result<StepOutcome, StateError> {
-        let _claim = request.claim;
+        let _claim = &request.claim;
         let root = self
             .root
             .as_ref()
@@ -2935,15 +3489,27 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
             )));
         }
         let (
+            governance,
             guarded_state_bytes,
             next,
             from,
             to,
             consumes_verdict,
+            transition_input_value,
             frozen_evidence,
             guarded_ledgers,
         ) = {
             Self::verify_runbook_snapshot(&snapshot, &invoking_root, Some(&run_dir))?;
+            // WRA-001: governance is recorded fact, not live runbook state,
+            // resolved under the Run lock right after the pinned runbook
+            // proves unchanged. A Run admitted under a declaring runbook
+            // keeps its boundary for its whole life; a Run admitted before
+            // one never gains it.
+            let governance = if Self::run_is_governed(&run_dir) {
+                Some(self.governing_declaration(class, &run_dir, &run_id)?)
+            } else {
+                None
+            };
             crate::observe::operation("record");
             let guarded_state_bytes = fs::read(&state_path)
                 .map_err(|error| StateError::new(format!("read Run Record: {error}")))?;
@@ -3058,11 +3624,13 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
                 evidence
             });
             (
+                governance,
                 guarded_state_bytes,
                 next,
                 from,
                 to,
                 consumes_verdict,
+                transition_input.clone().unwrap_or_default(),
                 frozen_evidence,
                 guarded_ledgers,
             )
@@ -3086,6 +3654,34 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
         // missing log refuses without a half-motion.
         let mut log = Self::open_transition_log(&engine_root, false)?;
         Self::ensure_ledger_snapshots_current(&run_id, &guarded_ledgers)?;
+        // WRA-001 full boundary: a governed motion verifies its enrolled
+        // trust origin and its complete signature set over the recomputed
+        // canonical intent before any durable write of the motion itself.
+        let mut authorization: Option<crate::review::VerifiedAuthorization> = None;
+        if let Some(declaration) = governance.as_ref() {
+            run_lock.ensure_current()?;
+            let verified = match self.authorize_motion(
+                &engine_root,
+                &run_dir,
+                &run_id,
+                declaration,
+                "step",
+                from.as_ref(),
+                to.as_ref(),
+                &transition_input_value,
+                "",
+                snapshot.pin(),
+                &Self::authorization_options_of(&request),
+            ) {
+                Ok(verified) => verified,
+                Err(failure) => {
+                    return Ok(StepOutcome::Refused {
+                        failures: vec![failure],
+                    })
+                }
+            };
+            authorization = Some(verified);
+        }
         let committed_state_bytes = StateStore::serialize(&next)?;
         let mut archived_verdict = None;
         if consumes_verdict {
@@ -3113,7 +3709,54 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
                 archive_dir_was_absent,
                 bytes,
             });
-            inject_step_fault("before-state-replace")?;
+            if governance.is_none() {
+                inject_step_fault("before-state-replace")?;
+            }
+        }
+        // WRA-001 durable order for a governed step: the authorization
+        // record archives between the verdict archive (above) and the goal
+        // freeze and Run Record replace (below). Both new boundaries are
+        // graceful: every write of this motion rolls back exactly.
+        let mut authorization_archive: Option<(std::path::PathBuf, bool)> = None;
+        if let Some(verified) = authorization.as_ref() {
+            if step_fault_requested("before-authorization-archive") {
+                return Err(Self::rollback_governed_step_preflight(
+                    &run_lock,
+                    &run_dir,
+                    &state_path,
+                    &guarded_state_bytes,
+                    None,
+                    archived_verdict.as_ref(),
+                    None,
+                    "before-authorization-archive",
+                ));
+            }
+            run_lock.ensure_current()?;
+            let (path, dir_created) = crate::review::write_archive(
+                &run_dir,
+                verified,
+                "step",
+                from.as_ref(),
+                to.as_ref(),
+            )
+            .map_err(|detail| {
+                StateError::new(format!(
+                    "run {run_id}: write the authorization record: {detail}"
+                ))
+            })?;
+            authorization_archive = Some((path, dir_created));
+            if step_fault_requested("after-authorization-archive") {
+                return Err(Self::rollback_governed_step_preflight(
+                    &run_lock,
+                    &run_dir,
+                    &state_path,
+                    &guarded_state_bytes,
+                    authorization_archive.as_ref(),
+                    archived_verdict.as_ref(),
+                    None,
+                    "after-authorization-archive",
+                ));
+            }
         }
         let mut evidence_rollback = None;
         if let Some(frozen_evidence) = frozen_evidence {
@@ -3140,6 +3783,20 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
                 before,
                 committed,
             });
+        }
+        // WRA-001: for a governed step the same boundary is graceful - the
+        // whole motion, authorization record included, rolls back exactly.
+        if authorization_archive.is_some() && step_fault_requested("before-state-replace") {
+            return Err(Self::rollback_governed_step_preflight(
+                &run_lock,
+                &run_dir,
+                &state_path,
+                &guarded_state_bytes,
+                authorization_archive.as_ref(),
+                archived_verdict.as_ref(),
+                evidence_rollback.as_ref(),
+                "before-state-replace",
+            ));
         }
         // Deliberate State-first interruption limit: a process death or
         // equivalent interruption after the State rename and before log append
@@ -3180,6 +3837,7 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
                 drop(log);
                 Err(Self::rollback_transition_after_append_failure(
                     &run_lock,
+                    &run_dir,
                     &state_path,
                     &guarded_state_bytes,
                     &committed_state_bytes,
@@ -3189,9 +3847,58 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
                     incomplete_record.as_deref(),
                     evidence_rollback.as_ref(),
                     archived_verdict.as_ref(),
+                    authorization_archive.as_ref(),
                     append_error,
                 ))
             }
+        }
+    }
+
+    /// Roll a governed step's pre-State writes back exactly: the
+    /// authorization record, the frozen evidence, and the consumed verdict
+    /// are restored or removed in reverse durable order, proving each is
+    /// still this motion's own before touching it.
+    #[allow(clippy::too_many_arguments)]
+    fn rollback_governed_step_preflight(
+        run_lock: &RunLock,
+        run_dir: &Path,
+        state_path: &Path,
+        guarded_state_bytes: &[u8],
+        authorization: Option<&(std::path::PathBuf, bool)>,
+        verdict: Option<&ArchivedVerdictRollback>,
+        evidence: Option<&EvidenceRollback>,
+        boundary: &str,
+    ) -> StateError {
+        let prefix = format!("injected step fault at {boundary}");
+        let incomplete =
+            |detail: String| StateError::new(format!("{prefix}; rollback incomplete: {detail}"));
+        if let Err(error) = run_lock.ensure_current() {
+            return incomplete(format!(
+                "the addressed Run lock is no longer current: {error}"
+            ));
+        }
+        if let Some((path, dir_created)) = authorization {
+            if let Err(error) = crate::review::remove_archive(run_dir, path, *dir_created) {
+                return incomplete(error);
+            }
+        }
+        if let Some(evidence) = evidence {
+            if let Err(error) = restore_evidence(evidence) {
+                return incomplete(error.to_string());
+            }
+        }
+        if let Some(verdict) = verdict {
+            if let Err(error) = restore_archived_verdict(verdict) {
+                return incomplete(error.to_string());
+            }
+        }
+        crate::observe::operation("record");
+        match fs::read(state_path) {
+            Ok(observed) if observed == guarded_state_bytes => StateError::new(prefix),
+            Ok(_) => incomplete(
+                "Run Record changed while the motion was prepared; it was not modified".to_owned(),
+            ),
+            Err(error) => incomplete(format!("read Run Record: {error}")),
         }
     }
 
@@ -3202,6 +3909,7 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
     #[allow(clippy::too_many_arguments)]
     fn rollback_transition_after_append_failure(
         run_lock: &RunLock,
+        run_dir: &Path,
         state_path: &Path,
         prior_state: &[u8],
         committed_state: &[u8],
@@ -3211,6 +3919,7 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
         incomplete_record: Option<&str>,
         evidence: Option<&EvidenceRollback>,
         verdict: Option<&ArchivedVerdictRollback>,
+        authorization: Option<&(std::path::PathBuf, bool)>,
         append_error: std::io::Error,
     ) -> StateError {
         let prefix = format!(
@@ -3380,6 +4089,20 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
                 ));
             }
             restored.push("the consumed verdict");
+        }
+        if let Some((path, dir_created)) = authorization {
+            if let Err(error) = run_lock.ensure_current() {
+                return failure(format!(
+                    "rollback stopped before removing the authorization record because the addressed Run lock is no longer current: {error}; State remains committed"
+                ));
+            }
+            if let Err(error) = crate::review::remove_archive(run_dir, path, *dir_created) {
+                return failure(format!(
+                    "rollback could not remove the authorization record {}: {error}; State remains committed",
+                    path.displayed()
+                ));
+            }
+            restored.push("the authorization record");
         }
         if let Err(error) = run_lock.ensure_current() {
             return failure(format!(

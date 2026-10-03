@@ -212,14 +212,19 @@ pub(crate) fn diagnose_with_roots(path: &Path, roots: &crate::root::Roots) -> Di
         // DRD-007: the parser named the defect; the doctor relays it rather
         // than re-classifying prose it did not produce.
         Err(error) => {
+            // WRA-001: a review-declaration defect reports its section
+            // phrase as the finding's location and the parser's detail as
+            // its message, so the rendered line carries the contract's
+            // exact wording.
+            let (location, message) =
+                match error.message().strip_prefix("invalid review declaration: ") {
+                    Some(detail) => ("invalid review declaration".to_owned(), detail.to_owned()),
+                    None => (error.location().to_owned(), error.message().to_owned()),
+                };
             return Diagnosis {
-                findings: vec![Finding::error(
-                    error.code(),
-                    error.location().to_owned(),
-                    error.message().to_owned(),
-                )],
+                findings: vec![Finding::error(error.code(), location, message)],
                 engine_root: roots.engine_root().to_path_buf(),
-            }
+            };
         }
     };
 

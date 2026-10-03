@@ -21,6 +21,7 @@ hard error, never an ignored one (R-011).
 | `states` | table of tables | yes | One entry per State, keyed by State name. A name may not be empty. |
 | `transitions` | array of tables | no | The directed edges between States. Absent means a single-State machine with no edges. |
 | `classes` | table of tables | no | FDC-009: one entry per declared child Machine Class, keyed by class name. See "Classes and spawns". |
+| `review` | table | no | WRA-001: the review policy governing every Run the top-level class admits. See "Review policy". |
 
 Any other top-level key is `RB103`, except a pre-cutover `phases` table, which is `RB111` and takes precedence. A top-level `status` key is `RB104`.
 
@@ -85,6 +86,7 @@ locations prefixed `class "<name>"`) - plus one extra key:
 | `states` | table of tables | yes | The child machine's States, same rules as top level; its table path is `[classes.<name>.states]`. |
 | `transitions` | array of tables | no | The child machine's edges, same rules as top level. |
 | `bindings` | table of tables | no | One entry per binding name the class declares: `[classes.<c>.bindings.<name>]` with the single optional boolean field `required` (default `false`). |
+| `review` | table | no | WRA-001: the review policy governing every Run this class admits, same shape as the top-level table. See "Review policy". |
 
 A malformed `classes` shape is `RB501`; a malformed binding entry is `RB502`.
 A class body accepts no `classes` key and its States accept no `spawns` -
@@ -101,6 +103,33 @@ Each `[[states.<name>.spawns]]` table declares one child this State may spawn:
 A malformed spawn entry is `RB503`. Static validation proves the spawn table
 names a declared class and its binding names equal the child class's required
 set; binding values are supplied at spawn time, never in the runbook.
+
+## Review policy
+
+WRA-001: a runbook may declare the review policy that governs every Run its
+class admits - the top-level `[review]` table for the top-level class, or a
+`review` table inside one `[classes.<name>]` body. A Run admitted under a
+declaring class is governed for its whole life: every `rtm step`, `rtm hold`,
+and `rtm intent` on it passes one verification boundary - an operator-enrolled
+trust origin plus the declared signatures over the canonical intent - before
+any write of the motion, and each accepted motion archives one strict-TOML
+authorization record under the Run's own `authorizations/` directory.
+
+| Field | Type | Required | Meaning |
+| :--- | :--- | :--- | :--- |
+| `manifest` | string | yes | The addressed enrollment manifest, an absolute path. The enrollment boundary reads it at every admission and verification. |
+| `policy-digest` | string | yes | The SHA-256 over `ratmac-policy-v1`, one NUL byte, then the framed Approver label, the minimum in canonical decimal, the role combination, and each reviewer sorted by label as framed label then key. Binds the declared roles themselves. |
+| `verifier-digest` | string | yes | 64 lowercase hex digits: the SHA-256 of the verifier executable the enrollment binds. |
+| `signers-digest` | string | yes | 64 lowercase hex digits: the SHA-256 of the allowed-signers file the enrollment binds. |
+| `minimum-reviews` | integer | yes | The minimum count of distinct accepted reviews, at least 1. |
+| `approver` | string | yes | The designated Approver's label; it must name a declared reviewer (`RB703`). |
+| `approver-may-review` | boolean | no (default `false`) | Whether the Approver may also supply one of the reviews. |
+| `work` | array of strings | no | The repository-relative paths, recursively hashed, the canonical intent's work digest covers. Each is non-empty, unique, and lexically inside the repository (`RB705`). |
+| `reviewers` | array of tables | yes | One entry per reviewer, each carrying exactly `label` (non-empty, unique) and `key` (one well-formed `ssh-ed25519` public-key line, comment optional); the same key bytes may not appear under a second label (`RB702`). |
+
+`RB704` caps `minimum-reviews` at what the declared roles can supply: the
+reviewer count, less one when `approver-may-review` is `false`. An unknown
+key inside the table keeps the runbook's own `RB103`.
 
 ## Guard kinds
 
@@ -301,6 +330,11 @@ when any finding is an error.
 | `RB504` | error | A spawn names a class the runbook does not declare. |
 | `RB505` | error | A spawn's binding names do not cover the class's required set exactly, or name a binding the class does not declare. |
 | `RB506` | error | A `join` guard carries a `require` value outside the closed vocabulary or a `min` below 1. |
+| `RB701` | error | The review table or a scalar field is malformed: not a table, a key of the wrong type, `manifest` not an absolute path, a digest that is not 64 lowercase hex, `minimum-reviews` below 1 or not an integer, or a present `approver-may-review` that is not a boolean. |
+| `RB702` | error | The reviewers list is malformed: not an array of tables, an entry without exactly `label` and `key`, an empty or duplicate label, a key line that is not one well-formed `ssh-ed25519` public key, or the same key bytes under a second label (`the same public key appears under labels "a" and "b"`). |
+| `RB703` | error | `approver` is missing or names no declared reviewer (`approver "x" names no declared reviewer`). |
+| `RB704` | error | `minimum-reviews N exceeds the M distinct reviews the declared roles can supply`, where M is the reviewer count less one when `approver-may-review` is `false`, else the reviewer count. |
+| `RB705` | error | A `work` entry is empty, duplicated, absolute, or lexically escapes the repository. |
 
 ## Back-references
 

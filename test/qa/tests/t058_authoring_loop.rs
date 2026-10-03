@@ -798,6 +798,36 @@ fn seeds(scaffold: &str) -> Vec<(&'static str, String)> {
                 "[states.build]\nguards = [{ kind = \"join\", require = \"any_passed\" }]",
             ),
         ),
+        (
+            "RB701",
+            plain(
+                "\n[review]\nmanifest = \"C:/enrollment/manifest.toml\"\npolicy-digest = \"0000000000000000000000000000000000000000000000000000000000000000\"\nverifier-digest = \"0000000000000000000000000000000000000000000000000000000000000000\"\nsigners-digest = \"0000000000000000000000000000000000000000000000000000000000000000\"\nminimum-reviews = 0\napprover = \"a\"\napprover-may-review = false\n\n[[review.reviewers]]\nlabel = \"a\"\nkey = \"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP3hR2KFzPNj4kMi9OqHk8v4tcZp3Lj7YOXhWf7wYmjY rb701-fix\"\n",
+            ),
+        ),
+        (
+            "RB702",
+            plain(
+                "\n[review]\nmanifest = \"C:/enrollment/manifest.toml\"\npolicy-digest = \"0000000000000000000000000000000000000000000000000000000000000000\"\nverifier-digest = \"0000000000000000000000000000000000000000000000000000000000000000\"\nsigners-digest = \"0000000000000000000000000000000000000000000000000000000000000000\"\nminimum-reviews = 1\napprover = \"a\"\napprover-may-review = false\n\n[[review.reviewers]]\nlabel = \"a\"\nkey = \"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP3hR2KFzPNj4kMi9OqHk8v4tcZp3Lj7YOXhWf7wYmjY rb701-fix\"\n\n[[review.reviewers]]\nlabel = \"a\"\nkey = \"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIF7BGYDikO/mdNujniY8L7DtunXKQX3/2s4787tWLpH0 rb702-fix\"\n",
+            ),
+        ),
+        (
+            "RB703",
+            plain(
+                "\n[review]\nmanifest = \"C:/enrollment/manifest.toml\"\npolicy-digest = \"0000000000000000000000000000000000000000000000000000000000000000\"\nverifier-digest = \"0000000000000000000000000000000000000000000000000000000000000000\"\nsigners-digest = \"0000000000000000000000000000000000000000000000000000000000000000\"\nminimum-reviews = 1\napprover = \"ghost\"\napprover-may-review = false\n\n[[review.reviewers]]\nlabel = \"a\"\nkey = \"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP3hR2KFzPNj4kMi9OqHk8v4tcZp3Lj7YOXhWf7wYmjY rb701-fix\"\n",
+            ),
+        ),
+        (
+            "RB704",
+            plain(
+                "\n[review]\nmanifest = \"C:/enrollment/manifest.toml\"\npolicy-digest = \"0000000000000000000000000000000000000000000000000000000000000000\"\nverifier-digest = \"0000000000000000000000000000000000000000000000000000000000000000\"\nsigners-digest = \"0000000000000000000000000000000000000000000000000000000000000000\"\nminimum-reviews = 2\napprover = \"a\"\napprover-may-review = false\n\n[[review.reviewers]]\nlabel = \"a\"\nkey = \"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP3hR2KFzPNj4kMi9OqHk8v4tcZp3Lj7YOXhWf7wYmjY rb701-fix\"\n\n[[review.reviewers]]\nlabel = \"lead\"\nkey = \"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIF7BGYDikO/mdNujniY8L7DtunXKQX3/2s4787tWLpH0 rb702-fix\"\n",
+            ),
+        ),
+        (
+            "RB705",
+            plain(
+                "\n[review]\nmanifest = \"C:/enrollment/manifest.toml\"\npolicy-digest = \"0000000000000000000000000000000000000000000000000000000000000000\"\nverifier-digest = \"0000000000000000000000000000000000000000000000000000000000000000\"\nsigners-digest = \"0000000000000000000000000000000000000000000000000000000000000000\"\nminimum-reviews = 1\napprover = \"a\"\napprover-may-review = false\nwork = [\"../outside\"]\n\n[[review.reviewers]]\nlabel = \"a\"\nkey = \"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP3hR2KFzPNj4kMi9OqHk8v4tcZp3Lj7YOXhWf7wYmjY rb701-fix\"\n",
+            ),
+        ),
     ]
 }
 

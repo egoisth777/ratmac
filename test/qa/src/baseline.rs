@@ -407,10 +407,11 @@ pub fn normalize(text: &str, root: &Path, engine: &Path) -> String {
         // freeze; a verb the freeze never had is a new surface, not a
         // rewording, so exactly that entry is set aside on the roster line.
         // t-121 / WEB-002: the `init` verb is set aside the same way.
+        // t-129 / WRA-001: the `intent` verb is set aside the same way.
         if let Some(verbs) = line.strip_prefix("Commands: ") {
             let kept: Vec<&str> = verbs
                 .split(", ")
-                .filter(|verb| *verb != "skill" && *verb != "init")
+                .filter(|verb| *verb != "skill" && *verb != "init" && *verb != "intent")
                 .collect();
             cleaned.push_str("Commands: ");
             cleaned.push_str(&mask_hex(&kept.join(", ")));

@@ -87,17 +87,11 @@ fn surfaces_agree_and_audit_is_sensitive() {
 fn engine_gains_no_caller_state() {
     let root = repo_root();
 
-    // 1. No caller identity, sign-off token, or authorization state in the Engine.
-    let forbidden = [
-        "caller_identity",
-        "sign_off",
-        "signoff",
-        "authorize",
-        "authorization",
-        "authenticate",
-        "authentication",
-        "approval_file",
-    ];
+    // 1. No caller identity, sign-off token, or approval file state in the Engine.
+    // t-129 WRA-001: review-governed Runs verify signed reviews, so the
+    // authorization words are contract vocabulary; ORS-001 keeps forbidding
+    // caller-policy state.
+    let forbidden = ["caller_identity", "sign_off", "signoff", "approval_file"];
     let mut hits = Vec::new();
     for entry in walk_rust_sources(&root.join("src")) {
         let text = fs::read_to_string(&entry).expect("read engine source");
