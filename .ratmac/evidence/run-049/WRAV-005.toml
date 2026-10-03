@@ -1,0 +1,10 @@
+planned-test-id = "WRAV-005"
+ticket-id = "t-129"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t129_authorized_review_transitions wrav_005 -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t129_authorized_review_transitions.rs"
+test-name = "wrav_005"
+exit-status = 101
+output-sha256 = "eafd5787ff71dc94b5ccaae699c718cea51e2007b5a33c525d574ad6dac683dc"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t129_authorized_review_transitions.rs (target\\debug\\deps\\t129_authorized_review_transitions-966e0df199e663f4.exe)\n\nrunning 1 test\ntest wrav_005 ... FAILED\n\nfailures:\n\n---- wrav_005 stdout ----\n\nthread 'wrav_005' (34084) panicked at test\\qa\\tests\\t129_authorized_review_transitions.rs:1657:5:\nassertion `left == right` failed: WRAV-005: RB703 renders exactly through today's start parse path\n  left: \"start: parse .ratmac/ratmac.toml [RB103]: invalid ratmac.toml: unknown key \\\"review\\\" in top-level\"\n right: \"start: parse .ratmac/ratmac.toml [RB703]: invalid review declaration: approver \\\"ghost\\\" names no declared reviewer\"\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    wrav_005\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.46s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t129_authorized_review_transitions`\n"

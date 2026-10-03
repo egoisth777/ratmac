@@ -20,6 +20,7 @@ mod observe;
 pub mod ownership;
 pub mod pin;
 pub mod receipt;
+pub mod review;
 pub mod root;
 pub mod roots;
 mod roster;

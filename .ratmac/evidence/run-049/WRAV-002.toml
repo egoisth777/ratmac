@@ -1,0 +1,10 @@
+planned-test-id = "WRAV-002"
+ticket-id = "t-129"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t129_authorized_review_transitions wrav_002 -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t129_authorized_review_transitions.rs"
+test-name = "wrav_002"
+exit-status = 101
+output-sha256 = "d0aa8536c9e1d1a049db45ba9b4a0a9aa6a2c83656be2cdd144d24c9245b6b9a"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t129_authorized_review_transitions.rs (target\\debug\\deps\\t129_authorized_review_transitions-966e0df199e663f4.exe)\n\nrunning 1 test\ntest wrav_002 ... FAILED\n\nfailures:\n\n---- wrav_002 stdout ----\n\nthread 'wrav_002' (52696) panicked at test\\qa\\tests\\t129_authorized_review_transitions.rs:518:9:\nassertion `left == right` failed: WRAV: admission of a governed Run must succeed: start: parse .ratmac/ratmac.toml [RB103]: invalid ratmac.toml: unknown key \"review\" in top-level\n  left: 1\n right: 0\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    wrav_002\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.63s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t129_authorized_review_transitions`\n"
