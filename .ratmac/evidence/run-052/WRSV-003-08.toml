@@ -1,0 +1,10 @@
+planned-test-id = "WRSV-003-08"
+ticket-id = "t-130"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t130_cycle_pause_routes wrsv_003_08 -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t130_cycle_pause_routes.rs"
+test-name = "wrsv_003_08"
+exit-status = 101
+output-sha256 = "c02a43f3ef5f75f9010680dfba3b53cf733f3c8ce5c6927ec0077131871f49ea"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t130_cycle_pause_routes.rs (target\\debug\\deps\\t130_cycle_pause_routes-204ca5ff14fc3e3e.exe)\n\nrunning 1 test\ntest wrsv_003_08 ... FAILED\n\nfailures:\n\n---- wrsv_003_08 stdout ----\n\nthread 'wrsv_003_08' (33608) panicked at test\\qa\\tests\\t130_cycle_pause_routes.rs:2619:5:\nassertion `left == right` failed: WRS-003: a graceful failure before publication refuses: rtm: run run-001 paused against .arca/blocker-t-130.md; routed intake -> intake\nThe Run is not passed; a human resumes it when the blocker clears.\n\n  left: 0\n right: 1\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    wrsv_003_08\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.55s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t130_cycle_pause_routes`\n"

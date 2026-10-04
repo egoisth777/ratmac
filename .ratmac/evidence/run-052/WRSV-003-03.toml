@@ -1,0 +1,10 @@
+planned-test-id = "WRSV-003-03"
+ticket-id = "t-130"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t130_cycle_pause_routes wrsv_003_03 -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t130_cycle_pause_routes.rs"
+test-name = "wrsv_003_03"
+exit-status = 101
+output-sha256 = "1e08f66f76dc61470f7954a162617f46c628e90f061838a6e9e154c06a6c839c"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t130_cycle_pause_routes.rs (target\\debug\\deps\\t130_cycle_pause_routes-204ca5ff14fc3e3e.exe)\n\nrunning 1 test\ntest wrsv_003_03 ... FAILED\n\nfailures:\n\n---- wrsv_003_03 stdout ----\n\nthread 'wrsv_003_03' (51080) panicked at test\\qa\\tests\\t130_cycle_pause_routes.rs:658:13:\nWRS-003: the hold of run-001 at intake must leave its pause record C:/Users/egois/AppData/Local/Temp/ratmac-wrsv00303-28668-1791081233837115300-0/.ratmac/runs/run-001/pauses/1.toml: The system cannot find the path specified. (os error 3)\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    wrsv_003_03\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.56s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t130_cycle_pause_routes`\n"

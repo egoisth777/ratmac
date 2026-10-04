@@ -1725,6 +1725,21 @@ fn webv_013() {
             ],
             Shape::Presplit(".arca/state.toml"),
         ),
+        // t-130 (WRS-003): `resume` joins the route table after `intent`;
+        // planted residue still refuses first, mirroring `hold`.
+        invoking(
+            "resume",
+            vec![
+                "resume".into(),
+                "--run".into(),
+                "run-001".into(),
+                "--blocker".into(),
+                ".arca/ticket/hold-blocker.md".into(),
+                "--confirm".into(),
+                "resume run-999".into(),
+            ],
+            Shape::Presplit(".arca/state.toml"),
+        ),
         invoking(
             "abandon",
             vec![

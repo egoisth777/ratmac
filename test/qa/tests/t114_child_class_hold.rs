@@ -253,6 +253,22 @@ fn assert_only_hold_changed(root: &Path, id: &str, before: &BTreeMap<PathBuf, Ve
         expected.remove(&path);
         after.remove(&path);
     }
+    // t-130 (WRS-003): a committed hold leaves its pause-record occurrence
+    // beside the Run Record and history.
+    let pauses = PathBuf::from(format!(".ratmac/runs/{id}/pauses"));
+    let new_pause_records: Vec<PathBuf> = after
+        .keys()
+        .filter(|path| path.starts_with(&pauses) && !expected.contains_key(*path))
+        .cloned()
+        .collect();
+    assert!(
+        !new_pause_records.is_empty(),
+        "hold must leave its pause-record occurrence"
+    );
+    for path in new_pause_records {
+        expected.remove(&path);
+        after.remove(&path);
+    }
     assert_eq!(
         after, expected,
         "hold changed a parent, sibling, pin, ledger, or workflow file"

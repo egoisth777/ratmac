@@ -79,8 +79,9 @@ const INIT_HELP: &str = "Usage: rtm init\n\nInstall the Engine-root tracking pol
 
 /// The general usage's `Commands:` line once `init` joins the route table.
 // t-129 WRA-001: `intent` joins the route table after `hold`.
-const COMMANDS_LINE: &str = "Commands: init, start, status, step, hold, intent, abandon, \
-                             spawn, respawn, doctor, scaffold, skill";
+// t-130 (WRS-003): `resume` joins the route table after `intent`.
+const COMMANDS_LINE: &str = "Commands: init, start, status, step, hold, intent, resume, \
+                             abandon, spawn, respawn, doctor, scaffold, skill";
 
 /// The runbook every start fixture shares: one workflow root and a
 /// two-state machine, proven to start a Run in the existing suites.

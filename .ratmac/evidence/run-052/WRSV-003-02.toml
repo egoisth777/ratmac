@@ -1,0 +1,10 @@
+planned-test-id = "WRSV-003-02"
+ticket-id = "t-130"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t130_cycle_pause_routes wrsv_003_02 -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t130_cycle_pause_routes.rs"
+test-name = "wrsv_003_02"
+exit-status = 101
+output-sha256 = "31298252d7ba3400e2b6fd3cc01997c2f3092e53836710823e834717483989bf"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t130_cycle_pause_routes.rs (target\\debug\\deps\\t130_cycle_pause_routes-204ca5ff14fc3e3e.exe)\n\nrunning 1 test\ntest wrsv_003_02 ... FAILED\n\nfailures:\n\n---- wrsv_003_02 stdout ----\n\nthread 'wrsv_003_02' (52792) panicked at test\\qa\\tests\\t130_cycle_pause_routes.rs:1598:5:\nWRS-003: doctor accepts the routed runbook with no finding: [\"RB207 warning transition \\\"close\\\" -> \\\"close\\\" this transition leaves and enters the same State, so taking it makes no progress\", \"RB207 warning transition \\\"cut-tickets\\\" -> \\\"cut-tickets\\\" this transition leaves and enters the same State, so taking it makes no progress\", \"RB207 warning transition \\\"gap-check\\\" -> \\\"gap-check\\\" this transition leaves and enters the same State, so taking it makes no progress\", \"RB207 warning transition \\\"intake\\\" -> \\\"intake\\\" this transition leaves and enters the same State, so taking it makes no progress\", \"RB207 warning transition \\\"ticket-turns\\\" -> \\\"ticket-turns\\\" this transition leaves and enters the same State, so taking it makes no progress\"]\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    wrsv_003_02\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.04s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t130_cycle_pause_routes`\n"
