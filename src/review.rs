@@ -43,6 +43,9 @@ use crate::root::Displayed;
 pub const REVIEW_NAMESPACE: &str = "ratmac-review-v1";
 /// The detached-signature namespace of an approval signature.
 pub const APPROVE_NAMESPACE: &str = "ratmac-approve-v1";
+/// WRS-003: the detached-signature namespace of a governed resume's
+/// resolution signature.
+pub const RESUME_NAMESPACE: &str = "ratmac-resume-v1";
 
 /// The canonical intent's framing prefix.
 const INTENT_PREFIX: &[u8] = b"ratmac-authorization-v1";
@@ -1137,6 +1140,12 @@ pub(crate) struct IntentFacts {
     pub workspace: String,
     pub bindings: Option<BTreeMap<String, String>>,
     pub sequence: u64,
+    /// WRS-003: the resume purpose's hold occurrence, canonical decimal;
+    /// empty for t-129's own purposes.
+    pub hold_occurrence: String,
+    /// WRS-003: the resume purpose's held-record digest; empty for
+    /// t-129's own purposes.
+    pub held_record_digest: String,
     pub from_state: String,
     pub to_state: String,
     pub input: String,
@@ -1188,8 +1197,8 @@ impl IntentFacts {
         frame(&mut bytes, self.workspace.as_bytes());
         frame(&mut bytes, binding_digest.as_bytes());
         frame(&mut bytes, self.sequence.to_string().as_bytes());
-        frame(&mut bytes, b"");
-        frame(&mut bytes, b"");
+        frame(&mut bytes, self.hold_occurrence.as_bytes());
+        frame(&mut bytes, self.held_record_digest.as_bytes());
         frame(&mut bytes, self.from_state.as_bytes());
         frame(&mut bytes, self.to_state.as_bytes());
         frame(&mut bytes, self.input.as_bytes());
@@ -1665,20 +1674,151 @@ fn base64_encode(bytes: &[u8]) -> String {
     out
 }
 
+/// WRS-003: one accepted governed-resume resolution, ready to archive.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct VerifiedResolution {
+    pub sequence: u64,
+    pub intent_sha256: String,
+    pub policy_sha256: String,
+    pub enrollment_sha256: String,
+    pub resolution_signature_sha256: String,
+    pub occurrence: u64,
+    pub origin: &'static str,
+}
+
+/// The governed resume's one-signature verification boundary: a single
+/// detached `ratmac-resume-v1` signature by the designated Approver over
+/// the recomputed canonical resolution intent, never replayed. Attribution
+/// runs first under the designated Approver and on failure under every
+/// other enrolled label, exactly as the approval boundary attributes.
+pub(crate) fn verify_resolution(
+    declaration: &ReviewDeclaration,
+    enrollment: &Enrollment,
+    project_scope: &str,
+    facts: &IntentFacts,
+    occurrence: u64,
+    resolution: &str,
+) -> Result<VerifiedResolution, AuthorizationRefusal> {
+    let run_id = facts.run_id.as_str();
+    let approver = declaration.approver();
+    let expected_line = format!(
+        "one ratmac-resume-v1 signature by the designated approver over the canonical intent \
+         (rtm intent --run {run_id} --resume)"
+    );
+    let signature_path = PathBuf::from(resolution);
+    let signature_bytes = fs::read(&signature_path).map_err(|error| {
+        refuse(
+            "resolution",
+            format!(
+                "an unreadable signature at {}: {error}",
+                signature_path.displayed()
+            ),
+            expected_line.clone(),
+        )
+    })?;
+    let signature_sha = sha256_hex(&signature_bytes);
+    let run_dir = facts.run_dir().to_path_buf();
+    let consumed = archived_resolution_at(&run_dir, &signature_sha)
+        .map_err(|detail| refuse("replay", detail, "a readable authorization archive"))?;
+    if let Some(consumed) = consumed {
+        return Err(refuse(
+            "replay",
+            format!(
+                "the resolution already consumed as sequence {consumed} under \
+                 {}/runs/{}/authorizations/",
+                facts.engine_root().displayed(),
+                run_id
+            ),
+            format!("a fresh authorization at sequence {}", consumed + 1),
+        ));
+    }
+
+    let engine_identity = engine_identity_sha256()
+        .map_err(|detail| refuse("engine", detail, "a readable running executable"))?;
+    let intent = facts.canonical_bytes(project_scope, &engine_identity);
+    if !ssh_verify(
+        &enrollment.verifier_path,
+        &enrollment.signers_path,
+        approver,
+        RESUME_NAMESPACE,
+        &intent,
+        &signature_bytes,
+    ) {
+        let mut member: Option<&str> = None;
+        for (label, _) in declaration.reviewers() {
+            if label == approver {
+                continue;
+            }
+            if ssh_verify(
+                &enrollment.verifier_path,
+                &enrollment.signers_path,
+                label,
+                RESUME_NAMESPACE,
+                &intent,
+                &signature_bytes,
+            ) {
+                member = Some(label);
+                break;
+            }
+        }
+        if let Some(member) = member {
+            return Err(refuse(
+                "resolution",
+                format!("a signature by member {member:?}"),
+                format!("the designated approver {approver:?}"),
+            ));
+        }
+        let embedded = signature_key_material(&signature_bytes);
+        let approver_material = declaration.reviewer_material(approver);
+        if let (Some(embedded), Some(approver_material)) = (embedded, approver_material) {
+            if embedded_key_body(&embedded).as_deref() == Some(approver_material.as_str()) {
+                return Err(refuse(
+                    "resolution",
+                    format!(
+                        "a signature that does not verify against the recomputed canonical \
+                         intent sha256 {}",
+                        sha256_hex(&intent)
+                    ),
+                    format!(
+                        "a fresh ratmac-resume-v1 resolution of that exact intent (rtm intent \
+                         --run {run_id} --resume)"
+                    ),
+                ));
+            }
+        }
+        return Err(refuse(
+            "resolution",
+            "a signature by no enrolled identity",
+            format!("the designated approver {approver:?}"),
+        ));
+    }
+
+    Ok(VerifiedResolution {
+        sequence: facts.sequence,
+        intent_sha256: sha256_hex(&intent),
+        policy_sha256: declaration.policy_digest().to_owned(),
+        enrollment_sha256: enrollment.manifest_sha256.clone(),
+        resolution_signature_sha256: signature_sha,
+        occurrence,
+        origin: enrollment.origin,
+    })
+}
+
 // --- the authorization archive ---------------------------------------------------
 
 /// The next authorization sequence: one past the highest existing index.
 pub(crate) fn next_sequence(run_dir: &Path) -> Result<u64, String> {
     let mut highest = 0u64;
-    for (index, _) in archived_records(run_dir)? {
+    for (index, _, _) in archived_records(run_dir)? {
         highest = highest.max(index);
     }
     Ok(highest + 1)
 }
 
-/// Every archived record as (sequence, approval signature digest), sorted
-/// by sequence. A record that will not parse refuses.
-fn archived_records(run_dir: &Path) -> Result<Vec<(u64, String)>, String> {
+/// Every archived record as (sequence, its signature digest, and whether
+/// it is a resolution record), sorted by sequence. A record that will not
+/// parse refuses.
+fn archived_records(run_dir: &Path) -> Result<Vec<(u64, String, bool)>, String> {
     crate::observe::operation("record");
     let dir = archive_dir(run_dir);
     let entries = match fs::read_dir(&dir) {
@@ -1721,30 +1861,124 @@ fn archived_records(run_dir: &Path) -> Result<Vec<(u64, String)>, String> {
         })?;
         let approval = value
             .get("approval_signature_sha256")
-            .and_then(toml::Value::as_str)
-            .ok_or_else(|| {
-                format!(
+            .and_then(toml::Value::as_str);
+        let resolution = value
+            .get("resolution_signature_sha256")
+            .and_then(toml::Value::as_str);
+        let (digest, is_resolution) = match (approval, resolution) {
+            (Some(approval), None) => (approval.to_owned(), false),
+            (None, Some(resolution)) => (resolution.to_owned(), true),
+            (None, None) => {
+                return Err(format!(
                     "the authorization record {} carries no approval signature digest",
                     entry.path().displayed()
-                )
-            })?
-            .to_owned();
-        records.push((index, approval));
+                ))
+            }
+            (Some(_), Some(_)) => {
+                return Err(format!(
+                    "the authorization record {} carries both an approval and a resolution \
+                     signature digest",
+                    entry.path().displayed()
+                ))
+            }
+        };
+        records.push((index, digest, is_resolution));
     }
-    records.sort_by_key(|(index, _)| *index);
+    records.sort_by_key(|(index, _, _)| *index);
     Ok(records)
 }
 
-/// The lowest sequence whose archived approval digest matches, if any.
+/// The lowest sequence whose archived approval digest matches an approval
+/// record - a record whose digest is an `approval_signature_sha256` - if
+/// any.
 fn archived_approval_at(run_dir: &Path, approval_sha: &str) -> Result<Option<u64>, String> {
     Ok(archived_records(run_dir)?
         .into_iter()
-        .find(|(_, digest)| digest == approval_sha)
-        .map(|(index, _)| index))
+        .find(|(_, digest, is_resolution)| !is_resolution && digest == approval_sha)
+        .map(|(index, _, _)| index))
+}
+
+/// WRS-003: the lowest sequence whose archived resolution digest matches a
+/// resolution record - a record whose digest is a
+/// `resolution_signature_sha256` - if any.
+fn archived_resolution_at(run_dir: &Path, resolution_sha: &str) -> Result<Option<u64>, String> {
+    Ok(archived_records(run_dir)?
+        .into_iter()
+        .find(|(_, digest, is_resolution)| *is_resolution && digest == resolution_sha)
+        .map(|(index, _, _)| index))
 }
 
 fn archive_dir(run_dir: &Path) -> PathBuf {
     run_dir.join("authorizations")
+}
+
+/// Render one motion authorization record's exact bytes.
+pub(crate) fn authorization_record_text(
+    verified: &VerifiedAuthorization,
+    purpose: &str,
+    from_state: &str,
+    to_state: &str,
+) -> String {
+    let mut text = String::new();
+    text.push_str(&format!("sequence = {}\n", verified.sequence));
+    text.push_str(&format!("purpose = {}\n", toml_string(purpose)));
+    text.push_str(&format!(
+        "intent_sha256 = {}\n",
+        toml_string(&verified.intent_sha256)
+    ));
+    text.push_str(&format!(
+        "policy_sha256 = {}\n",
+        toml_string(&verified.policy_sha256)
+    ));
+    text.push_str(&format!(
+        "enrollment_sha256 = {}\n",
+        toml_string(&verified.enrollment_sha256)
+    ));
+    text.push_str(&format!("from_state = {}\n", toml_string(from_state)));
+    text.push_str(&format!("to_state = {}\n", toml_string(to_state)));
+    text.push_str(&format!(
+        "approval_signature_sha256 = {}\n",
+        toml_string(&verified.approval_signature_sha256)
+    ));
+    text.push_str(&format!("origin = {}\n", toml_string(verified.origin)));
+    for (label, digest) in &verified.reviews {
+        text.push_str("\n[[reviews]]\n");
+        text.push_str(&format!("label = {}\n", toml_string(label)));
+        text.push_str(&format!("signature_sha256 = {}\n", toml_string(digest)));
+    }
+    text
+}
+
+/// WRS-003: render one governed resume's resolution record's exact bytes.
+pub(crate) fn resolution_record_text(
+    resolution: &VerifiedResolution,
+    from_state: &str,
+    to_state: &str,
+) -> String {
+    let mut text = String::new();
+    text.push_str(&format!("sequence = {}\n", resolution.sequence));
+    text.push_str(&format!("purpose = {}\n", toml_string(RESUME_NAMESPACE)));
+    text.push_str(&format!(
+        "intent_sha256 = {}\n",
+        toml_string(&resolution.intent_sha256)
+    ));
+    text.push_str(&format!(
+        "policy_sha256 = {}\n",
+        toml_string(&resolution.policy_sha256)
+    ));
+    text.push_str(&format!(
+        "enrollment_sha256 = {}\n",
+        toml_string(&resolution.enrollment_sha256)
+    ));
+    text.push_str(&format!(
+        "resolution_signature_sha256 = {}\n",
+        toml_string(&resolution.resolution_signature_sha256)
+    ));
+    text.push_str(&format!("from_state = {}\n", toml_string(from_state)));
+    text.push_str(&format!("to_state = {}\n", toml_string(to_state)));
+    text.push_str(&format!("occurrence = {}\n", resolution.occurrence));
+    text.push_str(&format!("origin = {}\n", toml_string(resolution.origin)));
+    text
 }
 
 /// Write one authorization record whole in one step: a same-directory
@@ -1777,33 +2011,7 @@ pub(crate) fn write_archive(
         })?;
     }
     let sequence = verified.sequence;
-    let mut text = String::new();
-    text.push_str(&format!("sequence = {sequence}\n"));
-    text.push_str(&format!("purpose = {}\n", toml_string(purpose)));
-    text.push_str(&format!(
-        "intent_sha256 = {}\n",
-        toml_string(&verified.intent_sha256)
-    ));
-    text.push_str(&format!(
-        "policy_sha256 = {}\n",
-        toml_string(&verified.policy_sha256)
-    ));
-    text.push_str(&format!(
-        "enrollment_sha256 = {}\n",
-        toml_string(&verified.enrollment_sha256)
-    ));
-    text.push_str(&format!("from_state = {}\n", toml_string(from_state)));
-    text.push_str(&format!("to_state = {}\n", toml_string(to_state)));
-    text.push_str(&format!(
-        "approval_signature_sha256 = {}\n",
-        toml_string(&verified.approval_signature_sha256)
-    ));
-    text.push_str(&format!("origin = {}\n", toml_string(verified.origin)));
-    for (label, digest) in &verified.reviews {
-        text.push_str("\n[[reviews]]\n");
-        text.push_str(&format!("label = {}\n", toml_string(label)));
-        text.push_str(&format!("signature_sha256 = {}\n", toml_string(digest)));
-    }
+    let text = authorization_record_text(verified, purpose, from_state, to_state);
     let path = dir.join(format!("{sequence:06}.toml"));
     let temporary = dir.join(format!(".{sequence:06}.toml.tmp-{}", std::process::id()));
     fs::write(&temporary, text.as_bytes()).map_err(|error| {

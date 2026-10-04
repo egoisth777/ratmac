@@ -173,6 +173,45 @@ impl Diagnosis {
     pub(crate) fn exit_code(&self) -> i32 {
         exit_code(&self.findings)
     }
+
+    /// WRS-003: join runtime-state findings this report also owes - one
+    /// warning per Run with a committed pause action awaiting
+    /// reconciliation.
+    pub(crate) fn extend(&mut self, findings: Vec<Finding>) {
+        self.findings.extend(findings);
+    }
+}
+
+/// WRS-003: one warning finding per Run whose operation journal holds a
+/// committed pause action awaiting reconciliation. Readers report and never
+/// repair; presence alone decides, so an entry's bytes are never parsed
+/// here.
+pub(crate) fn pending_pause_findings(engine_root: &Path) -> Vec<Finding> {
+    let runs = engine_root.join("runs");
+    let Ok(entries) = std::fs::read_dir(&runs) else {
+        return Vec::new();
+    };
+    let mut pending: Vec<String> = Vec::new();
+    for entry in entries.flatten() {
+        if crate::pause::has_pending_entry(&entry.path()) {
+            pending.push(crate::root::component(entry.file_name()));
+        }
+    }
+    pending.sort();
+    let engine_root = crate::root::displayed(engine_root);
+    pending
+        .into_iter()
+        .map(|run_id| {
+            Finding::warning(
+                "RB901",
+                format!("run {run_id:?}"),
+                format!(
+                    "recovery pending: {engine_root}/runs/{run_id}/journal/ holds a committed \
+                     pause action awaiting reconciliation"
+                ),
+            )
+        })
+        .collect()
 }
 
 /// The findings for a runbook under its addressed project's roots; the
@@ -339,7 +378,10 @@ fn inspect_graph(class: &MachineClass, findings: &mut Vec<Finding>) {
                 "this edge is declared more than once; the duplicate adds no route",
             ));
         }
-        if from == to {
+        // WRS-003: a blocked self-route is a pause destination, not a step
+        // that fails to make progress, so only a non-blocked transition
+        // that leaves and enters the same State warns.
+        if from == to && !transition.is_blocked_route() {
             findings.push(Finding::warning(
                 "RB207",
                 route,

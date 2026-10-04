@@ -932,6 +932,32 @@ impl Cycle {
         assert_eq!(self.status(child), "passed");
     }
 
+    /// Every receipt file recorded for `run`, keyed by its displayed
+    /// forward-slash path relative to the Run's evidence directory.
+    fn receipt_snapshot(&self, run: &str) -> BTreeMap<String, Vec<u8>> {
+        fn visit(at: &Path, prefix: &str, result: &mut BTreeMap<String, Vec<u8>>) {
+            if let Ok(entries) = fs::read_dir(at) {
+                for entry in entries {
+                    let entry = entry.expect("receipt entry is readable");
+                    let path = entry.path();
+                    let name = format!("{prefix}/{}", entry.file_name().to_string_lossy());
+                    if entry.file_type().expect("receipt file kind").is_dir() {
+                        visit(&path, &name, result);
+                    } else {
+                        result.insert(name, fs::read(&path).expect("receipt is readable"));
+                    }
+                }
+            }
+        }
+        let mut result = BTreeMap::new();
+        visit(
+            &self.root().join(format!(".ratmac/evidence/{run}")),
+            "",
+            &mut result,
+        );
+        result
+    }
+
     /// Every byte under the fixture except Git's own, keyed by displayed
     /// forward-slash path.
     fn snapshot(&self) -> BTreeMap<String, Vec<u8>> {
@@ -947,7 +973,7 @@ impl Cycle {
                     visit(root, &path, result);
                 } else {
                     result.insert(
-                        shown(&path.strip_prefix(root).expect("snapshot stays local")),
+                        shown(path.strip_prefix(root).expect("snapshot stays local")),
                         fs::read(&path).expect("snapshot file is readable"),
                     );
                 }
@@ -1632,10 +1658,14 @@ fn wrsv_003_02() {
         "WRS-003: the permanent pause-routes diff lands beside the runbook: {}",
         shown(&diff)
     );
+    // The diff follows the close-guard precedent: its paths read
+    // `a/.ratmac/ratmac.toml`, so it is wired from a tree whose clean base
+    // copy sits at `.ratmac/ratmac.toml` exactly as `git apply
+    // .ratmac/pause-routes.diff` does from the repository root.
     let apply = TempTree::new("wrsv00302-apply").expect("create the apply tree");
-    apply.write("ratmac.toml", base_runbook_bytes().as_bytes());
+    apply.write(".ratmac/ratmac.toml", base_runbook_bytes().as_bytes());
     fs::copy(&diff, apply.path().join("pause-routes.diff"))
-        .expect("copy the tracked diff beside the clean base copy");
+        .expect("copy the tracked diff into the apply tree");
     let checked = support::git(apply.path())
         .args(["apply", "--check", "pause-routes.diff"])
         .output()
@@ -1655,7 +1685,8 @@ fn wrsv_003_02() {
         "WRS-003: the pause-routes diff applies: {}",
         support::text(&applied)
     );
-    let wired = fs::read_to_string(apply.path().join("ratmac.toml")).expect("read the wired copy");
+    let wired =
+        fs::read_to_string(apply.path().join(".ratmac/ratmac.toml")).expect("read the wired copy");
     let wired_class = MachineClass::from_toml(&wired)
         .expect("the wired copy of the shipped Runbook parses through the one reader");
     // The applied bytes parse to exactly the routed class this suite composes.
@@ -1791,7 +1822,7 @@ fn wrsv_003_03() {
     assert_eq!(outside.code, 1);
     assert_eq!(
         outside.message,
-        "hold refused; blocker \"notes/outside.txt\" resolves outside every declared root; \
+        "hold refused; blocker notes/outside.txt resolves outside every declared root; \
          declared roots: authority, goal, issue, residual, ticket",
         "WRS-003: the outside blocker keeps today's bytes"
     );
@@ -1890,16 +1921,18 @@ fn wrsv_003_04() {
     assert_eq!(cycle.state(&child), "implement");
     cycle.write_completion(&child);
     cycle.commit("the green landing");
-    let receipts_before = cycle.snapshot();
+    // Prior receipts survive hold and resume byte-identical; the hold's own
+    // durable facts (Run Record, pause record, history) are judged above.
+    let receipts_before = cycle.receipt_snapshot(&child);
     cycle.hold_ok(&child, 1, "implement", "ticket");
-    let receipts_held = cycle.snapshot();
     assert_eq!(
-        receipts_held, receipts_before,
+        cycle.receipt_snapshot(&child),
+        receipts_before,
         "WRS-003: the hold changed receipt bytes"
     );
     cycle.resume_ok(&child, 1, "implement");
     assert_eq!(
-        cycle.snapshot(),
+        cycle.receipt_snapshot(&child),
         receipts_before,
         "WRS-003: the resume changed receipt bytes"
     );
@@ -1931,9 +1964,13 @@ fn wrsv_003_04() {
         "WRS-003: the pre-change Run refuses the drift with today's text: {drifted_hold}"
     );
     let drifted_step = aged.step(&old);
-    assert_eq!(drifted_step.code, 0);
+    assert_eq!(
+        drifted_step.code, 1,
+        "WRS-003: the pre-change Run refuses stepped motion against the drift: {}{}",
+        drifted_step.stdout, drifted_step.message
+    );
     assert!(
-        drifted_step.stdout.contains("runbook pin mismatch"),
+        drifted_step.message.contains("runbook pin mismatch"),
         "WRS-003: the pre-change Run refuses stepped motion against the drift: {}{}",
         drifted_step.stdout,
         drifted_step.message
@@ -2182,9 +2219,9 @@ fn wrsv_003_06() {
     );
     assert_eq!(needs_run.code, 1, "{needs_run}");
     assert!(
-        needs_run.message.starts_with(&format!(
-            "resume refused; resume requires --run <id>; runs: "
-        )),
+        needs_run
+            .message
+            .starts_with("resume refused; resume requires --run <id>; runs: "),
         "WRS-003: the missing --run refusal carries the roster: {needs_run}"
     );
     assert!(needs_run.message.contains(&run));
@@ -2210,7 +2247,6 @@ fn wrsv_003_06() {
     );
     cycle.assert_unchanged(&before, "resume with a dangling --run");
 
-    let _ = cycle.resume_with(&run, Some(BLOCKER), Some(&format!("resume {run}")));
     let unknown = rtm(
         cycle.root(),
         &[
@@ -2276,24 +2312,26 @@ fn wrsv_003_06() {
 
     // A non-held Run refuses; a terminal Run refuses.
     let other = cycle.start();
+    let not_held_before = cycle.snapshot();
     let not_held = cycle.resume(&other, BLOCKER);
     assert_eq!(not_held.code, 1, "{not_held}");
     assert_eq!(
         not_held.message,
         format!("resume refused; run {other} is not held (status planned); nothing to resume")
     );
-    cycle.assert_unchanged(&before, "resume of a non-held Run");
+    cycle.assert_unchanged(&not_held_before, "resume of a non-held Run");
 
     cycle.drive_to_ticket_turns(&other);
     let child = cycle.spawn_child(&other);
     cycle.drive_child_to_done(&child);
+    let terminal_before = cycle.snapshot();
     let terminal = cycle.resume(&child, BLOCKER);
     assert_eq!(terminal.code, 1, "{terminal}");
     assert_eq!(
         terminal.message,
         format!("resume refused; run {child} is terminal (status passed): nothing to resume")
     );
-    cycle.assert_unchanged(&before, "resume of a terminal Run");
+    cycle.assert_unchanged(&terminal_before, "resume of a terminal Run");
 
     // A held Run whose recorded State its owning class does not declare
     // refuses at class resolution, today's undeclared-State family, before
@@ -2325,16 +2363,8 @@ fn wrsv_003_06() {
 
     // A held Run with no recorded pause occurrence admits no resume: legacy
     // Runs are never silently upgraded.
-    let legacy_text = cycle
-        .record_text(&run)
-        .replace("status = \"blocked\"", "status = \"blocked\"")
-        .replace(
-            &format!("blocker = {BLOCKER:?}"),
-            &format!("blocker = {BLOCKER:?}"),
-        );
     fs::remove_dir_all(cycle.run_dir(&run).join("pauses"))
         .expect("remove the pause records to fake a legacy hold");
-    let _ = legacy_text;
     let legacy = cycle.resume(&run, BLOCKER);
     assert_eq!(legacy.code, 1, "{legacy}");
     assert_eq!(
@@ -2467,8 +2497,6 @@ fn wrsv_003_06() {
     governed
         .cycle
         .rewrite_runbook(&format!("{}\n# drifted\n", routed_runbook()));
-    let pin_intent = governed.resume_intent(&governed_run, "w6-pin");
-    let _ = pin_intent;
     let drifted = governed.resume_sig(&governed_run, BLOCKER, Some(&member_signature));
     assert_eq!(drifted.code, 1, "{drifted}");
     assert!(
@@ -2533,6 +2561,7 @@ fn wrsv_003_07() {
 
     // Fresh proof exists once the receipts are re-recorded against the tree.
     cycle.write_completion(&child);
+    cycle.commit("the fresh green landing");
     cycle.step_ok(&child);
     assert_eq!(cycle.state(&child), "damage");
     cycle.write_completion(&child);
@@ -2712,38 +2741,27 @@ fn wrsv_003_08() {
         doctor.stdout
     );
     assert!(
+        doctor.stdout.contains(&format!(
+            "RB901 warning: run {run:?}: recovery pending: {engine_root}/runs/{run}/journal/ \
+             holds a committed pause action awaiting reconciliation"
+        )),
+        "WRS-003: the doctor finding carries the pinned RB901 code and run location: {}",
+        doctor.stdout
+    );
+    assert!(
         journal.join("hold-1.committed").is_file(),
         "WRS-003: the doctor repaired the pending action"
     );
 
-    // A competing mutating command reconciles first and then refuses
-    // honestly against the finished state.
-    let raced = cycle.step(&run);
-    assert_eq!(raced.code, 0, "{}{}", raced.stdout, raced.message);
-    assert!(
-        raced.stdout.contains(&format!(
-            "step refused; held: observed run {run} is paused against {BLOCKER} (status \
-             blocked); expected a resumed Run (rtm resume --run {run})"
-        )),
-        "WRS-003: the reconciling command refuses honestly once the hold is finished: {}",
-        raced.stdout
-    );
-    assert_eq!(cycle.status(&run), "blocked");
-    assert!(
-        !journal.join("hold-1.committed").is_file(),
-        "WRS-003: reconciliation removed the committed entry"
-    );
-
-    // A retried hold with the same arguments finishes the committed action
-    // exactly once and reports the ordinary success.
-    std::env::remove_var("RATMAC_TEST_HOLD_BARRIER");
-    std::env::remove_var("RATMAC_TEST_HOLD_BARRIER_MARKER");
-    std::env::remove_var("RATMAC_TEST_HOLD_BARRIER_RELEASE");
+    // A retried mutating command whose action matches the pending entry -
+    // the same Run, blocker, and phrase, and no other command reconciled it
+    // - finishes the committed hold exactly once and reports the ordinary
+    // success: the pending entry is the discriminator.
     let history_before_retry = cycle.history();
     let retry = cycle.hold(&run, BLOCKER);
     assert_eq!(
         retry.code, 0,
-        "WRS-003: the same-argument retry finishes the committed hold: {}{}",
+        "WRS-003: the same-argument retry with its entry pending finishes the hold: {}{}",
         retry.stdout, retry.message
     );
     assert_eq!(
@@ -2760,7 +2778,7 @@ fn wrsv_003_08() {
             .map(|entries| entries.count())
             .unwrap_or(0),
         0,
-        "WRS-003: a clean success leaves the journal empty"
+        "WRS-003: the finished retry leaves the journal empty"
     );
     let hold_lines = cycle
         .history()
@@ -2775,6 +2793,81 @@ fn wrsv_003_08() {
         cycle.history().starts_with(&history_before_retry),
         "WRS-003: recovery never rewrites history"
     );
+
+    // The different-command branch: a second post-publication interruption
+    // whose entry a competing mutating command reconciles first.
+    cycle.resume_ok(&run, 1, "intake");
+    std::env::set_var("RATMAC_TEST_HOLD_BARRIER", "after-journal-publication");
+    std::env::set_var("RATMAC_TEST_HOLD_BARRIER_MARKER", &marker);
+    std::env::set_var("RATMAC_TEST_HOLD_BARRIER_RELEASE", &release);
+    std::env::set_var("RATMAC_TEST_HOLD_BARRIER_TIMEOUT_MILLIS", "1");
+    let interrupted_hold = cycle.hold(&run, BLOCKER);
+    std::env::remove_var("RATMAC_TEST_HOLD_BARRIER");
+    std::env::remove_var("RATMAC_TEST_HOLD_BARRIER_MARKER");
+    std::env::remove_var("RATMAC_TEST_HOLD_BARRIER_RELEASE");
+    std::env::remove_var("RATMAC_TEST_HOLD_BARRIER_TIMEOUT_MILLIS");
+    assert_eq!(
+        interrupted_hold.code, 1,
+        "WRS-003: the second hold reports its commit: {}{}",
+        interrupted_hold.stdout, interrupted_hold.message
+    );
+    assert!(
+        interrupted_hold
+            .message
+            .starts_with("hold: committed with recovery pending: "),
+        "WRS-003: the second hold's failure reports its commit: {interrupted_hold}"
+    );
+    assert!(
+        journal.join("hold-2.committed").is_file(),
+        "WRS-003: the second hold's committed entry names its occurrence"
+    );
+
+    // The competing mutating command reconciles first and then refuses
+    // honestly against the finished state.
+    let raced = cycle.step(&run);
+    assert_eq!(raced.code, 0, "{}{}", raced.stdout, raced.message);
+    assert!(
+        raced.stdout.contains(&format!(
+            "step refused; held: observed run {run} is paused against {BLOCKER} (status \
+             blocked); expected a resumed Run (rtm resume --run {run})"
+        )),
+        "WRS-003: the reconciling command refuses honestly once the hold is finished: {}",
+        raced.stdout
+    );
+    assert_eq!(cycle.status(&run), "blocked");
+    assert!(
+        !journal.join("hold-2.committed").is_file(),
+        "WRS-003: reconciliation removed the committed entry"
+    );
+    cycle.assert_pause_record(&run, 2, "intake", "runbook");
+
+    // A fresh hold after a reconciled hold refuses the already-blocked text:
+    // once the entry is gone the durable state is complete, so the journal
+    // entry's presence is what distinguishes a matching retry from a fresh
+    // hold.
+    let reconciled_before = cycle.snapshot();
+    let fresh = cycle.hold(&run, BLOCKER);
+    assert_eq!(
+        fresh.code, 1,
+        "WRS-003: a fresh hold after a reconciled hold refuses: {}{}",
+        fresh.stdout, fresh.message
+    );
+    assert_eq!(
+        fresh.message,
+        format!("hold refused; run {run} is already blocked against {BLOCKER}"),
+        "WRS-003: the fresh hold keeps today's already-blocked text"
+    );
+    cycle.assert_unchanged(&reconciled_before, "fresh hold after reconciliation");
+    let hold_lines = cycle
+        .history()
+        .lines()
+        .filter(|line| line.contains(&format!("- Hold: run {run} paused against {BLOCKER};")))
+        .count();
+    assert_eq!(
+        hold_lines, 2,
+        "WRS-003: each finished hold is recorded exactly once"
+    );
+    cycle.assert_pause_record(&run, 2, "intake", "runbook");
 
     // The same boundary serves resume identically.
     std::env::set_var("RATMAC_TEST_HOLD_BARRIER", "after-journal-publication");
@@ -2808,7 +2901,7 @@ fn wrsv_003_08() {
         "WRS-003: the resume's recovery line teaches the finishing command: {resume_committed}"
     );
     assert!(
-        journal.join("resume-1.committed").is_file(),
+        journal.join("resume-2.committed").is_file(),
         "WRS-003: the resume's committed entry names its action"
     );
     assert_eq!(cycle.status(&run), "blocked");
@@ -2832,7 +2925,7 @@ fn wrsv_003_08() {
     let reheld = cycle.hold(&run, BLOCKER);
     assert_eq!(
         reheld.code, 0,
-        "WRS-003: the second hold for the resume barrier twin succeeds: {}{}",
+        "WRS-003: the third hold for the resume barrier twin succeeds: {}{}",
         reheld.stdout, reheld.message
     );
     let barrier_before = cycle.snapshot();
@@ -2860,7 +2953,7 @@ fn wrsv_003_08() {
         "WRS-003: the resume's pre-publication timeout reuses today's barrier bytes"
     );
     cycle.assert_unchanged(&barrier_before, "interrupted resume before publication");
-    cycle.resume_ok(&run, 2, "intake");
+    cycle.resume_ok(&run, 3, "intake");
 
     // A race: competing motion under the publication barrier contends on the
     // addressed Run lock and refuses honestly, and the released barrier
@@ -2873,6 +2966,9 @@ fn wrsv_003_08() {
     std::env::set_var("RATMAC_TEST_HOLD_BARRIER", "after-journal-publication");
     std::env::set_var("RATMAC_TEST_HOLD_BARRIER_MARKER", &race_marker);
     std::env::set_var("RATMAC_TEST_HOLD_BARRIER_RELEASE", &race_release);
+    // The holder must outlast the competing step's 5 s lock wait, so the
+    // barrier's timeout is explicit rather than the default.
+    std::env::set_var("RATMAC_TEST_HOLD_BARRIER_TIMEOUT_MILLIS", "20000");
     let race_root = race_cycle.root().to_path_buf();
     let race_id = race_run.clone();
     let race_blocker = BLOCKER.to_owned();
@@ -2913,7 +3009,7 @@ fn wrsv_003_08() {
     );
     let competing = rtm(race_cycle.root(), &["step", "--run", &race_run]);
     assert_eq!(
-        competing.code, 0,
+        competing.code, 1,
         "{}{}",
         competing.stdout, competing.message
     );
@@ -2946,6 +3042,96 @@ fn wrsv_003_08() {
         .filter(|line| line.contains(&format!("- Hold: run {race_run} paused against")))
         .count();
     assert_eq!(race_holds, 1, "WRS-003: the race hold is recorded once");
+    std::env::remove_var("RATMAC_TEST_HOLD_BARRIER");
+    std::env::remove_var("RATMAC_TEST_HOLD_BARRIER_MARKER");
+    std::env::remove_var("RATMAC_TEST_HOLD_BARRIER_RELEASE");
+    std::env::remove_var("RATMAC_TEST_HOLD_BARRIER_TIMEOUT_MILLIS");
+
+    // t-128's per-failure rule: the refused held step emits exactly one
+    // refusal-code record for the new `held` kind - `run`, never a `path` -
+    // inside today's refused-step sequence, and the toggle unset emits no
+    // record bytes at all. The binary is driven directly because trace
+    // records go to the process's own stderr.
+    let mut traced = support::command(ratmac_qa::engine_bin!(), race_cycle.root());
+    traced
+        .args(["step", "--run", &race_run])
+        .env("RATMAC_TRACE", "1");
+    let traced = traced.output().expect("invoke the traced refused step");
+    assert_eq!(
+        traced.status.code(),
+        Some(0),
+        "WRS-003: the traced held refusal is the ordinary refused step: {}",
+        String::from_utf8_lossy(&traced.stderr)
+    );
+    let stderr_text = String::from_utf8_lossy(&traced.stderr).into_owned();
+    let records: Vec<&str> = stderr_text
+        .split('\n')
+        .filter_map(|line| line.strip_prefix("rtm-trace: "))
+        .collect();
+    let held_record = format!("code=\"held\" run=\"{race_run}\"");
+    assert_eq!(
+        records
+            .iter()
+            .filter(|record| **record == held_record)
+            .count(),
+        1,
+        "WRS-003: exactly one held refusal-code record, spelled t-128's way: {records:?}"
+    );
+    let held_at = records
+        .iter()
+        .position(|record| *record == held_record)
+        .expect("the held record was just proven present");
+    assert!(
+        held_at >= 1
+            && records[held_at - 1]
+                == format!("code=\"lock_acquire\" domain=\"run\" run=\"{race_run}\""),
+        "WRS-003: the held record fires under the Run lock inside today's refused-step \
+         sequence: {records:?}"
+    );
+    assert_eq!(
+        records.get(held_at + 1).copied(),
+        Some(format!("code=\"lock_release\" domain=\"run\" run=\"{race_run}\"").as_str()),
+        "WRS-003: the Run lock releases after the held record: {records:?}"
+    );
+    let untraced = support::command(ratmac_qa::engine_bin!(), race_cycle.root())
+        .args(["step", "--run", &race_run])
+        .output()
+        .expect("invoke the untraced refused step");
+    assert_eq!(untraced.status.code(), Some(0));
+    assert_eq!(
+        untraced.stdout, traced.stdout,
+        "WRS-003: tracing adds records to stderr and changes nothing else"
+    );
+    assert!(
+        !String::from_utf8_lossy(&untraced.stderr).contains("rtm-trace: "),
+        "WRS-003: the toggle unset emits no record bytes"
+    );
+
+    // An unparseable committed entry refuses the next mutating command
+    // having modified nothing.
+    let garbage = Cycle::new("wrsv00308-unparseable");
+    let garbage_run = garbage.start();
+    garbage.hold_ok(&garbage_run, 1, "intake", "runbook");
+    let entry = garbage
+        .run_dir(&garbage_run)
+        .join("journal/hold-2.committed");
+    fs::create_dir_all(entry.parent().expect("the entry has a parent directory"))
+        .expect("create the journal directory");
+    fs::write(&entry, "not a strict document\n{\n").expect("plant the unparseable entry");
+    let garbage_before = garbage.snapshot();
+    let unparseable = garbage.step(&garbage_run);
+    assert_eq!(unparseable.code, 1, "{unparseable}");
+    assert_eq!(
+        unparseable.message,
+        format!(
+            "step: the pause journal entry {} does not parse; nothing was modified\nnext: \
+             rtm doctor",
+            shown(&entry)
+        ),
+        "WRS-003: the unparseable committed entry refuses with its pinned text and \
+         today's teaching line"
+    );
+    garbage.assert_unchanged(&garbage_before, "unparseable committed entry");
 }
 
 // --- WRSV-003-09 ---------------------------------------------------------------
@@ -3019,16 +3205,21 @@ fn wrsv_003_09() {
     );
 
     let before = cycle.snapshot();
-    // A signature over the wrong bytes refuses.
-    let stale_payload = cycle.root().join(".ratmac/ratmac.toml");
+    // A signature over the wrong bytes refuses. The stale payload lives in
+    // the fixture keys tree, so signing it leaves the fixture untouched.
+    governed
+        .keys
+        .dir
+        .write("stale-payload.bin", routed_runbook().as_bytes());
+    let stale_payload = governed.keys.dir.join("stale-payload.bin");
     let stale_signature = governed.keys.sign("lead", RESUME_NAMESPACE, &stale_payload);
     let wrong_bytes = governed.resume_sig(&run, BLOCKER, Some(&stale_signature));
     assert_eq!(wrong_bytes.code, 1, "{wrong_bytes}");
     assert!(
-        wrong_bytes.message.contains(&format!(
+        wrong_bytes.message.contains(
             "resume refused; authorization: resolution: observed a signature that does not \
-                 verify against the recomputed canonical intent sha256 "
-        )),
+                 verify against the recomputed canonical intent sha256 ",
+        ),
         "WRS-003: a signature over the wrong bytes refuses: {wrong_bytes}"
     );
     assert!(wrong_bytes
@@ -3168,6 +3359,24 @@ fn wrsv_003_09() {
             .contains("is not a strict version-1 record: "),
         "WRS-003: an edited context field refuses through the digest: {context_refusal}"
     );
+    fs::write(&record_path, &record_bytes).expect("restore the pause record");
+
+    // An unknown key refuses through the same strict version-1 family; the
+    // detail after the fixed prefix is the parser's own.
+    let mut unknown_key = record_bytes.clone();
+    unknown_key.push_str("mystery = 7\n");
+    fs::write(&record_path, &unknown_key).expect("plant the unknown key");
+    let unknown_before = plain.snapshot();
+    let unknown = plain.resume(&plain_run, BLOCKER);
+    assert_eq!(unknown.code, 1, "{unknown}");
+    assert!(
+        unknown.message.starts_with(&format!(
+            "resume refused; pause record {} is not a strict version-1 record: ",
+            shown(&record_path)
+        )),
+        "WRS-003: the unknown key refuses through the strict family: {unknown}"
+    );
+    plain.assert_unchanged(&unknown_before, "unknown pause-record key");
     fs::write(&record_path, &record_bytes).expect("restore the pause record");
 
     // The restored record resumes cleanly.

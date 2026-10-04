@@ -43,6 +43,7 @@ use std::time::{Duration, Instant};
 use crate::root::Displayed;
 
 pub use crate::root::entries::{apply_hold, plan_hold};
+pub use crate::root::entries::{apply_resume, plan_resume};
 #[cfg(windows)]
 use std::os::windows::ffi::OsStrExt;
 
@@ -54,7 +55,7 @@ const MAX_TEST_HOLD_BARRIER_TIMEOUT: Duration = Duration::from_secs(30);
 /// Whether an atomic replacement reached its destination durably, or reached
 /// it but could not confirm the parent directory's durability.
 #[derive(Debug)]
-enum ReplaceFileOutcome {
+pub(crate) enum ReplaceFileOutcome {
     Durable,
     ReplacedWithParentSyncWarning(std::io::Error),
 }
@@ -63,6 +64,9 @@ enum ReplaceFileOutcome {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HoldRefusal {
     pub reason: String,
+    /// WRS-003: the operation already committed through the journal; the
+    /// failure renders as recovery-pending, never as an unchanged refusal.
+    pub committed: bool,
 }
 
 impl fmt::Display for HoldRefusal {
@@ -74,7 +78,42 @@ impl fmt::Display for HoldRefusal {
 fn refusal(reason: impl Into<String>) -> HoldRefusal {
     HoldRefusal {
         reason: reason.into(),
+        committed: false,
     }
+}
+
+/// WRS-003: a failure after the journal published the action's commit
+/// decision.
+fn committed_refusal(detail: impl Into<String>) -> HoldRefusal {
+    HoldRefusal {
+        reason: detail.into(),
+        committed: true,
+    }
+}
+
+/// WRS-003: fold one reconciliation failure into the addressed command's
+/// refusal family. An unparseable entry never modified anything; a
+/// finishing failure leaves a committed action awaiting reconciliation.
+///
+/// WRS-003: whether one pending committed entry is this hold's own commit
+/// (the same Run and blocker); the typed phrase was already checked before
+/// the Run lock was taken.
+fn adopted_is_hold(entry: &crate::pause::JournalEntry, run_id: &str, blocker: &str) -> bool {
+    entry.action == crate::pause::HOLD_ACTION && entry.run == run_id && entry.blocker == blocker
+}
+
+fn pause_failure(failure: crate::pause::ReconcileFailure) -> HoldRefusal {
+    HoldRefusal {
+        reason: failure.detail,
+        committed: failure.committed,
+    }
+}
+
+/// The hold seam's one boundary wait, surfaced for the pause journal's
+/// finishing order (WRS-003): the same marker, release, and timeout
+/// discipline under both verbs, because the seam is hold's.
+pub(crate) fn hold_barrier_at(boundary: &str) -> Result<(), String> {
+    wait_before_hold_boundary_if_requested(boundary).map_err(|failure| failure.reason)
 }
 
 #[cfg(feature = "test-fault-injection")]
@@ -103,24 +142,38 @@ fn wait_before_hold_boundary_if_requested(boundary: &str) -> Result<(), HoldRefu
     if std::env::var("RATMAC_TEST_HOLD_BARRIER").ok().as_deref() != Some(boundary) {
         return Ok(());
     }
+    // The seam is armed by its explicit timeout: an invocation that names a
+    // boundary without one moves through it untouched, so a left-over
+    // boundary name never slows an ordinary later command.
+    if std::env::var("RATMAC_TEST_HOLD_BARRIER_TIMEOUT_MILLIS").is_err() {
+        return Ok(());
+    }
+    // The marker and its release are observability companions, not
+    // preconditions: an invocation that sets only the boundary still waits
+    // out its timeout at that boundary, reporting the release it waited
+    // for (empty when none was named).
     let marker = std::env::var_os("RATMAC_TEST_HOLD_BARRIER_MARKER")
         .map(std::path::PathBuf::from)
-        .ok_or_else(|| refusal("hold test barrier needs RATMAC_TEST_HOLD_BARRIER_MARKER"))?;
+        .unwrap_or_default();
     let release = std::env::var_os("RATMAC_TEST_HOLD_BARRIER_RELEASE")
         .map(std::path::PathBuf::from)
-        .ok_or_else(|| refusal("hold test barrier needs RATMAC_TEST_HOLD_BARRIER_RELEASE"))?;
+        .unwrap_or_default();
     if let Some(parent) = marker.parent() {
-        fs::create_dir_all(parent).map_err(|error| {
-            refusal(format!(
-                "hold test barrier cannot create marker directory {}: {error}",
-                parent.displayed()
-            ))
-        })?;
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent).map_err(|error| {
+                refusal(format!(
+                    "hold test barrier cannot create marker directory {}: {error}",
+                    parent.displayed()
+                ))
+            })?;
+        }
     }
     // WRA-001: the authorization-archive barrier's marker lands whole in
     // one step, so an observer never sees it half-written.
     let marker_bytes = format!("holding before {boundary}\n");
-    if boundary == "before-authorization-archive" {
+    if marker.as_os_str().is_empty() {
+        // No marker was named: the boundary still holds and waits.
+    } else if boundary == "before-authorization-archive" {
         let temporary = marker.with_extension(format!(
             "tmp-{}-{}",
             std::process::id(),
@@ -150,6 +203,12 @@ fn wait_before_hold_boundary_if_requested(boundary: &str) -> Result<(), HoldRefu
         }
         let now = Instant::now();
         if now >= deadline {
+            // The marker is the wait's own observability companion: an
+            // expired wait leaves it behind, so the graceful refusal
+            // leaves every durable byte untouched.
+            if !marker.as_os_str().is_empty() {
+                let _ = fs::remove_file(&marker);
+            }
             return Err(refusal(format!(
                 "hold test barrier expired before {boundary} waiting for {}",
                 release.displayed()
@@ -189,6 +248,10 @@ pub struct HoldPlan {
     authorization: Option<crate::review::VerifiedAuthorization>,
     /// The submitted options, re-verified under the Run lock at apply.
     options: crate::review::AuthorizationOptions,
+    /// WRS-003: this invocation retried a hold whose committed journal
+    /// entry was still pending, finished it under the plan's Run lock, and
+    /// now owes no further apply: the action is complete exactly once.
+    adopted: bool,
 }
 
 impl HoldPlan {
@@ -283,17 +346,42 @@ pub(crate) fn plan_hold_in(
         .map_err(|error| refusal(error.to_string()))?;
     // FDC-006: a roster entry without a Run Record is a retired run -
     // terminal, never resurrected - decided here under the held claim.
-    if !engine_root
-        .join("runs")
-        .join(run_id)
-        .join("run.toml")
-        .is_file()
-    {
+    let run_dir = engine_root.join("runs").join(run_id);
+    if !run_dir.join("run.toml").is_file() {
         return Err(refusal(format!(
             "run {run_id} is terminal: its admission state is retired and no \
              transition may proceed on it; address a live run or mint a fresh \
              one with rtm start"
         )));
+    }
+    // WRS-003: the journal discipline. Under this lock a pending committed
+    // entry from an interrupted hold or resume is finished exactly once
+    // before any later mutation of the Run proceeds. A retried hold whose
+    // own entry is still pending - the same Run, blocker, and typed phrase,
+    // the phrase already checked above - adopts it: finishing the entry is
+    // the whole action, so the plan answers success and apply writes
+    // nothing.
+    let mut adopted: Option<crate::pause::JournalEntry> = None;
+    match crate::pause::reconcile(&run_dir) {
+        Ok(Some(entry)) => {
+            if adopted_is_hold(&entry, run_id, blocker) {
+                adopted = Some(entry);
+            }
+        }
+        Ok(None) => {}
+        Err(failure) => return Err(pause_failure(failure)),
+    }
+    if let Some(entry) = &adopted {
+        return Ok(HoldPlan {
+            blocker: blocker.to_owned(),
+            run_id: run_id.to_owned(),
+            from_state: entry.state.clone(),
+            from_status: crate::model::Status::Blocked,
+            to_state: entry.to_state.clone(),
+            authorization: None,
+            options: crate::review::AuthorizationOptions::default(),
+            adopted: true,
+        });
     }
     verify_blocker(&scheduler, blocker)?;
 
@@ -335,6 +423,7 @@ pub(crate) fn plan_hold_in(
         to_state,
         authorization: None,
         options: crate::review::AuthorizationOptions::default(),
+        adopted: false,
     })
 }
 
@@ -347,6 +436,12 @@ pub(crate) fn plan_authorized_hold_in(
     authorization: &crate::review::AuthorizationOptions,
 ) -> Result<HoldPlan, HoldRefusal> {
     let mut plan = plan_hold_in(roots, request)?;
+    // A retried hold that adopted its pending committed entry is already
+    // complete: its authorization was archived by the reconciliation, so
+    // no second verification runs.
+    if plan.adopted {
+        return Ok(plan);
+    }
     // The full verification boundary of `rtm step` runs here, after the
     // plan's own checks; `apply` re-verifies under the Run lock before the
     // first write. Both verifications re-read the archive and evidence the
@@ -455,20 +550,28 @@ fn verify_blocker(scheduler: &crate::Scheduler, blocker: &str) -> Result<(), Hol
         "blocker {blocker} resolves outside every declared root; {roots_line}"
     )))
 }
-
-/// Apply a verified hold: the paused mark in the Run Record, the routed
-/// State, and one history entry.
+/// Apply a verified hold through the operation journal (WRS-003): every
+/// output is prepared before publication, one committed entry published
+/// whole in a single atomic step is the action's commit decision, and the
+/// outputs are then finished idempotently and in the contract's order. A
+/// graceful failure before publication leaves every persisted byte
+/// unchanged; after publication it never rolls back and reports the
+/// committed action as awaiting reconciliation.
 ///
 /// Everything the hold changes lives under the Engine root and belongs to one
 /// Run, so the addressed Run lock alone serializes it - there is no shared
 /// document to read-modify-write any more (NRR-001). The exact planned state
-/// is compared after acquisition, and a failure after the record is durable is
-/// reported honestly rather than rewritten.
+/// is compared after acquisition.
 /// The path-taking `apply_hold` lives in `src/root.rs`.
 pub(crate) fn apply_hold_in(
     roots: &crate::root::Roots,
     plan: &HoldPlan,
 ) -> Result<(), HoldRefusal> {
+    // A retried hold whose plan adopted the pending committed entry is
+    // already finished exactly once.
+    if plan.adopted {
+        return Ok(());
+    }
     // Planning and application are separate public boundaries. Resolve from
     // the addressed Run's workspace again before this path can mutate state.
     let scheduler = crate::Scheduler::open_run_with_roots(roots, &plan.run_id)
@@ -476,13 +579,32 @@ pub(crate) fn apply_hold_in(
     verify_blocker(&scheduler, &plan.blocker)?;
 
     let engine_root = roots.engine_root().to_path_buf();
-    let state_path = engine_root.join("runs").join(&plan.run_id).join("run.toml");
+    let run_dir = engine_root.join("runs").join(&plan.run_id);
+    let state_path = run_dir.join("run.toml");
 
     let run_lock = crate::lock::RunLock::acquire(&engine_root, &plan.run_id)
         .map_err(|error| refusal(error.to_string()))?;
     run_lock
         .ensure_current()
         .map_err(|error| refusal(error.to_string()))?;
+
+    // WRS-003: reconcile any pending committed entry under this lock before
+    // this hold's own checks. A matching pending entry - the same Run and
+    // blocker, the phrase already carried by this plan - is this hold's own
+    // commit: finish it and report the ordinary success.
+    let mut adopted = false;
+    match crate::pause::reconcile(&run_dir) {
+        Ok(Some(entry)) => {
+            adopted = entry.action == crate::pause::HOLD_ACTION
+                && entry.run == plan.run_id
+                && entry.blocker == plan.blocker;
+        }
+        Ok(None) => {}
+        Err(failure) => return Err(pause_failure(failure)),
+    }
+    if adopted {
+        return Ok(());
+    }
 
     crate::observe::operation("record");
     let old_state_bytes = fs::read(&state_path)
@@ -525,211 +647,606 @@ pub(crate) fn apply_hold_in(
     }
 
     // WRA-001: a governed hold re-verifies its whole authorization under
-    // the Run lock this apply owns, then archives it between the barrier and
-    // the record write. An ungoverned hold writes today's bytes only.
-    let run_dir = engine_root.join("runs").join(&plan.run_id);
-    let mut authorization_archive: Option<(std::path::PathBuf, bool)> = None;
+    // the Run lock this apply owns. The archive record is prepared here and
+    // written only inside the journal's finishing order, after publication.
+    let mut authorization: Option<(u64, Vec<u8>)> = None;
     if let Some(declaration) = current_scheduler
         .governed_review_of(&run_dir, &plan.run_id)
         .map_err(|error| refusal(error.to_string()))?
     {
-        let _verify_quiet = crate::observe::quiet_records();
-        let verified = current_scheduler
-            .authorize_motion(
-                &engine_root,
-                &run_dir,
-                &plan.run_id,
-                &declaration,
-                "hold",
-                &plan.from_state,
-                &plan.to_state,
-                "",
-                plan.blocker(),
-                current_scheduler.runbook_pin_of(),
-                plan.options(),
-            )
-            .map_err(|failure| refusal(failure.to_string()))?;
-        wait_before_hold_boundary_if_requested("before-authorization-archive")?;
-        run_lock
-            .ensure_current()
-            .map_err(|error| refusal(error.to_string()))?;
-        drop(_verify_quiet);
-        let (path, dir_created) = crate::review::write_archive(
-            &run_dir,
+        let verified = {
+            let _verify_quiet = crate::observe::quiet_records();
+            current_scheduler
+                .authorize_motion(
+                    &engine_root,
+                    &run_dir,
+                    &plan.run_id,
+                    &declaration,
+                    "hold",
+                    &plan.from_state,
+                    &plan.to_state,
+                    "",
+                    plan.blocker(),
+                    current_scheduler.runbook_pin_of(),
+                    plan.options(),
+                )
+                .map_err(|failure| refusal(failure.to_string()))?
+        };
+        let record = crate::review::authorization_record_text(
             &verified,
             "hold",
             &plan.from_state,
             &plan.to_state,
-        )
-        .map_err(|error| {
-            refusal(format!(
-                "hold cannot write the authorization record: {error}; nothing was \
-                         modified"
-            ))
-        })?;
-        authorization_archive = Some((path, dir_created));
+        );
+        authorization = Some((verified.sequence, record.into_bytes()));
     }
 
     // Snapshot the pre-existing append target through the Scheduler before
     // committing state: an unusable or missing log refuses without a
     // half-motion.
-    let mut log = crate::Scheduler::open_transition_log(&engine_root, false).map_err(|error| {
+    let _log = crate::Scheduler::open_transition_log(&engine_root, false).map_err(|error| {
         refusal(format!(
             "hold cannot open history: {error}; nothing was modified"
         ))
     })?;
+
+    // WRS-003: the durable facts a committed hold leaves. The occurrence is
+    // decided under this lock before publication; the record seals its own
+    // held-context digest.
+    let occurrence = crate::pause::next_occurrence(&run_dir, &plan.run_id).map_err(refusal)?;
+    let context = current_scheduler
+        .pause_context()
+        .map_err(|error| refusal(error.to_string()))?;
+    let pause_record = crate::pause::pause_record_bytes(
+        &plan.run_id,
+        &plan.to_state,
+        plan.blocker(),
+        &context,
+        occurrence,
+    );
 
     state.state = plan.to_state.clone();
     // The whole held fact, in Engine-owned state: the paused mark and the
     // opaque reference the human named (NRR-001).
     state.status = crate::model::Status::Blocked;
     state.blocker = plan.blocker.clone();
-    run_lock
-        .ensure_current()
-        .map_err(|error| refusal(error.to_string()))?;
-    // The authorization record is already durable at every boundary from
-    // here on, so each later failure rolls the whole governed hold back:
-    // restore the pre-hold Run Record bytes, then remove the record this
-    // apply just wrote, keeping today's reason strings.
-    if let Err(error) = wait_before_hold_boundary_if_requested("before-state-write") {
-        return Err(finish_governed_hold_rollback(
-            &run_lock,
-            &state_path,
-            &old_state_bytes,
-            &run_dir,
-            authorization_archive.as_ref(),
-            error.reason,
-        ));
-    }
-    if let Err(error) = current_scheduler.verify_open_runbook_snapshot() {
-        return Err(finish_governed_hold_rollback(
-            &run_lock,
-            &state_path,
-            &old_state_bytes,
-            &run_dir,
-            authorization_archive.as_ref(),
-            error.to_string(),
-        ));
-    }
-    match store.write(&state) {
-        Err(error) => {
-            return Err(finish_governed_hold_rollback(
-                &run_lock,
-                &state_path,
-                &old_state_bytes,
-                &run_dir,
-                authorization_archive.as_ref(),
-                format!("hold cannot write state: {error}"),
-            ))
-        }
-        Ok(crate::state::StateWriteOutcome::Durable) => {}
-        Ok(crate::state::StateWriteOutcome::ReplacedWithParentSyncWarning(error)) => {
-            crate::diag::diagnostic(format_args!(
-                "warning: hold Run Record {} was replaced but its parent directory could not be synced: {error}; continuing because the Run Record is committed and the hold will append history",
-                state_path.displayed()
-            ));
-        }
-    }
-
-    // The QA seam that used to sit before the shared-document replacement now
-    // sits between the durable record and its history entry: the last point at
-    // which an interruption can be observed mid-hold.
-    if let Err(error) = wait_before_hold_boundary_if_requested("before-history-append") {
-        return Err(finish_governed_hold_rollback(
-            &run_lock,
-            &state_path,
-            &old_state_bytes,
-            &run_dir,
-            authorization_archive.as_ref(),
-            format!("{}; nothing was written", error.reason),
-        ));
-    }
-    if let Err(error) = run_lock.ensure_current() {
-        return Err(finish_governed_hold_rollback(
-            &run_lock,
-            &state_path,
-            &old_state_bytes,
-            &run_dir,
-            authorization_archive.as_ref(),
-            format!("hold cannot verify the Run mutation lock: {error}; nothing was written"),
-        ));
-    }
-
-    // Keep the addressed Run lock through its own route and append-only record.
-    let entry = format!(
+    let new_state_bytes = crate::state::StateStore::serialize(&state)
+        .map_err(|error| refusal(format!("hold cannot write state: {error}")))?;
+    let history_line = format!(
         "- Hold: run {} paused against {}; routed {} -> {} on an explicit human confirmation.\n",
         plan.run_id, plan.blocker, plan.from_state, plan.to_state
     );
-    match crate::Scheduler::append_transition_log(&mut log, entry.as_bytes()) {
-        crate::scheduler::TransitionLogAppend::Complete => Ok(()),
-        crate::scheduler::TransitionLogAppend::Failed(failure) => Err(refusal(format!(
-            "hold cannot append history; the Run Record was updated and no history rewrite was attempted: {}",
-            failure.into_operator_error()
-        ))),
+    let entry = crate::pause::JournalEntry {
+        action: crate::pause::HOLD_ACTION.to_owned(),
+        run: plan.run_id.clone(),
+        occurrence,
+        blocker: plan.blocker.clone(),
+        state: plan.from_state.clone(),
+        to_state: plan.to_state.clone(),
+        old_record: old_state_bytes,
+        new_record: new_state_bytes,
+        pause_record: Some(pause_record),
+        authorization_record: authorization,
+        history_line,
+    };
+
+    run_lock
+        .ensure_current()
+        .map_err(|error| refusal(error.to_string()))?;
+    wait_before_hold_boundary_if_requested("before-state-write")?;
+    if let Err(error) = current_scheduler.verify_open_runbook_snapshot() {
+        return Err(refusal(error.to_string()));
+    }
+    wait_before_hold_boundary_if_requested("before-journal-publication")?;
+
+    // The commit decision: one whole committed entry, published atomically.
+    // Every failure past this point reports the committed action honestly.
+    crate::pause::publish_entry(&run_dir, &entry).map_err(refusal)?;
+    wait_before_hold_boundary_if_requested("after-journal-publication")
+        .map_err(|error| committed_refusal(error.reason))?;
+    crate::pause::finish(&run_dir, &entry, true).map_err(committed_refusal)?;
+    Ok(())
+}
+
+// --- WRS-003: `rtm resume` ------------------------------------------------------
+
+/// Why a resume cannot be applied.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResumeRefusal {
+    pub reason: String,
+    /// WRS-003: the operation already committed through the journal; the
+    /// failure renders as recovery-pending, never as an unchanged refusal.
+    pub committed: bool,
+}
+
+impl fmt::Display for ResumeRefusal {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.reason)
     }
 }
 
-/// Finish a governed hold's rollback: restore the Run Record, then remove
-/// the authorization record this apply just wrote, reporting honestly when
-/// either step cannot complete.
-fn finish_governed_hold_rollback(
-    run_lock: &crate::lock::RunLock,
-    state_path: &Path,
-    old_state_bytes: &[u8],
-    run_dir: &Path,
-    authorization: Option<&(std::path::PathBuf, bool)>,
-    reason: String,
-) -> HoldRefusal {
-    let outcome = (|| -> Result<(), String> {
-        restore_state_bytes(run_lock, state_path, old_state_bytes)
-            .map_err(|error| error.to_string())?;
-        if let Some((path, dir_created)) = authorization {
-            run_lock
-                .ensure_current()
-                .map_err(|error| error.to_string())?;
-            crate::review::remove_archive(run_dir, path, *dir_created)?;
+fn resume_refusal(reason: impl Into<String>) -> ResumeRefusal {
+    ResumeRefusal {
+        reason: reason.into(),
+        committed: false,
+    }
+}
+
+/// Fold one reconciliation failure into the resume family's refusals.
+fn resume_pause_failure(failure: crate::pause::ReconcileFailure) -> ResumeRefusal {
+    ResumeRefusal {
+        reason: failure.detail,
+        committed: failure.committed,
+    }
+}
+
+/// What a human asked for when resuming.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResumeRequest {
+    /// The recorded blocker, given verbatim: the Engine compares it and
+    /// never consults the referenced path on disk.
+    pub blocker: Option<String>,
+    pub confirmation: Option<String>,
+    /// The addressed run (FDC-004: `--run <id>`, always required).
+    pub run: Option<String>,
+    /// WRS-003: one detached `ratmac-resume-v1` signature file, only under
+    /// a declared review policy.
+    pub resolution: Option<String>,
+}
+
+/// A verified resume, ready to apply.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResumePlan {
+    run_id: String,
+    blocker: String,
+    held_state: String,
+    occurrence: u64,
+    resolution: Option<String>,
+    /// WRS-003: this invocation retried a resume whose committed journal
+    /// entry was still pending, finished it under the plan's Run lock, and
+    /// now owes no further apply.
+    adopted: bool,
+}
+
+impl ResumePlan {
+    pub(crate) fn run_id(&self) -> &str {
+        &self.run_id
+    }
+
+    pub(crate) fn blocker(&self) -> &str {
+        &self.blocker
+    }
+
+    pub(crate) fn occurrence(&self) -> u64 {
+        self.occurrence
+    }
+}
+
+/// The exact phrase a human must type to resume the Run `run_id`.
+pub fn resume_confirmation_phrase(run_id: &str) -> String {
+    format!("resume {run_id}")
+}
+
+/// The governed resume's one-signature boundary rendered as one refusal
+/// line: `authorization: <sub-boundary>: observed <observed>; expected
+/// <expected>`.
+fn resolution_refusal_text(refusal: &crate::review::AuthorizationRefusal) -> String {
+    format!(
+        "authorization: {}: observed {}; expected {}",
+        refusal.kind, refusal.observed, refusal.expected
+    )
+}
+
+/// Verify one governed resume's resolution signature under the Run lock:
+/// the canonical resolution intent recomputed from the Engine's own
+/// records, one `ratmac-resume-v1` signature by the designated Approver.
+#[allow(clippy::too_many_arguments)]
+fn verify_resolution_of(
+    scheduler: &crate::Scheduler,
+    engine_root: &Path,
+    _run_dir: &Path,
+    run_id: &str,
+    declaration: &crate::review::ReviewDeclaration,
+    held_state: &str,
+    blocker: &str,
+    occurrence: u64,
+    held_record_digest: &str,
+    resolution: &str,
+) -> Result<crate::review::VerifiedResolution, ResumeRefusal> {
+    let _quiet = crate::observe::quiet_records();
+    let enrollment = crate::review::read_enrollment(
+        engine_root,
+        declaration,
+        &crate::Scheduler::project_scope(engine_root),
+    )
+    .map_err(resume_refusal)?;
+    let facts = scheduler
+        .resolution_facts(
+            engine_root,
+            run_id,
+            declaration,
+            &enrollment,
+            held_state,
+            blocker,
+            occurrence,
+            held_record_digest,
+        )
+        .map_err(resume_refusal)?;
+    crate::review::verify_resolution(
+        declaration,
+        &enrollment,
+        &crate::Scheduler::project_scope(engine_root),
+        &facts,
+        occurrence,
+        resolution,
+    )
+    .map_err(|failure| resume_refusal(resolution_refusal_text(&failure)))
+}
+
+/// WRS-003: verify a resume without writing anything. The path-taking
+/// `plan_resume` lives in `src/root.rs`.
+pub(crate) fn plan_resume_in(
+    roots: &crate::root::Roots,
+    request: &ResumeRequest,
+) -> Result<ResumePlan, ResumeRefusal> {
+    crate::Scheduler::refuse_flat_residue_with_roots(roots)
+        .map_err(|error| resume_refusal(error.to_string()))?;
+
+    let roster = crate::Scheduler::run_roster_with_roots(roots)
+        .map_err(|error| resume_refusal(error.to_string()))?;
+    let Some(run_id) = request.run.as_deref().filter(|id| !id.is_empty()) else {
+        let engine_root = roots.engine_root();
+        return Err(resume_refusal(format!(
+            "resume requires --run <id>; runs: {}{}",
+            crate::roster::summary(engine_root, &roster, "none"),
+            crate::roster::rows(engine_root, &roster)
+        )));
+    };
+
+    let required = resume_confirmation_phrase(run_id);
+    match request.confirmation.as_deref().map(str::trim) {
+        None => {
+            return Err(resume_refusal(format!(
+                "resume is unconfirmed: a human must type --confirm {required:?}"
+            )))
         }
-        Ok(())
-    })();
-    match outcome {
-        Ok(()) => refusal(reason),
-        Err(rollback_error) => refusal(format!("{reason}; rollback incomplete: {rollback_error}")),
-    }
-}
-
-/// Restore exact addressed-Run bytes only while the caller still owns its
-/// motion lock. The replacement is atomic, so a failed restore never truncates
-/// a Run Record it cannot finish restoring.
-fn restore_state_bytes(
-    run_lock: &crate::lock::RunLock,
-    state_path: &Path,
-    bytes: &[u8],
-) -> Result<(), crate::state::StateError> {
-    run_lock.ensure_current()?;
-    match replace_file_atomically(state_path, bytes) {
-        Ok(ReplaceFileOutcome::Durable) => Ok(()),
-        Ok(ReplaceFileOutcome::ReplacedWithParentSyncWarning(error)) => {
-            crate::diag::diagnostic(format_args!(
-                "warning: restored pre-hold Run Record {} but could not sync its parent directory: {error}",
-                state_path.displayed()
-            ));
-            Ok(())
+        Some(phrase) if phrase != required => {
+            return Err(resume_refusal(format!(
+                "resume is unconfirmed: confirmation {phrase:?} does not match the required phrase {required:?}"
+            )))
         }
-        Err(error) => Err(crate::state::StateError::new(format!(
-            "restore pre-hold Run Record {}: {error}",
-            state_path.displayed()
-        ))),
+        Some(_) => {}
     }
+
+    let Some(blocker) = request.blocker.as_deref().map(str::trim) else {
+        return Err(resume_refusal(
+            "resume has no blocker link: pass --blocker <reference beneath a declared root>",
+        ));
+    };
+    if blocker.is_empty() {
+        return Err(resume_refusal(
+            "resume has no blocker link: pass --blocker <reference beneath a declared root>",
+        ));
+    }
+
+    // The open-run family - runbook parse and pin, class resolution in the
+    // Run's recorded owning class, record parse - with today's texts.
+    let scheduler = crate::Scheduler::open_run_for_motion_with_roots(roots, run_id)
+        .map_err(|error| resume_refusal(error.to_string()))?;
+    let engine_root = roots.engine_root().to_path_buf();
+    let run_dir = engine_root.join("runs").join(run_id);
+    // The family's tail resolves the recorded State in the Run's recorded
+    // owning class by the t-114 rule, so an undeclared recorded State
+    // refuses here - before the Run lock and before any pause fact is
+    // read. The route itself is hold's question; resume only borrows the
+    // class-resolution refusal.
+    let open_state = scheduler
+        .load_state()
+        .map_err(|error| resume_refusal(format!("resume requires an active Run: {error}")))?;
+    scheduler
+        .blocked_destination(&open_state.state)
+        .map_err(|error| resume_refusal(error.to_string()))?;
+
+    // The addressed Run lock: the only lock resume ever takes, acquired
+    // immediately after the open-run family, exactly where today's hold
+    // plan acquires it. Every later check, including the governed
+    // boundary, runs under it.
+    let run_lock = crate::lock::RunLock::acquire(&engine_root, run_id)
+        .map_err(|error| resume_refusal(error.to_string()))?;
+    run_lock
+        .ensure_current()
+        .map_err(|error| resume_refusal(error.to_string()))?;
+    // FDC-006: a roster entry without a Run Record is a retired run.
+    if !run_dir.join("run.toml").is_file() {
+        return Err(resume_refusal(format!(
+            "run {run_id} is terminal: its admission state is retired and no \
+             transition may proceed on it; address a live run or mint a fresh \
+             one with rtm start"
+        )));
+    }
+
+    // WRS-003: the journal discipline, exactly as the hold plan keeps it. A
+    // retried resume whose own entry is still pending - the same Run,
+    // blocker, and occurrence - adopts it; any other pending entry is
+    // finished first.
+    match crate::pause::reconcile(&run_dir) {
+        Ok(Some(entry))
+            if entry.action == crate::pause::RESUME_ACTION
+                && entry.run == run_id
+                && entry.blocker == blocker
+                && crate::pause::live_occurrence(&run_dir) == Ok(Some(entry.occurrence)) =>
+        {
+            return Ok(ResumePlan {
+                run_id: run_id.to_owned(),
+                blocker: entry.blocker.clone(),
+                held_state: entry.state.clone(),
+                occurrence: entry.occurrence,
+                resolution: None,
+                adopted: true,
+            });
+        }
+        Ok(_) => {}
+        Err(failure) => return Err(resume_pause_failure(failure)),
+    }
+
+    let state = scheduler
+        .load_state()
+        .map_err(|error| resume_refusal(format!("resume requires an active Run: {error}")))?;
+    if state.status == crate::model::Status::Passed {
+        return Err(resume_refusal(format!(
+            "run {run_id} is terminal (status passed): nothing to resume"
+        )));
+    }
+    if state.status != crate::model::Status::Blocked {
+        return Err(resume_refusal(format!(
+            "run {run_id} is not held (status {}); nothing to resume",
+            state.status
+        )));
+    }
+    if crate::pause::live_occurrence(&run_dir)
+        .map_err(resume_refusal)?
+        .is_none()
+    {
+        return Err(resume_refusal(format!(
+            "run {run_id} is held with no recorded pause occurrence; a hold from before \
+             occurrences were recorded admits no resume"
+        )));
+    }
+    if blocker != state.blocker {
+        return Err(resume_refusal(format!(
+            "resume blocker {blocker} does not match the blocker recorded for run {run_id}: {}",
+            state.blocker
+        )));
+    }
+    let (occurrence, record) = crate::pause::load_live_record(&run_dir).map_err(resume_refusal)?;
+    if record.run != run_id || record.state != state.state || record.blocker != state.blocker {
+        let path = crate::pause::pauses_path(&run_dir, occurrence);
+        return Err(resume_refusal(format!(
+            "pause record {} is not a strict version-1 record: its recorded facts differ \
+             from the live Run Record",
+            path.displayed()
+        )));
+    }
+    let held_record_digest = record.held_context_sha256.clone();
+
+    // WRS-003: the governed resume runs t-129's enrollment boundary with
+    // its shared detail strings, then verifies one resolution signature.
+    if let Some(declaration) = scheduler
+        .governed_review_of(&run_dir, run_id)
+        .map_err(|error| resume_refusal(error.to_string()))?
+    {
+        let Some(resolution) = request.resolution.as_deref() else {
+            return Err(resume_refusal(format!(
+                "authorization: resolution: observed none; expected one \
+                 ratmac-resume-v1 signature by the designated approver over the canonical \
+                 intent (rtm intent --run {run_id} --resume)"
+            )));
+        };
+        verify_resolution_of(
+            &scheduler,
+            &engine_root,
+            &run_dir,
+            run_id,
+            &declaration,
+            &state.state,
+            &state.blocker,
+            occurrence,
+            &held_record_digest,
+            resolution,
+        )?;
+    }
+
+    Ok(ResumePlan {
+        run_id: run_id.to_owned(),
+        blocker: state.blocker.clone(),
+        held_state: state.state.clone(),
+        occurrence,
+        resolution: request.resolution.clone(),
+        adopted: false,
+    })
 }
 
-/// Replace an existing artifact from a same-directory temporary file.
-///
-/// A failed temporary write leaves the destination intact. The only replace
-/// step is atomic on supported platforms, matching StateStore's durable-write
+/// WRS-003: apply a verified resume through the operation journal, exactly
+/// as a hold applies. The path-taking `apply_resume` lives in `src/root.rs`.
+pub(crate) fn apply_resume_in(
+    roots: &crate::root::Roots,
+    plan: &ResumePlan,
+) -> Result<(), ResumeRefusal> {
+    // A retried resume whose plan adopted the pending committed entry is
+    // already finished exactly once.
+    if plan.adopted {
+        return Ok(());
+    }
+    let scheduler = crate::Scheduler::open_run_with_roots(roots, &plan.run_id)
+        .map_err(|error| resume_refusal(error.to_string()))?;
+
+    let engine_root = roots.engine_root().to_path_buf();
+    let run_dir = engine_root.join("runs").join(&plan.run_id);
+    let state_path = run_dir.join("run.toml");
+
+    let run_lock = crate::lock::RunLock::acquire(&engine_root, &plan.run_id)
+        .map_err(|error| resume_refusal(error.to_string()))?;
+    run_lock
+        .ensure_current()
+        .map_err(|error| resume_refusal(error.to_string()))?;
+
+    // WRS-003: reconcile under this lock first; a matching pending entry is
+    // this resume's own commit.
+    let mut adopted = false;
+    match crate::pause::reconcile(&run_dir) {
+        Ok(Some(entry)) => {
+            adopted = entry.action == crate::pause::RESUME_ACTION
+                && entry.run == plan.run_id
+                && entry.blocker == plan.blocker
+                && entry.occurrence == plan.occurrence;
+        }
+        Ok(None) => {}
+        Err(failure) => return Err(resume_pause_failure(failure)),
+    }
+    if adopted {
+        return Ok(());
+    }
+
+    crate::observe::operation("record");
+    let old_state_bytes = fs::read(&state_path)
+        .map_err(|error| resume_refusal(format!("resume cannot read state: {error}")))?;
+    let store = crate::state::StateStore::for_engine_root(&engine_root, &plan.run_id);
+    let mut state = store
+        .load()
+        .map_err(|error| resume_refusal(format!("resume cannot read state: {error}")))?;
+    // The apply-time comparison: the Run Record's State, status, blocker,
+    // and live occurrence must still match what was verified.
+    let live = crate::pause::live_occurrence(&run_dir).map_err(resume_refusal)?;
+    if state.state != plan.held_state
+        || state.status != crate::model::Status::Blocked
+        || state.blocker != plan.blocker
+        || live != Some(plan.occurrence)
+    {
+        let observed_blocker = if state.blocker.is_empty() {
+            "an unnamed blocker"
+        } else {
+            state.blocker.as_str()
+        };
+        let observed_occurrence = live
+            .map(|occurrence| occurrence.to_string())
+            .unwrap_or_else(|| "none".to_owned());
+        return Err(resume_refusal(format!(
+            "resume plan is stale for run {}: expected state {:?} with status blocked against {} \
+             at occurrence {}, found state {:?} with status {} against {} at occurrence {}; \
+             nothing was modified",
+            plan.run_id,
+            plan.held_state,
+            plan.blocker,
+            plan.occurrence,
+            state.state,
+            state.status,
+            observed_blocker,
+            observed_occurrence
+        )));
+    }
+    let (occurrence, record) = crate::pause::load_live_record(&run_dir).map_err(resume_refusal)?;
+    let held_record_digest = record.held_context_sha256.clone();
+
+    // WRA-001: the governed boundary re-verifies under the Run lock this
+    // apply owns; the resolution record is prepared and archived only
+    // inside the journal's finishing order.
+    let mut authorization: Option<(u64, Vec<u8>)> = None;
+    if let Some(declaration) = scheduler
+        .governed_review_of(&run_dir, &plan.run_id)
+        .map_err(|error| resume_refusal(error.to_string()))?
+    {
+        let Some(resolution) = plan.resolution.as_deref() else {
+            return Err(resume_refusal(format!(
+                "authorization: resolution: observed none; expected one \
+                 ratmac-resume-v1 signature by the designated approver over the canonical \
+                 intent (rtm intent --run {run_id} --resume)",
+                run_id = plan.run_id
+            )));
+        };
+        let verified = verify_resolution_of(
+            &scheduler,
+            &engine_root,
+            &run_dir,
+            &plan.run_id,
+            &declaration,
+            &plan.held_state,
+            &plan.blocker,
+            plan.occurrence,
+            &held_record_digest,
+            resolution,
+        )?;
+        let record =
+            crate::review::resolution_record_text(&verified, &plan.held_state, &plan.held_state);
+        authorization = Some((verified.sequence, record.into_bytes()));
+    }
+
+    // The history preflight keeps its position before publication.
+    let _log = crate::Scheduler::open_transition_log(&engine_root, false).map_err(|error| {
+        resume_refusal(format!(
+            "resume cannot open history: {error}; nothing was modified"
+        ))
+    })?;
+
+    state.status = crate::model::Status::Executing;
+    state.blocker = String::new();
+    let new_state_bytes = crate::state::StateStore::serialize(&state)
+        .map_err(|error| resume_refusal(format!("resume cannot write state: {error}")))?;
+    let history_line = format!(
+        "- Resume: run {} resumed against {}; occurrence {} cleared on an explicit human \
+         resolution authorization.\n",
+        plan.run_id, plan.blocker, occurrence
+    );
+    let entry = crate::pause::JournalEntry {
+        action: crate::pause::RESUME_ACTION.to_owned(),
+        run: plan.run_id.clone(),
+        occurrence: plan.occurrence,
+        blocker: plan.blocker.clone(),
+        state: plan.held_state.clone(),
+        to_state: plan.held_state.clone(),
+        old_record: old_state_bytes,
+        new_record: new_state_bytes,
+        pause_record: None,
+        authorization_record: authorization,
+        history_line,
+    };
+
+    run_lock
+        .ensure_current()
+        .map_err(|error| resume_refusal(error.to_string()))?;
+    // WRS-003: the boundary set serves resume identically: the runbook
+    // snapshot re-verifies under this lock after `before-state-write`, so a
+    // runbook swapped across it refuses having written nothing and a
+    // release still completes the resume.
+    wait_before_hold_boundary_if_requested("before-state-write")
+        .map_err(|error| resume_refusal(error.reason))?;
+    if let Err(error) = scheduler.verify_open_runbook_snapshot() {
+        return Err(resume_refusal(error.to_string()));
+    }
+    wait_before_hold_boundary_if_requested("before-journal-publication")
+        .map_err(|error| resume_refusal(error.reason))?;
+
+    // The commit decision.
+    crate::pause::publish_entry(&run_dir, &entry).map_err(resume_refusal)?;
+    wait_before_hold_boundary_if_requested("after-journal-publication").map_err(|error| {
+        ResumeRefusal {
+            reason: error.reason,
+            committed: true,
+        }
+    })?;
+    crate::pause::finish(&run_dir, &entry, true).map_err(|detail| ResumeRefusal {
+        reason: detail,
+        committed: true,
+    })?;
+    Ok(())
+}
+
 /// discipline for exact Run Record rollback. Once the rename
 /// succeeds, a parent-sync failure is reported as a warning rather than as an
 /// untouched destination: the replacement has already happened.
-fn replace_file_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<ReplaceFileOutcome> {
+pub(crate) fn replace_file_atomically(
+    path: &Path,
+    bytes: &[u8],
+) -> std::io::Result<ReplaceFileOutcome> {
     let parent = path.parent().ok_or_else(|| {
         std::io::Error::new(
             std::io::ErrorKind::InvalidInput,

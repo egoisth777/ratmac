@@ -262,17 +262,17 @@ fn hold_records_the_pause_in_engine_state_alone() {
         "the entry names the Run and its blocker: {log}"
     );
 
-    // The completion gate learns the pause from Engine-owned state. The gate
-    // is addressed at the paused Run, and the workflow document says nothing.
+    // The pause lives in Engine-owned state: status reads it from the Run
+    // Record, and the workflow document says nothing.
     let refusal = fixture.text(&["status", "--run", &fixture.run_id]);
     assert!(
         refusal.contains("work/blocker.txt"),
         "status reports the blocker the Engine recorded: {refusal}"
     );
 
-    // The completion gate itself refuses the paused Run, and it learns the
-    // pause from the Run Record: the gate is armed on the State the Run is
-    // in, and the workflow document it names says nothing about a pause.
+    // A held Run refuses its step before any guard runs, and the refusal
+    // learns the pause from the Run Record; the workflow document the gate
+    // names says nothing about a pause.
     let gated = Fixture::new("gated", &gated_runbook());
     let gate_phrase = format!("hold {}", gated.run_id);
     let document_before = fs::read(gated.root.join("work/t-900.md")).expect("read the document");
@@ -283,21 +283,22 @@ fn hold_records_the_pause_in_engine_state_alone() {
             .success(),
         "the gated fixture holds"
     );
-    // The blocked route moved the Run back to intake; step it to the guarded
-    // State, then ask to leave it - that is when the gate speaks.
+    // The blocked route moved the Run back to intake, where it stays held:
+    // both steps refuse, so the gate guarding build never runs and its
+    // document cannot speak.
     let id = gated.run_id.clone();
     gated.rtm(&["step", "--run", &id]);
     let verdict = gated.text(&["step", "--run", &id]);
     assert!(
-        verdict.contains("completion_gate")
+        verdict.contains("held:")
             && verdict.contains("paused")
             && verdict.contains("work/blocker.txt"),
-        "the completion gate refuses the paused Run and names the pause: {verdict}"
+        "the held refusal refuses the paused Run and names the pause: {verdict}"
     );
     assert_eq!(
         fs::read(gated.root.join("work/t-900.md")).expect("re-read the document"),
         document_before,
-        "the gate's verdict came from Engine state, not from the document"
+        "the held refusal's verdict came from Engine state, not from the document"
     );
 
     // A blocker that escapes its declared root refuses, and refuses first.

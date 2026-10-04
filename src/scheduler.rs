@@ -2016,6 +2016,18 @@ composition is capped at one level (FDC-012)"
         let run_dir = self.run_dir()?;
         let state_path = run_dir.join("run.toml");
 
+        // WRS-003: spawn on this Run as parent reconciles before its own
+        // checks: a pending committed pause action finishes exactly once
+        // under the parent's Run lock here, then every later refusal -
+        // the held parent, an undeclared State, a spawning-less State -
+        // reports the Run's post-reconcile facts honestly. The lock
+        // releases before the mint/ledger transaction takes root then Run.
+        if crate::pause::planning_pending_entry(&run_dir) {
+            let (_root_lock, _run_lock) =
+                crate::lock::acquire_root_then_run(&engine_root, &parent_id)?;
+            reconcile_pending_pause(&run_dir)?;
+        }
+
         // Slow content and Git reads never belong to the shared mutation
         // scope. The exact snapshot supplies the parsed class, validated
         // mapping, and pin from one set of runbook bytes.
@@ -2056,7 +2068,8 @@ composition is capped at one level (FDC-012)"
             }
             if state.status == Status::Blocked {
                 return Err(StateError::new(format!(
-                    "spawn refused: run {parent_id} is held (status blocked): the blocked route admits no spawn"
+                    "spawn refused: run {parent_id} is held (status blocked): the blocked route \
+                     admits no spawn"
                 )));
             }
             let definition = class.states().get(&state.state).ok_or_else(|| {
@@ -2135,6 +2148,15 @@ composition is capped at one level (FDC-012)"
         let (root_lock, run_lock) = crate::lock::acquire_root_then_run(&engine_root, &parent_id)?;
         Self::refuse_flat_residue_for_workspace(&invoking_root, &engine_root, &child_workspace)?;
         run_lock.ensure_current()?;
+        // WRS-003: finish a pending committed pause action on the parent
+        // exactly once before this mutation of it proceeds.
+        reconcile_pending_pause(&run_dir)?;
+        if self.load_state_unlocked()?.status == Status::Blocked {
+            return Err(StateError::new(format!(
+                "spawn refused: run {parent_id} is held (status blocked): the blocked route \
+                 admits no spawn"
+            )));
+        }
         Self::validate_run_address_at(&engine_root, &parent_id)?;
         Self::verify_runbook_snapshot(&snapshot, &invoking_root, Some(&run_dir))?;
         crate::observe::operation("record");
@@ -2460,6 +2482,9 @@ the successor mint rollback is incomplete: {rollback}"
             crate::lock::acquire_root_then_run(&engine_root, &superseded)?;
         root_lock.ensure_current()?;
         predecessor_run_lock.ensure_current()?;
+        // WRS-003: finish a pending committed pause action on the
+        // superseded Run exactly once before superseding it.
+        reconcile_pending_pause(&superseded_run_dir)?;
         let Some((ledger_path, recorded_entry)) = recorded.as_ref() else {
             unreachable!("the top-level path returned above");
         };
@@ -3435,6 +3460,8 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
             workspace: workspace_text,
             bindings,
             sequence,
+            hold_occurrence: String::new(),
+            held_record_digest: String::new(),
             from_state: from_state.to_owned(),
             to_state: to_state.to_owned(),
             input: input.to_owned(),
@@ -3448,6 +3475,141 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
             review_set_digest: String::new(),
         };
         Ok(facts)
+    }
+
+    /// WRS-003: the Engine-owned facts a committed hold's pause record
+    /// carries beyond the motion itself, read from the Engine's own
+    /// records.
+    pub(crate) fn pause_context(&self) -> Result<crate::pause::PauseContext, StateError> {
+        let run_dir = self.run_dir()?;
+        let workspace = self.workspace_root()?.to_path_buf();
+        let workspace_text = std::fs::canonicalize(&workspace)
+            .unwrap_or(workspace)
+            .displayed();
+        let evidence = crate::pin::Evidence::load(&run_dir);
+        Ok(crate::pause::PauseContext {
+            class: self
+                .child_class
+                .clone()
+                .unwrap_or_else(|| "runbook".to_owned()),
+            workspace: workspace_text,
+            runbook_sha256: self.runbook_pin_of().to_owned(),
+            goal_identity: evidence
+                .goal_frozen
+                .clone()
+                .or_else(|| evidence.goal_baseline.clone())
+                .unwrap_or_default(),
+        })
+    }
+
+    /// WRS-003: the canonical resolution intent's facts - t-129's canonical
+    /// intent with the purpose slot carrying `resume` and, for this purpose
+    /// only, the hold occurrence and held-record digest slots filled from
+    /// the Engine's own records.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn resolution_facts(
+        &self,
+        engine_root: &Path,
+        run_id: &str,
+        declaration: &crate::review::ReviewDeclaration,
+        enrollment: &crate::review::Enrollment,
+        held_state: &str,
+        blocker: &str,
+        occurrence: u64,
+        held_record_digest: &str,
+    ) -> Result<crate::review::IntentFacts, String> {
+        let run_dir = self.run_dir().map_err(|error| error.to_string())?;
+        let mut facts = self
+            .motion_facts(
+                engine_root,
+                &run_dir,
+                run_id,
+                declaration,
+                enrollment,
+                "resume",
+                held_state,
+                held_state,
+                "",
+                blocker,
+                self.runbook_pin_of(),
+            )
+            .map_err(|failure| {
+                if failure.expected().is_empty() {
+                    failure.observed().to_owned()
+                } else {
+                    failure.expected().to_owned()
+                }
+            })?;
+        facts.hold_occurrence = occurrence.to_string();
+        facts.held_record_digest = held_record_digest.to_owned();
+        Ok(facts)
+    }
+
+    /// WRS-003: render the canonical resolution intent of the addressed
+    /// governed Run for `rtm intent --resume`. The inner `Err` carries the
+    /// resume family's own refusal line.
+    pub(crate) fn resume_view(
+        &self,
+        engine_root: &Path,
+        run_id: &str,
+    ) -> Result<Result<(crate::review::IntentFacts, crate::review::Enrollment), String>, StateError>
+    {
+        let run_dir = self.run_dir()?;
+        let Some(snapshot) = self.runbook_snapshot.as_ref() else {
+            return Err(StateError::new(format!(
+                "run {run_id}: no pinned runbook is loaded"
+            )));
+        };
+        let class = snapshot.class();
+        let declaration = self.governing_declaration(class, &run_dir, run_id)?;
+        let state = self.load_state()?;
+        if state.status != Status::Blocked {
+            return Ok(Err(format!(
+                "run {run_id} is not held (status {}); nothing to resume",
+                state.status
+            )));
+        }
+        if crate::pause::live_occurrence(&run_dir)
+            .map_err(|detail| StateError::new(format!("run {run_id}: {detail}")))?
+            .is_none()
+        {
+            return Ok(Err(format!(
+                "run {run_id} is held with no recorded pause occurrence; a hold from before \
+                 occurrences were recorded admits no resume"
+            )));
+        }
+        let (occurrence, record) = crate::pause::load_live_record_lenient(&run_dir)
+            .map_err(|detail| StateError::new(format!("run {run_id}: {detail}")))?;
+        if record.run != run_id || record.blocker != state.blocker {
+            return Ok(Err(format!(
+                "pause record {} is not a strict version-1 record: its recorded facts differ \
+                 from the live Run Record",
+                crate::pause::pauses_path(&run_dir, occurrence).displayed()
+            )));
+        }
+        let _quiet = crate::observe::quiet_records();
+        let enrollment = match crate::review::read_enrollment(
+            engine_root,
+            &declaration,
+            &Self::project_scope(engine_root),
+        ) {
+            Ok(enrollment) => enrollment,
+            Err(detail) => return Ok(Err(detail)),
+        };
+        let facts = match self.resolution_facts(
+            engine_root,
+            run_id,
+            &declaration,
+            &enrollment,
+            &state.state,
+            &state.blocker,
+            occurrence,
+            &record.held_context_sha256,
+        ) {
+            Ok(facts) => facts,
+            Err(detail) => return Ok(Err(detail)),
+        };
+        Ok(Ok((facts, enrollment)))
     }
 
     pub fn step(&mut self, request: StepRequest) -> Result<StepOutcome, StateError> {
@@ -3491,6 +3653,9 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
                  one with rtm start"
             )));
         }
+        // WRS-003: a pending committed pause action on this Run is finished
+        // exactly once under this lock before any later mutation proceeds.
+        reconcile_pending_pause(&run_dir)?;
         let (
             governance,
             guarded_state_bytes,
@@ -3529,6 +3694,28 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
                         recorded_state,
                         "run is terminal (status passed): no transition may proceed",
                         "a live, non-terminal Run",
+                    )],
+                ));
+            }
+            // WRS-003: a held Run refuses before guard evaluation, rendered
+            // through today's guard-failure shape with the paused-Run
+            // vocabulary its surfaces pin - the run id, the blocker, and
+            // the words `paused against`.
+            if state.status == Status::Blocked {
+                return Ok(refused_step(
+                    &run_id,
+                    vec![guard_failure(
+                        "held",
+                        String::new(),
+                        format!(
+                            "run {run_id} is paused against {} (status blocked)",
+                            if state.blocker.is_empty() {
+                                "an unnamed blocker"
+                            } else {
+                                state.blocker.as_str()
+                            }
+                        ),
+                        format!("a resumed Run (rtm resume --run {run_id})"),
                     )],
                 ));
             }
@@ -5273,6 +5460,22 @@ fn trace_refused(run_id: &str, failures: &[GuardFailure]) {
 
 /// One refused step outcome, its trace records fired before the held lock
 /// guard drops (t-128).
+/// WRS-003: finish a pending committed pause action for one Run exactly
+/// once under its Run lock, which the caller already holds. An unparseable
+/// entry refuses having modified nothing; a finishing failure reports the
+/// committed action as awaiting reconciliation. A clean Run answers `Ok`.
+fn reconcile_pending_pause(run_dir: &Path) -> Result<(), StateError> {
+    match crate::pause::reconcile(run_dir) {
+        Ok(_) => Ok(()),
+        Err(failure) if !failure.committed => Err(StateError::new(failure.detail)),
+        Err(failure) => Err(StateError::new(format!(
+            "committed with recovery pending: {}; a later mutating command finishes it \
+             exactly once",
+            failure.detail
+        ))),
+    }
+}
+
 fn refused_step(run_id: &str, failures: Vec<GuardFailure>) -> StepOutcome {
     trace_refused(run_id, &failures);
     StepOutcome::Refused { failures }
@@ -5294,6 +5497,7 @@ fn refusal_code(kind: &str) -> Option<&'static str> {
         "join" => "join",
         "scheduler" => "scheduler",
         "terminal" => "terminal",
+        "held" => "held",
         "goal drift" => "goal drift",
         "verdict" => "verdict",
         "transition" => "transition",

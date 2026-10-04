@@ -277,6 +277,23 @@ pub(crate) mod entries {
         crate::blocked::apply_hold_in(&Roots::resolve(root), plan)
     }
 
+    /// WRS-003: the resume route predicate: verify a resume without writing
+    /// anything.
+    pub fn plan_resume(
+        root: &Path,
+        request: &crate::blocked::ResumeRequest,
+    ) -> Result<crate::blocked::ResumePlan, crate::blocked::ResumeRefusal> {
+        crate::blocked::plan_resume_in(&Roots::resolve(root), request)
+    }
+
+    /// WRS-003: apply a verified resume plan.
+    pub fn apply_resume(
+        root: &Path,
+        plan: &crate::blocked::ResumePlan,
+    ) -> Result<(), crate::blocked::ResumeRefusal> {
+        crate::blocked::apply_resume_in(&Roots::resolve(root), plan)
+    }
+
     /// Diagnose a runbook through the roots selected for its addressed project.
     pub fn diagnose(path: &Path) -> Vec<crate::doctor::Finding> {
         let project = Roots::resolve(addressed_project_root(path));

@@ -1,0 +1,58 @@
+diff --git a/.ratmac/ratmac.toml b/.ratmac/ratmac.toml
+--- a/.ratmac/ratmac.toml
++++ b/.ratmac/ratmac.toml
+@@ -141,6 +141,33 @@ to = "close"
+ from = "close"
+ to = "gap-check"
+ 
++# WRS-003: the human-confirmed pause route for each working State.
++
++[[transitions]]
++from = "intake"
++to = "intake"
++blocked-route = true
++
++[[transitions]]
++from = "gap-check"
++to = "gap-check"
++blocked-route = true
++
++[[transitions]]
++from = "cut-tickets"
++to = "cut-tickets"
++blocked-route = true
++
++[[transitions]]
++from = "ticket-turns"
++to = "ticket-turns"
++blocked-route = true
++
++[[transitions]]
++from = "close"
++to = "close"
++blocked-route = true
++
+ # --- the ticket class: one turn, one work item -------------------------------
+ 
+ # PCR-007: the turn judges the item its caller bound, so the runbook carries no
+@@ -207,3 +234,20 @@ to = "damage"
+ [[classes.ticket.transitions]]
+ from = "damage"
+ to = "done"
++
++# WRS-003: the human-confirmed pause route for each working State.
++
++[[classes.ticket.transitions]]
++from = "tests"
++to = "tests"
++blocked-route = true
++
++[[classes.ticket.transitions]]
++from = "implement"
++to = "implement"
++blocked-route = true
++
++[[classes.ticket.transitions]]
++from = "damage"
++to = "damage"
++blocked-route = true

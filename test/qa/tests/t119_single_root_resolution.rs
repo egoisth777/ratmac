@@ -237,6 +237,41 @@ fn replace_own_paths(bytes: &[u8], home: &Path) -> Vec<u8> {
     bytes
 }
 
+/// In pause records only: assert every recorded `held-context-sha256`
+/// value is 64 lowercase hex digits, then replace each of those exact
+/// values with one fixed placeholder - the digest frames the record's
+/// workspace, which differs per fresh fixture (t-130 / WRS-003) - while
+/// every other byte, line endings included, is preserved and compared.
+fn normalize_held_context(bytes: &[u8]) -> Vec<u8> {
+    const MARKER: &[u8] = b"held-context-sha256 = \"";
+    let mut out = Vec::new();
+    let mut rest = bytes;
+    while let Some(at) = rest
+        .windows(MARKER.len())
+        .position(|window| window == MARKER)
+    {
+        let start = at + MARKER.len();
+        let end = rest[start..]
+            .iter()
+            .position(|byte| *byte == b'"')
+            .map(|offset| start + offset)
+            .expect("a closed held-context-sha256 value");
+        let value = &rest[start..end];
+        assert!(
+            value.len() == 64
+                && value
+                    .iter()
+                    .all(|byte| matches!(byte, b'a'..=b'f' | b'0'..=b'9')),
+            "the pause record's held-context-sha256 is 64 lowercase hex digits: {value:?}"
+        );
+        out.extend_from_slice(&rest[..start]);
+        out.extend_from_slice(b"<HELD-CONTEXT>");
+        rest = &rest[end..];
+    }
+    out.extend_from_slice(rest);
+    out
+}
+
 /// One fixture's tree reduced for comparison against another fixture's:
 /// only the fixture's own path spellings and, in spawn ledgers alone, the
 /// Git revision provenance (first proven to be that fixture's own HEAD)
@@ -250,6 +285,12 @@ fn comparable_tree(
     tree.into_iter()
         .map(|(key, bytes)| {
             let mut bytes = replace_own_paths(&bytes, home);
+            // t-130 / WRS-003: a pause record's held-context digest frames
+            // its own fixture's workspace, so only that value becomes the
+            // placeholder; every other byte of the record is compared.
+            if key.contains("/pauses/") && key.ends_with(".toml") {
+                bytes = normalize_held_context(&bytes);
+            }
             if key.ends_with("spawn-ledger") && !bytes.is_empty() {
                 let assigned = [b"spawned_at = \"", revision, b"\""].concat();
                 assert!(

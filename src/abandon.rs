@@ -232,6 +232,22 @@ pub struct AbandonPlan {
 
 /// Decide whether this project's Run may be retired. Writes nothing.
 /// The path-taking `plan_abandon` lives in `src/root.rs`.
+/// WRS-003: finish this Run's pending committed pause action exactly once,
+/// mapping failures exactly as the engine's other mutating commands do: an
+/// unparseable entry refuses having modified nothing, a finishing failure
+/// reports the committed action as awaiting reconciliation.
+fn reconcile_pause_journal(run_dir: &Path) -> Result<(), AbandonRefusal> {
+    match crate::pause::reconcile(run_dir) {
+        Ok(_) => Ok(()),
+        Err(failure) if !failure.committed => Err(refusal(failure.detail)),
+        Err(failure) => Err(refusal(format!(
+            "committed with recovery pending: {}; a later mutating command finishes it \
+             exactly once",
+            failure.detail
+        ))),
+    }
+}
+
 pub(crate) fn plan_abandon_in(
     roots: &crate::root::Roots,
     request: &AbandonRequest,
@@ -293,6 +309,21 @@ pub(crate) fn plan_abandon_in(
         }
         None => None,
     };
+
+    // WRS-003: the plan snapshots the Run Record, so a pending committed
+    // pause action finishes exactly once under this Run's lock BEFORE the
+    // plan is built: one abandon then finishes the entry and retires the
+    // Run against the finished state, and the apply-time reconcile stays
+    // as the race backstop. A retired Run keeps its entry untouched - its
+    // record is Engine-owned history.
+    if let Some(id) = run_id.as_deref() {
+        let run_dir = crate::Scheduler::runs_dir_at(&engine_root).join(id);
+        if run_dir.join("run.toml").is_file() && crate::pause::planning_pending_entry(&run_dir) {
+            let (_root_lock, _run_lock) = crate::lock::acquire_root_then_run(&engine_root, id)
+                .map_err(|error| refusal(error.to_string()))?;
+            reconcile_pause_journal(&run_dir)?;
+        }
+    }
 
     let root_lock_present = lock_path_present(&crate::lock::root_path(&engine_root))?;
     let run_lock_present = match run_id.as_deref() {
@@ -524,6 +555,12 @@ fn apply_live_abandon(
         .run
         .as_deref()
         .ok_or_else(|| refusal("abandon plan has no addressed Run"))?;
+    // WRS-003: abandon is one of the Run's mutating commands, so it first
+    // finishes any pending committed pause action exactly once under the
+    // locks the caller already holds - normally a no-op, because the plan
+    // already reconciled; kept as the race backstop.
+    let run_dir = engine_root.join("runs").join(run);
+    reconcile_pause_journal(&run_dir)?;
     revalidate_abandon_plan(engine_root, plan)?;
     run_lock
         .ensure_current()

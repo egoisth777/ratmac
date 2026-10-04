@@ -71,7 +71,10 @@ pub fn help(command: impl AsRef<str>) -> &'static str {
             "Usage: rtm hold --run <id> --blocker <reference beneath a declared root> --confirm \"hold <id>\" [--review <label>:<sig>]... [--approve <sig>]\n\nA human confirms pausing a Run that is blocked for an out-of-scope reason. The Run Record records the pause and its blocker reference, and the named Run routes along the Runbook's blocked route; it stays not-passed until a human resumes it. The blocker is an opaque reference: rtm checks that it exists beneath a declared root and judges nothing else about it. The confirmation phrase is typed at invocation; it is never read from a file.\n"
         }
         "intent" => {
-            "Usage: rtm intent --run <id> [--hold --blocker <ref>] [--review <label>:<sig>]... --out <path> [--help]\n\nRender the canonical intent a governed Run's next motion binds, for review and approval signatures to be taken over. The bytes cover the motion's every varying fact; reviewers sign them under the review namespace and the Approver signs them plus the review-set digest under the approval namespace. --hold renders the blocked-route motion instead of the ordinary one. The render writes one file at the caller-named --out, never under the Engine root, and changes no Run state.\n"
+            "Usage: rtm intent --run <id> [--hold --blocker <ref> | --resume] [--review <label>:<sig>]... --out <path> [--help]\n\nRender the canonical intent a governed Run's next motion binds, for review and approval signatures to be taken over. The bytes cover the motion's every varying fact; reviewers sign them under the review namespace and the Approver signs them plus the review-set digest under the approval namespace. --hold renders the blocked-route motion instead of the ordinary one; --resume renders the canonical resolution intent of a held Run, the bytes one ratmac-resume-v1 signature by the designated Approver covers. The render writes one file at the caller-named --out, never under the Engine root, and changes no Run state.\n"
+        }
+        "resume" => {
+            "Usage: rtm resume --run <id> --blocker <reference beneath a declared root> --confirm \"resume <id>\" [--resolution <sig>] [--help]\n\nA human resumes a held Run when its blocker clears. The given blocker must equal the recorded blocker exactly; the Engine verifies the authorization and its binding and never judges whether the external cause was fixed - editing or deleting the referenced record substitutes for nothing. The confirmation phrase is typed at invocation and never read from a file. Under a declared review policy the resume must also carry one ratmac-resume-v1 signature by the designated Approver over the canonical intent (rtm intent --run <id> --resume).\n"
         }
         "abandon" => {
             "Usage: rtm abandon --run <id> --confirm \"abandon <run id>\"\n\nA human retires a broken Run: rtm records a terminal abandoned event, then retires the admission state, the Run evidence, and the lock so a fresh Run can start. The confirmation phrase names the addressed run id (FDC-007), is typed at invocation, and is never read from a file. Retiring only a leftover lock - no Run admitted anywhere - omits --run and confirms with \"abandon <project directory name>\"; that phrase never retires a Run, and while any Run is admitted abandon without --run refuses and lists the roster. No bypass flag exists - a stale lock is retired through this path.\n"
@@ -98,9 +101,9 @@ pub fn help(command: impl AsRef<str>) -> &'static str {
 /// The one public route table (WEB-004): the verbs the general usage's
 /// `Commands:` line lists are exactly the commands `rtm` dispatches, and a
 /// verb added to dispatch is added here.
-const COMMANDS: [&str; 12] = [
-    "init", "start", "status", "step", "hold", "intent", "abandon", "spawn", "respawn", "doctor",
-    "scaffold", "skill",
+const COMMANDS: [&str; 13] = [
+    "init", "start", "status", "step", "hold", "intent", "resume", "abandon", "spawn", "respawn",
+    "doctor", "scaffold", "skill",
 ];
 
 /// The general usage, rendered from the route table so the table stays its
@@ -332,6 +335,10 @@ where
             Ok(0)
         }
         "intent" => intent(command_args, &roots, invocation, writer),
+        "resume" => {
+            resume(command_args, &roots, writer)?;
+            Ok(0)
+        }
         "abandon" => {
             abandon(command_args, &roots, writer)?;
             Ok(0)
@@ -613,6 +620,15 @@ fn status<W: Write>(
     if let Some(next) = crate::teach::status_next(&id, report.state.status) {
         writeln!(writer, "{next}")?;
     }
+    // WRS-003: a reader reports a pending committed pause action and
+    // repairs nothing.
+    if crate::pause::has_pending_entry(&roots.engine_root().join("runs").join(&id)) {
+        writeln!(
+            writer,
+            "Recovery pending: a committed pause action for this Run awaits reconciliation; \
+             the next mutating command on this Run finishes it exactly once."
+        )?;
+    }
     Ok(())
 }
 
@@ -718,14 +734,11 @@ fn hold<W: Write>(
         approval_count,
     };
     let plan = if governed {
-        crate::blocked::plan_authorized_hold_in(roots, &request, &options)
-            .map_err(|refusal| CliError::new(format!("hold refused; {refusal}")))?
+        crate::blocked::plan_authorized_hold_in(roots, &request, &options).map_err(hold_failure)?
     } else {
-        crate::blocked::plan_hold_in(roots, &request)
-            .map_err(|refusal| CliError::new(format!("hold refused; {refusal}")))?
+        crate::blocked::plan_hold_in(roots, &request).map_err(hold_failure)?
     };
-    crate::blocked::apply_hold_in(roots, &plan)
-        .map_err(|refusal| CliError::new(format!("hold refused; {refusal}")))?;
+    crate::blocked::apply_hold_in(roots, &plan).map_err(hold_failure)?;
     writeln!(
         writer,
         "rtm: run {} paused against {}; routed {} -> {}",
@@ -737,6 +750,166 @@ fn hold<W: Write>(
     writeln!(
         writer,
         "The Run is not passed; a human resumes it when the blocker clears."
+    )?;
+    Ok(())
+}
+
+/// WRS-003: render one hold refusal - an unchanged refusal keeps today's
+/// family line; a committed action reports recovery pending instead, never
+/// a false unchanged refusal.
+fn hold_failure(refusal: crate::blocked::HoldRefusal) -> CliError {
+    if refusal.committed {
+        CliError::new(format!(
+            "hold: committed with recovery pending: {}; a later mutating command finishes it \
+             exactly once",
+            refusal.reason
+        ))
+    } else {
+        CliError::new(format!("hold refused; {refusal}"))
+    }
+}
+
+/// WRS-003: render one resume refusal, exactly as the hold family renders
+/// its own.
+fn resume_failure(refusal: crate::blocked::ResumeRefusal) -> CliError {
+    if refusal.committed {
+        CliError::new(format!(
+            "resume: committed with recovery pending: {}; a later mutating command finishes it \
+             exactly once",
+            refusal.reason
+        ))
+    } else {
+        CliError::new(format!("resume refused; {refusal}"))
+    }
+}
+
+/// WRS-003: the human-confirmed resume of a held Run.
+///
+/// Every condition is checked before the first write, so a refusal leaves
+/// Scheduler-owned files byte-identical.
+fn resume<W: Write>(
+    args: &[String],
+    roots: &crate::root::Roots,
+    writer: &mut W,
+) -> Result<(), CliError> {
+    let mut blocker: Option<String> = None;
+    let mut confirmation: Option<String> = None;
+    let mut run: Option<String> = None;
+    let mut resolution: Option<String> = None;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--run" => {
+                let Some(value) = args
+                    .get(index + 1)
+                    .filter(|value| !value.starts_with("--"))
+                    .cloned()
+                else {
+                    let roster = roster_line(roots)?;
+                    return Err(CliError::refusal(format!(
+                        "resume: --run needs a run id; {}{}",
+                        roster.line, roster.rows
+                    )));
+                };
+                run = Some(value);
+                index += 2;
+            }
+            "--blocker" => {
+                blocker = Some(
+                    args.get(index + 1)
+                        .filter(|value| !value.starts_with("--"))
+                        .cloned()
+                        .ok_or_else(|| {
+                            CliError::new(
+                                "resume: --blocker needs a reference beneath a declared root",
+                            )
+                        })?,
+                );
+                index += 2;
+            }
+            "--confirm" => {
+                confirmation = Some(
+                    args.get(index + 1)
+                        .filter(|value| !value.starts_with("--"))
+                        .cloned()
+                        .ok_or_else(|| {
+                            CliError::new("resume: --confirm needs the exact confirmation phrase")
+                        })?,
+                );
+                index += 2;
+            }
+            "--resolution" => {
+                resolution = Some(
+                    args.get(index + 1)
+                        .filter(|value| !value.starts_with("--"))
+                        .cloned()
+                        .ok_or_else(|| {
+                            CliError::new("resume: --resolution needs the signature file's path")
+                        })?,
+                );
+                index += 2;
+            }
+            other => {
+                return Err(CliError::new(format!(
+                    "resume: unexpected extra argument {other}"
+                )))
+            }
+        }
+    }
+
+    // WRS-003: a resolution signature addresses nothing on a Run with no
+    // recorded review policy - an invocation refusal before the plan's own
+    // checks change it, mirroring hold's authorization options. A run id
+    // that resolves nowhere falls through to the plan's addressing
+    // refusals.
+    let offered = resolution.is_some();
+    let id_on_roster = if offered {
+        run.as_deref()
+            .filter(|id| !id.is_empty())
+            .map(|id| {
+                Scheduler::run_roster_with_roots(roots)
+                    .map(|roster| roster.iter().any(|entry| entry == id))
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false)
+    } else {
+        false
+    };
+    let governed = id_on_roster && run_is_governed(roots, run.as_deref().unwrap_or_default());
+    if offered && id_on_roster && !governed {
+        return Err(CliError::refusal(
+            "resume: --resolution addresses no declared review policy",
+        ));
+    }
+    let request = crate::blocked::ResumeRequest {
+        blocker,
+        confirmation,
+        run,
+        resolution: if governed { resolution } else { None },
+    };
+    let plan = crate::blocked::plan_resume_in(roots, &request).map_err(|refusal| {
+        if refusal.committed {
+            CliError::new(format!(
+                "resume: committed with recovery pending: {}; a later mutating command finishes \
+                 it exactly once",
+                refusal.reason
+            ))
+        } else {
+            CliError::new(format!("resume refused; {refusal}"))
+        }
+    })?;
+    crate::blocked::apply_resume_in(roots, &plan).map_err(resume_failure)?;
+    writeln!(
+        writer,
+        "rtm: run {} resumed against {}; occurrence {} cleared",
+        plan.run_id(),
+        plan.blocker(),
+        plan.occurrence()
+    )?;
+    writeln!(
+        writer,
+        "The Run executes again at the same State; later motion still requires its normal \
+         fresh checks."
     )?;
     Ok(())
 }
@@ -792,6 +965,7 @@ fn intent<W: Write>(
         Ok((label.to_owned(), signature.to_owned()))
     };
     let mut hold = false;
+    let mut resume = false;
     let mut blocker: Option<String> = None;
     let mut out: Option<String> = None;
     let mut rest: Vec<String> = Vec::new();
@@ -807,6 +981,10 @@ fn intent<W: Write>(
             }
             "--hold" => {
                 hold = true;
+                index += 1;
+            }
+            "--resume" => {
+                resume = true;
                 index += 1;
             }
             "--blocker" => {
@@ -856,6 +1034,12 @@ fn intent<W: Write>(
         }
     }
 
+    // WRS-003: the two intent purposes name different intents.
+    if hold && resume {
+        return Err(refused(
+            "--hold and --resume name different intents; pass exactly one".to_owned(),
+        ));
+    }
     let id = addressed_run_with_roots("intent", &rest, roots)?;
     // WRA-001: governance is recorded fact; an ungoverned Run has no
     // canonical intent to render.
@@ -870,7 +1054,16 @@ fn intent<W: Write>(
     let state = scheduler
         .load_state()
         .map_err(|error| hard_error("intent", error))?;
-    if state.status == crate::model::Status::Passed {
+    if resume {
+        // WRS-003: the resolution intent exists only for a held Run; the
+        // refusal is the resume family's own not-held detail.
+        if state.status != crate::model::Status::Blocked {
+            return Err(refused(format!(
+                "run {id} is not held (status {}); nothing to resume",
+                state.status
+            )));
+        }
+    } else if state.status == crate::model::Status::Passed {
         // Today's terminal refusal, in the guard's own shape, so the
         // render's refusals never invent a second wording.
         return Err(refused(
@@ -882,8 +1075,7 @@ fn intent<W: Write>(
             )
             .to_string(),
         ));
-    }
-    if state.status == crate::model::Status::Blocked {
+    } else if state.status == crate::model::Status::Blocked {
         return Err(refused(format!(
             "run {id} is already blocked against {}",
             if state.blocker.is_empty() {
@@ -971,13 +1163,22 @@ fn intent<W: Write>(
         }
     })?;
     let blocker = blocker.unwrap_or_default();
-    let outcome = scheduler
-        .intent_view(engine_root, &id, hold, &blocker)
-        .map_err(|error| hard_error("intent", error))?;
+    let outcome = if resume {
+        scheduler
+            .resume_view(engine_root, &id)
+            .map_err(|error| hard_error("intent", error))?
+    } else {
+        scheduler
+            .intent_view(engine_root, &id, hold, &blocker)
+            .map_err(|error| hard_error("intent", error))?
+    };
     let (mut facts, _enrollment) = outcome.map_err(refused)?;
     // With review signatures offered, the render binds their review-set
     // digest: that is the approval intent the Approver signs.
-    if !reviews.is_empty() {
+    // WRS-003: the resume purpose renders the canonical resolution
+    // intent WRS-003 pins; its review-set digest stays empty, so
+    // offered review signatures never bind it.
+    if !reviews.is_empty() && !resume {
         let mut offered = Vec::new();
         for (label, signature) in &reviews {
             let bytes = fs::read(signature).map_err(|error| {
@@ -1358,7 +1559,10 @@ fn doctor<W: Write>(
     Scheduler::refuse_flat_residue_with_roots(&roots)
         .map_err(|error| CliError::new(format!("doctor: {error}")))?;
     let runbook_path = roots.machine_class_path();
-    let diagnosis = crate::doctor::diagnose_with_roots(&runbook_path, &roots);
+    let mut diagnosis = crate::doctor::diagnose_with_roots(&runbook_path, &roots);
+    // WRS-003: a reader reports a pending committed pause action and
+    // repairs nothing - one warning finding per pending Run.
+    diagnosis.extend(crate::doctor::pending_pause_findings(roots.engine_root()));
     if json {
         write_findings(&diagnosis, true, writer)?;
         return Ok(diagnosis.exit_code());

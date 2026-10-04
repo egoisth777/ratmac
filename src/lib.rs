@@ -19,6 +19,7 @@ pub mod mint;
 pub mod model;
 mod observe;
 pub mod ownership;
+pub mod pause;
 pub mod pin;
 pub mod receipt;
 pub mod review;
