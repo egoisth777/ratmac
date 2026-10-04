@@ -22,7 +22,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use ratmac_qa::snapshot::sha256_file;
 use ratmac_qa::support::{capture, command, CaptureOptions, Snapshot, TempTree};
-use ratmac_qa::turn::{Turn, ITEM_RECORDS, TRUNK};
+use ratmac_qa::turn::{Turn, ITEM_RECORDS, RERUN_MARKER, TRUNK};
 use sha2::{Digest, Sha256};
 
 /// The item string every fixture addresses.
@@ -311,9 +311,63 @@ fn manifest_for(global: &Path, turn: &Turn, commit: &str, target: &str) -> Strin
     )
 }
 
+// --- t-131's review/proofs setup (a fixture-only adjustment) -------------
+
+/// t-131 (WCP-004) inserts a gate into the checkpoint verb: the freeze
+/// accepts only reviewed, proven green work, so every supported checkpoint
+/// below first records an accepted review and earns the proof receipt. The
+/// fixture's declared `lanes-rerun` command is already a trivial trace
+/// command - this commits its root marker to the fixture's ignore list
+/// first, so earning the proof set changes no reviewed row. A fixture-only
+/// adjustment citing t-131's Observable Output; no refusal text, manifest
+/// byte, or success byte in this suite changes.
+fn declare_trace_marker_ignored(global: &Path, turn: &Turn) {
+    let gitignore = turn.root.join(".gitignore");
+    let current = fs::read_to_string(&gitignore).expect("read the fixture's ignore list");
+    if current.lines().any(|line| line == RERUN_MARKER) {
+        return;
+    }
+    fs::write(&gitignore, format!("{current}{RERUN_MARKER}\n"))
+        .expect("ignore the declared trace marker");
+    git_ok(global, &turn.root, &["add", ".gitignore"]);
+    git_ok(
+        global,
+        &turn.root,
+        &["commit", "-m", "fixture: ignore the declared trace marker"],
+    );
+}
+
+/// The accepted review and the earned proof receipt the inserted checkpoint
+/// gate demands, recorded over the fixture's current green bytes before
+/// each freeze - a renewed freeze re-records and re-earns, exactly the
+/// renewed-review rule of t-131 (WCP-004).
+fn review_and_proofs(global: &Path, turn: &Turn) {
+    let review = turn_isolated(
+        global,
+        &turn.root,
+        &["review", "-Item", ITEM, "-Verdict", "accepted"],
+    );
+    assert!(
+        review.status.success(),
+        "t125 t-131 setup: the accepted review is recorded over the green bytes (the review verb must exist): {}{}",
+        String::from_utf8_lossy(&review.stdout),
+        String::from_utf8_lossy(&review.stderr)
+    );
+    let proofs = turn_isolated(global, &turn.root, &["proofs", "-Item", ITEM]);
+    assert!(
+        proofs.status.success(),
+        "t125 t-131 setup: the proof set is earned behind the accepted review (the proofs verb must exist): {}{}",
+        String::from_utf8_lossy(&proofs.stdout),
+        String::from_utf8_lossy(&proofs.stderr)
+    );
+}
+
 /// A supported checkpoint: exit 0, stderr empty, t-124's exact success
 /// report, and the manifest's exact bytes recording the safety commit.
 fn checkpoint_success(global: &Path, turn: &Turn, head: &str, targets: &[&str], what: &str) {
+    // t-131 (WCP-004): the inserted checkpoint gate demands the accepted
+    // review and the earned proof receipt over the current green bytes.
+    review_and_proofs(global, turn);
     let spelling = targets.join(",");
     let frozen = turn_isolated(
         global,
@@ -409,6 +463,9 @@ fn restore_success(global: &Path, turn: &Turn, head: &str, count: usize, what: &
 fn wcpv_016() {
     let (_isolation, global) = isolation("wcpv016");
     let turn = Turn::new("wcpv016");
+    // t-131 (WCP-004): the trace marker joins the ignore list first, so the
+    // earned proof set changes no reviewed row.
+    declare_trace_marker_ignored(&global, &turn);
     status_control(&global, &turn);
 
     let readme = turn.root.join("README.md");
@@ -551,6 +608,9 @@ fn wcpv_017() {
 
     // --- the positive control, then the source-mode twins on one fixture ---
     let turn = Turn::new("wcpv017a");
+    // t-131 (WCP-004): the trace marker joins the ignore list first, so the
+    // earned proof set changes no reviewed row.
+    declare_trace_marker_ignored(&global, &turn);
     status_control(&global, &turn);
     let readme = turn.root.join("README.md");
     let manifest = manifest_path(&turn);
@@ -775,6 +835,9 @@ fn wcpv_017() {
 
     // --- the stale twin on its own fixture ------------------------------------
     let stale_fixture = Turn::new("wcpv017stale");
+    // t-131 (WCP-004): the trace marker joins the ignore list first, so the
+    // earned proof set changes no reviewed row.
+    declare_trace_marker_ignored(&global, &stale_fixture);
     green_commit(&global, &stale_fixture, "# fixture one\n", SAFETY_SUBJECT);
     let stale_x = stale_fixture.head_of(TRUNK);
     checkpoint_success(
@@ -866,6 +929,9 @@ fn wcpv_017() {
     assert_eq!(configs(&global, &wrong_item), config_before);
 
     let unsafe_restore = Turn::new("wcpv017restoresubject");
+    // t-131 (WCP-004): the trace marker joins the ignore list first, so the
+    // earned proof set changes no reviewed row.
+    declare_trace_marker_ignored(&global, &unsafe_restore);
     green_commit(&global, &unsafe_restore, "# fixture one\n", SAFETY_SUBJECT);
     let subject_x = unsafe_restore.head_of(TRUNK);
     checkpoint_success(
@@ -929,6 +995,9 @@ fn wcpv_017() {
 
     // --- unrelated unsaved work, found directly and through the pause seam ----
     let dirt = Turn::new("wcpv017dirt");
+    // t-131 (WCP-004): the trace marker joins the ignore list first, so the
+    // earned proof set changes no reviewed row.
+    declare_trace_marker_ignored(&global, &dirt);
     green_commit(&global, &dirt, "# fixture one\n", SAFETY_SUBJECT);
     let dirt_x = dirt.head_of(TRUNK);
     checkpoint_success(&global, &dirt, &dirt_x, &["README.md"], "the dirt twin");
@@ -975,6 +1044,9 @@ fn wcpv_017() {
     // validation at `after-validate`, the dirt lands while it holds, and the
     // released verb refuses before its first mutation.
     let paused = Turn::new("wcpv017pause");
+    // t-131 (WCP-004): the trace marker joins the ignore list first, so the
+    // earned proof set changes no reviewed row.
+    declare_trace_marker_ignored(&global, &paused);
     green_commit(&global, &paused, "# fixture one\n", SAFETY_SUBJECT);
     let pause_x = paused.head_of(TRUNK);
     checkpoint_success(&global, &paused, &pause_x, &["README.md"], "the pause twin");
@@ -1028,6 +1100,9 @@ fn wcpv_017() {
 fn wcpv_018() {
     let (isolation, global) = isolation("wcpv018");
     let turn = Turn::new("wcpv018");
+    // t-131 (WCP-004): the trace marker joins the ignore list first, so the
+    // earned proof set changes no reviewed row.
+    declare_trace_marker_ignored(&global, &turn);
     status_control(&global, &turn);
 
     let readme = turn.root.join("README.md");

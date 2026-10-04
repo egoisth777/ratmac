@@ -1,0 +1,10 @@
+planned-test-id = "WCPV-010"
+ticket-id = "t-131"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t131_review_before_proofs wcpv_010 -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t131_review_before_proofs.rs"
+test-name = "wcpv_010"
+exit-status = 101
+output-sha256 = "13be2a2fca0b681b2dfb0b5729d3e534ef2313f5c8617ac3214ff6e1e53705c7"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t131_review_before_proofs.rs (target\\debug\\deps\\t131_review_before_proofs-dc27447120466b16.exe)\n\nrunning 1 test\ntest wcpv_010 ... FAILED\n\nfailures:\n\n---- wcpv_010 stdout ----\n\nthread 'wcpv_010' (50740) panicked at test\\qa\\tests\\t131_review_before_proofs.rs:659:5:\nt131 WCPV-010: review records the rejected verdict (the review verb and its -Verdict parameter must exist): turn.ps1: A parameter cannot be found that matches parameter name 'Verdict'.\r\n\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    wcpv_010\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 2.52s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t131_review_before_proofs`\n"
