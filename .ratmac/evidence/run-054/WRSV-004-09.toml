@@ -1,0 +1,10 @@
+planned-test-id = "WRSV-004-09"
+ticket-id = "t-132"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t132_rule_fix_recovery wrsv_004_09 -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t132_rule_fix_recovery.rs"
+test-name = "wrsv_004_09"
+exit-status = 101
+output-sha256 = "1581c7d51cc763c83bf04ea4fb8fe43ffe8859293147aa9be8147de90c900fa7"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t132_rule_fix_recovery.rs (target\\debug\\deps\\t132_rule_fix_recovery-6681b79758dafe53.exe)\n\nrunning 1 test\ntest wrsv_004_09 ... FAILED\n\nfailures:\n\n---- wrsv_004_09 stdout ----\n\nthread 'wrsv_004_09' (32380) panicked at test\\qa\\tests\\t132_rule_fix_recovery.rs:845:9:\nassertion `left == right` failed: WRS-004: render the w9-x-first-intent intent for run-001: intent: unexpected argument \"--recover\"; usage: rtm intent --run <id>\nnext: rtm status --run run-001\n  left: 2\n right: 0\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    wrsv_004_09\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 8 filtered out; finished in 1.68s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t132_rule_fix_recovery`\n"

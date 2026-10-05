@@ -1,0 +1,10 @@
+planned-test-id = "WRSV-004-01"
+ticket-id = "t-132"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t132_rule_fix_recovery wrsv_004_01 -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t132_rule_fix_recovery.rs"
+test-name = "wrsv_004_01"
+exit-status = 101
+output-sha256 = "b536b7c579cda47540fae24304814bb0107dc331e83506328398488f71a85dfd"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t132_rule_fix_recovery.rs (target\\debug\\deps\\t132_rule_fix_recovery-6681b79758dafe53.exe)\n\nrunning 1 test\ntest wrsv_004_01 ... FAILED\n\nfailures:\n\n---- wrsv_004_01 stdout ----\n\nthread 'wrsv_004_01' (51092) panicked at test\\qa\\tests\\t132_rule_fix_recovery.rs:1173:5:\nassertion `left == right` failed: WRS-004: the route table lists recover after resume\n  left: \"Commands: init, start, status, step, hold, intent, resume, abandon, spawn, respawn, doctor, scaffold, skill\"\n right: \"Commands: init, start, status, step, hold, intent, resume, recover, abandon, spawn, respawn, doctor, scaffold, skill\"\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    wrsv_004_01\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 8 filtered out; finished in 2.37s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t132_rule_fix_recovery`\n"

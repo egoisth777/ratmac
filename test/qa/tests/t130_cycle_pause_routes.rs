@@ -2376,12 +2376,14 @@ fn wrsv_003_06() {
     );
 
     // The one public route table gains resume after intent.
+    // t-132 (WRS-004): the route table gains recover after resume, so this
+    // pin grows the verb in its declared position.
     let usage = rtm(cycle.root(), &[]);
     assert_eq!(usage.code, 0);
     assert!(
         usage.stdout.contains(
-            "Commands: init, start, status, step, hold, intent, resume, abandon, \
-                       spawn, respawn, doctor, scaffold, skill\n"
+            "Commands: init, start, status, step, hold, intent, resume, recover, \
+                      abandon, spawn, respawn, doctor, scaffold, skill\n"
         ),
         "WRS-003: the general usage's Commands line gains resume after intent: {}",
         usage.stdout
@@ -2412,8 +2414,10 @@ fn wrsv_003_06() {
     assert_eq!(intent_help.code, 0);
     assert!(
         intent_help.stdout.contains(
-            "Usage: rtm intent --run <id> [--hold --blocker <ref> | --resume] \
-             [--review <label>:<sig>]... --out <path> [--help]"
+            // t-132 (WRS-004): the recover purpose joins the intent usage as
+            // the third alternative, carrying its optional --enrollment.
+            "Usage: rtm intent --run <id> [--hold --blocker <ref> | --resume | --recover \
+             [--enrollment <path>]] [--review <label>:<sig>]... --out <path> [--help]"
         ),
         "WRS-003: intent's usage line grows the --resume form: {}",
         intent_help.stdout

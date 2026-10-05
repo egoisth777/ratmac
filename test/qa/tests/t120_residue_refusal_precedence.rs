@@ -1740,6 +1740,21 @@ fn webv_013() {
             ],
             Shape::Presplit(".arca/state.toml"),
         ),
+        // t-132 (WRS-004): `recover` joins the route table after `resume`;
+        // planted residue still refuses first, mirroring `resume`.
+        invoking(
+            "recover",
+            vec![
+                "recover".into(),
+                "--run".into(),
+                "run-001".into(),
+                "--decision".into(),
+                ".arca/ticket/recover-decision.sig".into(),
+                "--confirm".into(),
+                "recover run-999".into(),
+            ],
+            Shape::Presplit(".arca/state.toml"),
+        ),
         invoking(
             "abandon",
             vec![
