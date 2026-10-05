@@ -344,9 +344,14 @@ pub(crate) fn plan_hold_in(
     run_lock
         .ensure_current()
         .map_err(|error| refusal(error.to_string()))?;
+    // WRS-004: a committed amendment whose history event is still missing
+    // refuses even this plan's proof until a repeated rtm recover
+    // reconciles it.
+    let run_dir = engine_root.join("runs").join(run_id);
+    crate::recover::require_complete_history(&engine_root, run_id)
+        .map_err(|error| refusal(error.to_string()))?;
     // FDC-006: a roster entry without a Run Record is a retired run -
     // terminal, never resurrected - decided here under the held claim.
-    let run_dir = engine_root.join("runs").join(run_id);
     if !run_dir.join("run.toml").is_file() {
         return Err(refusal(format!(
             "run {run_id} is terminal: its admission state is retired and no \
@@ -586,6 +591,9 @@ pub(crate) fn apply_hold_in(
         .map_err(|error| refusal(error.to_string()))?;
     run_lock
         .ensure_current()
+        .map_err(|error| refusal(error.to_string()))?;
+    // WRS-004: an amendment pending its history event refuses this apply.
+    crate::recover::require_complete_history(&engine_root, &plan.run_id)
         .map_err(|error| refusal(error.to_string()))?;
 
     // WRS-003: reconcile any pending committed entry under this lock before
@@ -956,6 +964,9 @@ pub(crate) fn plan_resume_in(
     run_lock
         .ensure_current()
         .map_err(|error| resume_refusal(error.to_string()))?;
+    // WRS-004: an amendment pending its history event refuses resume.
+    crate::recover::require_complete_history(&engine_root, run_id)
+        .map_err(|error| resume_refusal(error.to_string()))?;
     // FDC-006: a roster entry without a Run Record is a retired run.
     if !run_dir.join("run.toml").is_file() {
         return Err(resume_refusal(format!(
@@ -1088,6 +1099,9 @@ pub(crate) fn apply_resume_in(
         .map_err(|error| resume_refusal(error.to_string()))?;
     run_lock
         .ensure_current()
+        .map_err(|error| resume_refusal(error.to_string()))?;
+    // WRS-004: an amendment pending its history event refuses this apply.
+    crate::recover::require_complete_history(&engine_root, &plan.run_id)
         .map_err(|error| resume_refusal(error.to_string()))?;
 
     // WRS-003: reconcile under this lock first; a matching pending entry is

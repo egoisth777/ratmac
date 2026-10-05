@@ -261,6 +261,23 @@ pub(crate) mod entries {
         crate::abandon::apply_abandon_in(&Roots::resolve(root), plan)
     }
 
+    /// WRS-004 (t-132): the recovery route predicate: verify a rule fix
+    /// recovery without writing anything.
+    pub fn plan_recover(
+        root: &Path,
+        request: &crate::recover::RecoverRequest,
+    ) -> Result<crate::recover::RecoverPlan, crate::recover::RecoverFailure> {
+        crate::recover::plan_recover_in(&Roots::resolve(root), request)
+    }
+
+    /// WRS-004: apply a verified recovery plan.
+    pub fn apply_recover(
+        root: &Path,
+        plan: &crate::recover::RecoverPlan,
+    ) -> Result<crate::recover::Recovered, crate::recover::RecoverFailure> {
+        crate::recover::apply_recover_in(&Roots::resolve(root), plan)
+    }
+
     /// The `p5-blocked` route predicate: verify a hold without writing anything.
     pub fn plan_hold(
         root: &Path,

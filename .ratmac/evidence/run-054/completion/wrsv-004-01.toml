@@ -1,0 +1,10 @@
+ticket-id = "t-132"
+check-id = "WRSV-004-01"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test t132_rule_fix_recovery -- --test-threads=1"
+working-dir = "."
+exit-status = 0
+output-sha256 = "5d6919696e3bef5bf712c43c76c472bed12b0988761f8a846d810ab4e9e47a21"
+tree-roots = ["src","test/qa","test-hidden","tools","Cargo.toml","Cargo.lock",".gitignore",".ratmac/lanes.toml"]
+tree-sha256 = "2320444a5c3370ea6d8db307f1d189ab42319f9467eba6a9a6b2d03fb3949474"
+output = "\nrunning 9 tests\ntest wrsv_004_01 ... ok\ntest wrsv_004_02 ... ok\ntest wrsv_004_03 ... ok\ntest wrsv_004_04 ... ok\ntest wrsv_004_05 ... ok\ntest wrsv_004_06 ... ok\ntest wrsv_004_07 ... ok\ntest wrsv_004_08 ... ok\ntest wrsv_004_09 ... ok\n\ntest result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 91.16s\n\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s\n     Running tests\\t132_rule_fix_recovery.rs (target\\debug\\deps\\t132_rule_fix_recovery-6681b79758dafe53.exe)\n"

@@ -236,6 +236,13 @@ pub struct AbandonPlan {
 /// mapping failures exactly as the engine's other mutating commands do: an
 /// unparseable entry refuses having modified nothing, a finishing failure
 /// reports the committed action as awaiting reconciliation.
+/// WRS-004: a committed amendment whose history event is still missing
+/// refuses even retirement until a repeated `rtm recover` reconciles it.
+fn reconcile_amendment_history(engine_root: &Path, run_id: &str) -> Result<(), AbandonRefusal> {
+    crate::recover::require_complete_history(engine_root, run_id)
+        .map_err(|error| refusal(error.to_string()))
+}
+
 fn reconcile_pause_journal(run_dir: &Path) -> Result<(), AbandonRefusal> {
     match crate::pause::reconcile(run_dir) {
         Ok(_) => Ok(()),
@@ -321,6 +328,7 @@ pub(crate) fn plan_abandon_in(
         if run_dir.join("run.toml").is_file() && crate::pause::planning_pending_entry(&run_dir) {
             let (_root_lock, _run_lock) = crate::lock::acquire_root_then_run(&engine_root, id)
                 .map_err(|error| refusal(error.to_string()))?;
+            reconcile_amendment_history(&engine_root, id)?;
             reconcile_pause_journal(&run_dir)?;
         }
     }
@@ -560,6 +568,7 @@ fn apply_live_abandon(
     // locks the caller already holds - normally a no-op, because the plan
     // already reconciled; kept as the race backstop.
     let run_dir = engine_root.join("runs").join(run);
+    reconcile_amendment_history(engine_root, plan.run.as_deref().unwrap_or_default())?;
     reconcile_pause_journal(&run_dir)?;
     revalidate_abandon_plan(engine_root, plan)?;
     run_lock

@@ -214,6 +214,51 @@ pub(crate) fn pending_pause_findings(engine_root: &Path) -> Vec<Finding> {
         .collect()
 }
 
+/// WRS-004: one warning finding per Run whose amendment head is committed
+/// with its history event missing, and one error finding per Run whose
+/// amendment chain does not validate. Readers report and never repair.
+pub(crate) fn pending_amendment_findings(engine_root: &Path) -> Vec<Finding> {
+    let runs = engine_root.join("runs");
+    let Ok(entries) = std::fs::read_dir(&runs) else {
+        return Vec::new();
+    };
+    let mut findings = Vec::new();
+    let mut pending: Vec<(String, u64)> = Vec::new();
+    for entry in entries.flatten() {
+        let run_id = crate::root::component(entry.file_name());
+        let run_dir = entry.path();
+        if !run_dir.join(crate::recover::AMENDMENTS_DIR).is_dir() {
+            continue;
+        }
+        match crate::recover::validate_chain(&run_dir, &run_id) {
+            Ok(Some(head)) => {
+                if crate::recover::pending_amendment(engine_root, &run_dir).is_some() {
+                    pending.push((run_id, head.sequence));
+                }
+            }
+            Ok(None) => {}
+            Err(error) => findings.push(Finding::error(
+                "RB903",
+                format!("run {run_id:?}"),
+                error.to_string(),
+            )),
+        }
+    }
+    pending.sort();
+    let engine_root = crate::root::displayed(engine_root);
+    for (run_id, sequence) in pending {
+        findings.push(Finding::warning(
+            "RB902",
+            format!("run {run_id:?}"),
+            format!(
+                "amendment pending: {engine_root}/runs/{run_id}/amendments/{sequence}.toml is \
+                 committed with no history event; a repeated rtm recover reconciles it"
+            ),
+        ));
+    }
+    findings
+}
+
 /// The findings for a runbook under its addressed project's roots; the
 /// path-taking `diagnose` lives in `src/root.rs`.
 pub(crate) fn diagnose_in(path: &Path, roots: &crate::root::Roots) -> Vec<Finding> {

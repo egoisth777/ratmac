@@ -48,7 +48,7 @@ pub const APPROVE_NAMESPACE: &str = "ratmac-approve-v1";
 pub const RESUME_NAMESPACE: &str = "ratmac-resume-v1";
 
 /// The canonical intent's framing prefix.
-const INTENT_PREFIX: &[u8] = b"ratmac-authorization-v1";
+pub(crate) const INTENT_PREFIX: &[u8] = b"ratmac-authorization-v1";
 /// The policy digest's framing prefix.
 const POLICY_PREFIX: &[u8] = b"ratmac-policy-v1";
 /// The review-set digest's framing prefix.
@@ -571,7 +571,7 @@ fn base64_decode(text: &str) -> Option<Vec<u8>> {
 /// The public key embedded in one OpenSSH detached signature's armor, as
 /// SSH wire bytes - the same bytes the base64 body of a declared key line
 /// decodes to. Attribution compares this material, never a signer field.
-fn signature_key_material(signature: &[u8]) -> Option<Vec<u8>> {
+pub(crate) fn signature_key_material(signature: &[u8]) -> Option<Vec<u8>> {
     let text = std::str::from_utf8(signature).ok()?;
     let mut lines = text.lines();
     let first = lines.next()?;
@@ -687,24 +687,32 @@ pub(crate) fn read_enrollment(
 }
 
 /// One parsed enrollment manifest.
-struct Manifest {
-    project_scope: String,
-    policy_digest: String,
-    minimum_reviews: u64,
-    approver: String,
-    approver_may_review: bool,
-    verifier_path: PathBuf,
-    verifier_digest: String,
-    signers_path: PathBuf,
-    signers_digest: String,
-    builder_actor: String,
-    builder_keys: Vec<String>,
-    reviewers: Vec<(String, String)>,
+pub(crate) struct Manifest {
+    pub(crate) project_scope: String,
+    pub(crate) policy_digest: String,
+    pub(crate) minimum_reviews: u64,
+    pub(crate) approver: String,
+    pub(crate) approver_may_review: bool,
+    pub(crate) verifier_path: PathBuf,
+    pub(crate) verifier_digest: String,
+    pub(crate) signers_path: PathBuf,
+    pub(crate) signers_digest: String,
+    pub(crate) builder_actor: String,
+    pub(crate) builder_keys: Vec<String>,
+    pub(crate) reviewers: Vec<(String, String)>,
+}
+
+/// The enrolled key-line material of one label from any reviewers list.
+pub(crate) fn reviewer_material_of(reviewers: &[(String, String)], label: &str) -> Option<String> {
+    reviewers
+        .iter()
+        .find(|(name, _)| name == label)
+        .map(|(_, material)| material.clone())
 }
 
 /// Parse the strict enrollment manifest grammar. Unknown, missing, or
 /// mistyped keys refuse.
-fn parse_manifest(bytes: &[u8]) -> Result<Manifest, String> {
+pub(crate) fn parse_manifest(bytes: &[u8]) -> Result<Manifest, String> {
     let text = std::str::from_utf8(bytes)
         .map_err(|error| format!("the manifest is not UTF-8: {error}"))?;
     let document: toml::Value = text
@@ -991,7 +999,7 @@ fn verify_digests(
     Ok(())
 }
 
-fn file_sha256(path: &Path) -> std::io::Result<String> {
+pub(crate) fn file_sha256(path: &Path) -> std::io::Result<String> {
     Ok(sha256_hex(&fs::read(path)?))
 }
 
@@ -1156,6 +1164,13 @@ pub(crate) struct IntentFacts {
     pub enrollment_sha256: String,
     pub builder_actor: String,
     pub work_digest: String,
+    /// WRS-004: the effective amendment head digest the intent binds;
+    /// empty while no chain exists for t-129's own purposes.
+    pub previous_amendment_digest: String,
+    /// WRS-004: the recovery purpose's derived new-authority digest.
+    pub proposed_authority_digest: String,
+    /// WRS-004: the recovery purpose's derived change-set digest.
+    pub proposed_change_digest: String,
     pub review_set_digest: String,
 }
 
@@ -1210,9 +1225,9 @@ impl IntentFacts {
         frame(&mut bytes, self.enrollment_sha256.as_bytes());
         frame(&mut bytes, self.builder_actor.as_bytes());
         frame(&mut bytes, self.work_digest.as_bytes());
-        frame(&mut bytes, b"");
-        frame(&mut bytes, b"");
-        frame(&mut bytes, b"");
+        frame(&mut bytes, self.previous_amendment_digest.as_bytes());
+        frame(&mut bytes, self.proposed_authority_digest.as_bytes());
+        frame(&mut bytes, self.proposed_change_digest.as_bytes());
         frame(&mut bytes, self.review_set_digest.as_bytes());
         bytes
     }
@@ -1571,7 +1586,7 @@ pub(crate) fn verify(
 
 /// The declared key line's material, for comparing with an embedded
 /// signature key: kind plus the decoded wire bytes.
-fn embedded_key_body(embedded: &[u8]) -> Option<String> {
+pub(crate) fn embedded_key_body(embedded: &[u8]) -> Option<String> {
     let (kind, rest) = ssh_string(embedded, 0)?;
     let kind = std::str::from_utf8(kind).ok()?;
     if kind != "ssh-ed25519" {
@@ -1587,7 +1602,7 @@ fn embedded_key_body(embedded: &[u8]) -> Option<String> {
 /// Verify one detached signature with the pinned verifier, judged by exit
 /// status alone. The payload is fed on stdin; the verifier's own output is
 /// discarded.
-fn ssh_verify(
+pub(crate) fn ssh_verify(
     verifier: &Path,
     signers: &Path,
     label: &str,
@@ -1815,10 +1830,18 @@ pub(crate) fn next_sequence(run_dir: &Path) -> Result<u64, String> {
     Ok(highest + 1)
 }
 
-/// Every archived record as (sequence, its signature digest, and whether
-/// it is a resolution record), sorted by sequence. A record that will not
-/// parse refuses.
-fn archived_records(run_dir: &Path) -> Result<Vec<(u64, String, bool)>, String> {
+/// One archived record's kind, by its signature digest key.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ArchivedKind {
+    Approval,
+    Resolution,
+    /// WRS-004: a recovery decision record.
+    Amendment,
+}
+
+/// Every archived record as (sequence, its signature digest, and its
+/// kind), sorted by sequence. A record that will not parse refuses.
+fn archived_records(run_dir: &Path) -> Result<Vec<(u64, String, ArchivedKind)>, String> {
     crate::observe::operation("record");
     let dir = archive_dir(run_dir);
     let entries = match fs::read_dir(&dir) {
@@ -1865,24 +1888,44 @@ fn archived_records(run_dir: &Path) -> Result<Vec<(u64, String, bool)>, String> 
         let resolution = value
             .get("resolution_signature_sha256")
             .and_then(toml::Value::as_str);
-        let (digest, is_resolution) = match (approval, resolution) {
-            (Some(approval), None) => (approval.to_owned(), false),
-            (None, Some(resolution)) => (resolution.to_owned(), true),
-            (None, None) => {
+        let amendment = value
+            .get("decision_signature_sha256")
+            .and_then(toml::Value::as_str);
+        let (digest, kind) = match (approval, resolution, amendment) {
+            (Some(approval), None, None) => (approval.to_owned(), ArchivedKind::Approval),
+            (None, Some(resolution), None) => (resolution.to_owned(), ArchivedKind::Resolution),
+            (None, None, Some(amendment)) => (amendment.to_owned(), ArchivedKind::Amendment),
+            (None, None, None) => {
+                // The landed approval/resolution wording stays; only the
+                // amendment kind extends the no-digest case.
+                if value.get("purpose").and_then(toml::Value::as_str) == Some("ratmac-recover-v1")
+                    || value.get("amendment_sequence").is_some()
+                {
+                    return Err(format!(
+                        "the authorization record {} carries no signature digest",
+                        entry.path().displayed()
+                    ));
+                }
                 return Err(format!(
                     "the authorization record {} carries no approval signature digest",
                     entry.path().displayed()
-                ))
+                ));
             }
-            (Some(_), Some(_)) => {
+            _ => {
+                if amendment.is_some() {
+                    return Err(format!(
+                        "the authorization record {} carries more than one signature digest",
+                        entry.path().displayed()
+                    ));
+                }
                 return Err(format!(
                     "the authorization record {} carries both an approval and a resolution \
                      signature digest",
                     entry.path().displayed()
-                ))
+                ));
             }
         };
-        records.push((index, digest, is_resolution));
+        records.push((index, digest, kind));
     }
     records.sort_by_key(|(index, _, _)| *index);
     Ok(records)
@@ -1892,9 +1935,27 @@ fn archived_records(run_dir: &Path) -> Result<Vec<(u64, String, bool)>, String> 
 /// record - a record whose digest is an `approval_signature_sha256` - if
 /// any.
 fn archived_approval_at(run_dir: &Path, approval_sha: &str) -> Result<Option<u64>, String> {
+    archived_decision_in(run_dir, approval_sha, ArchivedKind::Approval)
+}
+
+/// WRS-004: the lowest sequence whose archived decision digest matches a
+/// recovery decision record, if any.
+pub(crate) fn archived_decision_at(
+    run_dir: &Path,
+    decision_sha: &str,
+) -> Result<Option<u64>, String> {
+    archived_decision_in(run_dir, decision_sha, ArchivedKind::Amendment)
+}
+
+/// The lowest sequence whose archived digest of one kind matches, if any.
+fn archived_decision_in(
+    run_dir: &Path,
+    digest_of_interest: &str,
+    kind: ArchivedKind,
+) -> Result<Option<u64>, String> {
     Ok(archived_records(run_dir)?
         .into_iter()
-        .find(|(_, digest, is_resolution)| !is_resolution && digest == approval_sha)
+        .find(|(_, digest, record_kind)| *record_kind == kind && digest == digest_of_interest)
         .map(|(index, _, _)| index))
 }
 
@@ -1902,10 +1963,7 @@ fn archived_approval_at(run_dir: &Path, approval_sha: &str) -> Result<Option<u64
 /// resolution record - a record whose digest is a
 /// `resolution_signature_sha256` - if any.
 fn archived_resolution_at(run_dir: &Path, resolution_sha: &str) -> Result<Option<u64>, String> {
-    Ok(archived_records(run_dir)?
-        .into_iter()
-        .find(|(_, digest, is_resolution)| *is_resolution && digest == resolution_sha)
-        .map(|(index, _, _)| index))
+    archived_decision_in(run_dir, resolution_sha, ArchivedKind::Resolution)
 }
 
 fn archive_dir(run_dir: &Path) -> PathBuf {
@@ -2065,7 +2123,7 @@ fn toml_string(value: &str) -> String {
 /// The production trust origin's protection check. A builder-writable
 /// manifest or signers file is not an enrollment; a path whose protection
 /// cannot be verified is reported as exactly that.
-mod protection;
+pub(crate) mod protection;
 
 /// Test-only trust injection, compiled only with `test-fault-injection`.
 ///

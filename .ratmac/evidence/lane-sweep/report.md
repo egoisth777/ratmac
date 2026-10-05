@@ -1,9 +1,9 @@
 # Lane sweep report
 
-- swept: 2026-10-05T07:30:39Z
+- swept: 2026-10-07T03:16:37Z
 - lanes-root: test-hidden
 - verify-expired: no
-- verdicts: 72 pass, 2 expired, 0 red, 0 missing - 74 crates
+- verdicts: 73 pass, 2 expired, 0 red, 0 missing - 75 crates
 
 | crate | verdict | detail |
 | :--- | :--- | :--- |
@@ -81,3 +81,4 @@
 | t-129 | pass | 6 lane(s) green |
 | t-130 | pass | 6 lane(s) green |
 | t-131 | pass | 6 lane(s) green |
+| t-132 | pass | 6 lane(s) green |

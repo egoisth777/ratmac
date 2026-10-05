@@ -520,9 +520,22 @@ impl Scheduler {
             record.push(b'\n');
         }
         record.extend_from_slice(entry);
+        Self::write_transition_record(log, &record)
+    }
+
+    /// WRS-004: complete a torn shared-log tail. The bytes continue the
+    /// log's final line, so the separating newline the ordinary append
+    /// contributes must not land mid-line: the suffix is written exactly.
+    pub(crate) fn complete_transition_log_line(
+        log: &mut TransitionLog,
+        entry: &[u8],
+    ) -> TransitionLogAppend {
+        Self::write_transition_record(log, entry)
+    }
+
+    fn write_transition_record(log: &mut TransitionLog, record: &[u8]) -> TransitionLogAppend {
         #[cfg(feature = "test-fault-injection")]
-        if let Some(result) =
-            inject_transition_log_append_failure(&mut log.file, &record, &log.path)
+        if let Some(result) = inject_transition_log_append_failure(&mut log.file, record, &log.path)
         {
             return result;
         }
@@ -532,7 +545,7 @@ impl Scheduler {
                 &log.path, written, attempted, error,
             ))
         };
-        let written = match log.file.write(&record) {
+        let written = match log.file.write(record) {
             Ok(written) => written,
             Err(error) => return failed(0, error),
         };
@@ -651,6 +664,42 @@ impl Scheduler {
         let machine = Self::graph_of(snapshot.class());
         let run_dir = Self::runs_dir_at(&engine_root).join(run_id);
         Self::verify_runbook_pin_hash(&run_dir, snapshot.pin())?;
+        Ok(Self {
+            machine,
+            workflow_roots,
+            runbook_snapshot: Some(snapshot),
+            run_id: Some(run_id.to_owned()),
+            child_class,
+            store: Some(StateStore::for_engine_root(&engine_root, run_id)),
+            root: Some(workspace),
+            roots: Some(roots.clone()),
+        })
+    }
+
+    /// WRS-004: the one open of `rtm recover`. Identical to the motion open
+    /// except that the recorded runbook pin is never compared: a recovery
+    /// is the one verb whose business is a drifted runbook, and its own
+    /// compatibility rule - checked under the Run lock - governs instead.
+    pub(crate) fn open_run_for_recover_with_roots(
+        roots: &crate::root::Roots,
+        run_id: impl AsRef<str>,
+    ) -> Result<Self, StateError> {
+        let invoking_root = roots.invoking_checkout_root().to_path_buf();
+        let engine_root = roots.engine_root().to_path_buf();
+        Self::refuse_flat_residue_at(&invoking_root, &engine_root)?;
+        let run_id = run_id.as_ref();
+        Self::validate_run_address_at(&engine_root, run_id)?;
+        let (workspace, child_class) = match Self::ledger_record_of_at(&engine_root, run_id)? {
+            Some((ledger_path, entry)) => (
+                Self::workspace_from_ledger_entry(roots, &ledger_path, &entry)?,
+                Some(entry.class),
+            ),
+            None => (invoking_root.clone(), None),
+        };
+        Self::refuse_flat_residue_for_workspace(&invoking_root, &engine_root, &workspace)?;
+        let snapshot = Self::load_runbook_snapshot(&invoking_root, &workspace, &engine_root)?;
+        let workflow_roots = snapshot.roots().clone();
+        let machine = Self::graph_of(snapshot.class());
         Ok(Self {
             machine,
             workflow_roots,
@@ -993,12 +1042,23 @@ impl Scheduler {
         let Some(expected) = crate::pin::Evidence::load(run_dir).runbook_sha256 else {
             return Ok(());
         };
+        // WRS-004: the complete amendment chain validates first - a
+        // malformed member refuses every reader - and a complete chain's
+        // head runbook identity is the expected pin; the original pin
+        // stays recorded and never changes.
+        let run_id = run_dir
+            .file_name()
+            .map(crate::root::component)
+            .unwrap_or_default();
+        let expected = match crate::recover::validate_chain(run_dir, &run_id)? {
+            Some(head) => match head.authorities.get("runbook") {
+                Some(identity) if identity != "absent" => identity.clone(),
+                _ => expected,
+            },
+            None => expected,
+        };
         if observed != expected {
             // WRS-007: an addressed Run's hint names its own retirement phrase.
-            let run_id = run_dir
-                .file_name()
-                .map(crate::root::component)
-                .unwrap_or_default();
             return Err(StateError::new(format!(
                 "runbook pin mismatch: .ratmac/ratmac.toml drifted since rtm start — \
                  observed sha256={observed}; expected sha256={expected}; restore the \
@@ -1231,6 +1291,17 @@ impl Scheduler {
     /// guessing that a child is top-level would lose its durable workspace.
     /// An abandoned mark does not erase that fact: a partially failed
     /// retirement can leave its Run Record admitted after the mark landed.
+    /// The spawn-ledger workspace binding a child Run records, when one
+    /// does. WRS-004: a recovery of a chainless child compares its resolved
+    /// workspace against exactly this recorded spelling.
+    pub(crate) fn recorded_child_workspace_at(
+        engine_root: &Path,
+        run_id: &str,
+    ) -> Result<Option<String>, StateError> {
+        Ok(Self::ledger_record_of_at(engine_root, run_id)?
+            .and_then(|(_, entry)| entry.workspace.clone()))
+    }
+
     fn ledger_record_of_at(
         engine_root: &Path,
         run_id: &str,
@@ -2025,6 +2096,7 @@ composition is capped at one level (FDC-012)"
         if crate::pause::planning_pending_entry(&run_dir) {
             let (_root_lock, _run_lock) =
                 crate::lock::acquire_root_then_run(&engine_root, &parent_id)?;
+            crate::recover::require_complete_history(&engine_root, &parent_id)?;
             reconcile_pending_pause(&run_dir)?;
         }
 
@@ -2148,6 +2220,8 @@ composition is capped at one level (FDC-012)"
         let (root_lock, run_lock) = crate::lock::acquire_root_then_run(&engine_root, &parent_id)?;
         Self::refuse_flat_residue_for_workspace(&invoking_root, &engine_root, &child_workspace)?;
         run_lock.ensure_current()?;
+        // WRS-004: an amendment pending its history event refuses spawn.
+        crate::recover::require_complete_history(&engine_root, &parent_id)?;
         // WRS-003: finish a pending committed pause action on the parent
         // exactly once before this mutation of it proceeds.
         reconcile_pending_pause(&run_dir)?;
@@ -2308,6 +2382,10 @@ the ledger {} and minted child {} were left in place; inspect both paths before 
         }
         let recorded = Self::ledger_record_of_at(&engine_root, &superseded)?;
         let superseded_run_dir = Self::runs_dir_at(&engine_root).join(&superseded);
+        // WRS-004: a superseded Run with a committed-but-unreconciled
+        // amendment refuses the respawn here, at its own open-run boundary,
+        // before any successor write.
+        crate::recover::require_complete_history(&engine_root, &superseded)?;
         // WRS-001: the recovery table for a retired predecessor is decided
         // from the durable records alone, before any lock - an admitted
         // successor's Run lock held by any command never changes the answer.
@@ -2583,6 +2661,7 @@ repeat this respawn command to finish it",
                     ledger_path.displayed()
                 )));
             }
+            crate::recover::require_complete_history(&engine_root, &superseded)?;
             crate::abandon::retire_run_under_locks(
                 &engine_root,
                 &superseded,
@@ -3133,6 +3212,85 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
             .unwrap_or("")
     }
 
+    /// WRS-004: the recorded owning class of the addressed Run.
+    pub(crate) fn child_class(&self) -> Option<&str> {
+        self.child_class.as_deref()
+    }
+
+    /// WRS-004: the parsed runbook class this Scheduler opened.
+    pub(crate) fn runbook_class(&self) -> Result<&MachineClass, StateError> {
+        self.runbook_snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.class())
+            .ok_or_else(|| StateError::new("no pinned runbook is loaded"))
+    }
+
+    /// WRS-004: the review table the runbook in force declares for the
+    /// addressed Run's owning scope - the declaration a recovery's authority
+    /// derivation reads, without the recorded-marker comparison
+    /// `governing_declaration` proves for motion.
+    pub(crate) fn declared_review_of(
+        &self,
+        run_dir: &Path,
+        run_id: &str,
+    ) -> Result<Option<crate::review::ReviewDeclaration>, StateError> {
+        let Some(snapshot) = self.runbook_snapshot.as_ref() else {
+            return Err(StateError::new(format!(
+                "run {run_id}: no pinned runbook is loaded"
+            )));
+        };
+        let _ = run_dir;
+        Ok(match self.child_class.as_deref() {
+            Some(name) => snapshot
+                .class()
+                .classes()
+                .get(name)
+                .and_then(|child| child.review()),
+            None => snapshot.class().review(),
+        }
+        .cloned())
+    }
+
+    /// WRS-004: the workspace's current goal revision under `version`.
+    pub(crate) fn goal_revision_of(
+        &self,
+        workspace: &Path,
+        version: crate::goal::Version,
+    ) -> Result<Option<String>, StateError> {
+        self.goal_revision(workspace, version)
+    }
+
+    /// WRS-004: the located gate-artifact digests of the addressed State's
+    /// declared, non-exempt guard programs - the pin identities a recovery
+    /// derives for the corrected rule.
+    pub(crate) fn state_gate_artifacts(
+        &self,
+        workspace: &Path,
+        state: &str,
+    ) -> Option<Vec<(String, String)>> {
+        let class = self.runbook_class().ok()?;
+        let definition = match self.child_class.as_deref() {
+            Some(child) => class.classes().get(child)?.states().get(state)?,
+            None => class.states().get(state)?,
+        };
+        let mut pins: Vec<(String, String)> = Vec::new();
+        for guard in definition.guards() {
+            if let crate::machine::GuardKind::CommandExit {
+                program,
+                exempt: false,
+                ..
+            } = guard
+            {
+                if let Ok(resolved) = crate::pin::locate_program(workspace, program) {
+                    if let Ok(digest) = crate::pin::sha256_file(&resolved) {
+                        pins.push((program.clone(), digest));
+                    }
+                }
+            }
+        }
+        Some(pins)
+    }
+
     /// WRA-001: whether the addressed Run carries its governance marker.
     /// Presence alone decides - the Run was admitted under a declaring
     /// runbook, and later runbook drift cannot un-declare its governance.
@@ -3159,6 +3317,25 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
                  declares; no transition may proceed until the runbook declares it again"
             )));
         };
+        // WRS-004: a complete amendment chain's head policy is the policy
+        // in force; the recorded marker stays the admission fact while no
+        // chain exists. A runbook that no longer declares the adopted
+        // policy refuses every motion until they agree again.
+        if let Some(head) = crate::recover::validate_chain(run_dir, run_id)? {
+            let expected = head
+                .authorities
+                .get("policy")
+                .cloned()
+                .unwrap_or_else(|| "absent".to_owned());
+            if expected == "absent" || declaration.policy_digest() != expected {
+                return Err(StateError::new(format!(
+                    "run {run_id} is governed by policy-sha256 {expected}; the pinned runbook \
+                     declares policy-sha256 {}; no transition may proceed until they agree",
+                    declaration.policy_digest()
+                )));
+            }
+            return Ok(declaration.clone());
+        }
         let marker = fs::read(run_dir.join(crate::review::GOVERNANCE_FILE)).map_err(|error| {
             StateError::new(format!(
                 "run {run_id}: read the review governance marker: {error}"
@@ -3430,6 +3607,15 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
         let sequence = crate::review::next_sequence(run_dir)
             .map_err(|detail| guard_failure("authorization", "", "a readable archive", detail))?;
         let evidence = crate::pin::Evidence::load(run_dir);
+        // WRS-004: once a chain exists, every purpose's canonical intent
+        // carries the effective head digest in the reserved amendment
+        // slot, so approvals bound to an older head can no longer verify.
+        let previous_amendment_digest = crate::recover::validate_chain(run_dir, run_id)
+            .map_err(|error| {
+                guard_failure("authorization", "", "a readable archive", error.to_string())
+            })?
+            .map(|head| head.file_sha256)
+            .unwrap_or_default();
         let goal_identity = evidence
             .goal_frozen
             .clone()
@@ -3472,6 +3658,9 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
             enrollment_sha256: enrollment.manifest_sha256.clone(),
             builder_actor: crate::review::builder_actor(),
             work_digest,
+            previous_amendment_digest,
+            proposed_authority_digest: String::new(),
+            proposed_change_digest: String::new(),
             review_set_digest: String::new(),
         };
         Ok(facts)
@@ -3612,6 +3801,115 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
         Ok(Ok((facts, enrollment)))
     }
 
+    /// WRS-004: the recover intent render view: derive the canonical
+    /// recovery intent without a confirmation, a decision, or a write.
+    pub(crate) fn recover_view(
+        &self,
+        engine_root: &Path,
+        run_id: &str,
+        enrollment: Option<&Path>,
+    ) -> Result<Result<crate::review::IntentFacts, String>, StateError> {
+        // A pending amendment reconciles first: the render answers the
+        // state the repeated recover would leave behind.
+        if let Err(detail) = crate::recover::require_complete_history(engine_root, run_id) {
+            return Ok(Err(detail.to_string()));
+        }
+        Ok(crate::recover::recover_intent_in(
+            self.roots
+                .as_ref()
+                .ok_or_else(|| StateError::new("no roots are loaded for this render"))?,
+            run_id,
+            enrollment,
+        ))
+    }
+
+    /// WRS-004: the canonical recovery intent's facts - t-129's canonical
+    /// intent with the purpose slot carrying `recover`, the reserved
+    /// amendment slots bound to the effective head and the derived
+    /// authority movement, and the held Run's hold slots filled exactly as
+    /// the resume purpose fills them.
+    pub(crate) fn recover_facts(
+        &self,
+        engine_root: &Path,
+        run_id: &str,
+        trust: &crate::recover::RecoveryTrust,
+        derivation: &crate::recover::Derivation,
+        state: &crate::model::RunState,
+        head: Option<&crate::recover::ChainHead>,
+    ) -> Result<crate::review::IntentFacts, String> {
+        let run_dir = self.run_dir().map_err(|error| error.to_string())?;
+        let workspace = self
+            .workspace_root()
+            .map_err(|error| error.to_string())?
+            .to_path_buf();
+        let workspace_text = std::fs::canonicalize(&workspace)
+            .unwrap_or(workspace.clone())
+            .displayed();
+        let sequence = crate::review::next_sequence(&run_dir).map_err(|error| error.to_string())?;
+        let evidence = crate::pin::Evidence::load(&run_dir);
+        let goal_identity = evidence
+            .goal_frozen
+            .clone()
+            .or_else(|| evidence.goal_baseline.clone())
+            .unwrap_or_default();
+        let bindings = match self.child_class.as_deref() {
+            None => None,
+            Some(_) => Self::ledger_record_of_at(engine_root, run_id)
+                .map_err(|error| error.to_string())?
+                .map(|(_, entry)| entry.bind.clone()),
+        };
+        let (hold_occurrence, held_record_digest) = if state.status == Status::Blocked {
+            match crate::pause::live_occurrence(&run_dir) {
+                Ok(Some(occurrence)) => match crate::pause::load_live_record_lenient(&run_dir) {
+                    Ok((recorded, record)) if recorded == occurrence => {
+                        (occurrence.to_string(), record.held_context_sha256.clone())
+                    }
+                    _ => (String::new(), String::new()),
+                },
+                _ => (String::new(), String::new()),
+            }
+        } else {
+            (String::new(), String::new())
+        };
+        let work_digest = crate::review::work_digest(&workspace, &trust.work)
+            .map_err(|error| error.to_string())?;
+        let previous_amendment_digest = match head {
+            Some(head) => head.file_sha256.clone(),
+            None => crate::recover::pin_record_digest(
+                &std::fs::read_to_string(crate::pin::evidence_path(&run_dir)).unwrap_or_default(),
+            ),
+        };
+        Ok(crate::review::IntentFacts {
+            purpose: "recover".to_owned(),
+            run_id: run_id.to_owned(),
+            run_dir_path: run_dir,
+            engine_root_path: engine_root.to_path_buf(),
+            owning_class: self
+                .child_class
+                .clone()
+                .unwrap_or_else(|| "runbook".to_owned()),
+            workspace: workspace_text,
+            bindings,
+            sequence,
+            hold_occurrence,
+            held_record_digest,
+            from_state: state.state.clone(),
+            to_state: state.state.clone(),
+            input: String::new(),
+            blocker: state.blocker.clone(),
+            runbook_sha256: self.runbook_pin_of().to_owned(),
+            goal_identity,
+            policy_digest: trust.policy_digest.clone(),
+            enrollment_sha256: trust.manifest_sha256.clone(),
+            builder_actor: crate::review::builder_actor(),
+            work_digest,
+            previous_amendment_digest,
+            proposed_authority_digest: derivation.new_digest.clone(),
+            proposed_change_digest: derivation.change_digest.clone(),
+            review_set_digest: String::new(),
+        })
+    }
+
     pub fn step(&mut self, request: StepRequest) -> Result<StepOutcome, StateError> {
         let _claim = &request.claim;
         let root = self
@@ -3653,6 +3951,10 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
                  one with rtm start"
             )));
         }
+        // WRS-004: a committed amendment whose history event is still
+        // missing refuses every mutation until a repeated `rtm recover`
+        // reconciles it - before any journal or Run write.
+        crate::recover::require_complete_history(&engine_root, &run_id)?;
         // WRS-003: a pending committed pause action on this Run is finished
         // exactly once under this lock before any later mutation proceeds.
         reconcile_pending_pause(&run_dir)?;
@@ -3667,6 +3969,7 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
             addressed_state_declares_inputs,
             frozen_evidence,
             guarded_ledgers,
+            early_authorization,
         ) = {
             Self::verify_runbook_snapshot(&snapshot, &invoking_root, Some(&run_dir))?;
             // WRA-001: governance is recorded fact, not live runbook state,
@@ -3720,9 +4023,54 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
                 ));
             }
 
+            // WRS-004: a chained Run's governed motion is judged before
+            // the addressed State's guards evaluate, so an approval bound
+            // to an older effective head refuses at its review label
+            // instead of at whichever guard happens to evaluate first. A
+            // chainless Run keeps the landed single-call order and bytes.
+            let mut early_authorization: Option<crate::review::VerifiedAuthorization> = None;
+            if let Some(declaration) = governance.as_ref() {
+                if crate::recover::validate_chain(&run_dir, &run_id)?.is_some() {
+                    if let Ok((early_to, early_input)) =
+                        self.step_motion_view(&run_dir, definition, &scope_machine, &recorded_state)
+                    {
+                        match self.authorize_motion(
+                            &engine_root,
+                            &run_dir,
+                            &run_id,
+                            declaration,
+                            "step",
+                            &recorded_state,
+                            &early_to,
+                            &early_input,
+                            "",
+                            snapshot.pin(),
+                            &Self::authorization_options_of(&request),
+                        ) {
+                            Ok(verified) => early_authorization = Some(verified),
+                            Err(failure) => {
+                                return Ok(refused_step(&run_id, vec![failure]));
+                            }
+                        }
+                    }
+                }
+            }
             let (mut failures, guarded_ledgers) = self.guard_failures(definition)?;
             let evidence = crate::pin::Evidence::load(&run_dir);
-            if let Some(frozen) = evidence.goal_frozen.as_deref() {
+            // WRS-004: an amended Run's governing goal identity is its
+            // effective head's goal authority, not the original pin; a
+            // chainless Run keeps comparing the recorded pin exactly as
+            // before.
+            let effective_frozen: Option<String> =
+                match crate::recover::validate_chain(&run_dir, &run_id)? {
+                    Some(head) => head
+                        .authorities
+                        .get("goal")
+                        .cloned()
+                        .filter(|identity| identity != "absent"),
+                    None => evidence.goal_frozen.clone(),
+                };
+            if let Some(frozen) = effective_frozen.as_deref() {
                 // WEB-001 (t-123): a recorded frozen value that is present
                 // and non-empty but matches neither revision grammar
                 // refuses before any comparison or write; nothing is
@@ -3829,6 +4177,7 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
                 definition.inputs().is_some(),
                 frozen_evidence,
                 guarded_ledgers,
+                early_authorization,
             )
         };
 
@@ -3855,26 +4204,33 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
         // canonical intent before any durable write of the motion itself.
         let mut authorization: Option<crate::review::VerifiedAuthorization> = None;
         if let Some(declaration) = governance.as_ref() {
-            run_lock.ensure_current()?;
-            let verified = match self.authorize_motion(
-                &engine_root,
-                &run_dir,
-                &run_id,
-                declaration,
-                "step",
-                from.as_ref(),
-                to.as_ref(),
-                &transition_input_value,
-                "",
-                snapshot.pin(),
-                &Self::authorization_options_of(&request),
-            ) {
-                Ok(verified) => verified,
-                Err(failure) => {
-                    return Ok(refused_step(&run_id, vec![failure]));
-                }
-            };
-            authorization = Some(verified);
+            if let Some(early) = early_authorization {
+                // The chained Run already verified this exact motion before
+                // its guards evaluated; the boundary does not run twice.
+                let _ = declaration;
+                authorization = Some(early);
+            } else {
+                run_lock.ensure_current()?;
+                let verified = match self.authorize_motion(
+                    &engine_root,
+                    &run_dir,
+                    &run_id,
+                    declaration,
+                    "step",
+                    from.as_ref(),
+                    to.as_ref(),
+                    &transition_input_value,
+                    "",
+                    snapshot.pin(),
+                    &Self::authorization_options_of(&request),
+                ) {
+                    Ok(verified) => verified,
+                    Err(failure) => {
+                        return Ok(refused_step(&run_id, vec![failure]));
+                    }
+                };
+                authorization = Some(verified);
+            }
         }
         // t-128: guards, routing, and any governed authorization all passed,
         // so the edge is the step's committed decision; a refused step fires
@@ -5021,6 +5377,49 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
             )
         })?;
         let mut evidence = crate::pin::Evidence::load(&run_dir);
+        // WRS-004: a chained Run's expected gate identity is its effective
+        // head's `gate-artifact` set - the amendment's corrected rule may
+        // change a guard program's bytes at the same path - while the
+        // recorded pin bytes stay untouched and a chainless Run keeps
+        // comparing them exactly as before.
+        let run_id = run_dir
+            .file_name()
+            .map(crate::root::component)
+            .unwrap_or_default();
+        let head_gate = crate::recover::validate_chain(&run_dir, &run_id)
+            .map_err(|error| {
+                guard_failure(
+                    "command_exit",
+                    program,
+                    format!(
+                        "the amendment chain is unreadable: {error}; \
+                         diagnostic: gate artifact not executed: unreadable chain"
+                    ),
+                    "a readable amendment chain",
+                )
+            })?
+            .and_then(|head| head.authorities.get("gate-artifact").cloned())
+            .and_then(|set| {
+                set.split(';').find_map(|pair| {
+                    let (name, digest) = pair.split_once('=')?;
+                    (name == program).then(|| digest.to_owned())
+                })
+            });
+        if let Some(expected_sha) = head_gate {
+            if let Some(pinned) = evidence.gate(program) {
+                let mut expected_identity = pinned.clone();
+                expected_identity.sha256 = expected_sha;
+                if observed == *pinned || observed == expected_identity {
+                    return Ok(());
+                }
+                return Err(guard_failure(
+                    "command_exit",
+                    program,
+                    format!("{observed}; diagnostic: gate artifact not executed: pin mismatch"),
+                    expected_identity.to_string(),
+                ));
+            }
+        }
         match evidence.gate(program) {
             Some(pinned) if *pinned == observed => Ok(()),
             Some(pinned) => Err(guard_failure(

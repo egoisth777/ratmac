@@ -409,11 +409,16 @@ pub fn normalize(text: &str, root: &Path, engine: &Path) -> String {
         // t-121 / WEB-002: the `init` verb is set aside the same way.
         // t-129 / WRA-001: the `intent` verb is set aside the same way.
         // t-130 / WRS-003: the `resume` verb is set aside the same way.
+        // t-132 / WRS-004: the `recover` verb is set aside the same way.
         if let Some(verbs) = line.strip_prefix("Commands: ") {
             let kept: Vec<&str> = verbs
                 .split(", ")
                 .filter(|verb| {
-                    *verb != "skill" && *verb != "init" && *verb != "intent" && *verb != "resume"
+                    *verb != "skill"
+                        && *verb != "init"
+                        && *verb != "intent"
+                        && *verb != "resume"
+                        && *verb != "recover"
                 })
                 .collect();
             cleaned.push_str("Commands: ");

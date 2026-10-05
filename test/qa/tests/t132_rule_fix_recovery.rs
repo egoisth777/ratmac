@@ -120,6 +120,85 @@ fn frame(body: &mut Vec<u8>, field: &[u8]) {
     body.extend_from_slice(field);
 }
 
+/// The authority digest of one member's authority table, recomputed from
+/// the ticket's own bytes: `ratmac-authority-v1`, one NUL, the six
+/// identities length-framed in the fixed order engine, runbook, goal,
+/// gate-artifact, policy, enrollment; gate-artifact as its framed decimal
+/// count then each sorted `program=sha256` pair framed one by one; a
+/// historically absent identity - gate-artifact included - as the framed
+/// literal bytes `absent`.
+fn ticket_authority_digest(table: &toml::Value) -> String {
+    let mut body = Vec::new();
+    body.extend_from_slice(b"ratmac-authority-v1");
+    body.push(0);
+    for field in [
+        "engine",
+        "runbook",
+        "goal",
+        "gate-artifact",
+        "policy",
+        "enrollment",
+    ] {
+        let value = table
+            .get(field)
+            .and_then(toml::Value::as_str)
+            .unwrap_or("absent");
+        if field == "gate-artifact" && value != "absent" {
+            let mut pairs: Vec<&str> = value.split(';').collect();
+            pairs.sort_by_key(|pair| &pair[..pair.find('=').unwrap_or(pair.len())]);
+            frame(&mut body, pairs.len().to_string().as_bytes());
+            for pair in pairs {
+                frame(&mut body, pair.as_bytes());
+            }
+        } else {
+            frame(&mut body, value.as_bytes());
+        }
+    }
+    sha256_hex(&body)
+}
+
+/// The change-set digest of one member's enumerated changes, recomputed
+/// from the ticket's own bytes: `ratmac-change-set-v1`, one NUL, the
+/// framed count and framed sorted changed field names, then the framed
+/// old- and new-authority digests.
+fn ticket_change_set_digest(changes: &[&str], old: &str, new: &str) -> String {
+    let mut body = Vec::new();
+    body.extend_from_slice(b"ratmac-change-set-v1");
+    body.push(0);
+    frame(&mut body, changes.len().to_string().as_bytes());
+    for change in changes {
+        frame(&mut body, change.as_bytes());
+    }
+    frame(&mut body, old.as_bytes());
+    frame(&mut body, new.as_bytes());
+    sha256_hex(&body)
+}
+
+/// Decode a member's signed-intent spelling and split its canonical
+/// frames: the `ratmac-authorization-v1` prefix, one NUL, then every
+/// length-framed field.
+fn signed_intent_frames(spelled: &str) -> Vec<Vec<u8>> {
+    let mut decoded = Vec::with_capacity(spelled.len() / 2);
+    for pair in spelled.as_bytes().chunks(2) {
+        let pair = std::str::from_utf8(pair).expect("hex pairs are ASCII");
+        decoded.push(u8::from_str_radix(pair, 16).expect("lowercase hex"));
+    }
+    let prefix = b"ratmac-authorization-v1";
+    assert!(
+        decoded.starts_with(prefix) && decoded[prefix.len()] == 0,
+        "the signed intent carries the canonical prefix"
+    );
+    let mut fields = Vec::new();
+    let mut cursor = prefix.len() + 1;
+    while cursor < decoded.len() {
+        let length = u64::from_be_bytes(decoded[cursor..cursor + 8].try_into().unwrap()) as usize;
+        cursor += 8;
+        fields.push(decoded[cursor..cursor + length].to_vec());
+        cursor += length;
+    }
+    fields
+}
+
 /// The declared policy digest exactly as t-129 frames it.
 fn policy_digest(
     approver: &str,
@@ -298,21 +377,22 @@ const ENROLLED: Bench = Bench {
 };
 
 /// The bench a self-authorizing candidate declares: its own Approver is the
-/// outsider key that exists only in the proposed policy.
+/// outsider key that exists only in the proposed policy (never under the
+/// enrolled bench), while staying a well-formed policy an admit accepts.
 const CANDIDATE: Bench = Bench {
     approver: "outsider",
-    reviewers: &["a", "b"],
+    reviewers: &["a", "b", "outsider"],
 };
 
-/// Two further benches whose policy digests differ, so one Run can adopt
-/// two distinct authority changes.
+/// Two further benches whose policy digests differ from the enrolled line,
+/// so one Run can adopt distinct authority changes.
 const REPLACEMENT_A: Bench = Bench {
     approver: "outsider",
     reviewers: &["a", "b", "outsider"],
 };
 const REPLACEMENT_B: Bench = Bench {
     approver: "a",
-    reviewers: &["a", "b"],
+    reviewers: &["a", "b", "lead"],
 };
 
 /// One enrollment manifest over `bench`, its bytes, its path, and its
@@ -1205,7 +1285,9 @@ fn wrsv_004_01() {
     // The Run keeps its address, State, class, and seven fields; the
     // original pins are byte-identical.
     assert_eq!(governed.project.state(&run), "build");
-    assert_eq!(governed.project.status(&run), "executing");
+    // Landed step never writes `executing` (only resume does), so the Run
+    // stays `planned`; recovery changes no Run Record byte.
+    assert_eq!(governed.project.status(&run), "planned");
     governed.project.assert_seven_fields(&run);
     assert_eq!(
         governed.project.evidence_bytes(&run),
@@ -1332,14 +1414,15 @@ fn wrsv_004_01() {
         "a historically absent authority is the literal absent"
     );
     assert_eq!(parsed["new-authorities"]["goal"].as_str(), Some("absent"));
+    let intent_hex: String = fs::read(&intent)
+        .unwrap()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
     assert_eq!(
         parsed["signed-intent"].as_str(),
-        Some(
-            String::from_utf8_lossy(&fs::read(&intent).unwrap())
-                .into_owned()
-                .as_str()
-        ),
-        "the signed-intent slot holds the exact canonical authorized bytes"
+        Some(intent_hex.as_str()),
+        "the signed-intent slot holds the exact canonical bytes as lowercase hex"
     );
     let signatures = parsed["signature-identities"]
         .as_array()
@@ -1408,9 +1491,30 @@ fn wrsv_004_01() {
         Some(sha256_hex(&fs::read(&intent).unwrap()).as_str())
     );
     assert_eq!(archive["origin"].as_str(), Some("test-injected"));
-    assert!(
-        archive["reviews"].as_array().map_or(true, Vec::is_empty),
-        "the recovery archive record carries no review rows"
+    // "Exactly" those ten fields, and zero [[reviews]] rows in TOML is no
+    // `reviews` key at all - not an empty array a stray writer could add.
+    let mut archive_keys: Vec<&str> = archive
+        .as_table()
+        .expect("the archive record is a table")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    archive_keys.sort_unstable();
+    assert_eq!(
+        archive_keys,
+        [
+            "amendment_sequence",
+            "decision_signature_sha256",
+            "enrollment_sha256",
+            "from_state",
+            "intent_sha256",
+            "origin",
+            "policy_sha256",
+            "purpose",
+            "sequence",
+            "to_state",
+        ],
+        "WRS-004: the archive record holds exactly the ten fields with zero review rows"
     );
 
     // The same Run progresses from its retained State using fresh checks
@@ -1423,6 +1527,88 @@ fn wrsv_004_01() {
         evidence_before,
         "WRS-004: motion under the corrected authority still rewrites no pin"
     );
+
+    // A gate-artifact amendment: the Run is stopped by a failing guard
+    // whose program bytes are then corrected at the same path. The
+    // recovery adopts only the gate-artifact change, and the next step
+    // evaluates the corrected guard and progresses.
+    {
+        // The guard program lives outside the project tree under a plain
+        // absolute path: the Engine evaluates command_exit guards from the
+        // canonical workspace, and a script resolved through a verbatim
+        // prefix cannot be spawned by the interpreter.
+        let probe_tree = TempTree::new("wrsv00401g-probe").expect("create the guard program tree");
+        let probe = probe_tree.join("probe.cmd");
+        fs::write(&probe, b"@echo off\r\nexit /b 3\r\n").expect("write the failing guard");
+        // A second guard program whose name extends the first: the shorter
+        // program name is a prefix of the longer and the longer's next
+        // byte (the dot before its cmd suffix) sorts below the pair
+        // separator, so program-name order and whole-pair-text order
+        // disagree - the digest framing cannot hide behind one spelling.
+        let second = probe_tree.join("probe.cmd.cmd");
+        fs::write(&second, b"@echo off\r\nexit /b 0\r\n").expect("write the passing guard");
+        let escape = |path: &str| path.replace('\\', "\\\\");
+        let mut guarded = machine_body(None, false, false, "build");
+        let guard_row = format!(
+            "guards = [\n  {{ kind = \"command_exit\", program = \"{}\", expected = 0 }},\n  {{ \
+             kind = \"command_exit\", program = \"{}\", expected = 0 }},\n]\n",
+            escape(&probe.to_string_lossy()),
+            escape(&second.to_string_lossy())
+        );
+        guarded = guarded.replacen(
+            "[states.build]\n",
+            &format!("[states.build]\n{guard_row}"),
+            1,
+        );
+        let governed = Governed::new("wrsv00401g", &guarded, false);
+        let run = governed.admit();
+        governed.step_ok(&run, "w1g-enter-build");
+        assert_eq!(governed.project.state(&run), "build");
+        let blocked = governed.step_governed(&run, "w1g-blocked");
+        assert_eq!(blocked.code, 0, "WRS-004: {blocked}");
+        assert!(
+            blocked.stdout.contains("step refused")
+                && blocked.stdout.contains("command_exit")
+                && blocked.stdout.contains("observed exit 3"),
+            "WRS-004: the drifted guard program refuses before recovery: {blocked}"
+        );
+        assert_eq!(governed.project.state(&run), "build");
+        fs::write(&probe, b"@echo off\r\nexit /b 0\r\n").expect("correct the guard program");
+        governed.amend(&run, 1, "w1g-gate");
+        let member: toml::Value =
+            String::from_utf8_lossy(&governed.project.amendment_bytes(&run, 1).unwrap())
+                .parse()
+                .expect("the gate amendment is TOML");
+        assert_eq!(
+            member["changes"].as_array().map(|rows| rows.len()),
+            Some(1),
+            "WRS-004: the change set is only the gate artifact: {:?}",
+            member["changes"]
+        );
+        assert_eq!(member["changes"][0].as_str(), Some("gate-artifact"));
+        // The gate encoding itself is observable: recomputed from the
+        // ticket's own bytes over the record's gate tables - the present
+        // corrected pair framed as its count and one framed pair, the
+        // historical side as it is spelled - the digests equal the frames
+        // the signed intent carries.
+        let old_digest = ticket_authority_digest(&member["old-authorities"]);
+        let new_digest = ticket_authority_digest(&member["new-authorities"]);
+        let change_set = ticket_change_set_digest(&["gate-artifact"], &old_digest, &new_digest);
+        let fields = signed_intent_frames(member["signed-intent"].as_str().expect("signed-intent"));
+        assert_eq!(fields.len(), 24, "the canonical intent frames 24 fields");
+        assert_eq!(
+            fields[21],
+            new_digest.as_bytes(),
+            "WRS-004: the intent binds the ticket-recomputed gate-carrying authority digest"
+        );
+        assert_eq!(
+            fields[22],
+            change_set.as_bytes(),
+            "WRS-004: the intent binds the ticket-recomputed gate change-set digest"
+        );
+        governed.step_ok(&run, "w1g-fresh");
+        assert_eq!(governed.project.state(&run), "done");
+    }
 }
 
 // --- WRSV-004-02 ---------------------------------------------------------------
@@ -1462,9 +1648,9 @@ fn wrsv_004_02() {
     let unknown = governed.recover("ghost-run-900", None, None, Some("recover run-001"));
     assert_eq!(unknown.code, 1, "WRS-004: {unknown}");
     assert!(
-        unknown
-            .message
-            .starts_with("run id \"ghost-run-900\" is not an exact roster member; runs: ",),
+        unknown.message.starts_with(
+            "recover refused; run id \"ghost-run-900\" is not an exact roster member; runs: ",
+        ),
         "WRS-004: the unknown id refusal carries the roster line: {unknown}"
     );
 
@@ -1760,6 +1946,82 @@ fn wrsv_004_02() {
         support::text(&removed)
     );
     drop(linked_parent);
+
+    // The chained workspace twin: a committed amendment records its own
+    // context workspace, so a non-held top-level Run with one amendment
+    // refuses a recovery from a different checkout the same way.
+    let chained = governed.admit();
+    governed
+        .project
+        .rewrite_runbook(&correction(&governed.runbook_with(&body, &ENROLLED, false)));
+    governed.amend(&chained, 1, "w2-chained");
+    let member: toml::Value =
+        String::from_utf8_lossy(&governed.project.amendment_bytes(&chained, 1).unwrap())
+            .parse()
+            .expect("the chained member is TOML");
+    let recorded = member["context"]["workspace"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    assert_eq!(
+        recorded, primary,
+        "WRS-004: the member's recorded workspace is the primary, canonical, forward slashes"
+    );
+    let chained_intent = governed.recover_intent(&chained, None, "w2-chained-linked-intent");
+    let chained_decision = governed.decision_over(&chained_intent, "w2-chained-linked");
+    let linked_parent = TempTree::new("wrsv00402-linked2").expect("own the second linked tree");
+    let linked = linked_parent.join("checkout");
+    let added = support::git(governed.project.root())
+        .args(["worktree", "add", &linked.to_string_lossy(), "--detach"])
+        .output()
+        .expect("add the second linked checkout");
+    assert!(
+        added.status.success(),
+        "WRS-004: the second linked checkout is created: {}",
+        support::text(&added)
+    );
+    let observed = shown(&fs::canonicalize(&linked).unwrap());
+    let before_chained = governed.project.snapshot();
+    let chained_refused = rtm(
+        &linked,
+        &[
+            "recover",
+            "--run",
+            &chained,
+            "--decision",
+            &shown(&chained_decision),
+            "--confirm",
+            &format!("recover {chained}"),
+        ],
+    );
+    assert_eq!(chained_refused.code, 1, "WRS-004: {chained_refused}");
+    assert!(
+        chained_refused
+            .message
+            .starts_with("recover refused; the recorded workspace ")
+            && chained_refused
+                .message
+                .contains(" differs from the resolved workspace ")
+            && chained_refused.message.contains(&recorded)
+            && chained_refused.message.contains(&observed)
+            && chained_refused
+                .message
+                .ends_with("; recovery keeps the workspace"),
+        "WRS-004: the chained twin names both canonical spellings: {chained_refused}"
+    );
+    governed
+        .project
+        .assert_unchanged(&before_chained, "chained workspace-mismatched recovery");
+    let removed = support::git(governed.project.root())
+        .args(["worktree", "remove", "--force", &linked.to_string_lossy()])
+        .output()
+        .expect("remove the second linked checkout");
+    assert!(
+        removed.status.success(),
+        "WRS-004: the second linked checkout is removed: {}",
+        support::text(&removed)
+    );
+    drop(linked_parent);
 }
 
 // --- WRSV-004-03 ---------------------------------------------------------------
@@ -1841,16 +2103,27 @@ fn wrsv_004_03() {
             !governed.project.history().contains("adopted amendment"),
             "WRS-004: no history event is recorded before the rename"
         );
+        // The reader keeps today's refusal under the drifted runbook: the
+        // preparation file is ignored, not read.
+        let before_status = governed.project.snapshot();
         let status = rtm(governed.project.root(), &["status", "--run", &run]);
         assert_eq!(
-            status.code, 0,
-            "WRS-004: the reader ignores the preparation file: {status}"
+            status.code, 1,
+            "WRS-004: the drifted runbook refuses the reader: {status}"
         );
         assert!(
-            !status.stdout.contains("Amendment pending"),
-            "WRS-004: a preparation file alone reports nothing pending: {}",
-            status.stdout
+            status.message.contains(
+                "runbook pin mismatch: .ratmac/ratmac.toml drifted since rtm start — observed sha256="
+            ),
+            "WRS-004: the preparation file never relaxes the pin comparison: {status}"
         );
+        assert!(
+            status.message.contains("; nothing was modified"),
+            "WRS-004: the refusal keeps today's closing text: {status}"
+        );
+        governed
+            .project
+            .assert_unchanged(&before_status, "status over a drifted runbook");
         // The repeat mints the same unused sequence and commits.
         let repeat = governed.recover(&run, Some(&decision), None, Some(&format!("recover {run}")));
         assert_eq!(repeat.code, 0, "WRS-004: the repeat commits: {repeat}");
@@ -1967,12 +2240,15 @@ fn wrsv_004_03() {
         // Doctor reports one warning finding.
         let doctor = rtm(governed.project.root(), &["doctor"]);
         assert_eq!(doctor.code, 1, "WRS-004: warning-only exits 1: {doctor}");
+        let engine_root = shown(&governed.project.root().join(".ratmac"));
         assert!(
             doctor.stdout.contains(&format!(
-                "runs/{run}/amendments/1.toml is committed with no \
-                                   history event; a repeated rtm recover reconciles it"
+                "RB902 warning: run {run:?}: amendment pending: {engine_root}/runs/{run}/\
+                 amendments/1.toml is committed with no history event; a repeated rtm recover \
+                 reconciles it"
             )),
-            "WRS-004: doctor reports the pending amendment finding: {}",
+            "WRS-004: doctor's finding carries the pinned RB902 code and run \
+             location: {}",
             doctor.stdout
         );
 
@@ -2080,6 +2356,92 @@ fn wrsv_004_03() {
             1,
             "WRS-004: the reconciliation appends the one missing event"
         );
+    }
+
+    // A torn history tail: a log fragment that is a proper prefix of the
+    // expected event is completed by appending the missing suffix; a
+    // fragment that is no prefix refuses, writing nothing.
+    {
+        let governed = Governed::with_keys("wrsv00403e", &body, false, keys.clone());
+        let run = governed.admit();
+        governed
+            .project
+            .rewrite_runbook(&correction(&governed.project.runbook_text()));
+        let intent = governed.recover_intent(&run, None, "w3e-intent");
+        let decision = governed.decision_over(&intent, "w3e");
+        std::env::set_var("RATMAC_TEST_RECOVER_FAULT", "history-append");
+        let committed =
+            governed.recover(&run, Some(&decision), None, Some(&format!("recover {run}")));
+        std::env::remove_var("RATMAC_TEST_RECOVER_FAULT");
+        assert_eq!(committed.code, 1, "WRS-004: {committed}");
+        assert!(governed.project.amendment_bytes(&run, 1).is_some());
+        let event = format!(
+            "- Recover: run {run} adopted amendment 1 on an explicit signed recovery decision.\n"
+        );
+        let log = governed.project.root().join(".ratmac/log.md");
+        let base_history = governed.project.history();
+
+        // A fragment that is no prefix of the expected event.
+        let torn_at = event.find("on an explicit").expect("the event continues") + 3;
+        let mut wrong: Vec<u8> = event.as_bytes()[..torn_at].to_vec();
+        wrong[torn_at - 2] = b'x';
+        let wrong = String::from_utf8_lossy(&wrong).into_owned();
+        fs::write(&log, format!("{base_history}{wrong}")).expect("plant the no-prefix fragment");
+        let before_wrong = governed.project.snapshot();
+        let refused = governed.recover(&run, None, None, Some(&format!("recover {run}")));
+        assert_eq!(refused.code, 1, "WRS-004: {refused}");
+        assert_eq!(
+            refused.message,
+            format!(
+                "recover refused; the amendment history for run {run} holds a fragment that is \
+                 no prefix of the expected event for sequence 1; repair it outside the Engine"
+            ),
+            "WRS-004: a no-prefix fragment names the repair boundary"
+        );
+        governed
+            .project
+            .assert_unchanged(&before_wrong, "reconcile over a no-prefix fragment");
+
+        // A fragment torn before the sequence number, carrying one wrong
+        // byte, holds neither the full expected event prefix - so the
+        // earlier history prefilter does not answer - nor any prefix of
+        // the event: the history loop itself refuses it.
+        let short_at = event.find("adopted").expect("the event names the adoption");
+        let mut short_wrong: Vec<u8> = event.as_bytes()[..short_at].to_vec();
+        short_wrong[short_at - 2] = b'x';
+        let short_wrong = String::from_utf8_lossy(&short_wrong).into_owned();
+        fs::write(&log, format!("{base_history}{short_wrong}"))
+            .expect("plant the short no-prefix fragment");
+        let before_short = governed.project.snapshot();
+        let short_refused = governed.recover(&run, None, None, Some(&format!("recover {run}")));
+        assert_eq!(short_refused.code, 1, "WRS-004: {short_refused}");
+        assert_eq!(
+            short_refused.message,
+            format!(
+                "recover refused; the amendment history for run {run} holds a fragment that \
+                 is no prefix of the expected event for sequence 1; repair it outside the Engine"
+            ),
+            "WRS-004: a short no-prefix fragment reaches the history loop's own refusal"
+        );
+        governed
+            .project
+            .assert_unchanged(&before_short, "reconcile over a short no-prefix fragment");
+
+        // A proper prefix, torn past the sequence number, is completed.
+        fs::write(&log, format!("{base_history}{}", &event[..torn_at]))
+            .expect("plant the torn prefix");
+        let completed = governed.recover(&run, None, None, Some(&format!("recover {run}")));
+        assert_eq!(
+            completed.code, 0,
+            "WRS-004: the repeat completes the torn tail: {completed}"
+        );
+        assert_eq!(completed.stdout, success_lines(&run, 1));
+        let history = governed.project.history();
+        assert!(
+            history.ends_with(&event),
+            "WRS-004: the log ends with exactly one full event and nothing truncated"
+        );
+        assert_eq!(history.matches(&event).count(), 1);
     }
 }
 
@@ -2307,6 +2669,9 @@ fn wrsv_004_05() {
 
     // A candidate that replaces the reviewer keys cannot authorize itself:
     // its own Approver exists only in the proposed policy.
+    governed
+        .project
+        .rewrite_runbook(&governed.runbook_with(&body, &ENROLLED, false));
     let candidate = governed.admit();
     let candidate_runbook = correction(&governed.runbook_with(&body, &CANDIDATE, false));
     governed.project.rewrite_runbook(&candidate_runbook);
@@ -2337,6 +2702,12 @@ fn wrsv_004_05() {
         .project
         .assert_unchanged(&candidate_before, "self-authorized candidate");
 
+    // The admit runs under the enrolled runbook: recover opens the Run
+    // through today's runbook parse, and no relaxed parse exists, so the
+    // candidate policy must be off disk before a Run is admitted.
+    governed
+        .project
+        .rewrite_runbook(&governed.runbook_with(&body, &ENROLLED, false));
     // Omitted changes: a decision over the earlier intent omits the policy
     // change the current artifacts derive.
     let omitted = governed.admit();
@@ -2390,16 +2761,33 @@ fn wrsv_004_05() {
     );
 
     // A stale chain tip: a decision bound to an older head refuses while
-    // the authority it proposes is current again.
-    governed.project.rewrite_runbook(&replaced);
+    // the authority it proposes is current again. The chain walks forward
+    // and back - a second content correction, then a revert to the head-1
+    // content - so the effective head's old authority is the same enrolled
+    // line the stale decision was signed under, and only the bound head
+    // differs. The stale decision proposes different content than either
+    // amend that lands: ssh-keygen signatures are deterministic, so signing
+    // the exact bytes a landed amend signs would replay, not go stale.
+    let second_rule = format!(
+        "{}# the second archived-record correction.\n",
+        governed.runbook_with(&body, &ENROLLED, false)
+    );
+    let stale_rule = format!(
+        "{}# the second archived-record correction, proposed differently.\n",
+        governed.runbook_with(&body, &ENROLLED, false)
+    );
+    governed.project.rewrite_runbook(&stale_rule);
     let older_intent = governed.recover_intent(&run, None, "w5-older");
     let older_decision = governed.decision_over(&older_intent, "w5-older");
-    let replacement_b = correction(&governed.runbook_with(&body, &REPLACEMENT_B, false));
-    governed.project.rewrite_runbook(&replacement_b);
+    governed.project.rewrite_runbook(&second_rule);
     governed.amend(&run, 2, "w5-second");
+    // The revert restores the head-1 authority, making the stale decision's
+    // old line effective again.
+    governed.project.rewrite_runbook(&rule_fix);
+    governed.amend(&run, 3, "w5-revert");
     let head_one = sha256_hex(&governed.project.amendment_bytes(&run, 1).unwrap());
-    let head_two = sha256_hex(&governed.project.amendment_bytes(&run, 2).unwrap());
-    governed.project.rewrite_runbook(&replaced);
+    let head_three = sha256_hex(&governed.project.amendment_bytes(&run, 3).unwrap());
+    governed.project.rewrite_runbook(&stale_rule);
     let stale_tip = governed.recover(
         &run,
         Some(&older_decision),
@@ -2411,13 +2799,48 @@ fn wrsv_004_05() {
         stale_tip.message,
         format!(
             "recover refused; authorization: chain: observed a decision bound to the head \
-             that hashes {head_one}; expected the effective head {head_two}"
+             that hashes {head_one}; expected the effective head {head_three}"
         ),
         "WRS-004: a decision bound to an older head refuses naming both heads"
     );
     assert!(
-        governed.project.amendment_bytes(&run, 3).is_none(),
+        governed.project.amendment_bytes(&run, 4).is_none(),
         "WRS-004: the stale-tip refusal wrote nothing"
+    );
+
+    // A policy-replacing recovery still verifies after a content recovery:
+    // the prior trusted policy is the manifest-bound enrolled line the
+    // revert restored, and every signer row carries its label's real key.
+    let replacement_b = correction(&governed.runbook_with(&body, &REPLACEMENT_B, false));
+    governed.project.rewrite_runbook(&replacement_b);
+    governed.amend(&run, 4, "w5-fourth");
+    let member: toml::Value =
+        String::from_utf8_lossy(&governed.project.amendment_bytes(&run, 4).unwrap())
+            .parse()
+            .expect("the fourth member is TOML");
+    let rows = member["signature-identities"]
+        .as_array()
+        .expect("signature-identities is an array");
+    assert_eq!(rows.len(), 1, "the approver is the one signer");
+    assert_eq!(rows[0]["label"].as_str(), Some("lead"));
+    for row in rows {
+        let label = row["label"].as_str().unwrap_or_default();
+        assert_eq!(
+            row["key"].as_str(),
+            Some(governed.keys.public(label)),
+            "WRS-004: the signer row for {label} carries its real key"
+        );
+        assert!(
+            row["signature-sha256"]
+                .as_str()
+                .is_some_and(|sha| !sha.is_empty()),
+            "WRS-004: the signature digest for {label} is present"
+        );
+    }
+    let read = rtm(governed.project.root(), &["status", "--run", &run]);
+    assert_eq!(
+        read.code, 0,
+        "WRS-004: every reader accepts the committed head: {read}"
     );
 }
 
@@ -2519,6 +2942,38 @@ fn wrsv_004_06() {
         "WRS-004: a builder-writable manifest refuses the landed detail: {writable_intent}"
     );
 
+    // The verb refuses the same builder-writable manifest through the
+    // landed protected-path detail: the enrollment is read from the path
+    // the caller named, before the decision is ever examined, so the stub
+    // decision file serves. This probe runs before the seam below, because
+    // an installed trust reader is the one route that does not read the
+    // caller's path at all.
+    let before_protected = project.snapshot();
+    let writable_recover = rtm(
+        project.root(),
+        &[
+            "recover",
+            "--run",
+            &run,
+            "--enrollment",
+            &shown(&manifest.path),
+            "--decision",
+            &shown(&generated_anywhere),
+            "--confirm",
+            &format!("recover {run}"),
+        ],
+    );
+    assert_eq!(writable_recover.code, 1, "WRS-004: {writable_recover}");
+    assert!(
+        writable_recover.message.contains(&format!(
+            "the enrollment manifest {} is not protected against the builder actor {}",
+            shown(&manifest.path),
+            builder_actor()
+        )),
+        "WRS-004: ordinary builder access cannot replace the enrollment: {writable_recover}"
+    );
+    project.assert_unchanged(&before_protected, "builder-writable enrollment recovery");
+
     // Independent external enrollment supplies the prerequisite: the same
     // manifest bytes through the trust seam render, sign, and recover.
     let _trust = install(
@@ -2560,36 +3015,6 @@ fn wrsv_004_06() {
         "WRS-004: the externally enrolled render reports its line"
     );
     let decision = keys.sign("lead", RECOVER_NAMESPACE, &out);
-
-    // A generated signature cannot bypass the protection boundary while
-    // the manifest on disk stays builder-writable.
-    let writable_recover = rtm(
-        project.root(),
-        &[
-            "recover",
-            "--run",
-            &run,
-            "--enrollment",
-            &shown(&manifest.path),
-            "--decision",
-            &shown(&decision),
-            "--confirm",
-            &format!("recover {run}"),
-        ],
-    );
-    assert_eq!(writable_recover.code, 1, "WRS-004: {writable_recover}");
-    assert!(
-        writable_recover.message.contains(&format!(
-            "the enrollment manifest {} is not protected against the builder actor {}",
-            shown(&manifest.path),
-            builder_actor()
-        )),
-        "WRS-004: ordinary builder access cannot replace the enrollment: {writable_recover}"
-    );
-    assert!(
-        project.amendment_bytes(&run, 1).is_none(),
-        "WRS-004: the refused route wrote nothing"
-    );
 
     // The seam's enrolled trust - the same bytes at their real host path -
     // admits the recovery, and the archive records its origin.
@@ -2874,6 +3299,36 @@ fn wrsv_004_08() {
     );
     assert_eq!(one_parsed["run"].as_str(), Some(run.as_str()));
 
+    // The digests a member binds: recomputed independently from the
+    // ticket's own bytes over the record's own fields, the authority
+    // digest of the new table and the change-set digest equal the frames
+    // its signed intent carries, so a different domain prefix or identity
+    // order in the Engine could not hide here.
+    {
+        let old_digest = ticket_authority_digest(&one_parsed["old-authorities"]);
+        let new_digest = ticket_authority_digest(&one_parsed["new-authorities"]);
+        let changes: Vec<&str> = one_parsed["changes"]
+            .as_array()
+            .expect("changes is an array")
+            .iter()
+            .map(|change| change.as_str().expect("each change is a string"))
+            .collect();
+        let change_set = ticket_change_set_digest(&changes, &old_digest, &new_digest);
+        let fields =
+            signed_intent_frames(one_parsed["signed-intent"].as_str().expect("signed-intent"));
+        assert_eq!(fields.len(), 24, "the canonical intent frames 24 fields");
+        assert_eq!(
+            fields[21],
+            new_digest.as_bytes(),
+            "WRS-004: the intent binds the ticket-recomputed new-authority digest"
+        );
+        assert_eq!(
+            fields[22],
+            change_set.as_bytes(),
+            "WRS-004: the intent binds the ticket-recomputed change-set digest"
+        );
+    }
+
     // The reader baseline: an intact chain validates and the missing
     // decision is all that refuses.
     let intact = governed.recover(&run, None, None, Some(&format!("recover {run}")));
@@ -2920,6 +3375,26 @@ fn wrsv_004_08() {
         ),
         "WRS-004: a reader refuses the malformed chain through its own rendering: {status_read}"
     );
+    // Doctor reports the malformed chain as an error finding, writing
+    // nothing.
+    let before_doctor = governed.project.snapshot();
+    let doctor_chain = rtm(governed.project.root(), &["doctor"]);
+    assert_eq!(
+        doctor_chain.code, 2,
+        "WRS-004: an error finding exits 2: {doctor_chain}"
+    );
+    assert!(
+        doctor_chain.stdout.contains(&format!(
+            "RB903 error: run {run:?}: amendment sequence 02 is not a positive decimal \
+             integer without leading zeroes"
+        )),
+        "WRS-004: doctor's error finding carries the pinned RB903 code, run \
+         location, and strict-chain text: {}",
+        doctor_chain.stdout
+    );
+    governed
+        .project
+        .assert_unchanged(&before_doctor, "doctor read of the malformed chain");
     restore(Some("02.toml"));
 
     // A stray non-member refuses the same text.
@@ -3006,39 +3481,33 @@ fn wrsv_004_08() {
     );
     restore(None);
 
-    // A broken predecessor digest.
-    fs::write(
-        &two,
-        replace_key_line(
-            &two_text,
-            "previous-amendment-digest",
-            &format!("previous-amendment-digest = \"{}\"", "1".repeat(64)),
-        ),
-    )
-    .expect("break the predecessor digest");
+    // A broken predecessor digest: member 2 still binds member 1's original
+    // bytes - record and signed intent agree - but member 1's own bytes no
+    // longer hash to that value.
+    let drifted_one = format!("{one_text}# drifted\n");
+    fs::write(&one, &drifted_one).expect("drift member 1 bytes");
     let broken = reader(&governed.project, &run);
     assert_eq!(broken.code, 1, "WRS-004: {broken}");
     assert_eq!(
         broken.message,
         format!(
-            "recover refused; amendment 2 records previous-amendment-digest {}, but sequence \
-             1 hashes {head_one}",
-            "1".repeat(64)
+            "recover refused; amendment 2 records previous-amendment-digest {head_one}, \
+             but sequence 1 hashes {}",
+            sha256_hex(drifted_one.as_bytes())
         ),
         "WRS-004: a broken predecessor refuses naming both digests"
     );
     restore(None);
 
-    // A changed original-pin digest.
-    fs::write(
-        &one,
-        replace_key_line(
-            &one_text,
-            "previous-amendment-digest",
-            &format!("previous-amendment-digest = \"{}\"", "2".repeat(64)),
-        ),
-    )
-    .expect("change the original-pin digest");
+    // A changed original-pin digest: member 1 still records the pin digest
+    // it was signed against, but the pin record's own inputs drifted.
+    let evidence_path = governed.project.run_dir(&run).join("evidence.toml");
+    let mut drifted_pins: toml::Value = String::from_utf8_lossy(&evidence_before)
+        .parse()
+        .expect("evidence is TOML");
+    drifted_pins["engine"]["sha256"] = toml::Value::String("2".repeat(64));
+    fs::write(&evidence_path, toml::to_string(&drifted_pins).unwrap())
+        .expect("drift the pin record");
     let re_pinned = reader(&governed.project, &run);
     assert_eq!(re_pinned.code, 1, "WRS-004: {re_pinned}");
     assert!(
@@ -3050,6 +3519,7 @@ fn wrsv_004_08() {
                 .contains(", but the original pin record hashes "),
         "WRS-004: a changed original-pin digest refuses its family: {re_pinned}"
     );
+    fs::write(&evidence_path, &evidence_before).expect("restore the pin record");
     restore(None);
 
     // A member naming another Run.
@@ -3071,12 +3541,15 @@ fn wrsv_004_08() {
     );
     restore(None);
 
-    // A signed intent that disagrees with the record's own fields.
+    // A signed intent that disagrees with the record's own fields: valid
+    // lowercase hex of different bytes.
+    let hex = |bytes: &[u8]| -> String { bytes.iter().map(|byte| format!("{byte:02x}")).collect() };
+    let other_intent = hex(b"ratmac-authorization-v1 and other canonical bytes");
     let mismatched_intent_lines: Vec<String> = two_text
         .lines()
         .map(|line| {
             if line.starts_with("signed-intent") {
-                "signed-intent = \"bogus\"".to_owned()
+                format!("signed-intent = \"{other_intent}\"")
             } else {
                 line.to_owned()
             }
@@ -3091,7 +3564,74 @@ fn wrsv_004_08() {
             "recover refused; amendment 2 binds a signed intent that disagrees with its \
              record fields: "
         ),
-        "WRS-004: mismatched signed bytes refuse their family: {mismatched}"
+        "WRS-004: valid hex of different bytes refuses the disagree family: {mismatched}"
+    );
+    restore(None);
+
+    // A signed-intent in a spelling other than lowercase hex is a wrong
+    // type.
+    fs::write(
+        &two,
+        two_text.replacen("signed-intent = \"", "signed-intent = \"bogus", 1),
+    )
+    .expect("plant the non-hex spelling");
+    let non_hex = reader(&governed.project, &run);
+    assert_eq!(non_hex.code, 1, "WRS-004: {non_hex}");
+    assert!(
+        non_hex.message.starts_with(&format!(
+            "recover refused; amendment record {} is not a strict version-1 record: ",
+            shown(&two)
+        )),
+        "WRS-004: a non-hex spelling refuses the strict family: {non_hex}"
+    );
+    restore(None);
+
+    // A non-string changes entry is a wrong type.
+    fs::write(
+        &two,
+        replace_key_line(&two_text, "changes", "changes = [1]"),
+    )
+    .expect("plant the non-string changes entry");
+    let bad_change = reader(&governed.project, &run);
+    assert_eq!(bad_change.code, 1, "WRS-004: {bad_change}");
+    assert!(
+        bad_change.message.starts_with(&format!(
+            "recover refused; amendment record {} is not a strict version-1 record: ",
+            shown(&two)
+        )),
+        "WRS-004: a non-string changes entry refuses the strict family: {bad_change}"
+    );
+    restore(None);
+
+    // A non-string signer label is a wrong type.
+    fs::write(&two, replace_key_line(&two_text, "label", "label = 7"))
+        .expect("plant the non-string signer label");
+    let bad_label = reader(&governed.project, &run);
+    assert_eq!(bad_label.code, 1, "WRS-004: {bad_label}");
+    assert!(
+        bad_label.message.starts_with(&format!(
+            "recover refused; amendment record {} is not a strict version-1 record: ",
+            shown(&two)
+        )),
+        "WRS-004: a non-string signer label refuses the strict family: {bad_label}"
+    );
+    restore(None);
+
+    // A record field that disagrees with its own cleanly framed signed
+    // intent: the canonical bytes parse, and the kept State the frames
+    // carry refuses the record's different spelling.
+    fs::write(
+        &two,
+        replace_key_line(&two_text, "state", "state = \"done\""),
+    )
+    .expect("plant the disagreeing kept State");
+    let kept_state = reader(&governed.project, &run);
+    assert_eq!(kept_state.code, 1, "WRS-004: {kept_state}");
+    assert_eq!(
+        kept_state.message,
+        "recover refused; amendment 2 binds a signed intent that disagrees with its record \
+         fields: it does not carry the kept State",
+        "WRS-004: a record field disagreeing with its frames refuses: {kept_state}"
     );
     restore(None);
 
@@ -3159,7 +3699,11 @@ fn wrsv_004_08() {
         "the original pin stays recorded"
     );
     governed.step_ok(&run, "w8-motion");
-    assert_eq!(governed.project.state(&run), "build");
+    assert_eq!(
+        governed.project.state(&run),
+        "done",
+        "WRS-004: build's live edge leads to done"
+    );
     assert_eq!(
         governed.project.evidence_bytes(&run),
         evidence_before,
@@ -3236,6 +3780,61 @@ fn wrsv_004_09() {
         stale.stdout
     );
 
+    // A malformed authority-head spelling refuses the receipt parse
+    // itself: one digit short, and one uppercase letter among sixty-four.
+    {
+        let focused = governed.project.root().join(format!(
+            ".ratmac/evidence/{x}/completion/{}.toml",
+            ratmac::completion::check_slug("PT-100-01")
+        ));
+        let focused_text = fs::read_to_string(&focused).expect("read the focused receipt");
+        let replant = |value: &str| {
+            let lines: Vec<String> = focused_text
+                .lines()
+                .map(|line| {
+                    if line.starts_with("authority-head-sha256") {
+                        format!("authority-head-sha256 = \"{value}\"")
+                    } else {
+                        line.to_owned()
+                    }
+                })
+                .collect();
+            fs::write(&focused, format!("{}\n", lines.join("\n")))
+                .expect("replant the focused receipt");
+        };
+        let short_head = "a".repeat(63);
+        replant(&short_head);
+        let before_short = governed.project.snapshot();
+        let short_head_step = governed.step_governed(&x, "w9-x-short-head");
+        assert!(
+            short_head_step.stdout.contains(&format!(
+                "receipt field \"authority-head-sha256\" must be 64 lowercase hexadecimal \
+                 digits when present, found \"{short_head}\""
+            )),
+            "WRS-004: a 63-digit head refuses the parse: {}",
+            short_head_step.stdout
+        );
+        governed
+            .project
+            .assert_unchanged(&before_short, "a short head spelling writes nothing");
+
+        let upper_head = format!("{}{}", "A", "a".repeat(63));
+        replant(&upper_head);
+        let before_upper = governed.project.snapshot();
+        let upper_head_step = governed.step_governed(&x, "w9-x-upper-head");
+        assert!(
+            upper_head_step.stdout.contains(&format!(
+                "receipt field \"authority-head-sha256\" must be 64 lowercase hexadecimal \
+                 digits when present, found \"{upper_head}\""
+            )),
+            "WRS-004: an uppercase head letter refuses the parse: {}",
+            upper_head_step.stdout
+        );
+        governed
+            .project
+            .assert_unchanged(&before_upper, "an uppercase head spelling writes nothing");
+    }
+
     // Fresh proof and separately authorized motion bound to the new head
     // pass.
     governed
@@ -3248,6 +3847,9 @@ fn wrsv_004_09() {
     // Run Y: the corrected rule changes the guard's ticket, so the older
     // receipts remain on disk as unchanged historical evidence that no
     // longer counts.
+    governed
+        .project
+        .rewrite_runbook(&governed.runbook_with(&body, &ENROLLED, false));
     let y = governed.admit();
     governed.step_ok(&y, "w9-y-build");
     assert_eq!(governed.project.state(&y), "build");

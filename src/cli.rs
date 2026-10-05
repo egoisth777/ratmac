@@ -71,10 +71,13 @@ pub fn help(command: impl AsRef<str>) -> &'static str {
             "Usage: rtm hold --run <id> --blocker <reference beneath a declared root> --confirm \"hold <id>\" [--review <label>:<sig>]... [--approve <sig>]\n\nA human confirms pausing a Run that is blocked for an out-of-scope reason. The Run Record records the pause and its blocker reference, and the named Run routes along the Runbook's blocked route; it stays not-passed until a human resumes it. The blocker is an opaque reference: rtm checks that it exists beneath a declared root and judges nothing else about it. The confirmation phrase is typed at invocation; it is never read from a file.\n"
         }
         "intent" => {
-            "Usage: rtm intent --run <id> [--hold --blocker <ref> | --resume] [--review <label>:<sig>]... --out <path> [--help]\n\nRender the canonical intent a governed Run's next motion binds, for review and approval signatures to be taken over. The bytes cover the motion's every varying fact; reviewers sign them under the review namespace and the Approver signs them plus the review-set digest under the approval namespace. --hold renders the blocked-route motion instead of the ordinary one; --resume renders the canonical resolution intent of a held Run, the bytes one ratmac-resume-v1 signature by the designated Approver covers. The render writes one file at the caller-named --out, never under the Engine root, and changes no Run state.\n"
+            "Usage: rtm intent --run <id> [--hold --blocker <ref> | --resume | --recover [--enrollment <path>]] [--review <label>:<sig>]... --out <path> [--help]\n\nRender the canonical intent a governed Run's next motion binds, for review and approval signatures to be taken over. The bytes cover the motion's every varying fact; reviewers sign them under the review namespace and the Approver signs them plus the review-set digest under the approval namespace. --hold renders the blocked-route motion instead of the ordinary one; --resume renders the canonical resolution intent of a held Run, the bytes one ratmac-resume-v1 signature by the designated Approver covers. The render writes one file at the caller-named --out, never under the Engine root, and changes no Run state.\n"
         }
         "resume" => {
             "Usage: rtm resume --run <id> --blocker <reference beneath a declared root> --confirm \"resume <id>\" [--resolution <sig>] [--help]\n\nA human resumes a held Run when its blocker clears. The given blocker must equal the recorded blocker exactly; the Engine verifies the authorization and its binding and never judges whether the external cause was fixed - editing or deleting the referenced record substitutes for nothing. The confirmation phrase is typed at invocation and never read from a file. Under a declared review policy the resume must also carry one ratmac-resume-v1 signature by the designated Approver over the canonical intent (rtm intent --run <id> --resume).\n"
+        }
+        "recover" => {
+            "Usage: rtm recover --run <id> [--enrollment <path>] --decision <sig> --confirm \"recover <id>\" [--help]\n\nA human amends a Run whose rule bytes drifted: one ratmac-recover-v1 signature by the designated Approver over the canonical recover intent (rtm intent --run <id> --recover) adopts the corrected authority as an append-only amendment under the Engine root. The Run keeps its address, State, class, bindings, workspace, and original pins; an amendment neither resumes a paused Run nor approves a transition. A legacy Run without previously enrolled recovery trust requires an independently enrolled external authority (--enrollment); the builder may neither generate it nor substitute task authorization for it. An interrupted publication is reconciled by repeating this command exactly once. The signed decision is verified under the prior trusted policy or a previously enrolled external authority, never the proposed replacement, and a confirmation phrase alone authorizes nothing. Adopting the amendment invalidates the affected proof; later motion needs its own fresh checks.\n"
         }
         "abandon" => {
             "Usage: rtm abandon --run <id> --confirm \"abandon <run id>\"\n\nA human retires a broken Run: rtm records a terminal abandoned event, then retires the admission state, the Run evidence, and the lock so a fresh Run can start. The confirmation phrase names the addressed run id (FDC-007), is typed at invocation, and is never read from a file. Retiring only a leftover lock - no Run admitted anywhere - omits --run and confirms with \"abandon <project directory name>\"; that phrase never retires a Run, and while any Run is admitted abandon without --run refuses and lists the roster. No bypass flag exists - a stale lock is retired through this path.\n"
@@ -101,9 +104,9 @@ pub fn help(command: impl AsRef<str>) -> &'static str {
 /// The one public route table (WEB-004): the verbs the general usage's
 /// `Commands:` line lists are exactly the commands `rtm` dispatches, and a
 /// verb added to dispatch is added here.
-const COMMANDS: [&str; 13] = [
-    "init", "start", "status", "step", "hold", "intent", "resume", "abandon", "spawn", "respawn",
-    "doctor", "scaffold", "skill",
+const COMMANDS: [&str; 14] = [
+    "init", "start", "status", "step", "hold", "intent", "resume", "recover", "abandon", "spawn",
+    "respawn", "doctor", "scaffold", "skill",
 ];
 
 /// The general usage, rendered from the route table so the table stays its
@@ -337,6 +340,10 @@ where
         "intent" => intent(command_args, &roots, invocation, writer),
         "resume" => {
             resume(command_args, &roots, writer)?;
+            Ok(0)
+        }
+        "recover" => {
+            recover(command_args, &roots, invocation, writer)?;
             Ok(0)
         }
         "abandon" => {
@@ -627,6 +634,18 @@ fn status<W: Write>(
             writer,
             "Recovery pending: a committed pause action for this Run awaits reconciliation; \
              the next mutating command on this Run finishes it exactly once."
+        )?;
+    }
+    // WRS-004: a reader reports a committed amendment whose history event
+    // is missing and repairs nothing.
+    if let Some((run_id, sequence)) = crate::recover::pending_amendment(
+        roots.engine_root(),
+        &roots.engine_root().join("runs").join(&id),
+    ) {
+        writeln!(
+            writer,
+            "Amendment pending: sequence {sequence} for this Run is committed with its history \
+             event missing; a repeated rtm recover --run {run_id} reconciles it exactly once."
         )?;
     }
     Ok(())
@@ -937,6 +956,135 @@ fn lexical(path: &Path) -> std::path::PathBuf {
     result
 }
 
+/// WRS-004 (t-132): the human-confirmed rule fix recovery.
+///
+/// Every argument shape and check is verified before the first write, so a
+/// refusal leaves Engine-owned files byte-identical; the one durable
+/// interruption - an amendment committed with its history event pending -
+/// reports the committed state and reconciles on the repeated command.
+fn recover<W: Write>(
+    args: &[String],
+    roots: &crate::root::Roots,
+    _invocation: &crate::root::Invocation,
+    writer: &mut W,
+) -> Result<i32, CliError> {
+    let mut run: Option<String> = None;
+    let mut decision: Option<String> = None;
+    let mut enrollment: Option<String> = None;
+    let mut confirmation: Option<String> = None;
+    let mut rest: Vec<String> = Vec::new();
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--run" => {
+                let Some(value) = args
+                    .get(index + 1)
+                    .filter(|value| !value.starts_with("--"))
+                    .cloned()
+                else {
+                    let roster = roster_line(roots)?;
+                    return Err(CliError::refusal(format!(
+                        "recover: --run needs a run id; {}{}",
+                        roster.line, roster.rows
+                    )));
+                };
+                run = Some(value);
+                index += 2;
+            }
+            "--decision" => {
+                decision = Some(
+                    args.get(index + 1)
+                        .filter(|value| !value.starts_with("--"))
+                        .cloned()
+                        .ok_or_else(|| {
+                            CliError::new(
+                                "recover: --decision needs a path to the signed recovery \
+                                 decision",
+                            )
+                        })?,
+                );
+                index += 2;
+            }
+            "--enrollment" => {
+                enrollment = Some(
+                    args.get(index + 1)
+                        .filter(|value| !value.starts_with("--"))
+                        .cloned()
+                        .ok_or_else(|| {
+                            CliError::new(
+                                "recover: --enrollment needs a path to the externally enrolled \
+                                 authority",
+                            )
+                        })?,
+                );
+                index += 2;
+            }
+            "--confirm" => {
+                confirmation = Some(
+                    args.get(index + 1)
+                        .filter(|value| !value.starts_with("--"))
+                        .cloned()
+                        .ok_or_else(|| {
+                            CliError::new("recover: --confirm needs the exact confirmation phrase")
+                        })?,
+                );
+                index += 2;
+            }
+            other => {
+                rest.push(other.to_owned());
+                index += 1;
+            }
+        }
+    }
+    if let Some(stray) = rest.first() {
+        return Err(CliError::new(format!(
+            "recover: unexpected extra argument {stray}"
+        )));
+    }
+    let run = run.unwrap_or_default();
+    // WRS-004: an --enrollment addresses a missing recovery trust only; a
+    // governed Run carries its prior trusted policy.
+    if enrollment.is_some() && run_is_governed(roots, &run) {
+        return Err(CliError::refusal(
+            "recover: --enrollment addresses no missing recovery trust",
+        ));
+    }
+    let request = crate::recover::RecoverRequest {
+        enrollment: enrollment.map(std::path::PathBuf::from),
+        decision: decision.map(std::path::PathBuf::from),
+        confirmation,
+        run: Some(run.clone()),
+    };
+    let render = |failure: crate::recover::RecoverFailure| {
+        if failure.committed() {
+            CliError::new(format!("recover: {}", failure.detail()))
+        } else if failure.hard_failure() {
+            // Lock acquisition and wait failures keep today's hard
+            // `<verb>: ...` family with its next line.
+            hard_error(
+                "recover",
+                crate::state::StateError::new(failure.detail().to_string()),
+            )
+        } else {
+            CliError::new(format!("recover refused; {}", failure.detail()))
+        }
+    };
+    let plan = crate::recover::plan_recover_in(roots, &request).map_err(render)?;
+    let applied = crate::recover::apply_recover_in(roots, &plan).map_err(render)?;
+    writeln!(
+        writer,
+        "rtm: run {} amended at sequence {}; the corrected authority is effective",
+        applied.run_id(),
+        applied.sequence()
+    )?;
+    writeln!(
+        writer,
+        "The Run keeps its address, State, class, bindings, workspace, and original pins; \
+         an amendment neither resumes a paused Run nor approves a transition."
+    )?;
+    Ok(0)
+}
+
 /// WRA-001: render the canonical intent of a governed Run's next motion.
 ///
 /// The render is read-only for the Engine: it resolves the motion a
@@ -966,6 +1114,8 @@ fn intent<W: Write>(
     };
     let mut hold = false;
     let mut resume = false;
+    let mut recover = false;
+    let mut enrollment: Option<String> = None;
     let mut blocker: Option<String> = None;
     let mut out: Option<String> = None;
     let mut rest: Vec<String> = Vec::new();
@@ -986,6 +1136,24 @@ fn intent<W: Write>(
             "--resume" => {
                 resume = true;
                 index += 1;
+            }
+            "--recover" => {
+                recover = true;
+                index += 1;
+            }
+            "--enrollment" => {
+                enrollment = Some(
+                    args.get(index + 1)
+                        .filter(|value| !value.starts_with("--"))
+                        .cloned()
+                        .ok_or_else(|| {
+                            CliError::new(
+                                "intent: --enrollment needs a path to the externally enrolled \
+                                 authority",
+                            )
+                        })?,
+                );
+                index += 2;
             }
             "--blocker" => {
                 blocker = Some(
@@ -1040,21 +1208,52 @@ fn intent<W: Write>(
             "--hold and --resume name different intents; pass exactly one".to_owned(),
         ));
     }
+    // WRS-004: the recover purpose is its own intent.
+    if recover && hold {
+        return Err(refused(
+            "--recover and --hold name different intents; pass exactly one".to_owned(),
+        ));
+    }
+    if recover && resume {
+        return Err(refused(
+            "--recover and --resume name different intents; pass exactly one".to_owned(),
+        ));
+    }
+    if recover && !reviews.is_empty() {
+        return Err(refused("--review addresses no recovery intent".to_owned()));
+    }
+    if !recover && enrollment.is_some() {
+        return Err(refused(
+            "--enrollment addresses no recovery intent".to_owned(),
+        ));
+    }
     let id = addressed_run_with_roots("intent", &rest, roots)?;
     // WRA-001: governance is recorded fact; an ungoverned Run has no
-    // canonical intent to render.
-    if !run_is_governed(roots, &id) {
+    // canonical intent to render - except the recover purpose, whose own
+    // trust boundary answers for a legacy Run's external enrollment.
+    if !recover && !run_is_governed(roots, &id) {
         return Err(refused(format!(
             "run {id} resolves in no review-governed class; the canonical intent exists \
              only under a declared review policy"
         )));
     }
-    let scheduler = Scheduler::open_run_for_motion_with_roots(roots, &id)
-        .map_err(|error| hard_error("intent", error))?;
+    // WRS-004: the recover render is the one intent that opens a drifted
+    // runbook: the recovery open never compares the recorded pin.
+    let scheduler = if recover {
+        Scheduler::open_run_for_recover_with_roots(roots, &id)
+            .map_err(|error| hard_error("intent", error))?
+    } else {
+        Scheduler::open_run_for_motion_with_roots(roots, &id)
+            .map_err(|error| hard_error("intent", error))?
+    };
     let state = scheduler
         .load_state()
         .map_err(|error| hard_error("intent", error))?;
-    if resume {
+    if recover {
+        // WRS-004: the recover intent renders for a live Run in any
+        // non-terminal status, held included; its own family's refusals
+        // answer the rest.
+    } else if resume {
         // WRS-003: the resolution intent exists only for a held Run; the
         // refusal is the resume family's own not-held detail.
         if state.status != crate::model::Status::Blocked {
@@ -1163,22 +1362,34 @@ fn intent<W: Write>(
         }
     })?;
     let blocker = blocker.unwrap_or_default();
-    let outcome = if resume {
-        scheduler
-            .resume_view(engine_root, &id)
-            .map_err(|error| hard_error("intent", error))?
+    let (mut facts, _enrollment) = if recover {
+        let inner = scheduler
+            .recover_view(
+                engine_root,
+                &id,
+                enrollment.as_deref().map(std::path::Path::new),
+            )
+            .map_err(|error| hard_error("intent", error))?;
+        (inner.map_err(refused)?, None)
     } else {
-        scheduler
-            .intent_view(engine_root, &id, hold, &blocker)
-            .map_err(|error| hard_error("intent", error))?
+        let outcome = if resume {
+            scheduler
+                .resume_view(engine_root, &id)
+                .map_err(|error| hard_error("intent", error))?
+        } else {
+            scheduler
+                .intent_view(engine_root, &id, hold, &blocker)
+                .map_err(|error| hard_error("intent", error))?
+        };
+        let (facts, enrollment) = outcome.map_err(refused)?;
+        (facts, Some(enrollment))
     };
-    let (mut facts, _enrollment) = outcome.map_err(refused)?;
     // With review signatures offered, the render binds their review-set
     // digest: that is the approval intent the Approver signs.
     // WRS-003: the resume purpose renders the canonical resolution
     // intent WRS-003 pins; its review-set digest stays empty, so
     // offered review signatures never bind it.
-    if !reviews.is_empty() && !resume {
+    if !reviews.is_empty() && !resume && !recover {
         let mut offered = Vec::new();
         for (label, signature) in &reviews {
             let bytes = fs::read(signature).map_err(|error| {
@@ -1563,6 +1774,9 @@ fn doctor<W: Write>(
     // WRS-003: a reader reports a pending committed pause action and
     // repairs nothing - one warning finding per pending Run.
     diagnosis.extend(crate::doctor::pending_pause_findings(roots.engine_root()));
+    diagnosis.extend(crate::doctor::pending_amendment_findings(
+        roots.engine_root(),
+    ));
     if json {
         write_findings(&diagnosis, true, writer)?;
         return Ok(diagnosis.exit_code());

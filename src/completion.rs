@@ -101,6 +101,26 @@ impl fmt::Display for CompletionDefect {
     }
 }
 
+/// WRS-004: the optional `authority-head-sha256` receipt field is 64
+/// lowercase hexadecimal digits when present; any other spelling refuses the
+/// receipt parse itself.
+fn validated_authority_head(value: Option<String>) -> Result<Option<String>, String> {
+    let Some(head) = value.as_deref() else {
+        return Ok(None);
+    };
+    let well_formed = head.len() == 64
+        && head
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
+    if !well_formed {
+        return Err(format!(
+            "receipt field \"authority-head-sha256\" must be 64 lowercase hexadecimal \
+             digits when present, found {head:?}"
+        ));
+    }
+    Ok(value)
+}
+
 fn defect(check: impl Into<String>, reason: impl Into<String>) -> CompletionDefect {
     CompletionDefect {
         check: check.into(),
@@ -216,6 +236,10 @@ pub struct CompletionReceipt {
     pub output_sha256: String,
     pub tree_roots: Vec<String>,
     pub tree_sha256: String,
+    /// WRS-004: the effective amendment head this receipt's proof is bound
+    /// to; `None` while the Run carries no chain or the receipt predates
+    /// the field.
+    pub authority_head: Option<String>,
 }
 
 /// Read one completion receipt, refusing anything that is not self-describing.
@@ -281,6 +305,8 @@ pub fn load_completion(path: &Path) -> Result<CompletionReceipt, CompletionDefec
         output_sha256: field("output-sha256")?,
         tree_roots,
         tree_sha256: field("tree-sha256")?,
+        authority_head: validated_authority_head(text("authority-head-sha256"))
+            .map_err(|reason| defect(check, reason))?,
     })
 }
 
@@ -352,6 +378,21 @@ pub fn gate_completion_at(
         .map(crate::root::component)
         .unwrap_or_default();
     let directory = crate::receipt::run_evidence_dir(engine_root, run_id).join(COMPLETION_DIR);
+    // WRS-004: the effective authority head, when an amendment chain
+    // exists; a malformed chain refuses the reader as elsewhere.
+    let effective_head: Option<String> = {
+        let run_dir = engine_root.join("runs").join(run_id);
+        match crate::recover::validate_chain(&run_dir, run_id) {
+            Ok(Some(head)) => Some(head.file_sha256),
+            Ok(None) => None,
+            Err(error) => {
+                return Err(vec![defect(
+                    String::new(),
+                    format!("the amendment chain does not validate: {error}"),
+                )])
+            }
+        }
+    };
 
     let mut defects: Vec<CompletionDefect> = Vec::new();
     // PGE-006 / NRR-001: a paused Run is honestly not-passed, and completion
@@ -418,6 +459,22 @@ pub fn gate_completion_at(
         if let Err(problem) = verify_completion(workspace, &ticket_id, check, receipt) {
             defects.push(problem);
             continue;
+        }
+        // WRS-004: proof recorded under an older authority is stale. Only
+        // a Run with an amendment chain binds its receipts to the
+        // effective head; a chainless Run accepts receipts as before.
+        if let Some(head) = &effective_head {
+            if receipt.authority_head.as_deref() != Some(head.as_str()) {
+                defects.push(defect(
+                    check.id.clone(),
+                    format!(
+                        "receipt is stale: it is bound to authority head {}, but this Run's \
+                         effective head is {head}",
+                        receipt.authority_head.as_deref().unwrap_or("none")
+                    ),
+                ));
+                continue;
+            }
         }
         let expected = directory.join(format!("{}.toml", check_slug(&check.id)));
         if path != &expected {

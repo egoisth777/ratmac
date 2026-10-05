@@ -22,6 +22,7 @@ pub mod ownership;
 pub mod pause;
 pub mod pin;
 pub mod receipt;
+pub mod recover;
 pub mod review;
 pub mod root;
 pub mod roots;
