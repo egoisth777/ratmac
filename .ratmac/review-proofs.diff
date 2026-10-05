@@ -1,0 +1,41 @@
+diff --git a/.ratmac/ratmac.toml b/.ratmac/ratmac.toml
+--- a/.ratmac/ratmac.toml
++++ b/.ratmac/ratmac.toml
+@@ -187,10 +187,15 @@ guards = [
+ 
+ [classes.ticket.states.implement]
+ prompt = """
+-Make the planned tests pass, then run the item's whole merge gate: its focused
+-tests, the affected regressions, its hidden lanes, and the quality commands.
+-Commit the green work before going on - the next stage breaks the tree on
+-purpose and has to have something to restore.
++Make the planned tests pass - the focused public checks green - then obtain
++the independent source and test-oracle review and record it through the
++turn tool before the expensive proof set: pwsh -File tools/turn.ps1 review
++-Item <item> -Verdict <accepted|rejected>, then pwsh -File tools/turn.ps1
++proofs -Item <item>. A rejected review returns here for repair. Then run
++the item's whole merge gate: its focused tests, the affected regressions,
++its hidden lanes, and the quality commands. Commit the green work before
++going on - the next stage breaks the tree on purpose and has to have
++something to restore.
+ """
+ guards = [
+   { kind = "completion_gate", ticket-binding = "item", root = "ticket", declaration-format = "front-matter-string-lists", focused-field = "focused-tests", hidden-lane-field = "hidden-lanes", quality-field = "quality-commands" },
+@@ -206,9 +211,14 @@ guards = [
+ 
+ [classes.ticket.states.damage]
+ prompt = """
+-Break the green work on purpose, one mutation at a time, and check that a test
+-catches each one. Restore the tree from the safety commit after every mutation.
+-A mutation that survives is a hole in the tests, not a win.
++Break the green work on purpose, one mutation at a time, and check that a
++test catches each one. Freeze the safety checkpoint through the turn tool
++first: pwsh -File tools/turn.ps1 checkpoint -Item <item> -Target <path>...;
++then mutate only the declared targets and restore after every mutation:
++pwsh -File tools/turn.ps1 restore -Item <item>. Re-run the focused checks
++green after every restore; the restored-green rerun is mandatory, not
++re-earned proof. A mutation that survives is a hole in the tests, not a
++win.
+ """
+ # Leaving the damage stage means the checks are green and fresh again: the
+ # completion gate re-derives every receipt against the tree as it stands, so a

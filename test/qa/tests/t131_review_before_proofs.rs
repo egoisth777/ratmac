@@ -1088,6 +1088,25 @@ fn wcpv_011() {
         "t131 WCPV-011: the once-only refusal runs no command"
     );
 
+    // The amended contract: the records "are the turn's own gate state, so
+    // the operator deletes them before `close`: `close` keeps its landed
+    // bytes, and both its only-copy rule (THK-003) and `git worktree
+    // remove` refuse while an untracked file remains in the worktree".
+    // The turn's three untracked records are deleted, never committed.
+    for untracked in [
+        record_path(&worktree),
+        receipt_path(&worktree),
+        worktree.join(format!("{ITEM_RECORDS}/{ITEM}-checkpoint-manifest.txt")),
+    ] {
+        assert!(
+            untracked.exists(),
+            "t131 WCPV-011: the turn's untracked record {} exists before the operator deletes it",
+            untracked.display()
+        );
+        fs::remove_file(&untracked)
+            .unwrap_or_else(|error| panic!("delete {}: {error}", untracked.display()));
+    }
+
     // Landing and merge; close step 7 runs the main verification ungated
     // from the primary checkout.
     let closed = turn_isolated(

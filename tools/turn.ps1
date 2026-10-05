@@ -20,6 +20,8 @@
                                          [-Obsolete <artifact>...]
         pwsh -File tools/turn.ps1 checkpoint -Item <string> -Target <path>...
         pwsh -File tools/turn.ps1 restore -Item <string>
+        pwsh -File tools/turn.ps1 review -Item <string> -Verdict <accepted|rejected>
+        pwsh -File tools/turn.ps1 proofs -Item <string>
 
     `status` is the dry run: it prints the declared data, the live turns,
     and each mutating verb's planned mutations and recovery commands. It
@@ -70,6 +72,20 @@
     neither refuses from a linked worktree: the damage turn lives there,
     deliberately.
 
+    `review` and `proofs` are the review-before-proofs pair (WCP-004).
+    `review` records the independent source and test-oracle review over the
+    exact bytes of the addressed checkout - every work row plus every lane
+    row, its own evidence never a row - as one snapshot digest in the item's
+    review record; `proofs` runs the declared lanes-rerun command exactly
+    once behind an accepted, fresh review and records the proof receipt
+    binding that snapshot. One accepted snapshot earns one proof set; the
+    restored-green rerun after each mutation and close step 7's verification
+    from the primary checkout stay mandatory and ungated. `checkpoint`
+    freezes only reviewed, proven green work; `restore` and every lifecycle
+    verb stay ungated. Neither verb consults turn state: the addressed
+    checkout's bytes, the declared data, and the item-named records are
+    their whole input.
+
     Ownership (the trial lifecycle's table): a human or the Main-Agent
     invokes these verbs from the primary checkout with the trunk checked
     out. An Advisor authors content only. A Subagent invokes no lifecycle
@@ -109,6 +125,11 @@ param(
     # `pwsh -File` delivers `-Target a,b` as one string, so the damage
     # pair splits every value on commas and drops the empty pieces.
     [string[]] $Target = @(),
+
+    # The independent review's recorded decision: exactly 'accepted' or
+    # 'rejected' on `review`, and accepted-but-ignored on every verb that
+    # does not read it - the same discipline as `-Force` (WCP-004).
+    [string] $Verdict = '',
 
     # Accepted and never honored: no refusal in this lifecycle has a force
     # variant, so the flag exists only to meet the same refusal.
@@ -1356,13 +1377,13 @@ function Invoke-Status {
 # guard and before any write, so an invalid request refuses having written
 # nothing. Each boundary belongs to exactly one verb.
 function Get-TestPause {
-    param([Parameter(Mandatory)][string[]] $Boundaries)
+    param([Parameter(Mandatory)][AllowEmptyCollection()][string[]] $Boundaries)
 
     $requested = [Environment]::GetEnvironmentVariable('RATMAC_TEST_TURN_PAUSE')
     if ([string]::IsNullOrEmpty($requested)) { return $null }
 
     if ($Boundaries -notcontains $requested) {
-        $known = 'after-freeze', 'after-validate', 'after-restore', 'after-verify'
+        $known = 'after-freeze', 'after-validate', 'after-restore', 'after-verify', 'after-proof-command'
         $fact = if ($known -contains $requested) { "$requested does not belong to this verb" }
         else { "unknown boundary '$requested'" }
         Deny -Reason "the test pause request is invalid: $fact" -Guidance @(
@@ -1512,21 +1533,7 @@ function Test-TargetSpelling {
 # code-unit order.
 function Get-BytewiseAscendingPaths {
     param([Parameter(Mandatory)][string[]] $Paths)
-    $list = [System.Collections.Generic.List[string]]::new([string[]]$Paths)
-    $list.Sort([System.Comparison[string]]{
-        param($Left, $Right)
-        $leftBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($Left)
-        $rightBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($Right)
-        $shared = [Math]::Min($leftBytes.Length, $rightBytes.Length)
-        for ($index = 0; $index -lt $shared; $index++) {
-            if ($leftBytes[$index] -lt $rightBytes[$index]) { return -1 }
-            if ($leftBytes[$index] -gt $rightBytes[$index]) { return 1 }
-        }
-        if ($leftBytes.Length -lt $rightBytes.Length) { return -1 }
-        if ($leftBytes.Length -gt $rightBytes.Length) { return 1 }
-        return 0
-    })
-    [string[]]$list.ToArray()
+    Sort-Bytewise -Lines $Paths
 }
 
 # The round-trip proof for one target, through Git's own conversion both
@@ -1621,6 +1628,11 @@ function Invoke-Checkpoint {
             @($trackedDirty | ForEach-Object { "  $_" })
         )
     }
+
+    # WCP-004: the freeze takes only reviewed, proven green work - the gate
+    # sits after the clean-tracked-tree row and before the round-trip proof,
+    # and every gate row refuses before any write.
+    Invoke-ReviewGate -Facts $Facts -Decl $Decl
 
     # The manifest's rows, bytewise ascending by path.
     $ordered = @(Get-BytewiseAscendingPaths -Paths $targets)
@@ -2038,6 +2050,610 @@ function Invoke-Restore {
     exit 0
 }
 
+# --- review and proofs (WCP-004) ---------------------------------------------
+
+# Strings sorted bytewise ascending: the UTF-8 bytes of each whole line
+# compared unit by unit, so the order holds beyond the basic multilingual
+# plane and never depends on a culture or on UTF-16 code-unit order - the
+# snapshot's one sort over its rendered rows and the changed-input rows'
+# order alike.
+function Sort-Bytewise {
+    param([Parameter(Mandatory)][AllowEmptyCollection()][string[]] $Lines)
+    $list = [System.Collections.Generic.List[string]]::new([string[]]$Lines)
+    $list.Sort([System.Comparison[string]]{
+        param($Left, $Right)
+        $leftBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($Left)
+        $rightBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($Right)
+        $shared = [Math]::Min($leftBytes.Length, $rightBytes.Length)
+        for ($index = 0; $index -lt $shared; $index++) {
+            if ($leftBytes[$index] -lt $rightBytes[$index]) { return -1 }
+            if ($leftBytes[$index] -gt $rightBytes[$index]) { return 1 }
+        }
+        if ($leftBytes.Length -lt $rightBytes.Length) { return -1 }
+        if ($leftBytes.Length -gt $rightBytes.Length) { return 1 }
+        return 0
+    })
+    [string[]]$list.ToArray()
+}
+
+# The addressed item's own evidence under the declared item-records root,
+# each name with its `.tmp` staging sibling: never rows of the reviewed
+# inputs, whatever their tracked state, so no file a verb of this family
+# writes can ever change a snapshot digest.
+function Get-ExcludedEvidencePaths {
+    param([Parameter(Mandatory)] $Decl)
+    $excluded = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    $recordsPrefix = (("$($Decl.ItemRecords)" -replace '\\', '/')).TrimEnd('/')
+    foreach ($name in "$Item-review-record.txt", "$Item-proof-receipt.txt", "$Item-checkpoint-manifest.txt") {
+        $null = $excluded.Add("$recordsPrefix/$name")
+        $null = $excluded.Add("$recordsPrefix/$name.tmp")
+    }
+    $excluded
+}
+
+# The lane half of the reviewed inputs: every file under the declared lanes
+# root, skipping the declared build-output names at any depth and `.git`,
+# rendered `lane <path>\t<sha256>` - the rows the tree walker's own walk
+# emits, walked here one file at a time so an unreadable path refuses by
+# name.
+function Add-LaneRows {
+    param(
+        [Parameter(Mandatory)][string] $Directory,
+        [AllowEmptyString()][string] $Prefix = '',
+        [Parameter(Mandatory)][string[]] $SkipNames,
+        [Parameter(Mandatory)][string] $VerbName,
+        [Parameter(Mandatory)] $Rows
+    )
+    foreach ($entry in @(Get-ChildItem -LiteralPath $Directory -Force)) {
+        if ($entry.PSIsContainer) {
+            if ($SkipNames -contains $entry.Name) { continue }
+            if ($entry.Name -eq '.git') { continue }
+            Add-LaneRows -Directory $entry.FullName -Prefix ($Prefix + $entry.Name + '/') -SkipNames $SkipNames -VerbName $VerbName -Rows $Rows
+        }
+        else {
+            $digest = ''
+            try {
+                $digest = (Get-FileHash -LiteralPath $entry.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+            catch {
+                Deny -Reason "recomputing the digest of $($Prefix + $entry.Name) failed: $($_.Exception.Message)" -Guidance @(
+                    "free or repair the path, then run $VerbName again."
+                )
+            }
+            $Rows.Add("lane $($Prefix + $entry.Name)`t$digest")
+        }
+    }
+}
+
+# One `git ls-files` listing, read from Git's own raw stdout bytes as
+# UTF-8 text, so a non-ASCII path never passes through a console decoding
+# and the row spells the path as the working tree carries it.
+function Get-GitListingLines {
+    param(
+        [Parameter(Mandatory)][string[]] $Arguments,
+        [Parameter(Mandatory)][string] $Destination
+    )
+    $result = Save-GitBytes -Arguments $Arguments -Destination $Destination
+    if (-not $result.Ok) {
+        Deny -Reason "git $($Arguments -join ' ') failed: $($result.Text)"
+    }
+    $text = [System.IO.File]::ReadAllText($Destination, [System.Text.UTF8Encoding]::new($false))
+    if ([string]::IsNullOrWhiteSpace($text)) { return @() }
+    @($text -split "`r?`n" | Where-Object { $_ -ne '' })
+}
+
+# The reviewed inputs of the addressed checkout and their one snapshot
+# digest: every work row (a path the index lists or one untracked
+# non-ignored path, minus the addressed item's own evidence) plus every
+# lane row, all rows together sorted bytewise ascending over the whole
+# rendered line. A path the index lists but the working tree does not carry
+# refuses the incomplete row; an unreadable path refuses the digest-failure
+# row naming the invoking verb - the same bytes for both verbs that walk
+# the rows.
+function Get-ReviewedSnapshot {
+    param(
+        [Parameter(Mandatory)][string] $VerbName,
+        [Parameter(Mandatory)] $Facts,
+        [Parameter(Mandatory)] $Decl
+    )
+    $excluded = Get-ExcludedEvidencePaths -Decl $Decl
+    $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    $workPaths = [System.Collections.Generic.List[string]]::new()
+    # The two listings, read from Git's raw bytes with quotepath off, live
+    # in one temporary directory outside the repository, removed before
+    # the verb ends, refusal or not.
+    $listDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ("ratmac-turn-snapshot-" + [guid]::NewGuid().ToString('N'))
+    $null = New-Item -ItemType Directory -Path $listDirectory -Force
+    try {
+        $cached = @(Get-GitListingLines -Arguments @('-c', 'core.quotepath=false', '-C', $Facts.RepoRoot, 'ls-files', '--cached') -Destination (Join-Path $listDirectory 'cached'))
+        foreach ($path in $cached) {
+            if ($excluded.Contains($path)) { continue }
+            if ($seen.Add($path)) { $workPaths.Add($path) }
+        }
+        foreach ($path in @(Get-GitListingLines -Arguments @('-c', 'core.quotepath=false', '-C', $Facts.RepoRoot, 'ls-files', '--others', '--exclude-standard') -Destination (Join-Path $listDirectory 'others'))) {
+            if ($excluded.Contains($path)) { continue }
+            if ($seen.Add($path)) { $workPaths.Add($path) }
+        }
+    }
+    finally {
+        $null = try { [System.IO.Directory]::Delete($listDirectory, $true) } catch { }
+    }
+    foreach ($path in $cached) {
+        if ($excluded.Contains($path)) { continue }
+        if (-not (Test-Path -LiteralPath (Join-Path $Facts.RepoRoot $path) -PathType Leaf)) {
+            Deny -Reason "the reviewed snapshot is incomplete: $path is in the index but missing from the working tree" -Guidance @(
+                'restore or remove the path, then record the review again.',
+                'nothing was recorded.'
+            )
+        }
+    }
+
+    $rows = [System.Collections.Generic.List[string]]::new()
+    foreach ($path in $workPaths) {
+        $digest = ''
+        try {
+            $digest = (Get-FileHash -LiteralPath (Join-Path $Facts.RepoRoot $path) -Algorithm SHA256).Hash.ToLowerInvariant()
+        }
+        catch {
+            Deny -Reason "recomputing the digest of $path failed: $($_.Exception.Message)" -Guidance @(
+                "free or repair the path, then run $VerbName again."
+            )
+        }
+        $rows.Add("work $path`t$digest")
+    }
+    $lanesRoot = Join-Path $Facts.RepoRoot $Decl.Lanes
+    if (Test-Path -LiteralPath $lanesRoot -PathType Container) {
+        Add-LaneRows -Directory $lanesRoot -Prefix '' -SkipNames $Decl.Skip -VerbName $VerbName -Rows $rows
+    }
+
+    $ordered = @(Sort-Bytewise -Lines @($rows.ToArray()))
+    $payload = [System.Collections.Generic.List[byte]]::new()
+    $utf8 = [System.Text.UTF8Encoding]::new($false)
+    $payload.AddRange($utf8.GetBytes("ratmac-review-v1`n"))
+    foreach ($row in $ordered) {
+        $payload.AddRange($utf8.GetBytes($row))
+        $payload.AddRange($utf8.GetBytes("`n"))
+    }
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $hashBytes = $sha256.ComputeHash($payload.ToArray())
+    }
+    finally {
+        $sha256.Dispose()
+    }
+    [pscustomobject]@{
+        Rows      = $ordered
+        WorkCount = @($ordered | Where-Object { $_.StartsWith('work ') }).Count
+        LaneCount = @($ordered | Where-Object { $_.StartsWith('lane ') }).Count
+        Digest    = ([BitConverter]::ToString($hashBytes) -replace '-', '').ToLowerInvariant()
+    }
+}
+
+# The review record's malformed-refusal row, shared by every parse fact.
+function Deny-ReviewRecord {
+    param(
+        [Parameter(Mandatory)][string] $Relative,
+        [Parameter(Mandatory)][string] $Fact
+    )
+    Deny -Reason "the review record $Relative is malformed: $Fact" -Guidance @(
+        "repair the record, or re-run review -Item $Item -Verdict <accepted|rejected>."
+    )
+}
+
+# The recorded review, parsed to its exact format: three header rows and
+# one `work <path>\t<64-hex>` or `lane <path>\t<64-hex>` evidence row per
+# reviewed input, every line LF-terminated. Anything else refuses as
+# malformed, the bytes left exactly as they read.
+function Read-ReviewRecord {
+    param(
+        [Parameter(Mandatory)][string] $Path,
+        [Parameter(Mandatory)][string] $Relative
+    )
+    $bytes = $null
+    try {
+        $bytes = [System.IO.File]::ReadAllBytes($Path)
+    }
+    catch {
+        Deny-ReviewRecord -Relative $Relative -Fact "it cannot be read: $($_.Exception.Message)"
+    }
+    if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
+        Deny-ReviewRecord -Relative $Relative -Fact 'it carries a UTF-8 byte-order mark'
+    }
+    $text = $null
+    try {
+        $text = [System.Text.UTF8Encoding]::new($false, $true).GetString($bytes)
+    }
+    catch {
+        Deny-ReviewRecord -Relative $Relative -Fact 'it is not valid UTF-8'
+    }
+    if ($text.Contains("`r")) {
+        Deny-ReviewRecord -Relative $Relative -Fact 'a line carries a carriage return'
+    }
+    if (-not $text.EndsWith("`n")) {
+        Deny-ReviewRecord -Relative $Relative -Fact 'the last line is not LF-terminated'
+    }
+    $split = @($text -split "`n")
+    $lines = @($split | Select-Object -First ($split.Count - 1))
+    if ($lines.Count -lt 3) {
+        Deny-ReviewRecord -Relative $Relative -Fact "it carries $($lines.Count) lines, fewer than the three header rows"
+    }
+    foreach ($line in $lines) {
+        if ($line -eq '') {
+            Deny-ReviewRecord -Relative $Relative -Fact 'it carries an empty line'
+        }
+    }
+    if (-not ($lines[0] -cmatch '^item (.+)$')) {
+        Deny-ReviewRecord -Relative $Relative -Fact "the first line is not an item row: $($lines[0])"
+    }
+    $recordItem = $Matches[1]
+    if (-not ($lines[1] -cmatch '^verdict (accepted|rejected)$')) {
+        Deny-ReviewRecord -Relative $Relative -Fact "the verdict row is neither 'accepted' nor 'rejected': $($lines[1])"
+    }
+    $verdict = $Matches[1]
+    if (-not ($lines[2] -cmatch '^snapshot ([0-9a-f]{64})$')) {
+        Deny-ReviewRecord -Relative $Relative -Fact "the snapshot row is not a 64-hex digest: $($lines[2])"
+    }
+    $snapshot = $Matches[1]
+    $rows = [System.Collections.Generic.List[string]]::new()
+    $paths = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    for ($index = 3; $index -lt $lines.Count; $index++) {
+        if (-not ($lines[$index] -cmatch '^(work|lane) ([^\t]+)\t([0-9a-f]{64})$')) {
+            Deny-ReviewRecord -Relative $Relative -Fact "an evidence row is not the '<work|lane> <path>\t<64-hex>' shape: $($lines[$index])"
+        }
+        if (-not $paths.Add($Matches[2])) {
+            Deny-ReviewRecord -Relative $Relative -Fact "the path $($Matches[2]) repeats"
+        }
+        $rows.Add($lines[$index])
+    }
+    [pscustomobject]@{
+        Item     = $recordItem
+        Verdict  = $verdict
+        Snapshot = $snapshot
+        Rows     = @($rows.ToArray())
+    }
+}
+
+# The proof receipt's malformed-refusal row, shared by every parse fact.
+function Deny-ProofReceipt {
+    param(
+        [Parameter(Mandatory)][string] $Relative,
+        [Parameter(Mandatory)][string] $Fact
+    )
+    Deny -Reason "the proof receipt $Relative is malformed: $Fact" -Guidance @(
+        "repair the receipt, or re-earn it: run proofs -Item $Item behind a current review."
+    )
+}
+
+# The earned proof receipt, parsed to its exact format: three
+# LF-terminated lines only, the proof-set row carrying the declared
+# command verbatim. Anything else refuses as malformed, the bytes left
+# exactly as they read.
+function Read-ProofReceipt {
+    param(
+        [Parameter(Mandatory)][string] $Path,
+        [Parameter(Mandatory)][string] $Relative
+    )
+    $bytes = $null
+    try {
+        $bytes = [System.IO.File]::ReadAllBytes($Path)
+    }
+    catch {
+        # A receipt that cannot be read at all - one another process
+        # holds open - is unparsable, and parsing is mandatory whenever
+        # the receipt is present.
+        Deny-ProofReceipt -Relative $Relative -Fact "it cannot be read: $($_.Exception.Message)"
+    }
+    if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
+        Deny-ProofReceipt -Relative $Relative -Fact 'it carries a UTF-8 byte-order mark'
+    }
+    $text = $null
+    try {
+        $text = [System.Text.UTF8Encoding]::new($false, $true).GetString($bytes)
+    }
+    catch {
+        Deny-ProofReceipt -Relative $Relative -Fact 'it is not valid UTF-8'
+    }
+    if ($text.Contains("`r")) {
+        Deny-ProofReceipt -Relative $Relative -Fact 'a line carries a carriage return'
+    }
+    if (-not $text.EndsWith("`n")) {
+        Deny-ProofReceipt -Relative $Relative -Fact 'the last line is not LF-terminated'
+    }
+    $split = @($text -split "`n")
+    $lines = @($split | Select-Object -First ($split.Count - 1))
+    if ($lines.Count -ne 3) {
+        Deny-ProofReceipt -Relative $Relative -Fact "it carries $($lines.Count) lines, not exactly three"
+    }
+    foreach ($line in $lines) {
+        if ($line -eq '') {
+            Deny-ProofReceipt -Relative $Relative -Fact 'it carries an empty line'
+        }
+    }
+    if (-not ($lines[0] -cmatch '^item (.+)$')) {
+        Deny-ProofReceipt -Relative $Relative -Fact "the first line is not an item row: $($lines[0])"
+    }
+    $receiptItem = $Matches[1]
+    if (-not ($lines[1] -cmatch '^snapshot ([0-9a-f]{64})$')) {
+        Deny-ProofReceipt -Relative $Relative -Fact "the snapshot row is not a 64-hex digest: $($lines[1])"
+    }
+    $snapshot = $Matches[1]
+    if (-not ($lines[2] -cmatch '^proof-set (.+)$')) {
+        Deny-ProofReceipt -Relative $Relative -Fact "the proof-set row does not carry the command: $($lines[2])"
+    }
+    [pscustomobject]@{
+        Item     = $receiptItem
+        Snapshot = $snapshot
+        Command  = $Matches[1]
+    }
+}
+
+# The stale row's changed-input rows: one `work <path>` or `lane <path>`
+# row per added, removed, or changed path - a path whose recorded row
+# differs or that only one side carries - bytewise sorted.
+function Get-SnapshotChanges {
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][string[]] $RecordedRows,
+        [Parameter(Mandatory)][AllowEmptyCollection()][string[]] $CurrentRows
+    )
+    $recorded = [System.Collections.Generic.Dictionary[string,string]]::new([System.StringComparer]::Ordinal)
+    foreach ($row in $RecordedRows) {
+        if ($row -cmatch '^(work|lane) ([^\t]+)\t([0-9a-f]{64})$') { $recorded[$Matches[2]] = $row }
+    }
+    $current = [System.Collections.Generic.Dictionary[string,string]]::new([System.StringComparer]::Ordinal)
+    foreach ($row in $CurrentRows) {
+        if ($row -cmatch '^(work|lane) ([^\t]+)\t([0-9a-f]{64})$') { $current[$Matches[2]] = $row }
+    }
+    $changed = [System.Collections.Generic.List[string]]::new()
+    foreach ($path in $current.Keys) {
+        if (-not $recorded.ContainsKey($path) -or $recorded[$path] -cne $current[$path]) {
+            $changed.Add(($current[$path] -replace '\t[0-9a-f]{64}$', ''))
+        }
+    }
+    foreach ($path in $recorded.Keys) {
+        if (-not $current.ContainsKey($path)) {
+            $changed.Add(($recorded[$path] -replace '\t[0-9a-f]{64}$', ''))
+        }
+    }
+    @(Sort-Bytewise -Lines @($changed.ToArray()))
+}
+
+# The stale-snapshot refusal, shared by `proofs` (which ran nothing) and
+# the checkpoint gate (which wrote nothing): both digests, the sorted
+# changed-input rows, the renewal line, and the invoking verb's own last
+# line.
+function Deny-StaleSnapshot {
+    param(
+        [Parameter(Mandatory)][string] $RecordRelative,
+        [Parameter(Mandatory)][string] $RecordedDigest,
+        [Parameter(Mandatory)][string] $CurrentDigest,
+        [Parameter(Mandatory)][AllowEmptyCollection()][string[]] $Changes,
+        [Parameter(Mandatory)][string] $LastLine
+    )
+    Deny -Reason 'the reviewed snapshot changed since the review recorded it' -Guidance (
+        @("the review record $RecordRelative binds snapshot $RecordedDigest; the addressed checkout now hashes $CurrentDigest;",
+            'changed inputs:') +
+        @($Changes | ForEach-Object { "  $_" }) +
+        @("renew the review over the repaired bytes: pwsh -File tools/turn.ps1 review -Item $Item -Verdict <accepted|rejected>",
+            $LastLine)
+    )
+}
+
+function Invoke-Review {
+    param(
+        [Parameter(Mandatory)] $Facts,
+        [Parameter(Mandatory)] $Decl
+    )
+
+    # Validate, in the contract's order; every refusal writes nothing.
+    $recordsRoot = Join-Path $Facts.RepoRoot $Decl.ItemRecords
+    if (-not (Test-Path -LiteralPath $recordsRoot -PathType Container)) {
+        Deny -Reason "the declared item-records root $($Decl.ItemRecords) does not exist" -Guidance @(
+            'create it, or fix item-records in .ratmac/turn.toml.'
+        )
+    }
+    if ([string]::IsNullOrEmpty($Verdict)) {
+        Deny -Reason 'review needs a verdict: -Verdict <accepted|rejected>' -Guidance @(
+            'the verdict is the independent review''s decision over the exact snapshot this invocation records.'
+        )
+    }
+    if ($Verdict -cne 'accepted' -and $Verdict -cne 'rejected') {
+        Deny -Reason "the verdict '$Verdict' is unknown" -Guidance @(
+            'a verdict is exactly ''accepted'' or ''rejected''.'
+        )
+    }
+    $null = Get-TestPause -Boundaries @()
+
+    $snapshot = Get-ReviewedSnapshot -VerbName 'review' -Facts $Facts -Decl $Decl
+
+    # Record: the whole review record in one step, beside the item record.
+    $recordRelative = ("$($Decl.ItemRecords)/$Item-review-record.txt" -replace '\\', '/')
+    $recordPath = Join-Path $recordsRoot "$Item-review-record.txt"
+    $content = "item $Item`nverdict $Verdict`nsnapshot $($snapshot.Digest)`n"
+    foreach ($row in $snapshot.Rows) { $content += "$row`n" }
+    $temporaryPath = "$recordPath.tmp"
+    try {
+        [System.IO.File]::WriteAllText($temporaryPath, $content, [System.Text.UTF8Encoding]::new($false))
+        [System.IO.File]::Move($temporaryPath, $recordPath, $true)
+    }
+    catch {
+        Deny -Reason "writing the review record $recordRelative failed: $($_.Exception.Message)" -Guidance @(
+            'nothing was recorded; clear the path and run review again.'
+        )
+    }
+
+    $workNoun = if ($snapshot.WorkCount -eq 1) { 'file' } else { 'files' }
+    $laneNoun = if ($snapshot.LaneCount -eq 1) { 'file' } else { 'files' }
+    Write-Report 'turn review recorded'
+    Write-Report "  item:      $Item"
+    Write-Report "  verdict:   $Verdict"
+    Write-Report "  snapshot:  $($snapshot.Digest)"
+    Write-Report "  inputs:    $($snapshot.WorkCount) work $workNoun, $($snapshot.LaneCount) lane $laneNoun"
+    exit 0
+}
+
+function Invoke-Proofs {
+    param(
+        [Parameter(Mandatory)] $Facts,
+        [Parameter(Mandatory)] $Decl
+    )
+
+    # Validate, in the contract's order; every refusal writes nothing.
+    $recordsRoot = Join-Path $Facts.RepoRoot $Decl.ItemRecords
+    if (-not (Test-Path -LiteralPath $recordsRoot -PathType Container)) {
+        Deny -Reason "the declared item-records root $($Decl.ItemRecords) does not exist" -Guidance @(
+            'create it, or fix item-records in .ratmac/turn.toml.'
+        )
+    }
+    $pause = Get-TestPause -Boundaries @('after-proof-command')
+
+    $recordRelative = ("$($Decl.ItemRecords)/$Item-review-record.txt" -replace '\\', '/')
+    $recordPath = Join-Path $recordsRoot "$Item-review-record.txt"
+    $receiptRelative = ("$($Decl.ItemRecords)/$Item-proof-receipt.txt" -replace '\\', '/')
+    $receiptPath = Join-Path $recordsRoot "$Item-proof-receipt.txt"
+
+    if (-not (Test-Path -LiteralPath $recordPath -PathType Leaf)) {
+        Deny -Reason "the review record $recordRelative does not exist" -Guidance @(
+            'record the independent review over the exact bytes first:',
+            "  pwsh -File tools/turn.ps1 review -Item $Item -Verdict <accepted|rejected>",
+            'nothing ran.'
+        )
+    }
+    $record = Read-ReviewRecord -Path $recordPath -Relative $recordRelative
+    if ($record.Item -cne $Item) {
+        Deny -Reason "the review record $recordRelative records item $($record.Item), not $Item" -Guidance @(
+            "re-run review -Item $Item -Verdict <accepted|rejected>."
+        )
+    }
+    if ($record.Verdict -cne 'accepted') {
+        Deny -Reason "the review record $recordRelative records verdict rejected, not accepted" -Guidance @(
+            'repair the review findings, then record the accepted review and earn the proof set;',
+            'nothing ran.'
+        )
+    }
+    $snapshot = Get-ReviewedSnapshot -VerbName 'proofs' -Facts $Facts -Decl $Decl
+    if ($snapshot.Digest -cne $record.Snapshot) {
+        Deny-StaleSnapshot -RecordRelative $recordRelative -RecordedDigest $record.Snapshot -CurrentDigest $snapshot.Digest `
+            -Changes @(Get-SnapshotChanges -RecordedRows $record.Rows -CurrentRows $snapshot.Rows) -LastLine 'nothing ran.'
+    }
+    if (Test-Path -LiteralPath $receiptPath -PathType Leaf) {
+        $receipt = Read-ProofReceipt -Path $receiptPath -Relative $receiptRelative
+        if ($receipt.Item -cne $Item) {
+            Deny -Reason "the proof receipt $receiptRelative records item $($receipt.Item), not $Item" -Guidance @(
+                "re-run proofs -Item $Item."
+            )
+        }
+        if ($receipt.Snapshot -ceq $snapshot.Digest) {
+            Deny -Reason "the proof set for $Item is already earned at snapshot $($receipt.Snapshot)" -Guidance @(
+                'the once-only rule earns one complete proof set per accepted review;',
+                'a renewed proof set needs a renewed review over changed bytes.',
+                'nothing ran.'
+            )
+        }
+    }
+
+    # Earn: the declared command exactly once from the addressed checkout,
+    # through the same invocation close step 7 uses, judged by exit code.
+    Push-Location $Facts.RepoRoot
+    try {
+        & pwsh -NoProfile -Command $Decl.LanesRerun
+        $code = $LASTEXITCODE
+    }
+    finally {
+        Pop-Location
+    }
+    if ($code -ne 0) {
+        Deny -Reason "the proof-set command failed in $($Facts.RepoRoot) (exit $code)" -Guidance @(
+            "the verification command was: $($Decl.LanesRerun)",
+            "it ran once from $($Facts.RepoRoot)",
+            'no receipt was written; repair the reported failure, then run proofs again.'
+        )
+    }
+
+    if ($null -ne $pause) { Invoke-TestPause -Pause $pause }
+
+    # Record: the whole proof receipt in one step, beside the item record.
+    $content = "item $Item`nsnapshot $($snapshot.Digest)`nproof-set $($Decl.LanesRerun)`n"
+    $temporaryPath = "$receiptPath.tmp"
+    try {
+        [System.IO.File]::WriteAllText($temporaryPath, $content, [System.Text.UTF8Encoding]::new($false))
+        [System.IO.File]::Move($temporaryPath, $receiptPath, $true)
+    }
+    catch {
+        Deny -Reason "writing the proof receipt $receiptRelative failed: $($_.Exception.Message)" -Guidance @(
+            'the command already ran green; clear the path and run proofs again.'
+        )
+    }
+
+    Write-Report 'turn proofs earned'
+    Write-Report "  item:      $Item"
+    Write-Report "  snapshot:  $($snapshot.Digest)"
+    Write-Report "  command:   $($Decl.LanesRerun)"
+    Write-Report "  ran:       once from $($Facts.RepoRoot)"
+    Write-Report "  next:      commit the green work as '${Item}: checkpoint - not a landing', then run: pwsh -File tools/turn.ps1 checkpoint -Item $Item -Target <path>..."
+    exit 0
+}
+
+# The checkpoint gate (WCP-004): the freeze takes only reviewed, proven
+# green work. Inserted after t-125's clean-tracked-tree row and before the
+# round-trip proof, every row refuses before any write, so the manifest
+# never freezes unreviewed or unproven work.
+function Invoke-ReviewGate {
+    param(
+        [Parameter(Mandatory)] $Facts,
+        [Parameter(Mandatory)] $Decl
+    )
+
+    $recordsRoot = Join-Path $Facts.RepoRoot $Decl.ItemRecords
+    $recordRelative = ("$($Decl.ItemRecords)/$Item-review-record.txt" -replace '\\', '/')
+    $recordPath = Join-Path $recordsRoot "$Item-review-record.txt"
+    $receiptRelative = ("$($Decl.ItemRecords)/$Item-proof-receipt.txt" -replace '\\', '/')
+    $receiptPath = Join-Path $recordsRoot "$Item-proof-receipt.txt"
+
+    if (-not (Test-Path -LiteralPath $recordPath -PathType Leaf)) {
+        Deny -Reason "the review record $recordRelative does not exist" -Guidance @(
+            'the checkpoint freezes only reviewed, proven green work;',
+            "run review -Item $Item -Verdict <accepted|rejected>, then proofs -Item $Item, then checkpoint again.",
+            'nothing was written.'
+        )
+    }
+    $record = Read-ReviewRecord -Path $recordPath -Relative $recordRelative
+    if ($record.Item -cne $Item) {
+        Deny -Reason "the review record $recordRelative records item $($record.Item), not $Item" -Guidance @(
+            "re-run review -Item $Item -Verdict <accepted|rejected>."
+        )
+    }
+    if ($record.Verdict -cne 'accepted') {
+        Deny -Reason "the review record $recordRelative records verdict rejected, not accepted" -Guidance @(
+            'repair the review findings, then record the accepted review and earn the proof set;',
+            'nothing was written.'
+        )
+    }
+    $snapshot = Get-ReviewedSnapshot -VerbName 'checkpoint' -Facts $Facts -Decl $Decl
+    if ($snapshot.Digest -cne $record.Snapshot) {
+        Deny-StaleSnapshot -RecordRelative $recordRelative -RecordedDigest $record.Snapshot -CurrentDigest $snapshot.Digest `
+            -Changes @(Get-SnapshotChanges -RecordedRows $record.Rows -CurrentRows $snapshot.Rows) -LastLine 'nothing was written.'
+    }
+    if (-not (Test-Path -LiteralPath $receiptPath -PathType Leaf)) {
+        Deny -Reason "the proof receipt $receiptRelative does not exist" -Guidance @(
+            'the checkpoint freezes only reviewed, proven green work;',
+            "run proofs -Item $Item, then checkpoint again.",
+            'nothing was written.'
+        )
+    }
+    $receipt = Read-ProofReceipt -Path $receiptPath -Relative $receiptRelative
+    if ($receipt.Item -cne $Item) {
+        Deny -Reason "the proof receipt $receiptRelative records item $($receipt.Item), not $Item" -Guidance @(
+            "re-run proofs -Item $Item."
+        )
+    }
+    if ($receipt.Snapshot -cne $snapshot.Digest) {
+        Deny -Reason "the proof receipt $receiptRelative binds snapshot $($receipt.Snapshot), not the reviewed snapshot $($snapshot.Digest)" -Guidance @(
+            "renewed proof follows the renewed review; run proofs -Item $Item again.",
+            'nothing was written.'
+        )
+    }
+}
+
 # --- dispatch ----------------------------------------------------------------
 
 $facts = Get-Facts
@@ -2076,14 +2692,26 @@ switch ($Verb) {
         $declaration = Get-Declaration -RepoRoot $facts.RepoRoot
         Invoke-Restore -Facts $facts -Decl $declaration -Pause $pause
     }
+    'review' {
+        Guard-Item
+        $declaration = Get-Declaration -RepoRoot $facts.RepoRoot
+        Invoke-Review -Facts $facts -Decl $declaration
+    }
+    'proofs' {
+        Guard-Item
+        $declaration = Get-Declaration -RepoRoot $facts.RepoRoot
+        Invoke-Proofs -Facts $facts -Decl $declaration
+    }
     default {
         Deny -Reason "unknown verb '$Verb'" -Guidance @(
-            'available verbs: status, open, close, checkpoint, restore',
+            'available verbs: status, open, close, checkpoint, restore, review, proofs',
             'pwsh -File tools/turn.ps1 status [-Item <string>]',
             'pwsh -File tools/turn.ps1 open -Item <string>',
             "pwsh -File tools/turn.ps1 close -Item <string> [-Line <words>] [-Obsolete <artifact>...]",
             "pwsh -File tools/turn.ps1 checkpoint -Item <string> -Target <path>...",
-            'pwsh -File tools/turn.ps1 restore -Item <string>'
+            'pwsh -File tools/turn.ps1 restore -Item <string>',
+            'pwsh -File tools/turn.ps1 review -Item <string> -Verdict <accepted|rejected>',
+            'pwsh -File tools/turn.ps1 proofs -Item <string>'
         )
     }
 }
