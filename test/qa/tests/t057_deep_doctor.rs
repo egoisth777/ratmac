@@ -331,6 +331,22 @@ fn defect_catalogue() -> Vec<(&'static str, &'static str, &'static str)> {
             "RB705",
             "[states.a]\nprompt = \"p\"\n\n[review]\nmanifest = \"C:/enrollment/manifest.toml\"\npolicy-digest = \"0000000000000000000000000000000000000000000000000000000000000000\"\nverifier-digest = \"0000000000000000000000000000000000000000000000000000000000000000\"\nsigners-digest = \"0000000000000000000000000000000000000000000000000000000000000000\"\nminimum-reviews = 1\napprover = \"a\"\napprover-may-review = false\nwork = [\"../outside\"]\n\n[[review.reviewers]]\nlabel = \"a\"\nkey = \"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP3hR2KFzPNj4kMi9OqHk8v4tcZp3Lj7YOXhWf7wYmjY rb701-fix\"\n",
         ),
+        // t-134 (WEB-006): the nested-declaration defects join the catalogue.
+        (
+            "rb711",
+            "RB711",
+            "program = \"\"\n[states.a]\nprompt = \"p\"\n",
+        ),
+        (
+            "rb712",
+            "RB712",
+            "[states.a]\nprompt = \"p\"\nguards = [{ kind = \"nested_run\", program = \"beta\", root = \"../absent-child\" }]\n",
+        ),
+        (
+            "rb713",
+            "RB713",
+            "[states.a]\nprompt = \"p\"\nguards = [{ kind = \"nested_run\", program = \"beta\", root = \".\", max-depth = 0 }]\n",
+        ),
     ]
 }
 

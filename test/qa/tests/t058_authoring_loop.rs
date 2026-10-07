@@ -828,6 +828,22 @@ fn seeds(scaffold: &str) -> Vec<(&'static str, String)> {
                 "\n[review]\nmanifest = \"C:/enrollment/manifest.toml\"\npolicy-digest = \"0000000000000000000000000000000000000000000000000000000000000000\"\nverifier-digest = \"0000000000000000000000000000000000000000000000000000000000000000\"\nsigners-digest = \"0000000000000000000000000000000000000000000000000000000000000000\"\nminimum-reviews = 1\napprover = \"a\"\napprover-may-review = false\nwork = [\"../outside\"]\n\n[[review.reviewers]]\nlabel = \"a\"\nkey = \"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP3hR2KFzPNj4kMi9OqHk8v4tcZp3Lj7YOXhWf7wYmjY rb701-fix\"\n",
             ),
         ),
+        // t-134 (WEB-006): the nested-declaration defects join the drill.
+        ("RB711", plain("\nprogram = \"\"\n")),
+        (
+            "RB712",
+            scaffold.replace(
+                "[states.build]",
+                "[states.build]\nguards = [{ kind = \"nested_run\", program = \"beta\", root = \"../absent-child\" }]",
+            ),
+        ),
+        (
+            "RB713",
+            scaffold.replace(
+                "[states.build]",
+                "[states.build]\nguards = [{ kind = \"nested_run\", program = \"beta\", root = \".\", max-depth = 0 }]",
+            ),
+        ),
     ]
 }
 

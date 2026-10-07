@@ -1755,6 +1755,21 @@ fn webv_013() {
             ],
             Shape::Presplit(".arca/state.toml"),
         ),
+        // t-134 (WEB-006): `endpoint` joins the route table last; planted
+        // residue still refuses first, mirroring `recover`.
+        invoking(
+            "endpoint",
+            vec![
+                "endpoint".into(),
+                "--invocation".into(),
+                "addr".into(),
+                "--lineage".into(),
+                "deadbeef".into(),
+                "--receipt-fd".into(),
+                "3".into(),
+            ],
+            Shape::Presplit(".arca/state.toml"),
+        ),
         invoking(
             "abandon",
             vec![

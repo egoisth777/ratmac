@@ -1,0 +1,10 @@
+planned-test-id = "WEBV-024"
+ticket-id = "t-134"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t134_safe_nested_invocations webv_024 -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t134_safe_nested_invocations.rs"
+test-name = "webv_024"
+exit-status = 101
+output-sha256 = "b47fc21b60edbc668db0feb92e5f0162d61e0c3b023ec786aefbd84f9ebfbd31"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s\n     Running tests\\t134_safe_nested_invocations.rs (target\\debug\\deps\\t134_safe_nested_invocations-53f9db07d0f51bc1.exe)\n\nrunning 1 test\ntest webv_024 ... FAILED\n\nfailures:\n\n---- webv_024 stdout ----\n\nthread 'webv_024' (79612) panicked at test\\qa\\tests\\t134_safe_nested_invocations.rs:143:5:\nrtm start succeeds: rtm: start: parse .ratmac/ratmac.toml [RB103]: invalid ratmac.toml: unknown key \"program\" in top-level\n\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    webv_024\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.25s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t134_safe_nested_invocations`\n"

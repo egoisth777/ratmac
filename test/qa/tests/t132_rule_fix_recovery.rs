@@ -1252,8 +1252,9 @@ fn wrsv_004_01() {
         .expect("the general usage carries a Commands line");
     assert_eq!(
         listed,
+        // t-134 (WEB-006): `endpoint` joins the route table last.
         "Commands: init, start, status, step, hold, intent, resume, recover, abandon, spawn, \
-         respawn, doctor, scaffold, skill",
+         respawn, doctor, scaffold, skill, endpoint",
         "WRS-004: the route table lists recover after resume"
     );
 
