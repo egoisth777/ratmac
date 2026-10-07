@@ -11,7 +11,7 @@
 //! and stepping alone, with no rule supplied from outside the file.
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use ratmac::doctor::{self, Severity};
@@ -22,10 +22,301 @@ fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-/// The Machine Class this repository ships, as it stands on disk.
+/// The recorded `.ratmac/ratmac.toml` bytes of this batch's merge base -
+/// the base the three tracked boundary diffs apply over. Embedded (with its
+/// sha256 proven on every read) so the tracked runbook is never read as the
+/// edited class: t-133's contract keeps the tracked runbook at the base bytes
+/// until the cycle boundary wires the diffs, and this suite must hold in
+/// every state.
+const BASE_RUNBOOK_SHA256: &str =
+    "012eaa36c1a895f50d8822d516699029cb461a2d489b8ee2b882ce37a8b440c6";
+
+/// The Machine Class this repository ships. t-133's accepted contract makes
+/// `shipped_runbook()` "the recorded base bytes plus the three tracked
+/// boundary diffs applied in ticket order" - t-130's
+/// `.ratmac/pause-routes.diff`, then t-131's `.ratmac/review-proofs.diff`,
+/// then t-133's `.ratmac/issue-binding.diff` - bytes that equal the tracked
+/// runbook after wiring, so the traversal, the doctor-clean pin, and the
+/// typed-parse and ownership reads hold in every state. Never the tracked
+/// runbook read as the edited class.
+const BASE_RUNBOOK: &str = r##"# The Plan-Build Runbook - the P1-P5 cycle this repository runs (PCR-001).
+#
+# Comments carry authoring intent and never reach an agent (R-012). Prompts are
+# agent-facing prose; guards are the machine's own reading of what is on disk,
+# never an agent's claim. No guard here rests on content the agent under test
+# can write (PCR-005), so the file declares no file-shaped guard over a
+# workflow root, and no prompt hands an agent a Scheduler-owned job (PGE-004).
+
+[roots]
+goal = ".arca/goal"
+issue = ".arca/issue"
+residual = ".arca/residual"
+ticket = ".arca/ticket"
+# PCR-008: the working authority. Only the markdown directly under this root is
+# read, so an accepted ask may resolve to a requirement-ID heading in the
+# working rules instead of a product row in the goal.
+authority = ".arca"
+
+# --- P1 ----------------------------------------------------------------------
+
+[states.intake]
+prompt = """
+Fold every pending issue in the intake area into the frozen goal or the working
+rules. Give each ask a stable requirement identifier and exactly one
+disposition - accepted, rejected, duplicate, or deferred - and link it both
+ways. An accepted ask resolves either to a product requirement row in the goal
+specification or to an explicit requirement-identifier heading in the working
+rules. Leave no ask undecided and no bundle half moved.
+"""
+guards = [{ kind = "intake_contract" }]
+
+# --- P2 ----------------------------------------------------------------------
+
+[states.gap-check]
+prompt = """
+Freeze the goal and measure it. Compare every frozen requirement against what
+the tree actually holds, and state each answer as missing, partial, or
+satisfied with a pointer to the proof and a short why. Then answer this stage's
+question: are there gaps to work, or is the goal clean?
+"""
+inputs = ["gaps", "clean"]
+# The gap check is left only while the intake reading it measures against still
+# holds: every ask dispositioned, every bundle where the rules put it. The gap
+# records themselves are judged one stage later, when they have owners - the
+# record contract demands an owning work item for every unproven gap, which is
+# exactly what P3 has not cut yet.
+guards = [{ kind = "intake_contract" }]
+
+# --- P3 ----------------------------------------------------------------------
+
+[states.cut-tickets]
+prompt = """
+Cut one work item per open gap, each with its own vertical outcome, worktree
+scope, apparent test plan, hidden coverage manifest, and merge gate. Every open
+gap gets exactly one owner and no gap is owned twice. Order the items by their
+dependencies and leave no cycle among them.
+"""
+guards = [{ kind = "record_contract" }]
+
+# --- P4 and P5 ---------------------------------------------------------------
+
+[states.ticket-turns]
+prompt = """
+Take the ordered work items one at a time. For each, begin one turn of the
+ticket class bound to that item, and let the turn reach its end before the next
+one begins. This stage is done when every turn it began has passed.
+"""
+guards = [
+  { kind = "record_contract" },
+  { kind = "join", require = "all_passed" },
+]
+
+[[states.ticket-turns.spawns]]
+class = "ticket"
+name = "turn"
+bind = ["item"]
+
+# --- the turn of the cycle ---------------------------------------------------
+
+[states.close]
+prompt = """
+Close this turn of the cycle. Judge every gap the finished items claimed, move
+each finished item to the archive, and leave the tree clean and green.
+"""
+guards = [
+  { kind = "record_contract" },
+  # EDN-002: a sprint may not reach rest unmarked. Exit 0 is an annotated tag
+  # named edition-* pointing at the commit being left, so every sprint ends on
+  # an edition and therefore every sprint starts from one. Read-only: the
+  # Engine learns nothing about version control from it.
+  { kind = "command_exit", program = "git", args = [
+    "describe",
+    "--exact-match",
+    "--match",
+    "edition-*",
+  ], expected = 0 },
+  # LNR-003 (t-108, i-037): the lanes this close leaves behind are runnable
+  # or visibly expired. Exit 0 is one lane sweep report in which every
+  # rostered crate reads pass or expired; the check refuses a red, unexpired
+  # verdict, a crate the roster expects and the folder lacks, and a missing
+  # or partial report. Read-only: the Engine learns nothing about lanes from
+  # it. Prepared beside the runbook because a live Run pins the runbook
+  # (FDC-005); wire it with `git apply .ratmac/close-guard.diff` at the
+  # first cycle boundary where no Run is open.
+  { kind = "command_exit", program = "python", args = [
+    "tools/sweep_lanes.py",
+    "check",
+  ], expected = 0 },
+]
+
+[states.rest]
+prompt = """
+Nothing is open. The cycle is at rest until the next issue arrives.
+"""
+
+[[transitions]]
+from = "intake"
+to = "gap-check"
+# ETB-003: intake is complete, so the goal the gap check measures is frozen.
+freeze = "goal"
+
+[[transitions]]
+from = "gap-check"
+to = "cut-tickets"
+input = "gaps"
+
+[[transitions]]
+from = "gap-check"
+to = "rest"
+input = "clean"
+
+[[transitions]]
+from = "cut-tickets"
+to = "ticket-turns"
+
+[[transitions]]
+from = "ticket-turns"
+to = "close"
+
+[[transitions]]
+from = "close"
+to = "gap-check"
+
+# --- the ticket class: one turn, one work item -------------------------------
+
+# PCR-007: the turn judges the item its caller bound, so the runbook carries no
+# ticket identifier of its own and stays read-only.
+[classes.ticket.bindings.item]
+required = true
+
+[classes.ticket.states.tests]
+prompt = """
+Write this item's planned tests first and prove each one red for the stated
+reason. Every planned test the item declares needs a sensitivity receipt
+showing the test runs and fails before its implementation exists.
+"""
+guards = [
+  { kind = "sensitivity_receipts", ticket-binding = "item", root = "ticket" },
+]
+
+[classes.ticket.states.implement]
+prompt = """
+Make the planned tests pass, then run the item's whole merge gate: its focused
+tests, the affected regressions, its hidden lanes, and the quality commands.
+Commit the green work before going on - the next stage breaks the tree on
+purpose and has to have something to restore.
+"""
+guards = [
+  { kind = "completion_gate", ticket-binding = "item", root = "ticket", declaration-format = "front-matter-string-lists", focused-field = "focused-tests", hidden-lane-field = "hidden-lanes", quality-field = "quality-commands" },
+  # PCR-009: the safety commit is a machine check, not prose. Exit 0 is a
+  # working tree with no uncommitted change to a tracked file.
+  { kind = "command_exit", program = "git", args = [
+    "diff",
+    "--stat",
+    "--exit-code",
+    "HEAD",
+  ], expected = 0 },
+]
+
+[classes.ticket.states.damage]
+prompt = """
+Break the green work on purpose, one mutation at a time, and check that a test
+catches each one. Restore the tree from the safety commit after every mutation.
+A mutation that survives is a hole in the tests, not a win.
+"""
+# Leaving the damage stage means the checks are green and fresh again: the
+# completion gate re-derives every receipt against the tree as it stands, so a
+# tree left damaged cannot pass.
+guards = [
+  { kind = "completion_gate", ticket-binding = "item", root = "ticket", declaration-format = "front-matter-string-lists", focused-field = "focused-tests", hidden-lane-field = "hidden-lanes", quality-field = "quality-commands" },
+]
+
+[classes.ticket.states.done]
+prompt = """
+The turn is finished: the item's tests are green, its mutations are killed, and
+its landing is merged.
+"""
+
+[[classes.ticket.transitions]]
+from = "tests"
+to = "implement"
+
+[[classes.ticket.transitions]]
+from = "implement"
+to = "damage"
+
+[[classes.ticket.transitions]]
+from = "damage"
+to = "done"
+"##;
+
+/// One throwaway directory removed on drop, so the runbook wiring fixture
+/// never outlives the read that built it.
+struct Throwaway(PathBuf);
+
+impl Drop for Throwaway {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+fn wiring_git(root: &Path, args: &[&str]) -> Output {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(root)
+        .output()
+        .expect("invoke git");
+    assert!(
+        output.status.success(),
+        "git {args:?} succeeds in the runbook wiring fixture: {}",
+        combined(&output)
+    );
+    output
+}
+
+/// The Machine Class this repository ships, as this batch wires it: the
+/// recorded base bytes with the three tracked boundary diffs applied in
+/// ticket order (t-133's regression adjustment; the diffs are read where the
+/// repository tracks them, the runbook never).
 fn shipped_runbook() -> String {
-    fs::read_to_string(repo_root().join(".ratmac/ratmac.toml"))
-        .expect("read the shipped machine class")
+    assert_eq!(
+        sha256_text(BASE_RUNBOOK),
+        BASE_RUNBOOK_SHA256,
+        "the embedded base copy is the recorded merge-base runbook"
+    );
+    let work = Throwaway(std::env::temp_dir().join(format!(
+        "ratmac-t092-wiring-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock after epoch")
+            .as_nanos()
+    )));
+    fs::create_dir_all(work.0.join(".ratmac")).expect("create the wiring fixture");
+    fs::write(work.0.join(".ratmac/ratmac.toml"), BASE_RUNBOOK)
+        .expect("write a clean copy of the base runbook bytes");
+    // t-133's contract: the three tracked boundary diffs, applied in ticket
+    // order - t-130's, then t-131's, then t-133's - over the base bytes.
+    for diff in [
+        "pause-routes.diff",
+        "review-proofs.diff",
+        "issue-binding.diff",
+    ] {
+        let bytes = fs::read(repo_root().join(".ratmac").join(diff)).unwrap_or_else(|error| {
+            panic!("read the tracked boundary diff .ratmac/{diff}: {error}")
+        });
+        fs::write(work.0.join(".ratmac").join(diff), bytes)
+            .expect("install the boundary diff beside the base runbook");
+    }
+    for diff in [
+        ".ratmac/pause-routes.diff",
+        ".ratmac/review-proofs.diff",
+        ".ratmac/issue-binding.diff",
+    ] {
+        wiring_git(&work.0, &["apply", "--check", diff]);
+        wiring_git(&work.0, &["apply", diff]);
+    }
+    fs::read_to_string(work.0.join(".ratmac/ratmac.toml")).expect("read the wired runbook bytes")
 }
 
 /// The green output a receipt records for a check that passed.
@@ -65,6 +356,7 @@ impl Cycle {
             ".arca/residual",
             ".arca/ticket/archive",
             ".ratmac",
+            "tools",
             "src",
             "test",
         ] {
@@ -72,6 +364,16 @@ impl Cycle {
         }
         let cycle = Self { root };
         cycle.write(".ratmac/ratmac.toml", &shipped_runbook());
+        // t-133's accepted contract: the fixture copies
+        // `tools/verify_issue_binding.py` beside the runbook exactly as it
+        // already ships `tools/sweep_lanes.py` for the close guard, because
+        // the edited ticket class prepends the validator row to every
+        // working State's guard list.
+        fs::copy(
+            repo_root().join("tools/verify_issue_binding.py"),
+            cycle.root.join("tools/verify_issue_binding.py"),
+        )
+        .expect("ship the workflow validator beside the fixture runbook");
         cycle.write(
             ".gitignore",
             ".ratmac/runs/\n.ratmac/mint.toml\n.ratmac/locks/\n.ratmac/log.md\n",
@@ -126,9 +428,21 @@ impl Cycle {
              | `DEMO-001` | The demo behaves. | accepted |\n",
         )
         .expect("write issue spec");
-        for name in ["design.md", "test-plan.md", "ubi-lang.md"] {
+        for name in ["design.md", "ubi-lang.md"] {
             fs::write(dir.join(name), format!("# {name}\n")).expect("write issue file");
         }
+        // t-133's accepted contract: `write_issue`'s `test-plan.md` stub
+        // gains the fixture's check identifiers (`PT-100-01`, `HT-100-01`)
+        // as verification rows; its `spec.md` already carries `DEMO-001`.
+        fs::write(
+            dir.join("test-plan.md"),
+            "# test-plan.md\n\n\
+             | Check | Requirement Refs | Expected evidence |\n\
+             |---|---|---|\n\
+             | `PT-100-01` | [`DEMO-001`](spec.md#requirement-records) | Planned. |\n\
+             | `HT-100-01` | [`DEMO-001`](spec.md#requirement-records) | Planned. |\n",
+        )
+        .expect("write issue test plan");
     }
 
     /// The gap record P2 writes, citing the revision the freeze recorded.
@@ -234,8 +548,16 @@ impl Cycle {
         text
     }
 
-    fn spawn(&self, name: &str, run: &str, bind: &str) -> String {
-        let output = self.rtm(&["spawn", name, "--run", run, "--bind", bind]);
+    fn spawn(&self, name: &str, run: &str, binds: &[&str]) -> String {
+        let mut command = Command::new(ratmac_qa::engine_bin!());
+        command.args(["spawn", name, "--run", run]);
+        for bind in binds {
+            command.args(["--bind", bind]);
+        }
+        let output = command
+            .current_dir(&self.root)
+            .output()
+            .expect("invoke rtm");
         let text = combined(&output);
         assert!(output.status.success(), "spawn succeeds: {text}");
         text.split("spawned run ")
@@ -394,7 +716,10 @@ fn the_cycle_runs_from_intake_to_rest() {
     assert_eq!(cycle.state(&run), "ticket-turns");
 
     // P4/P5: one turn of the ticket class, bound to that item.
-    let child = cycle.spawn("turn", &run, "item=t-100.md");
+    // t-133's accepted contract: the spawn gains `--bind issue=i-100-demo`
+    // beside the item binding, because the edited spawn table binds
+    // `item` and `issue` and the validator resolves the pair.
+    let child = cycle.spawn("turn", &run, &["item=t-100.md", "issue=i-100-demo"]);
     assert_eq!(cycle.state(&child), "tests");
     cycle.write_sensitivity(&child, "PT-100-01");
     cycle.step(&child);
