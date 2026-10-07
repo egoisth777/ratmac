@@ -261,9 +261,12 @@ impl Drop for Throwaway {
 }
 
 fn wiring_git(root: &Path, args: &[&str]) -> Output {
-    let output = Command::new("git")
+    // t-133's accepted contract: "bytes equal to the tracked runbook after
+    // wiring" - a bare `git` in this non-repository scratch directory
+    // inherits the host's `core.autocrlf`, so the shared helper pins
+    // byte-exact line endings through command-line settings instead.
+    let output = ratmac_qa::support::git(root)
         .args(args)
-        .current_dir(root)
         .output()
         .expect("invoke git");
     assert!(
@@ -316,7 +319,17 @@ fn shipped_runbook() -> String {
         wiring_git(&work.0, &["apply", "--check", diff]);
         wiring_git(&work.0, &["apply", diff]);
     }
-    fs::read_to_string(work.0.join(".ratmac/ratmac.toml")).expect("read the wired runbook bytes")
+    let wired = fs::read_to_string(work.0.join(".ratmac/ratmac.toml"))
+        .expect("read the wired runbook bytes");
+    // t-133's accepted contract: the wired bytes equal the tracked runbook
+    // after wiring - pinned beside the write so a host's `core.autocrlf`
+    // cannot silently rewrite them.
+    assert_eq!(
+        sha256_text(&wired),
+        "429a69dfb28e46503a6df4863432f85d18c4caa89d484c2bc3a3736c8f875716",
+        "the wired runbook is the edited class byte for byte"
+    );
+    wired
 }
 
 /// The green output a receipt records for a check that passed.

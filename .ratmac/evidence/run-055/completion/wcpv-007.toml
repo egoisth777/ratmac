@@ -1,0 +1,10 @@
+ticket-id = "t-133"
+check-id = "WCPV-007"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test t133_selected_issue_completion -- --test-threads=1"
+working-dir = "."
+exit-status = 0
+output-sha256 = "1b5696c2d60ba7f41f0f977899e14151bf32ecf8d16ce65f979abaf11d5f060f"
+tree-roots = ["src","test/qa","test-hidden","tools","Cargo.toml","Cargo.lock",".gitignore",".ratmac/lanes.toml"]
+tree-sha256 = "d6bf2a8219f0d9fecb78fea630ebb5b5759df08459e9f41703eaae0113fe48c7"
+output = "\nrunning 3 tests\ntest wcpv_007 ... ok\ntest wcpv_008 ... ok\ntest wcpv_009 ... ok\n\ntest result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 31.91s\n\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s\n     Running tests\\t133_selected_issue_completion.rs (target\\debug\\deps\\t133_selected_issue_completion-91cae6faa6c7d9f5.exe)\n"

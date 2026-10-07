@@ -1,0 +1,73 @@
+diff --git a/.ratmac/ratmac.toml b/.ratmac/ratmac.toml
+--- a/.ratmac/ratmac.toml
++++ b/.ratmac/ratmac.toml
+@@ -62,8 +62,9 @@
+ [states.ticket-turns]
+ prompt = """
+ Take the ordered work items one at a time. For each, begin one turn of the
+-ticket class bound to that item, and let the turn reach its end before the next
+-one begins. This stage is done when every turn it began has passed.
++ticket class bound to that item and to the issue that item works, and let
++the turn reach its end before the next one begins. This stage is done when
++every turn it began has passed.
+ """
+ guards = [
+   { kind = "record_contract" },
+@@ -73,7 +74,7 @@
+ [[states.ticket-turns.spawns]]
+ class = "ticket"
+ name = "turn"
+-bind = ["item"]
++bind = ["item", "issue"]
+ 
+ # --- the turn of the cycle ---------------------------------------------------
+ 
+@@ -175,13 +176,25 @@
+ [classes.ticket.bindings.item]
+ required = true
+ 
++# WCP-003: the turn carries its selected issue beside its item - both
++# opaque strings to the Engine; the validator below resolves them.
++[classes.ticket.bindings.issue]
++required = true
++
+ [classes.ticket.states.tests]
+ prompt = """
+ Write this item's planned tests first and prove each one red for the stated
+ reason. Every planned test the item declares needs a sensitivity receipt
+-showing the test runs and fails before its implementation exists.
++showing the test runs and fails before its implementation exists. The
++planned tests are the selected issue's verification checks: declare no
++check the issue's test plan does not carry, and work the issue the turn is
++bound to.
+ """
+ guards = [
++  { kind = "command_exit", program = "python", args = [
++    "tools/verify_issue_binding.py",
++    "check",
++  ], expected = 0 },
+   { kind = "sensitivity_receipts", ticket-binding = "item", root = "ticket" },
+ ]
+ 
+@@ -198,6 +211,10 @@
+ something to restore.
+ """
+ guards = [
++  { kind = "command_exit", program = "python", args = [
++    "tools/verify_issue_binding.py",
++    "check",
++  ], expected = 0 },
+   { kind = "completion_gate", ticket-binding = "item", root = "ticket", declaration-format = "front-matter-string-lists", focused-field = "focused-tests", hidden-lane-field = "hidden-lanes", quality-field = "quality-commands" },
+   # PCR-009: the safety commit is a machine check, not prose. Exit 0 is a
+   # working tree with no uncommitted change to a tracked file.
+@@ -224,6 +241,10 @@
+ # completion gate re-derives every receipt against the tree as it stands, so a
+ # tree left damaged cannot pass.
+ guards = [
++  { kind = "command_exit", program = "python", args = [
++    "tools/verify_issue_binding.py",
++    "check",
++  ], expected = 0 },
+   { kind = "completion_gate", ticket-binding = "item", root = "ticket", declaration-format = "front-matter-string-lists", focused-field = "focused-tests", hidden-lane-field = "hidden-lanes", quality-field = "quality-commands" },
+ ]
+ 

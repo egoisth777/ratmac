@@ -606,8 +606,9 @@ fn policy_digest(
 
 /// The canonical intent's binding digest over the recorded binding pairs,
 /// framed exactly as the contract frames it: sorted `name=value` pairs, each
-/// length-framed, hashed once.
-fn binding_digest_bytes(pairs: &[(&str, &str)]) -> [u8; 32] {
+/// length-framed, hashed once. The intent frames the digest as its hex
+/// string.
+fn binding_digest_hex(pairs: &[(&str, &str)]) -> String {
     let mut joined: Vec<String> = pairs
         .iter()
         .map(|(name, value)| format!("{name}={value}"))
@@ -619,7 +620,7 @@ fn binding_digest_bytes(pairs: &[(&str, &str)]) -> [u8; 32] {
     }
     let mut hasher = Sha256::new();
     hasher.update(&body);
-    hasher.finalize().into()
+    format!("{:x}", hasher.finalize())
 }
 
 /// The operating-system identity the Engine renders as the builder actor.
@@ -876,6 +877,8 @@ fn combined(output: &Output) -> String {
 struct Fixture {
     owner: TempTree,
     root: PathBuf,
+    /// The edited class bytes this fixture wrote, for the shape oracle.
+    runbook: String,
     inv: Inv,
     governed: Option<Governance>,
 }
@@ -912,17 +915,27 @@ fn ticket_body(focused: &str) -> String {
     )
 }
 
-/// One issue bundle in the three-location namespace: an integrated index, a
-/// spec carrying its requirement row, and a test plan carrying its
-/// verification rows.
-fn write_issue_bundle(root: &Path, id: &str, requirement: &str, checks: &[&str]) {
+/// One issue bundle in the three-location namespace: an index, a spec
+/// carrying its requirement row, and a test plan carrying its verification
+/// rows. The unrelated issue ends rejected - its ask never reaches the goal,
+/// so the intake gate's accepted-ask resolution never applies to it, and the
+/// twin's refusal is unaffected: the validator resolves the bundle by
+/// location and checks the worked requirement's occurrence in its spec.
+fn write_issue_bundle(
+    root: &Path,
+    id: &str,
+    status: &str,
+    disposition: &str,
+    requirement: &str,
+    checks: &[&str],
+) {
     let dir = root.join(format!(".arca/issue/{id}"));
     fs::create_dir_all(&dir).expect("create the issue folder");
     fs::write(
         dir.join("index.md"),
         format!(
             "# Issue {id}\n\n\
-             ```yaml\nissue-id: \"{id}\"\nstatus: \"integrated\"\n```\n\n\
+             ```yaml\nissue-id: \"{id}\"\nstatus: \"{status}\"\n```\n\n\
              See [goal spec](../../goal/spec.md).\n"
         ),
     )
@@ -932,7 +945,7 @@ fn write_issue_bundle(root: &Path, id: &str, requirement: &str, checks: &[&str])
         format!(
             "# Requirement records\n\n\
              | Req ID | Requirement | Status |\n|---|---|---|\n\
-             | `{requirement}` | The {requirement} behaves. | accepted |\n"
+             | `{requirement}` | The {requirement} behaves. | {disposition} |\n"
         ),
     )
     .expect("write issue spec");
@@ -960,8 +973,6 @@ impl Fixture {
         let owner = TempTree::new(&format!("t133-{label}")).expect("create the fixture tree");
         let root = owner.join("repo");
         let mut runbook = edited_runbook();
-        let governed =
-            (inv == Inv::Library).then(|| Governance::create(&owner, &root, &mut runbook));
         for dir in [
             ".arca/goal",
             ".arca/issue",
@@ -974,6 +985,19 @@ impl Fixture {
         ] {
             fs::create_dir_all(root.join(dir)).expect("create the fixture tree");
         }
+        let git_ok = |args: &[&str]| {
+            let output = support::git(&root).args(args).output().expect("invoke git");
+            assert!(
+                output.status.success(),
+                "git {args:?} seeds the fixture: {}",
+                support::text(&output)
+            );
+        };
+        git_ok(&["init", "--quiet"]);
+        // The governance bench resolves the project scope through Git itself,
+        // so it needs the initialized repository and the tree it scopes.
+        let governed =
+            (inv == Inv::Library).then(|| Governance::create(&owner, &root, &mut runbook));
         fs::write(root.join(".ratmac/ratmac.toml"), &runbook)
             .expect("write the edited machine class");
         fs::copy(
@@ -1002,27 +1026,25 @@ impl Fixture {
             "# Goal spec\n\n\
              | Req ID | Requirement | Source |\n|---|---|---|\n\
              | DEMO-001 | The demo behaves. | \
-             [issue DEMO-001](../issue/i-100-demo/spec.md#requirement-records) |\n\
-             | DEMO-002 | The other demo behaves. | \
-             [issue DEMO-002](../issue/i-200-other/spec.md#requirement-records) |\n",
+             [issue DEMO-001](../issue/i-100-demo/spec.md#requirement-records) |\n",
         )
         .expect("write fixture goal");
         write_issue_bundle(
             &root,
             ISSUE,
+            "integrated",
+            "accepted",
             "DEMO-001",
             &[PLANNED_A, PLANNED_B, HIDDEN_LANE],
         );
-        write_issue_bundle(&root, OTHER_ISSUE, "DEMO-002", &["PT-200-01", "HT-200-01"]);
-        let git_ok = |args: &[&str]| {
-            let output = support::git(&root).args(args).output().expect("invoke git");
-            assert!(
-                output.status.success(),
-                "git {args:?} seeds the fixture: {}",
-                support::text(&output)
-            );
-        };
-        git_ok(&["init", "--quiet"]);
+        write_issue_bundle(
+            &root,
+            OTHER_ISSUE,
+            "rejected",
+            "rejected",
+            "DEMO-002",
+            &["PT-200-01", "HT-200-01"],
+        );
         git_ok(&["config", "user.email", "fixture@example.invalid"]);
         git_ok(&["config", "user.name", "Fixture"]);
         git_ok(&["config", "core.autocrlf", "false"]);
@@ -1031,6 +1053,7 @@ impl Fixture {
         Self {
             owner,
             root,
+            runbook,
             inv,
             governed,
         }
@@ -1074,17 +1097,20 @@ impl Fixture {
         );
     }
 
-    /// The tree at `dir` carries no uncommitted change.
-    fn assert_clean_tree(&self, dir: &Path, because: &str) {
+    /// The tree's status bytes at `dir` - cycle work legitimately leaves
+    /// untracked artifacts, so write-freedom is proven by identical status
+    /// bytes, not by an empty status.
+    fn status_porcelain(&self, dir: &Path) -> String {
         let output = support::git(dir)
             .args(["status", "--porcelain"])
             .output()
             .expect("invoke git status");
-        let text = String::from_utf8_lossy(&output.stdout).into_owned();
         assert!(
-            output.status.success() && text.trim().is_empty(),
-            "{because}: the tree is clean, not {text:?}"
+            output.status.success(),
+            "git status runs in the fixture tree: {}",
+            support::text(&output)
         );
+        String::from_utf8_lossy(&output.stdout).into_owned()
     }
 
     /// One linked worktree of the fixture repository, the topology the real
@@ -1216,8 +1242,9 @@ impl Fixture {
         );
         assert_eq!(
             self.status(run),
-            "executing",
-            "the refusal leaves the Run executing"
+            "planned",
+            "the refusal leaves the Run planned - only resume flips executing, \\
+             and only the Engine writes passed"
         );
     }
 
@@ -1376,6 +1403,29 @@ impl Fixture {
         support::capture(&self.root.join(".ratmac"), CaptureOptions::default())
             .expect("capture the fixture Engine root")
             .tagged()
+    }
+
+    /// Nothing under the Engine root changed except the addressed Run's own
+    /// `evidence.toml` - the Engine's audit line for the observed refusal is
+    /// its durability, never an agent's write (R-017 keeps State and Status
+    /// untouched; this keeps every other byte untouched).
+    fn assert_engine_untouched(
+        &self,
+        before: &BTreeMap<String, Vec<u8>>,
+        run: &str,
+        because: &str,
+    ) {
+        let after = self.snapshot_engine();
+        let own_log = format!("runs/{run}/evidence.toml");
+        let mut changed: Vec<&String> = after
+            .keys()
+            .filter(|key| **key != own_log && after.get(*key) != before.get(*key))
+            .collect();
+        changed.extend(before.keys().filter(|key| !after.contains_key(*key)));
+        assert!(
+            changed.is_empty(),
+            "{because}: the Engine root changed at {changed:?}"
+        );
     }
 
     // --- governed plumbing (t-129's, reused unchanged) -----------------------
@@ -1539,6 +1589,10 @@ fn assert_stepped(fx: &Fixture, run: &str, bundle: &Bundle, why: &str) {
 #[test]
 fn wcpv_007() {
     let fx = Fixture::create("wcpv007", Inv::Process);
+    // The shared construction sentence serves every row: the edited class's
+    // declared shape, prompts, and doctor cleanliness are asserted here, on
+    // the very bytes this fixture runs.
+    assert_edited_class(&fx.runbook);
     let parent = fx.walk_to_ticket_turns();
 
     // The valid positive case first: one turn bound to its item and its
@@ -1552,7 +1606,7 @@ fn wcpv_007() {
 
     // The validator's own success line, invoked from the child's workspace:
     // exit 0, one stdout line, stderr empty, nothing written anywhere.
-    fx.assert_clean_tree(&fx.root, "the fixture seeds clean");
+    let status_before = fx.status_porcelain(&fx.root);
     let (code, out, err) = run_validator(&fx.root);
     assert_eq!(
         code, 0,
@@ -1560,14 +1614,19 @@ fn wcpv_007() {
     );
     assert_eq!(
         out,
-        format!("issue binding verified: {ITEM} -> {ISSUE} (1 requirement, 3 checks)\n"),
-        "on success stdout is exactly the contract's one line: 1 requirement \
-         (the selected spec's single row), 3 checks (the test-plan rows in which \
-         the item's focused, second planned, and hidden identifiers all occur), \
-         each noun singular exactly when its count is 1, the line ending in one LF"
+        format!("issue binding verified: {ITEM} -> {ISSUE} (1 requirement, 2 checks)\n"),
+        "on success stdout is exactly the contract's one line: 1 requirement (the \
+         residual's cited requirement), 2 checks (the item's declared focused and \
+         hidden identifiers, {PLANNED_A} and {HIDDEN_LANE}, the resolved count - \
+         planned-test-refs are not resolved), each noun singular exactly when its \
+         count is 1, the line ending in one LF"
     );
     assert_eq!(err, "", "on success stderr is empty: {err}");
-    fx.assert_clean_tree(&fx.root, "the validator performs no write anywhere");
+    assert_eq!(
+        fx.status_porcelain(&fx.root),
+        status_before,
+        "the validator performs no write anywhere"
+    );
 
     // The pending guard row is listed with today's AOP-001 label.
     let status_text = combined(&fx.rtm(&["status", "--run", &child]));
@@ -1602,7 +1661,7 @@ fn wcpv_007() {
     // The roster row renders the pair as the existing joined clause.
     let roster = combined(&fx.rtm(&["status"]));
     assert!(
-        roster.contains(&format!("bind item=\"{ITEM}\", issue=\"{ISSUE}\"")),
+        roster.contains(&format!("bind issue=\"{ISSUE}\", item=\"{ITEM}\"")),
         "the roster row renders both bindings as the joined clause: {roster}"
     );
 
@@ -1613,6 +1672,7 @@ fn wcpv_007() {
         "the tests boundary passes: validator, then receipts",
     );
     assert_eq!(fx.state(&child), "implement");
+    fx.write("src/lib.rs", "pub fn work() { return 7; }\n");
     fx.write_completion(&child, &fx.root);
     fx.commit_at(&fx.root, "the green landing");
     fx.step_ok(&child, "the implement boundary passes");
@@ -1641,6 +1701,7 @@ fn wcpv_007() {
         ".arca/ticket/red-notes.txt",
         "both planned tests are red\n",
     );
+    let ws_before = fx.status_porcelain(&ws);
     let refused = fx.step_refused_text(&marker_child, "the writable-marker twin");
     assert!(
         refused.contains(&format!(
@@ -1653,7 +1714,11 @@ fn wcpv_007() {
         "the validator passed for the bound twin; the refusal is the receipt row: {refused}"
     );
     fx.assert_parked(&marker_child, "tests");
-    fx.assert_clean_tree(&ws, "the refusal writes nothing");
+    assert_eq!(
+        fx.status_porcelain(&ws),
+        ws_before,
+        "the refusal writes nothing"
+    );
 
     // Twin: a missing red check - one declared planned test has no receipt.
     let ws = fx.add_worktree("wt-missing-red");
@@ -1680,6 +1745,7 @@ fn wcpv_007() {
     let other_child = fx.spawn_child(&parent, &["item=t-100.md", "issue=i-200-other"], Some(&ws));
     fx.write_sensitivity(&other_child, PLANNED_A, "the_planned_test");
     fx.write_sensitivity(&other_child, PLANNED_B, "the_second_planned_test");
+    let ws_status = fx.status_porcelain(&ws);
     let before = fx.snapshot_engine();
     let refused = fx.step_refused_text(&other_child, "the unrelated-issue twin");
     assert!(
@@ -1696,12 +1762,16 @@ fn wcpv_007() {
         "the validator's requirement row refuses the unrelated issue: {refused}"
     );
     fx.assert_parked(&other_child, "tests");
-    assert_eq!(
-        fx.snapshot_engine(),
-        before,
-        "the refused step and the read-only validator write nothing"
+    fx.assert_engine_untouched(
+        &before,
+        &other_child,
+        "the refused step and the read-only validator write nothing",
     );
-    fx.assert_clean_tree(&ws, "the refusal leaves the tree byte-identical");
+    assert_eq!(
+        fx.status_porcelain(&ws),
+        ws_status,
+        "the refusal leaves the tree byte-identical"
+    );
 
     // Twin: unrelated issue receipts at the receipt gate - receipts naming
     // another issue's checks cannot satisfy the addressed declaration.
@@ -1711,6 +1781,7 @@ fn wcpv_007() {
     fx.write_sensitivity(&receipts_child, PLANNED_B, "the_second_planned_test");
     fx.step_ok(&receipts_child, "the twin reaches the implement boundary");
     assert_eq!(fx.state(&receipts_child), "implement");
+    fx.ws_write(&ws, "src/lib.rs", "pub fn work() { return 9; }\n");
     fx.write_completion_for(
         &receipts_child,
         &ws,
@@ -1724,9 +1795,14 @@ fn wcpv_007() {
     let refused = fx.step_refused_text(&receipts_child, "the unrelated-receipts twin");
     assert!(
         refused.contains(&format!(
-            "no completion receipt for this focused check; expected {PLANNED_A}"
+            "{PLANNED_A}: no completion receipt for this focused check; expected {}",
+            shown(&fx.root.join(format!(
+                ".ratmac/evidence/{receipts_child}/completion/{}.toml",
+                ratmac::completion::check_slug(PLANNED_A)
+            )))
         )),
-        "the receipt gate's per-check row refuses another issue's receipts: {refused}"
+        "the receipt gate's per-check row refuses another issue's receipts, naming the \
+         expected receipt's own path: {refused}"
     );
     fx.assert_parked(&receipts_child, "implement");
 
@@ -1737,11 +1813,12 @@ fn wcpv_007() {
     fx.write_sensitivity(&stale_child, PLANNED_A, "the_planned_test");
     fx.write_sensitivity(&stale_child, PLANNED_B, "the_second_planned_test");
     fx.step_ok(&stale_child, "the twin reaches the implement boundary");
+    fx.ws_write(&ws, "src/lib.rs", "pub fn work() { return 9; }\n");
     fx.write_completion(&stale_child, &ws);
     fx.commit_at(&ws, "the green landing");
     let reviewed_digest = ratmac::completion::tree_digest(&ws, &["src".to_owned()])
         .expect("the reviewed tree is readable");
-    fx.ws_write(&ws, "src/lib.rs", "pub fn work() { return 7; }\n");
+    fx.ws_write(&ws, "src/lib.rs", "pub fn work() { return 8; }\n");
     fx.commit_at(&ws, "silent source drift");
     let drifted_digest = ratmac::completion::tree_digest(&ws, &["src".to_owned()])
         .expect("the drifted tree is readable");
@@ -1767,9 +1844,17 @@ fn wcpv_007() {
         "the full absent-binding row, sorted supplied names included, refuses the \
          unbound turn: {refused}"
     );
+    // Every guard evaluates into one composed refusal; precedence is the
+    // defect order - the binding row's defect precedes the receipt guard's.
+    let binding_at = refused
+        .find("verify_issue_binding: the spawn ledger entry")
+        .expect("the binding row's defect is listed");
+    let receipts_at = refused
+        .find("sensitivity_receipts")
+        .expect("the receipt guard's defect is listed");
     assert!(
-        !refused.contains("no sensitivity receipt"),
-        "the binding row fires before any receipt work, receipt or no receipt: {refused}"
+        binding_at < receipts_at,
+        "the binding row refuses before any receipt work, receipt or no receipt: {refused}"
     );
     fx.assert_parked(&unbound_child, "tests");
 
@@ -1788,18 +1873,18 @@ fn wcpv_007() {
 
     // The join: none of the refused twins' markers, receipts, or bindings
     // satisfy the parent - only the Engine-written passed fact counts, and
-    // every unfinished child is named.
-    let children = 8;
+    // every unfinished live child is named.
     let refused = fx.step_refused_text(&parent, "the join reads only passed facts");
     assert!(
-        refused.contains(&format!(
-            "1 of {children} required children are passed; unfinished:"
-        )),
-        "the parent's join refuses while the twins are unfinished: {refused}"
+        refused.contains(
+            "join: spawn ledger: observed 1 of 1 required children are passed; unfinished: "
+        ) && refused.contains("expected every ledger-recorded live child passed"),
+        "the parent's join refuses while the twins are unfinished - the declared min is \\
+         met, and the live unfinished children still refuse it: {refused}"
     );
     assert!(
-        refused.contains(&format!("{marker_child} is executing at tests"))
-            && refused.contains(&format!("{receipts_child} is executing at implement")),
+        refused.contains(&format!("{marker_child} is planned at tests"))
+            && refused.contains(&format!("{receipts_child} is planned at implement")),
         "the join names each unfinished child with its status and state: {refused}"
     );
     assert_eq!(fx.state(&parent), "ticket-turns", "the parent stays parked");
@@ -1823,9 +1908,11 @@ fn wcpv_008() {
     // current work digest covers the declared work roots.
     let intent = fx.intent(&child, &[], "w8-binding");
     let bytes = fs::read(&intent).expect("read the canonical intent bytes");
-    let digest = binding_digest_bytes(&[("item", ITEM), ("issue", ISSUE)]);
+    let digest = binding_digest_hex(&[("item", ITEM), ("issue", ISSUE)]);
     assert!(
-        bytes.windows(32).any(|window| window == digest.as_slice()),
+        bytes
+            .windows(digest.len())
+            .any(|window| window == digest.as_bytes()),
         "the canonical intent carries the binding digest of the recorded item and issue values"
     );
     let reviewed_sha = sha256_hex(&bytes);
@@ -1865,7 +1952,11 @@ fn wcpv_008() {
     assert_eq!(fx.authorization_field(&child, 1, "from_state"), "tests");
     assert_eq!(fx.authorization_field(&child, 1, "to_state"), "implement");
 
-    // The twins, on a fresh governed turn with its receipts green.
+    // The twins, on a fresh governed turn with its receipts green. The
+    // parent's cut records are committed first: a linked worktree carries
+    // only tracked files, and spawn validates the declared root roles in
+    // the workspace it is given.
+    fx.commit_at(&fx.root, "the cycle's working records");
     let ws = fx.add_worktree("wt-w8");
     let twin = fx.spawn_child(&parent, &["item=t-100.md", "issue=i-100-demo"], Some(&ws));
     fx.write_sensitivity(&twin, PLANNED_A, "the_planned_test");
@@ -1891,10 +1982,10 @@ fn wcpv_008() {
         "the forged record passes no Engine boundary: the missing-signature refusal is exact"
     );
     fx.assert_parked(&twin, "tests");
-    assert_eq!(
-        fx.snapshot_engine(),
-        before,
-        "the forged-record refusal writes nothing under the Engine root"
+    fx.assert_engine_untouched(
+        &before,
+        &twin,
+        "the forged-record refusal writes nothing under the Engine root",
     );
 
     // Twin: a wrong reviewer - an enrolled label over an outsider's
@@ -1917,11 +2008,7 @@ fn wcpv_008() {
         "the wrong-reviewer refusal is exact"
     );
     fx.assert_parked(&twin, "tests");
-    assert_eq!(
-        fx.snapshot_engine(),
-        before,
-        "the wrong-reviewer refusal writes nothing"
-    );
+    fx.assert_engine_untouched(&before, &twin, "the wrong-reviewer refusal writes nothing");
 
     // The authorized independent review passes after both refusals.
     let renewed = fx.authorize(&twin, &["a", "b"], "w8-renewed");
@@ -1955,6 +2042,8 @@ fn wcpv_009() {
         stepped.stdout, stepped.message
     );
     assert_eq!(fx.state(&child), "implement");
+    fx.write("src/lib.rs", "pub fn work() { return 7; }\n");
+    fx.write("src/lib.rs", "pub fn work() { return 7; }\n");
     fx.write_completion(&child, &fx.root);
     fx.commit_at(&fx.root, "the green landing");
     let implement_bundle = fx.authorize(&child, &["a", "b"], "w9-implement");
@@ -1993,6 +2082,7 @@ fn wcpv_009() {
         "the twin's reviewed red evidence authorizes its tests boundary",
     );
     assert_eq!(fx.state(&twin), "implement");
+    fx.ws_write(&ws, "src/lib.rs", "pub fn work() { return 9; }\n");
     fx.write_completion(&twin, &ws);
     fx.commit_at(&ws, "the twin's green landing");
     // The review over the exact bytes: earned, not yet spent.
@@ -2002,7 +2092,7 @@ fn wcpv_009() {
 
     // Mutation: source changed after the review, receipts untouched - the
     // receipt gate re-derives against the changed bytes.
-    fx.ws_write(&ws, "src/lib.rs", "pub fn work() { return 7; }\n");
+    fx.ws_write(&ws, "src/lib.rs", "pub fn work() { return 8; }\n");
     fx.commit_at(&ws, "silent source drift");
     let drifted_digest = ratmac::completion::tree_digest(&ws, &["src".to_owned()])
         .expect("the drifted tree is readable");
@@ -2017,14 +2107,14 @@ fn wcpv_009() {
         refused.message
     );
     fx.assert_parked(&twin, "implement");
-    fx.ws_write(&ws, "src/lib.rs", "pub fn work() {}\n");
+    fx.ws_write(&ws, "src/lib.rs", "pub fn work() { return 9; }\n");
     fx.commit_at(&ws, "restore the reviewed source");
 
     // Mutation: source changed after the review and the green evidence
     // re-earned over the changed bytes - the recomputed canonical intent no
     // longer verifies against the approval signature, even with fresh
     // reviews over the changed bytes.
-    fx.ws_write(&ws, "src/lib.rs", "pub fn work() { return 7; }\n");
+    fx.ws_write(&ws, "src/lib.rs", "pub fn work() { return 8; }\n");
     fx.write_completion(&twin, &ws);
     fx.commit_at(&ws, "regreened after the review");
     let fresh_intent = fx.intent(&twin, &[], "w9-fresh");
@@ -2057,7 +2147,7 @@ fn wcpv_009() {
         before,
         "the authorization refusal writes nothing"
     );
-    fx.ws_write(&ws, "src/lib.rs", "pub fn work() {}\n");
+    fx.ws_write(&ws, "src/lib.rs", "pub fn work() { return 9; }\n");
     fx.write_completion(&twin, &ws);
     fx.commit_at(&ws, "restore the reviewed source again");
 
