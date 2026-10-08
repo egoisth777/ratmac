@@ -62,6 +62,9 @@ answer, and the row says so.
 | `RB703` | The policy names an Approver that is not one of its declared reviewers. | Point the approver field at a declared reviewer's label. | `restore-file` |
 | `RB704` | The policy demands more distinct reviews than its declared roles can supply. | Lower the minimum to what the roles supply, or declare more reviewers. | `restore-file` |
 | `RB705` | A work-path entry in the policy is empty, duplicated, absolute, or escapes the repository. | Fix the named path to a unique repository-relative one. | `restore-file` |
+| `RB711` | A [nested invocation](runbook-spec.md#guard-kinds) declaration carries a semantically empty value: an empty [`program`](runbook-spec.md#guard-kinds) or `root`, a pin that is not 64 lowercase hexadecimal digits, or a non-integer `max-depth`. | Fill every named field with its non-empty typed value; a pin is exactly 64 lowercase hexadecimal digits. | `restore-file` |
+| `RB712` | A [nested invocation](runbook-spec.md#guard-kinds) guard declares a child root that is missing or not a directory when the runbook loads. | Point `root` at the existing child checkout directory, or delete the guard while the child project does not exist. | `restore-file` |
+| `RB713` | A [nested invocation](runbook-spec.md#guard-kinds) guard declares a `max-depth` below 1 or above 16. | Keep the declared cap between 1 and 16, or delete it to take the frozen default 16. | `restore-file` |
 | `RB201` | The runbook declares no [State](runbook-spec.md#transitions) at all. | Start again from a scaffold; a machine needs somewhere to be. | `restore-file` |
 | `RB202` | Every [State](runbook-spec.md#transitions) has a way in, so a Run has nowhere to start. | Remove one edge to break the cycle. | `break-cycle` |
 | `RB203` | More than one [State](runbook-spec.md#transitions) has no way in, so the entry point is ambiguous. | Route the extra entry points into the machine, leaving exactly one. | `merge-initial` |
@@ -131,6 +134,24 @@ A respawn mints a fresh successor id - the superseded record keeps its
 address - and retires the superseded Run by the abandon path. Retiring only
 a leftover lock, with no live run anywhere, still confirms with the project
 directory name.
+
+## Nesting a distinct program
+
+A [`nested_run`](runbook-spec.md#guard-kinds) guard (WEB-006) is for invoking
+a *separately rooted* program: the child is its own checkout with its own
+`.ratmac/`, its own runbook declaring its own top-level [`program`](runbook-spec.md#guard-kinds) identity,
+and normally its own Engine. Declare the child's identity and checkout root
+(`root = "../child"`, relative to the invoking checkout), and optionally the
+pins (`engine-pin`, `class-pin`), a `driver` the child Engine launches to
+drive its Run, and a `max-depth` cap from 1 to 16. The parent Engine launches
+the child's endpoint, carries the invocation lineage, and advances only on a
+verified terminal receipt from a dedicated pipe - never from agent-writable
+files. An interruption at any boundary retries idempotently through
+`rtm step --run <parent id>`; nothing needs a fresh Run. An independently
+rooted program call is not a spawn: it adds no spawn-ledger entry, and the
+[`join`](runbook-spec.md#guard-kinds) guard still judges only spawn-ledger
+children. The lineage boundary governs cooperating pinned programs; a linked
+worktree of the same repository is not an independent nested root and refuses.
 
 ## Declaring a review policy
 

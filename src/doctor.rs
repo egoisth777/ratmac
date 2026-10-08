@@ -303,7 +303,17 @@ pub(crate) fn diagnose_with_roots(path: &Path, roots: &crate::root::Roots) -> Di
             let (location, message) =
                 match error.message().strip_prefix("invalid review declaration: ") {
                     Some(detail) => ("invalid review declaration".to_owned(), detail.to_owned()),
-                    None => (error.location().to_owned(), error.message().to_owned()),
+                    None => {
+                        // WEB-006 (t-134): a nested-declaration defect reports
+                        // its section phrase as the location, the parser's
+                        // detail as the message.
+                        match error.message().strip_prefix("invalid nested declaration: ") {
+                            Some(detail) => {
+                                ("invalid nested declaration".to_owned(), detail.to_owned())
+                            }
+                            None => (error.location().to_owned(), error.message().to_owned()),
+                        }
+                    }
                 };
             return Diagnosis {
                 findings: vec![Finding::error(error.code(), location, message)],
@@ -323,6 +333,19 @@ pub(crate) fn diagnose_with_roots(path: &Path, roots: &crate::root::Roots) -> Di
                 error.message().to_owned(),
             ));
         }
+    }
+    // RB712 at the conventional tracked location: the declared nested
+    // child root must name an existing directory.
+    if let Err(error) = class.validate_nested_roots(roots.invoking_checkout_root()) {
+        let detail = error
+            .message()
+            .strip_prefix("invalid nested declaration: ")
+            .unwrap_or(error.message());
+        findings.push(Finding::error(
+            error.code(),
+            "invalid nested declaration".to_owned(),
+            detail.to_owned(),
+        ));
     }
     inspect_graph(&class, &mut findings);
     audit_termination(&class, &mut findings);
@@ -623,7 +646,8 @@ fn lint_guards(class: &MachineClass, findings: &mut Vec<Finding>) {
                 | GuardKind::CompletionGate { .. }
                 | GuardKind::IntakeContract
                 | GuardKind::RecordContract
-                | GuardKind::Join { .. } => {}
+                | GuardKind::Join { .. }
+                | GuardKind::NestedRun { .. } => {}
             }
         }
     }

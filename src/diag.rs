@@ -219,6 +219,18 @@ fn escape_into(out: &mut Vec<u8>, value: &[u8]) {
     }
 }
 
+/// WEB-006 (t-134): the Engine's nested-invocation children - the endpoint
+/// process the guard launches and the driver the endpoint launches - run
+/// with detached input and captured output. Only the owning module names
+/// the standard error stream while wiring it (t-128's closed set).
+#[allow(clippy::needless_pass_by_ref_mut)]
+pub(crate) fn nested_child_stdio(command: &mut std::process::Command) {
+    command
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+}
+
 #[cfg(test)]
 mod tests {
     use super::{event, latch_from_environment, Record, PREFIX, TRACE_VARIABLE};

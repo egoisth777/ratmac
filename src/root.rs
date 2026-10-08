@@ -43,6 +43,13 @@ impl Roots {
     /// listing supplies the shared Engine root. Any failed or unsuitable Git
     /// query intentionally uses the invoking checkout's own `.ratmac/`
     /// directory instead.
+    /// WEB-006 (t-134): the child checkout of a nested invocation is its
+    /// own project. The CLI resolves projects through `Invocation::project`
+    /// (t-119); only the Scheduler's nested guard needs this direct route.
+    pub(crate) fn child_project(project: &Path) -> Self {
+        Self::resolve(project)
+    }
+
     fn resolve(invoking_checkout_root: impl AsRef<Path>) -> Self {
         let named_checkout = invoking_checkout_root.as_ref().to_path_buf();
         let invoking_checkout_root = absolute(invoking_checkout_root.as_ref());

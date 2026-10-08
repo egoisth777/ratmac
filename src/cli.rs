@@ -16,7 +16,7 @@ pub struct CliError {
 }
 
 impl CliError {
-    fn new(message: impl Into<String>) -> Self {
+    pub(crate) fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
             exit_code: 1,
@@ -25,7 +25,7 @@ impl CliError {
 
     /// A usage refusal: the caller asked for something the interface does not
     /// offer. DRD-004 reserves `2` for "this cannot be diagnosed as asked".
-    fn refusal(message: impl Into<String>) -> Self {
+    pub(crate) fn refusal(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
             exit_code: 2,
@@ -97,6 +97,9 @@ pub fn help(command: impl AsRef<str>) -> &'static str {
         "skill" => {
             "Usage: rtm skill <path>\n\nWrite the thin ratmac-operator skill folder (SKILL.md plus references) at a path that does not exist yet. The skill write creates exactly one folder, never overwrites, and creates no directories. SKILL.md carries the identity stamp of the engine that wrote it. The skill itself teaches only invariants - the operating loop and the never-touch rules - and reaches everything current by running the engine and reading its output.\n"
         }
+        "endpoint" => {
+            "Usage: rtm endpoint --invocation <address> --lineage <hex> --receipt-fd <n>\n\nThe machine-facing nested-invocation entry (WEB-006), not for human use. The parent Engine launches it in the child checkout with the Engine-minted invocation address, the complete invocation lineage, and the dedicated receipt pipe's write end. The protocol lineage and the inherited RATMAC_LINEAGE environment must agree byte for byte; a repeated declared program identity or canonical Engine root, a malformed lineage, or an over-deep chain refuses naming the chain before any Run is admitted. At most one child Run exists per invocation address. On success it writes one strict terminal receipt - only after persisting and reading back the child Run's terminal fact - to the receipt pipe, prints nothing, and exits 0.\n"
+        }
         _ => general_usage(),
     }
 }
@@ -104,9 +107,9 @@ pub fn help(command: impl AsRef<str>) -> &'static str {
 /// The one public route table (WEB-004): the verbs the general usage's
 /// `Commands:` line lists are exactly the commands `rtm` dispatches, and a
 /// verb added to dispatch is added here.
-const COMMANDS: [&str; 14] = [
+const COMMANDS: [&str; 15] = [
     "init", "start", "status", "step", "hold", "intent", "resume", "recover", "abandon", "spawn",
-    "respawn", "doctor", "scaffold", "skill",
+    "respawn", "doctor", "scaffold", "skill", "endpoint",
 ];
 
 /// The general usage, rendered from the route table so the table stays its
@@ -333,6 +336,7 @@ where
         }
         "scaffold" => scaffold(command_args, invocation, writer),
         "skill" => skill(command_args, invocation, writer),
+        "endpoint" => endpoint(command_args, &roots, writer),
         "hold" => {
             hold(command_args, &roots, writer)?;
             Ok(0)
@@ -568,7 +572,7 @@ fn step<W: Write>(
     request.approval_count = approval_count;
     let outcome = scheduler
         .step(request)
-        .map_err(|error| hard_error("step", error))?;
+        .map_err(|error| step_state_error(&id, error))?;
     if let StepOutcome::Refused { .. } = &outcome {
         writeln!(writer, "rtm: {outcome}")?;
         if let Some(next) = crate::teach::step_refusal_next(&id, &outcome) {
@@ -585,6 +589,30 @@ fn step<W: Write>(
         }
     }
     Ok(0)
+}
+
+/// WEB-006 (t-134): the machine-facing nested-invocation entry. It prints
+/// nothing: a refusal names itself under the `endpoint:` prefix, success
+/// speaks only through the receipt pipe.
+fn endpoint<W: Write>(
+    args: &[String],
+    roots: &crate::root::Roots,
+    _writer: &mut W,
+) -> Result<i32, CliError> {
+    let request = crate::endpoint::parse_arguments(args)?;
+    crate::endpoint::run(request, roots)
+}
+
+/// A step motion error renders through the next-act table, except the
+/// parent guard's pause-seam refusals, which keep the retry as their next
+/// act: the pause left a resumable ledger state, not a Run defect.
+fn step_state_error(id: &str, error: crate::state::StateError) -> CliError {
+    let text = error.to_string();
+    if text.contains("RATMAC_TEST_NESTED_PAUSE companion") || text.contains("injected nested pause")
+    {
+        return CliError::new(format!("step: {text}\nnext: rtm step --run {id}"));
+    }
+    hard_error("step", error)
 }
 
 fn unsupported(command: &str) -> CliError {

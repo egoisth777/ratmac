@@ -276,11 +276,17 @@ impl GuardFailure {
 
 impl fmt::Display for GuardFailure {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            formatter,
-            "{}: observed {}; expected {}",
-            self.name, self.observed, self.expected
-        )
+        if self.expected.is_empty() {
+            // WEB-006 (t-134): an endpoint that died silently names only the
+            // observed fact; there is no expected clause to state.
+            write!(formatter, "{}: observed {}", self.name, self.observed)
+        } else {
+            write!(
+                formatter,
+                "{}: observed {}; expected {}",
+                self.name, self.observed, self.expected
+            )
+        }
     }
 }
 
@@ -391,7 +397,7 @@ pub(crate) struct TransitionLog {
 /// mutation lock, when it reads the runbook once more to prove that no swap
 /// occurred while guards or planning ran.
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct RunbookSnapshot {
+pub(crate) struct RunbookSnapshot {
     bytes: Vec<u8>,
     sha256: String,
     class: MachineClass,
@@ -399,15 +405,15 @@ struct RunbookSnapshot {
 }
 
 impl RunbookSnapshot {
-    fn class(&self) -> &MachineClass {
+    pub(crate) fn class(&self) -> &MachineClass {
         &self.class
     }
 
-    fn roots(&self) -> &ValidatedWorkflowRoots {
+    pub(crate) fn roots(&self) -> &ValidatedWorkflowRoots {
         &self.roots
     }
 
-    fn pin(&self) -> &str {
+    pub(crate) fn pin(&self) -> &str {
         &self.sha256
     }
 }
@@ -432,6 +438,55 @@ struct ArchivedVerdictRollback {
     /// again, otherwise a retry would not see the original Run artifacts.
     archive_dir_was_absent: bool,
     bytes: Vec<u8>,
+}
+
+/// WEB-006 (t-134): one nested invocation whose guard passed and whose
+/// `consumed` mark the commit stage must flip before the history append.
+#[derive(Debug)]
+pub(crate) struct NestedPendingConsume {
+    pub(crate) ledger_path: std::path::PathBuf,
+    pub(crate) invocation: String,
+}
+
+/// One guard evaluation's collected outcomes: every failure in declaration
+/// order, the guarded spawn-ledger snapshots a join must roll back, and the
+/// nested invocations whose `consumed` mark the commit stage flips (WEB-006).
+type GuardOutcomes = (
+    Vec<GuardFailure>,
+    Vec<LedgerSnapshot>,
+    Vec<NestedPendingConsume>,
+);
+
+/// One nested guard's decision: the refusal when it refused, and the pending
+/// consumption when it passed.
+#[derive(Debug)]
+struct NestedRunOutcome {
+    failure: Option<GuardFailure>,
+    pending: Option<NestedPendingConsume>,
+}
+
+/// A nested guard step fails either as the pinned guard refusal or as a
+/// hard StateError (the pause seams keep the retry as their next act).
+#[derive(Debug)]
+enum NestedStepError {
+    Refusal(String, String),
+    Hard(StateError),
+}
+
+impl NestedStepError {
+    fn hard(detail: String) -> Self {
+        NestedStepError::Hard(StateError::new(detail))
+    }
+}
+
+/// The exact before/after bytes of one flipped `consumed` mark, so a failed
+/// history append restores the nested ledger exactly.
+#[derive(Debug)]
+struct NestedConsumptionRollback {
+    ledger_path: std::path::PathBuf,
+    invocation: String,
+    flipped: Vec<u8>,
+    before: Vec<u8>,
 }
 
 /// Whether an atomic rollback replacement reached its destination durably, or
@@ -976,7 +1031,7 @@ impl Scheduler {
 
     /// Read, parse, hash, and resolve one runbook exactly once. Every fact
     /// returned by this function therefore comes from the same bytes.
-    fn load_runbook_snapshot(
+    pub(crate) fn load_runbook_snapshot(
         invoking_root: &Path,
         workspace: &Path,
         engine_root: &Path,
@@ -997,6 +1052,17 @@ impl Scheduler {
                 error.code()
             ))
         })?;
+        // RB712: the declared nested child root must still name an existing
+        // directory when the runbook loads, so every command re-parsing the
+        // runbook refuses at the same parse boundary.
+        class
+            .validate_nested_roots(invoking_root)
+            .map_err(|error| {
+                StateError::new(format!(
+                    "parse .ratmac/ratmac.toml [{}]: {error}",
+                    error.code()
+                ))
+            })?;
         let roots = class
             .validate_roots(workspace, engine_root)
             .map_err(|error| StateError::new(error.to_string()))?;
@@ -1216,7 +1282,7 @@ impl Scheduler {
         Ok(())
     }
 
-    fn graph_of(class: &MachineClass) -> MachineGraph {
+    pub(crate) fn graph_of(class: &MachineClass) -> MachineGraph {
         let states = class.states().keys().map(State::new).collect::<Vec<_>>();
         MachineGraph::new(states, class.transitions().to_vec())
     }
@@ -3174,7 +3240,7 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
     }
 
     /// The enrolled trust origin one governed admission requires.
-    fn require_admission_origin(
+    pub(crate) fn require_admission_origin(
         engine_root: &Path,
         declaration: &crate::review::ReviewDeclaration,
     ) -> Result<(), String> {
@@ -3970,6 +4036,7 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
             frozen_evidence,
             guarded_ledgers,
             early_authorization,
+            nested_pending,
         ) = {
             Self::verify_runbook_snapshot(&snapshot, &invoking_root, Some(&run_dir))?;
             // WRA-001: governance is recorded fact, not live runbook state,
@@ -4055,7 +4122,8 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
                     }
                 }
             }
-            let (mut failures, guarded_ledgers) = self.guard_failures(definition)?;
+            let (mut failures, guarded_ledgers, nested_pending) =
+                self.guard_failures(definition, &recorded_state)?;
             let evidence = crate::pin::Evidence::load(&run_dir);
             // WRS-004: an amended Run's governing goal identity is its
             // effective head's goal authority, not the original pin; a
@@ -4178,6 +4246,7 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
                 frozen_evidence,
                 guarded_ledgers,
                 early_authorization,
+                nested_pending,
             )
         };
 
@@ -4377,6 +4446,61 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
         if consumes_verdict {
             inject_step_fault("after-state-replace")?;
         }
+        // WEB-006 (t-134): P3 - each passing nested invocation's `consumed`
+        // mark flips immediately after the successor Run Record replace and
+        // before the history append, inside this motion's all-or-none
+        // rollback; a later graceful failure un-flips it exactly.
+        let mut consumed_rolls: Vec<NestedConsumptionRollback> = Vec::new();
+        let consume_stage = (|| -> Result<(), StateError> {
+            for pending in &nested_pending {
+                run_lock.ensure_current()?;
+                let flip = crate::nested::consume(&pending.ledger_path, &pending.invocation)
+                    .map_err(|error| StateError::new(error.to_string()))?;
+                if let Some(flip) = flip {
+                    // Invariant: nothing fallible sits between a successful
+                    // flip and its registration. `consume` returns the
+                    // pre-flip and flipped bytes it computed in memory, so
+                    // the rollback is registered without another disk read;
+                    // the after-consume pause holds only afterwards.
+                    consumed_rolls.push(NestedConsumptionRollback {
+                        ledger_path: pending.ledger_path.clone(),
+                        invocation: pending.invocation.clone(),
+                        flipped: flip.flipped,
+                        before: flip.before,
+                    });
+                }
+                crate::nested::hold_pause_if_requested(
+                    &crate::nested::NESTED_PAUSE,
+                    "after-consume",
+                )
+                .map_err(StateError::new)?;
+            }
+            Ok(())
+        })();
+        if let Err(stage_error) = consume_stage {
+            // Nothing reached the shared history yet. Close the append
+            // descriptor, then roll the whole motion back exactly as an
+            // append failure does: the successor Run Record, each flipped
+            // `consumed` mark, and the verdict, authorization, and evidence
+            // rolls, so the same invocation is offerable again.
+            drop(log);
+            return Err(Self::rollback_committed_transition(
+                &run_lock,
+                &run_dir,
+                &state_path,
+                &guarded_state_bytes,
+                &committed_state_bytes,
+                0,
+                usize::MAX,
+                None,
+                evidence_rollback.as_ref(),
+                archived_verdict.as_ref(),
+                authorization_archive.as_ref(),
+                &consumed_rolls,
+                format!("consume the nested invocation marks failed: {stage_error}"),
+                "retry the transition",
+            ));
+        }
 
         // The addressed Run lock serializes this transition through its
         // append-only history record. Project history is not a root-domain
@@ -4397,20 +4521,24 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
                 // artifacts. The locally observed write count, not a shared-log
                 // read, decides whether a fragment must remain.
                 drop(log);
-                Err(Self::rollback_transition_after_append_failure(
+                Err(Self::rollback_committed_transition(
                     &run_lock,
                     &run_dir,
                     &state_path,
                     &guarded_state_bytes,
                     &committed_state_bytes,
-                    &log_path,
                     written,
                     attempted,
                     incomplete_record.as_deref(),
                     evidence_rollback.as_ref(),
                     archived_verdict.as_ref(),
                     authorization_archive.as_ref(),
-                    append_error,
+                    &consumed_rolls,
+                    format!(
+                        "append transition log {} failed: {append_error}",
+                        log_path.displayed()
+                    ),
+                    "repair the append destination and retry the transition",
                 ))
             }
         }
@@ -4469,25 +4597,22 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
     /// back without changing the shared log; a proper prefix remains for a
     /// human to resolve. No outcome depends on a later shared-log read.
     #[allow(clippy::too_many_arguments)]
-    fn rollback_transition_after_append_failure(
+    fn rollback_committed_transition(
         run_lock: &RunLock,
         run_dir: &Path,
         state_path: &Path,
         prior_state: &[u8],
         committed_state: &[u8],
-        log_path: &Path,
-        written: usize,
+        log_written: usize,
         entry_len: usize,
         incomplete_record: Option<&str>,
         evidence: Option<&EvidenceRollback>,
         verdict: Option<&ArchivedVerdictRollback>,
         authorization: Option<&(std::path::PathBuf, bool)>,
-        append_error: std::io::Error,
+        consumed: &[NestedConsumptionRollback],
+        prefix: String,
+        retry_note: &str,
     ) -> StateError {
-        let prefix = format!(
-            "append transition log {} failed: {append_error}",
-            log_path.displayed()
-        );
         let failure = |detail: String| StateError::new(format!("{prefix}; {detail}"));
 
         if let Err(error) = run_lock.ensure_current() {
@@ -4511,7 +4636,7 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
                 state_path.displayed()
             ));
         }
-        if written >= entry_len {
+        if log_written >= entry_len {
             return failure(
                 "this write completed the transition record, so State remains committed and the Engine did not rewrite history"
                     .to_owned(),
@@ -4616,6 +4741,24 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
             }
         }
 
+        for roll in consumed.iter().rev() {
+            if let Err(error) = run_lock.ensure_current() {
+                return failure(format!(
+                    "rollback stopped before restoring the consumed mark because the addressed Run lock is no longer current: {error}; State remains committed"
+                ));
+            }
+            if let Err(error) = crate::nested::restore_consumed(
+                &roll.ledger_path,
+                &roll.invocation,
+                &roll.flipped,
+                &roll.before,
+            ) {
+                return failure(format!(
+                    "rollback could not restore the consumed mark in {}: {error}; State remains committed",
+                    roll.ledger_path.displayed()
+                ));
+            }
+        }
         if let Err(error) = run_lock.ensure_current() {
             return failure(format!(
                 "rollback refused because the addressed Run lock is no longer current: {error}; the Engine restored nothing"
@@ -4686,11 +4829,24 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
             ))
         } else {
             failure(format!(
-                "rollback restored {}; repair the append destination and retry the transition",
+                "rollback restored {}; {retry_note}",
                 restored.join(", ")
             ))
         }
     }
+    /// WEB-006 (t-134): the under-lock admission rechecks `rtm start`
+    /// performs after its root lock - the flat-residue fact and the runbook
+    /// pin - so the nested endpoint's admission is exactly the start path
+    /// in the child checkout.
+    pub(crate) fn start_admission_rechecks(
+        snapshot: &RunbookSnapshot,
+        root: &Path,
+        engine_root: &Path,
+    ) -> Result<(), StateError> {
+        Self::refuse_flat_residue_at(root, engine_root)?;
+        Self::verify_runbook_snapshot(snapshot, root, None)
+    }
+
     /// TRP-001, TRP-004: evaluate the State's retained guards, in declaration
     fn resolve_guard_root(
         &self,
@@ -4766,7 +4922,8 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
     fn guard_failures(
         &self,
         definition: &StateDefinition,
-    ) -> Result<(Vec<GuardFailure>, Vec<LedgerSnapshot>), StateError> {
+        current_state: &str,
+    ) -> Result<GuardOutcomes, StateError> {
         let root = match self.root.as_ref() {
             Some(root) => root,
             None => {
@@ -4778,6 +4935,7 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
                         "opened project",
                     )],
                     Vec::new(),
+                    Vec::new(),
                 ))
             }
         };
@@ -4785,6 +4943,7 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
 
         let mut failures = Vec::new();
         let mut ledger_snapshots = Vec::new();
+        let mut nested_pending = Vec::new();
         for guard in definition.guards() {
             let result = match guard {
                 GuardKind::FilesExact {
@@ -4864,6 +5023,39 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
                             })
                     }),
                 GuardKind::Join { min, .. } => self.evaluate_join(*min, &mut ledger_snapshots),
+                GuardKind::NestedRun {
+                    program,
+                    root,
+                    engine_pin,
+                    class_pin,
+                    driver,
+                    max_depth,
+                } => {
+                    let run_id = self
+                        .run_id
+                        .as_deref()
+                        .unwrap_or_default()
+                        .to_owned();
+                    let run_dir = self.run_dir()?;
+                    let outcome = self.evaluate_nested_run(
+                        program,
+                        root,
+                        engine_pin.as_deref(),
+                        class_pin.as_deref(),
+                        driver.as_deref(),
+                        *max_depth,
+                        current_state,
+                        &run_id,
+                        &run_dir,
+                    )?;
+                    if let Some(pending) = outcome.pending {
+                        nested_pending.push(pending);
+                    }
+                    match outcome.failure {
+                        Some(failure) => Err(failure),
+                        None => Ok(()),
+                    }
+                },
                 GuardKind::RecordContract => self
                     .resolve_guard_root(root, Some("goal"), "record_contract", "goal")
                     .and_then(|goal_root| {
@@ -4907,7 +5099,7 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
                 failures.push(failure);
             }
         }
-        Ok((failures, ledger_snapshots))
+        Ok((failures, ledger_snapshots, nested_pending))
     }
 
     /// FDC-009: the composition join. Until a spawn ledger records children
@@ -4992,6 +5184,551 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
             )));
         }
         Ok(())
+    }
+
+    /// WEB-006 (t-134): the parent guard. The declaration names the child
+    /// program and its checkout root; this guard launches the child Engine's
+    /// protocol endpoint there, holds the dedicated receipt pipe's read end,
+    /// and judges the terminal receipt it owes. Each numbered step refuses
+    /// with the pinning `nested_run: <program>: observed ...; expected ...`
+    /// shape; the invocation ledger is the durable record that makes every
+    /// refusal retryable.
+    #[allow(clippy::too_many_arguments)]
+    fn evaluate_nested_run(
+        &self,
+        program: &str,
+        root: &str,
+        engine_pin: Option<&str>,
+        class_pin: Option<&str>,
+        driver: Option<&str>,
+        max_depth: Option<i64>,
+        current_state: &str,
+        run_id: &str,
+        run_dir: &Path,
+    ) -> Result<NestedRunOutcome, StateError> {
+        let outcome = self.nested_run_steps(
+            program,
+            root,
+            engine_pin,
+            class_pin,
+            driver,
+            max_depth,
+            current_state,
+            run_id,
+            run_dir,
+        );
+        Ok(match outcome {
+            Ok(pending) => NestedRunOutcome {
+                failure: None,
+                pending,
+            },
+            Err(NestedStepError::Refusal(observed, expected)) => NestedRunOutcome {
+                failure: Some(guard_failure("nested_run", program, observed, expected)),
+                pending: None,
+            },
+            Err(NestedStepError::Hard(error)) => return Err(error),
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn nested_run_steps(
+        &self,
+        program: &str,
+        root: &str,
+        engine_pin: Option<&str>,
+        class_pin: Option<&str>,
+        driver: Option<&str>,
+        max_depth: Option<i64>,
+        current_state: &str,
+        run_id: &str,
+        run_dir: &Path,
+    ) -> Result<Option<NestedPendingConsume>, NestedStepError> {
+        let _ = driver;
+        // The parent-side pause companions are validated when the guard's
+        // evaluation begins - before P1, so the refusal writes nothing.
+        crate::nested::validate_pause_companions(&crate::nested::NESTED_PAUSE)
+            .map_err(NestedStepError::hard)?;
+        // 1. The declaration's child root is re-read at evaluation time.
+        crate::observe::operation("target");
+        let roots = self
+            .roots()
+            .map_err(|error| NestedStepError::hard(error.to_string()))?;
+        let invoking_root = roots.invoking_checkout_root().to_path_buf();
+        let parent_engine_root = roots.engine_root().to_path_buf();
+        let child_checkout = crate::machine::resolve_nested_root(&invoking_root, root);
+        if !child_checkout.is_dir() {
+            return Err(NestedStepError::Refusal(
+                format!("root {root} is missing"),
+                "an existing child checkout directory".to_owned(),
+            ));
+        }
+        let class = self
+            .runbook_snapshot
+            .as_ref()
+            .ok_or_else(|| {
+                NestedStepError::Refusal(
+                    "the invoking runbook is not loaded".to_owned(),
+                    "the invoking runbook loaded".to_owned(),
+                )
+            })?
+            .class();
+        let parent_identity = class.program().map(str::to_owned).ok_or_else(|| {
+            NestedStepError::Refusal(
+                "no declared program identity".to_owned(),
+                "the invoking runbook to declare one before launching a nested program".to_owned(),
+            )
+        })?;
+
+        // 2. Resolve the child root as its own project, once.
+        let child_roots = crate::root::Roots::child_project(&child_checkout);
+        let child_engine_root = child_roots.engine_root().to_path_buf();
+        let child_canonical =
+            crate::root::displayed(std::fs::canonicalize(&child_engine_root).map_err(|error| {
+                NestedStepError::Refusal(
+                    format!("the child Engine root cannot be canonicalized: {error}"),
+                    "a canonical child Engine root".to_owned(),
+                )
+            })?);
+        let parent_canonical = crate::root::displayed(
+            std::fs::canonicalize(&parent_engine_root).map_err(|error| {
+                NestedStepError::Refusal(
+                    format!("the parent Engine root cannot be canonicalized: {error}"),
+                    "a canonical parent Engine root".to_owned(),
+                )
+            })?,
+        );
+
+        // 3. The lineage: the inherited carrier extends with the parent's
+        // entry when this parent is top-level, then the child's entry.
+        let mut chain = match std::env::var("RATMAC_LINEAGE") {
+            Ok(carrier) => crate::lineage::parse_carrier(&carrier).map_err(|defect| {
+                NestedStepError::Refusal(
+                    format!("malformed inherited lineage: {defect}"),
+                    crate::lineage::GRAMMAR.to_owned(),
+                )
+            })?,
+            Err(std::env::VarError::NotPresent) => {
+                // WEB-006: an unset variable means a top-level parent:
+                // the chain holds only the parent's own entry.
+                vec![crate::lineage::Entry::new(
+                    parent_identity,
+                    parent_canonical,
+                )]
+            }
+            Err(_) => {
+                return Err(NestedStepError::Refusal(
+                    "malformed inherited lineage: the carrier is not valid Unicode".to_owned(),
+                    crate::lineage::GRAMMAR.to_owned(),
+                ))
+            }
+        };
+        chain.push(crate::lineage::Entry::new(
+            program.to_owned(),
+            child_canonical.clone(),
+        ));
+        // The named entry and the chain share one diagnostic bound, so a
+        // hostile lineage - wide identities included - can never bloat a
+        // refusal, and the clause's head keeps naming the defect. The
+        // endpoint's lineage refusals bound the same way.
+        let chain_text = crate::lineage::display(&chain);
+        if let Some(entry) = crate::lineage::repeated_identity(&chain) {
+            return Err(NestedStepError::Refusal(
+                Self::bounded_observed(&format!(
+                    "lineage repeats the declared program identity {:?} ({chain_text})",
+                    entry.identity
+                )),
+                "every identity distinct".to_owned(),
+            ));
+        }
+        if let Some(entry) = crate::lineage::repeated_root(&chain) {
+            return Err(NestedStepError::Refusal(
+                Self::bounded_observed(&format!(
+                    "lineage repeats the canonical Engine root {} ({chain_text})",
+                    entry.root
+                )),
+                "every root distinct".to_owned(),
+            ));
+        }
+        let cap = max_depth
+            .unwrap_or(crate::lineage::DEFAULT_MAX_DEPTH as i64)
+            .max(0) as usize;
+        if chain.len() > cap {
+            return Err(NestedStepError::Refusal(
+                Self::bounded_observed(&format!(
+                    "lineage depth {} exceeds the permitted maximum {cap} ({chain_text})",
+                    chain.len()
+                )),
+                format!("depth at most {cap}"),
+            ));
+        }
+
+        // 4. Pin the child Engine the same way gates pin commands: the
+        // declared pin, else the resumed entry's recorded pin, else this
+        // parent's own executable digest, recorded at mint. The declared
+        // pin is judged before the boundary's first `ledger` mark, so a
+        // declared mismatch refuses having read no nested ledger at all.
+        let own_digest = {
+            let exe = std::env::current_exe().map_err(|error| {
+                NestedStepError::Refusal(
+                    format!("the parent Engine executable cannot be resolved: {error}"),
+                    "a pinnable parent Engine executable".to_owned(),
+                )
+            })?;
+            crate::pin::sha256_file(&exe).map_err(|error| {
+                NestedStepError::Refusal(
+                    format!("the parent Engine executable cannot be hashed: {error}"),
+                    "a pinnable parent Engine executable".to_owned(),
+                )
+            })?
+        };
+        if let Some(declared) = engine_pin {
+            if own_digest != declared {
+                return Err(NestedStepError::Refusal(
+                    format!("the child Engine executable hashes {own_digest}"),
+                    format!("the pinned digest {declared}"),
+                ));
+            }
+        }
+        // The history read needs no ledger data, so it precedes the
+        // boundary's first `ledger` mark: its refusal arrives having read
+        // no nested ledger at all.
+        let log_records = {
+            let source =
+                std::fs::read_to_string(parent_engine_root.join("log.md")).map_err(|error| {
+                    NestedStepError::Refusal(
+                        format!("the project history cannot be read: {error}"),
+                        "a readable project history".to_owned(),
+                    )
+                })?;
+            source.lines().filter(|line| line.contains(run_id)).count()
+        };
+        let ledger_path = run_dir.join("nested-ledger");
+        let entries = crate::nested::read_entries(&ledger_path)
+            .map_err(|error| NestedStepError::hard(error.to_string()))?;
+        let candidate = entries
+            .iter()
+            .rev()
+            .find(|entry| entry.program == program)
+            .cloned();
+        let current = candidate.filter(|entry| {
+            !entry.consumed
+                && entry.from_state == current_state
+                && entry.parent_sequence == log_records.to_string()
+        });
+        let expected_pin = engine_pin
+            .map(str::to_owned)
+            .or_else(|| {
+                current
+                    .as_ref()
+                    .map(|entry| entry.engine_pin.clone())
+                    .filter(|pin| !pin.is_empty())
+            })
+            .unwrap_or_else(|| own_digest.clone());
+        if own_digest != expected_pin {
+            return Err(NestedStepError::Refusal(
+                format!("the child Engine executable hashes {own_digest}"),
+                format!("the pinned digest {expected_pin}"),
+            ));
+        }
+
+        // P1: the append-only invocation ledger entry, the durable claim
+        // every retry resumes.
+        let address = match current.as_ref() {
+            Some(entry) => entry.invocation.clone(),
+            None => {
+                let address = format!("{}-inv-{:03}", run_id, entries.len() + 1);
+                let entry = crate::nested::NestedLedgerEntry {
+                    invocation: address.clone(),
+                    program: program.to_owned(),
+                    root: root.to_owned(),
+                    canonical_root: child_canonical.clone(),
+                    from_state: current_state.to_owned(),
+                    parent_sequence: log_records.to_string(),
+                    engine_pin: expected_pin.clone(),
+                    class_pin: String::new(),
+                    receipt_sha256: String::new(),
+                    child_run: String::new(),
+                    consumed: false,
+                };
+                crate::nested::append_entry(&ledger_path, &entry)
+                    .map_err(|error| NestedStepError::hard(error.to_string()))?;
+                crate::nested::hold_pause_if_requested(
+                    &crate::nested::NESTED_PAUSE,
+                    "after-record",
+                )
+                .map_err(NestedStepError::hard)?;
+                address
+            }
+        };
+
+        // 5. Launch the endpoint in the child checkout with the complete
+        // lineage and the dedicated receipt pipe's write end.
+        let carrier = crate::lineage::to_carrier(&chain);
+        let mut pipe = crate::nested::ReceiptPipe::create()
+            .map_err(|error| NestedStepError::hard(error.to_string()))?;
+        let exe = std::env::current_exe().map_err(|error| {
+            NestedStepError::Refusal(
+                format!("the parent Engine executable cannot be resolved: {error}"),
+                "a pinnable parent Engine executable".to_owned(),
+            )
+        })?;
+        let descriptor = pipe.descriptor.clone();
+        let mut command = std::process::Command::new(&exe);
+        command
+            .arg("endpoint")
+            .arg("--invocation")
+            .arg(&address)
+            .arg("--lineage")
+            .arg(&carrier)
+            .arg("--receipt-fd")
+            .arg(&descriptor)
+            .current_dir(&child_checkout);
+        crate::diag::nested_child_stdio(&mut command);
+        command
+            .env_remove(crate::diag::TRACE_VARIABLE)
+            .env("RATMAC_LINEAGE", &carrier);
+        let child = command.spawn().map_err(|error| {
+            NestedStepError::Refusal(
+                format!("cannot launch the nested endpoint: {error}"),
+                "the endpoint launched".to_owned(),
+            )
+        })?;
+        pipe.drop_write_end();
+        let reader = std::thread::spawn(move || pipe.read_to_end());
+        let output = child.wait_with_output().map_err(|error| {
+            NestedStepError::Refusal(
+                format!("cannot wait for the nested endpoint: {error}"),
+                "the endpoint's exit".to_owned(),
+            )
+        })?;
+        let receipt = reader
+            .join()
+            .map_err(|_| {
+                NestedStepError::Refusal(
+                    "the receipt reader failed".to_owned(),
+                    "one receipt envelope read".to_owned(),
+                )
+            })?
+            .map_err(|error| {
+                NestedStepError::Refusal(
+                    format!("cannot read the receipt pipe: {error}"),
+                    "one receipt envelope read".to_owned(),
+                )
+            })?;
+
+        // 6. Verify the receipt the pipe delivered.
+        let code = output.status.code().unwrap_or(-1);
+        let diagnostic = bounded_diagnostic(&output.stderr, &output.stdout);
+        if receipt.is_empty() && code == 0 {
+            return Err(NestedStepError::Refusal(
+                format!("endpoint exit 0 without a receipt; {diagnostic}"),
+                String::new(),
+            ));
+        }
+        if code != 0 {
+            return Err(NestedStepError::Refusal(
+                format!("endpoint exit {code}; {diagnostic}"),
+                "exit 0 after one receipt envelope".to_owned(),
+            ));
+        }
+        let envelope = match crate::nested::ReceiptEnvelope::parse_prefix(&receipt) {
+            Ok((envelope, consumed)) if consumed == receipt.len() => envelope,
+            Ok((_, consumed)) => {
+                if crate::nested::ReceiptEnvelope::parse(&receipt[consumed..]).is_ok() {
+                    return Err(NestedStepError::Refusal(
+                        "two receipt envelopes".to_owned(),
+                        "exactly one".to_owned(),
+                    ));
+                }
+                return Err(NestedStepError::Refusal(
+                    "a malformed receipt envelope: trailing bytes are not one complete ratmac-receipt-v1 record".to_owned(),
+                    "one complete ratmac-receipt-v1 record".to_owned(),
+                ));
+            }
+            Err(defect) => {
+                return Err(NestedStepError::Refusal(
+                    format!("a malformed receipt envelope: {defect}"),
+                    "one complete ratmac-receipt-v1 record".to_owned(),
+                ))
+            }
+        };
+        let field_mismatch = |label: &str, observed: String, expected: String| {
+            NestedStepError::Refusal(format!("{label} {observed}"), format!("{label} {expected}"))
+        };
+        if envelope.invocation != address {
+            return Err(field_mismatch(
+                "invocation address",
+                envelope.invocation.clone(),
+                address.clone(),
+            ));
+        }
+        if envelope.program != program {
+            return Err(field_mismatch(
+                "program identity",
+                envelope.program.clone(),
+                program.to_owned(),
+            ));
+        }
+        if envelope.root != child_canonical {
+            return Err(field_mismatch(
+                "canonical child root",
+                envelope.root.clone(),
+                child_canonical.clone(),
+            ));
+        }
+        let current = match current {
+            Some(entry) => entry,
+            None => {
+                let entries = crate::nested::read_entries(&ledger_path)
+                    .map_err(|error| NestedStepError::hard(error.to_string()))?;
+                entries
+                    .into_iter()
+                    .rev()
+                    .find(|entry| entry.invocation == address)
+                    .ok_or_else(|| {
+                        NestedStepError::hard(format!(
+                            "the nested ledger {} no longer names the just-appended \
+                             invocation {address}; refusing to verify a receipt \
+                             against a lost entry",
+                            ledger_path.displayed()
+                        ))
+                    })?
+            }
+        };
+        let expected_run = if current.child_run.is_empty() {
+            envelope.run.clone()
+        } else {
+            current.child_run.clone()
+        };
+        if envelope.run != expected_run {
+            return Err(field_mismatch(
+                "child Run id",
+                envelope.run.clone(),
+                expected_run,
+            ));
+        }
+        let expected_class_pin = if let Some(pin) = class_pin {
+            pin.to_owned()
+        } else if !current.class_pin.is_empty() {
+            current.class_pin.clone()
+        } else {
+            envelope.class_pin.clone()
+        };
+        if envelope.class_pin != expected_class_pin {
+            return Err(field_mismatch(
+                "class pin",
+                envelope.class_pin.clone(),
+                expected_class_pin,
+            ));
+        }
+        if envelope.engine != expected_pin {
+            return Err(field_mismatch(
+                "engine identity",
+                envelope.engine.clone(),
+                expected_pin,
+            ));
+        }
+        // Each digest renders its 64 lowercase hex characters or the word
+        // `empty`.
+        let digest_or_empty = |digest: &str| -> String {
+            if digest.is_empty() {
+                "empty".to_owned()
+            } else {
+                digest.to_owned()
+            }
+        };
+        let governed = envelope.governance.as_str();
+        let (governed_ok, governance_observed) = match governed {
+            "governed" => (
+                !envelope.policy_digest.is_empty()
+                    && !envelope.enrollment_digest.is_empty()
+                    && (envelope.terminal_sequence == "0"
+                        || !envelope.authorization_digest.is_empty()),
+                format!(
+                    "governed policy {} enrollment {} authorization {}",
+                    digest_or_empty(&envelope.policy_digest),
+                    digest_or_empty(&envelope.enrollment_digest),
+                    digest_or_empty(&envelope.authorization_digest),
+                ),
+            ),
+            "ungoverned" => (
+                envelope.policy_digest.is_empty()
+                    && envelope.enrollment_digest.is_empty()
+                    && envelope.authorization_digest.is_empty(),
+                format!(
+                    "ungoverned policy {} enrollment {} authorization {}",
+                    digest_or_empty(&envelope.policy_digest),
+                    digest_or_empty(&envelope.enrollment_digest),
+                    digest_or_empty(&envelope.authorization_digest),
+                ),
+            ),
+            other => (
+                false,
+                format!(
+                    "{other} policy {} enrollment {} authorization {}",
+                    digest_or_empty(&envelope.policy_digest),
+                    digest_or_empty(&envelope.enrollment_digest),
+                    digest_or_empty(&envelope.authorization_digest),
+                ),
+            ),
+        };
+        if !governed_ok {
+            return Err(NestedStepError::Refusal(
+                format!("governance {governance_observed}"),
+                if governed == "governed" {
+                    "governed with non-empty policy and enrollment digests and a non-empty terminal authorization digest".to_owned()
+                } else {
+                    "ungoverned with policy, enrollment, and authorization empty".to_owned()
+                },
+            ));
+        }
+        if envelope.outcome != "passed" {
+            return Err(NestedStepError::Refusal(
+                format!("outcome {}", envelope.outcome),
+                "outcome passed".to_owned(),
+            ));
+        }
+
+        // 7. The record the verdict cites, durable before the guard returns.
+        crate::nested::annotate(&ledger_path, &address, "class_pin", &envelope.class_pin)
+            .map_err(|error| NestedStepError::hard(error.to_string()))?;
+        let receipt_sha256 = crate::pin::sha256_bytes(&receipt);
+        crate::nested::annotate(&ledger_path, &address, "receipt_sha256", &receipt_sha256)
+            .map_err(|error| NestedStepError::hard(error.to_string()))?;
+        crate::nested::annotate(&ledger_path, &address, "child_run", &envelope.run)
+            .map_err(|error| NestedStepError::hard(error.to_string()))?;
+        crate::nested::hold_pause_if_requested(&crate::nested::NESTED_PAUSE, "after-receipt")
+            .map_err(NestedStepError::hard)?;
+        Ok(Some(NestedPendingConsume {
+            ledger_path,
+            invocation: address,
+        }))
+    }
+
+    /// The observed clause of a lineage refusal (WEB-006): one diagnostic
+    /// bound for the whole clause - the named entry and the chain share it -
+    /// keeping the clause's head, where the refusal's fixed wording names
+    /// the defect, and its tail. A hostile lineage of wide identities can
+    /// neither bloat the refusal nor erase what it names. Shared by the
+    /// parent guard and the endpoint: one bound, one shape.
+    pub(crate) fn bounded_observed(fragment: &str) -> String {
+        const HEAD: usize = 160;
+        if fragment.len() <= DIAGNOSTIC_BOUND {
+            return fragment.to_owned();
+        }
+        let head_end = (HEAD..fragment.len())
+            .find(|index| fragment.is_char_boundary(*index))
+            .unwrap_or(fragment.len());
+        let keep_tail = DIAGNOSTIC_BOUND - HEAD - TRUNCATION_MARKER.len();
+        let target = fragment.len() - keep_tail.min(fragment.len().saturating_sub(head_end));
+        let tail_start = (target..fragment.len())
+            .find(|index| fragment.is_char_boundary(*index))
+            .unwrap_or(fragment.len());
+        format!(
+            "{head}{TRUNCATION_MARKER}{tail}",
+            head = &fragment[..head_end],
+            tail = &fragment[tail_start..]
+        )
     }
 
     /// PGE-003: the P4 gate. Every planned test the ticket declares must
@@ -5451,7 +6188,7 @@ positive integer when RATMAC_TEST_RESPAWN_PAUSE is set to a recognized boundary"
 
     /// The unique State no ordinary transition enters. Shared by `start` for
     /// the project machine and by `spawn`/`respawn` for child machines.
-    fn initial_state_of(machine: &MachineGraph) -> Result<State, StateError> {
+    pub(crate) fn initial_state_of(machine: &MachineGraph) -> Result<State, StateError> {
         let candidates = machine
             .states()
             .filter(|state| {
@@ -5808,7 +6545,7 @@ pub const TRUNCATION_MARKER: &str = "\u{2026}truncated";
 /// So stdout is the declared fallback, labelled, and consulted only when
 /// stderr is silent; a command silent on both still yields the explicit
 /// no-diagnostic statement rather than an omission.
-fn bounded_diagnostic(stderr: &[u8], stdout: &[u8]) -> String {
+pub(crate) fn bounded_diagnostic(stderr: &[u8], stdout: &[u8]) -> String {
     let error_text = String::from_utf8_lossy(stderr);
     let (source, text) = if error_text.trim().is_empty() {
         ("diagnostic (stdout)", String::from_utf8_lossy(stdout))
@@ -5908,6 +6645,7 @@ fn refusal_code(kind: &str) -> Option<&'static str> {
         "authorization: replay" => "authorization: replay",
         "authorization: engine" => "authorization: engine",
         "authorization: review" => "authorization: review",
+        "nested_run" => "nested_run",
         _ => return None,
     })
 }

@@ -1,0 +1,10 @@
+ticket-id = "t-134"
+check-id = "WEBV-024"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test t134_safe_nested_invocations -- --test-threads=1"
+working-dir = "."
+exit-status = 0
+output-sha256 = "44e0254b381b94e45da6cda95f540972850e9436ae722edfbe9601cf14e9366f"
+tree-roots = ["src","test/qa","test-hidden","tools","Cargo.toml","Cargo.lock",".gitignore",".ratmac/lanes.toml"]
+tree-sha256 = "7e5f1746e75a9fe1954640e0f8a576f92d7c59aff7db0a9dc57eccc135c77ef2"
+output = "\nrunning 4 tests\ntest webv_021 ... ok\ntest webv_022 ... ok\ntest webv_023 ... ok\ntest webv_024 ... ok\n\ntest result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 60.47s\n\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s\n     Running tests\\t134_safe_nested_invocations.rs (target\\debug\\deps\\t134_safe_nested_invocations-53f9db07d0f51bc1.exe)\n"

@@ -350,7 +350,7 @@ pub(crate) fn render(entry: &LedgerEntry) -> String {
 }
 
 /// A TOML basic string: quotes, backslashes, and control characters escaped.
-fn toml_string(value: &str) -> String {
+pub(crate) fn toml_string(value: &str) -> String {
     let mut rendered = String::with_capacity(value.len() + 2);
     rendered.push('"');
     for character in value.chars() {

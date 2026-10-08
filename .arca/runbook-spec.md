@@ -22,6 +22,7 @@ hard error, never an ignored one (R-011).
 | `transitions` | array of tables | no | The directed edges between States. Absent means a single-State machine with no edges. |
 | `classes` | table of tables | no | FDC-009: one entry per declared child Machine Class, keyed by class name. See "Classes and spawns". |
 | `review` | table | no | WRA-001: the review policy governing every Run the top-level class admits. See "Review policy". |
+| `program` | string | no | WEB-006: this project's declared program identity, the identity a nested-invocation lineage compares. Never derived from a path or a digest. A non-string value is `RB110`; an empty one `RB711`. |
 
 Any other top-level key is `RB103`, except a pre-cutover `phases` table, which is `RB111` and takes precedence. A top-level `status` key is `RB104`.
 
@@ -149,6 +150,7 @@ is not listed for the selected kind is `RB107`; a missing required field is
 | `intake_contract` | The fixed `goal` and `issue` roles provide the goal authority and intake/deferred/archive issue namespace. The guard parses each ask's exact `accepted\|rejected\|duplicate\|deferred` disposition from `spec.md`, never from status alone; enforces the deferred and archived bundle rules, accepted requirement IDs, and live links (PGE-001). | none | none |
 | `join` | FDC-009/FDC-011: the composition join. Satisfied only when the spawn ledger's live children carry Engine-written terminal `passed` facts - at least `min` of them. Until a ledger records children, a join guard honestly refuses. `require` accepts only `"all_passed"`; any other value is `RB506`, as is `min` below 1. | `require` | `min` (integer >= 1; default 1) |
 | `record_contract` | The fixed `goal`, `residual`, and `ticket` roles provide the records for one residual per frozen requirement, evidence behind every `satisfied`, one owning ticket per gap, acyclic ticket dependencies, and complete ticket sections (PGE-002). | none | none |
+| `nested_run` | WEB-006: one nested invocation of another declared program. The parent Engine launches the child Engine's protocol endpoint (`rtm endpoint`) in the declared child checkout, holds the dedicated receipt pipe's read end, and only a verified terminal receipt advances the parent. The invocation ledger under the parent Run's directory is the durable, append-only record that makes every refusal retryable. | `program`, `root` | `engine-pin`, `class-pin` (each 64 lowercase hexadecimal digits), `driver` (a program the child Engine launches to drive its Run), `max-depth` (integer 1-16; default 16) |
 
 A per-item guard names the one item it judges in exactly one of two ways
 (PCR-007). `ticket = "t-047"` writes the item in the runbook. `ticket-binding
@@ -340,6 +342,9 @@ when any finding is an error.
 | `RB703` | error | `approver` is missing or names no declared reviewer (`approver "x" names no declared reviewer`). |
 | `RB704` | error | `minimum-reviews N exceeds the M distinct reviews the declared roles can supply`, where M is the reviewer count less one when `approver-may-review` is `false`, else the reviewer count. |
 | `RB705` | error | A `work` entry is empty, duplicated, absolute, or lexically escapes the repository. |
+| `RB711` | error | WEB-006: a nested declaration carries a semantically empty value: an empty top-level or guard `program`, an empty guard `root`, a pin that is not 64 lowercase hexadecimal digits, or a `max-depth` that is not an integer (`invalid nested declaration: <detail>`). |
+| `RB712` | error | WEB-006: a `nested_run` guard's declared child root is missing or not a directory when the runbook loads (`invalid nested declaration: the declared root <root> is missing or not a directory`). |
+| `RB713` | error | WEB-006: a `nested_run` guard declares a `max-depth` below 1 or above 16 (`invalid nested declaration: max-depth <n> ...`). |
 
 ## Back-references
 
@@ -358,6 +363,7 @@ the decision and the statement above that preserves it.
 | `PGE-003` | Guard kinds: `sensitivity_receipts` reads the ticket's planned-test receipts. |
 | `PGE-005` | Guard kinds: `completion_gate` reads the ticket's completion receipts. |
 | `CGD-003` | Guard kinds and Completion declaration mapping: `completion_gate` selects three declared string lists through typed runbook data, never prose shape, and preserves the existing receipt contract. |
+| `WEB-006` | Top level, Guard kinds, and the `RB711`-`RB713` codes: a nested invocation declares a program identity and a child checkout root, and the parent Engine judges only a verified terminal receipt from the dedicated pipe. |
 | `PGE-006` | Transitions: `blocked-route = true` is the human-authorized escape `rtm step` never takes. |
 | `FDC-001` | States and Transitions: a branch declares closed `inputs`, ordinary edges carry unique covering `input` values, straight lines remain unlabelled, and blocked routes remain outside selection; `RB208`–`RB213`. |
 | `FDC-008` | Guard kinds and Transitions: every State on an ordinary-edge cycle carries a receipt- (`sensitivity_receipts`, `completion_gate`) or contract-class (`intake_contract`, `record_contract`) guarded out-edge, checked by kind membership alone; `RB214`. |

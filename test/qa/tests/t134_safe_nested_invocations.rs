@@ -63,6 +63,10 @@ impl Sandbox {
         fs::create_dir_all(dir.join(".ratmac")).expect("create the project Engine tree");
         fs::create_dir_all(dir.join(".arca/goal")).expect("create the project goal tree");
         fs::create_dir_all(dir.join("src")).expect("create the project source tree");
+        // The plain child machine declares [roots] work = "work"; a declared
+        // root must exist when the runbook loads (RB603), so every fixture
+        // project carries the directory from the start.
+        fs::create_dir_all(dir.join("work")).expect("create the project work root");
         fs::write(dir.join(".arca/goal/spec.md"), "# Fixture goal\n")
             .expect("write the fixture goal");
         fs::write(dir.join(".ratmac/ratmac.toml"), runbook)
@@ -165,13 +169,20 @@ fn roster(directory: &Path) -> Vec<String> {
     ids
 }
 
-/// Poll until the project's Engine root lists at least one Run.
+/// Poll until the project's Engine root holds a Run whose Run Record is
+/// written and parses: admission creates the `runs/<id>/` directory before
+/// the record lands, so the directory alone is not readiness.
 fn wait_for_run(directory: &Path, label: &str) -> String {
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
         let ids = roster(directory);
         if let Some(first) = ids.first() {
-            return first.clone();
+            let record = directory.join(".ratmac/runs").join(first).join("run.toml");
+            if let Ok(text) = fs::read_to_string(&record) {
+                if text.parse::<toml::Table>().is_ok() {
+                    return first.clone();
+                }
+            }
         }
         assert!(
             Instant::now() < deadline,
@@ -204,7 +215,7 @@ fn wait_for_file(path: &Path, expected: &str, label: &str) {
     }
 }
 
-fn spawn_step(directory: &Path, run: &str, vars: &[(&str, &str)]) -> Child {
+fn spawn_step(directory: &Path, run: &str, vars: &[(&str, &str)]) -> StepChild {
     let mut command = Command::new(ratmac_qa::engine_bin!());
     command
         .args(["step", "--run", run])
@@ -215,7 +226,47 @@ fn spawn_step(directory: &Path, run: &str, vars: &[(&str, &str)]) -> Child {
     for (key, value) in vars {
         command.env(key, value);
     }
-    command.spawn().expect("spawn the blocking rtm step")
+    StepChild {
+        child: Some(command.spawn().expect("spawn the blocking rtm step")),
+    }
+}
+
+/// A spawned blocking step under watch: if an assertion panics before the
+/// child is collected, Drop kills it so no leaked `rtm step` (and the
+/// endpoint under it) outlives the suite holding the output pipe, which
+/// hangs cargo on Windows.
+struct StepChild {
+    child: Option<Child>,
+}
+
+impl StepChild {
+    /// Still alive after a grace period?
+    fn running(&mut self, millis: u64) -> bool {
+        let Some(child) = self.child.as_mut() else {
+            return false;
+        };
+        thread::sleep(Duration::from_millis(millis));
+        matches!(child.try_wait(), Ok(None))
+    }
+
+    /// Wait for exit and collect the output.
+    fn finish(mut self, label: &str) -> Output {
+        finish_step(self.child.take().expect("the step child is live"), label)
+    }
+
+    /// Kill and collect whatever was printed.
+    fn kill(mut self) -> Output {
+        kill_and_collect(self.child.take().expect("the step child is live"))
+    }
+}
+
+impl Drop for StepChild {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
 }
 
 /// Collect a polled child's output once it has exited.
@@ -248,12 +299,6 @@ fn finish_step(mut child: Child, label: &str) -> Output {
         }
         thread::sleep(Duration::from_millis(25));
     }
-}
-
-/// Whether the child is still running after a grace period.
-fn still_running(child: &mut Child, millis: u64) -> bool {
-    thread::sleep(Duration::from_millis(millis));
-    matches!(child.try_wait(), Ok(None))
 }
 
 /// Wait for a background step thread, bounding the wait.
@@ -431,8 +476,6 @@ fn quoted_field(text: &str, key: &str) -> String {
     panic!("field {key} is present: {text}");
 }
 
-/// One bare `key = value` field of a strict TOML-ish record.
-
 fn assert_hex64(value: &str, label: &str) {
     assert_eq!(
         value.len(),
@@ -514,11 +557,19 @@ fn plain_child_runbook(program: &str) -> String {
         r#"
 program = "{program}"
 
+[roots]
+work = "work"
+
 [states.work]
 prompt = "Do the child work."
 
 [states.done]
 prompt = "The child work is done."
+
+[[transitions]]
+from = "work"
+to = "work"
+blocked-route = true
 
 [[transitions]]
 from = "work"
@@ -540,12 +591,16 @@ policy-digest = "{ZERO64}"
 verifier-digest = "{ZERO64}"
 signers-digest = "{ZERO64}"
 minimum-reviews = 1
-approver = "lead"
+approver = "boss"
 approver-may-review = false
 
 [[review.reviewers]]
 label = "lead"
 key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP3hR2KFzPNj4kMi9OqHk8v4tcZp3Lj7YOXhWf7wYmjY t134-fix"
+
+[[review.reviewers]]
+label = "boss"
+key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIF7BGYDikO/mdNujniY8L7DtunXKQX3/2s4787tWLpH0 t134-fix"
 
 [states.final]
 prompt = "The governed child work is already complete."
@@ -657,7 +712,18 @@ to = "done"
 /// own nested guard launches the terminal grandchild `gamma`; all three run
 /// the same Engine executable and each holds a separate Engine root. Returns
 /// the three project directories and their Run ids.
-fn drive_trio(label: &str) -> (Sandbox, PathBuf, PathBuf, PathBuf, String, String, String) {
+fn drive_trio(
+    label: &str,
+) -> (
+    Sandbox,
+    PathBuf,
+    PathBuf,
+    PathBuf,
+    String,
+    String,
+    String,
+    usize,
+) {
     let sandbox = Sandbox::new(label);
     let parent = sandbox.project("parent", &parent_runbook("alpha", "beta", "../child", ""));
     let child = sandbox.project("child", &chain_child_runbook("beta", "gamma", "../grand"));
@@ -676,6 +742,10 @@ fn drive_trio(label: &str) -> (Sandbox, PathBuf, PathBuf, PathBuf, String, Strin
         "{label}: the State Prompt lists the nested guard as every guard lists: {status}"
     );
 
+    // parent_sequence is minted at P1 of the nested step below: the live
+    // count of transition-log records naming the parent Run at that moment
+    // (ticket line 252), before the launch's own commit appends one more.
+    let parent_sequence_at_mint = sequence_naming(&parent, &parent_run);
     let parent_step = spawn_step(&parent, &parent_run, &[]);
     let child_run = wait_for_run(&child, label);
     let child_step = step(&child, &child_run);
@@ -685,7 +755,7 @@ fn drive_trio(label: &str) -> (Sandbox, PathBuf, PathBuf, PathBuf, String, Strin
         combined(&child_step)
     );
     let grand_run = wait_for_run(&grand, label);
-    let finished = finish_step(parent_step, label);
+    let finished = parent_step.finish(label);
     assert!(
         finished.status.success(),
         "{label}: the parent advances on the verified terminal receipt: {}",
@@ -696,14 +766,21 @@ fn drive_trio(label: &str) -> (Sandbox, PathBuf, PathBuf, PathBuf, String, Strin
         "{label}: the successor State's prompt is today's success stdout"
     );
     (
-        sandbox, parent, child, grand, parent_run, child_run, grand_run,
+        sandbox,
+        parent,
+        child,
+        grand,
+        parent_run,
+        child_run,
+        grand_run,
+        parent_sequence_at_mint,
     )
 }
 
 /// WEBV-021: parent, child, and grandchild programs with distinct declared identities and separate Engine roots run on one pinned Engine executable; only the endpoint's verified terminal receipt advances the parent, and each runtime tree holds only its own records.
 #[test]
 fn webv_021() {
-    let (sandbox, parent, child, grand, parent_run, child_run, grand_run) =
+    let (sandbox, parent, child, grand, parent_run, child_run, grand_run, parent_sequence) =
         drive_trio("webv021-control");
 
     // Each runtime tree lists exactly its own Run: no level holds another
@@ -771,7 +848,7 @@ fn webv_021() {
         ("from_state".to_owned(), "\"nest\"".to_owned()),
         (
             "parent_sequence".to_owned(),
-            format!("\"{}\"", sequence_naming(&parent, &parent_run)),
+            format!("\"{parent_sequence}\""),
         ),
         ("engine_pin".to_owned(), format!("\"{}\"", engine_digest())),
         (
@@ -903,10 +980,8 @@ fn webv_022() {
     );
     assert_refusal(
         &refused,
-        &format!(
-            "rtm: step refused; nested_run: beta: observed endpoint exit 0 without a receipt; \
-             diagnostic: no diagnostic emitted"
-        ),
+        "rtm: step refused; nested_run: beta: observed endpoint exit 0 without a receipt; \
+         diagnostic: no diagnostic emitted",
         &run,
         "WEBV-022: exit zero without a receipt refuses",
     );
@@ -997,13 +1072,16 @@ fn webv_022() {
     sandbox.project("child", &terminal_child_runbook("beta"));
     let run = start(&parent);
     step(&parent, &run);
-    let expected_class = sha256_file(&sandbox.root.join("child/.ratmac/ratmac.toml"));
+    // The observed value is the envelope's (the child's real ratmac.toml
+    // digest); the expected value is the declared pin, the same orientation
+    // as the engine-pin row (ticket step 7, lines 290-300).
+    let observed_class = sha256_file(&sandbox.root.join("child/.ratmac/ratmac.toml"));
     let refused = step(&parent, &run);
     assert_refusal(
         &refused,
         &format!(
-            "rtm: step refused; nested_run: beta: observed class pin {ZERO64}; \
-             expected class pin {expected_class}"
+            "rtm: step refused; nested_run: beta: observed class pin {observed_class}; \
+             expected class pin {ZERO64}"
         ),
         &run,
         "WEBV-022: a class-pin mismatch names the field and both digests",
@@ -1067,7 +1145,7 @@ fn webv_022() {
         combined(&hold)
     );
     assert!(
-        still_running(&mut parent_step, 1200),
+        parent_step.running(1200),
         "a held child Run is not terminal: the parent keeps waiting"
     );
     let resume = rtm(
@@ -1093,7 +1171,7 @@ fn webv_022() {
         "the child finishes after resume: {}",
         combined(&child_step)
     );
-    let finished = finish_step(parent_step, "webv022-held");
+    let finished = parent_step.finish("webv022-held");
     assert!(
         finished.status.success(),
         "the parent advances once the resumed child passes: {}",
@@ -1123,7 +1201,7 @@ fn webv_022() {
         "the child Run retires by abandonment: {}",
         combined(&abandon)
     );
-    let finished = finish_step(parent_step, "webv022-abandoned");
+    let finished = parent_step.finish("webv022-abandoned");
     assert_refusal(
         &finished,
         "rtm: step refused; nested_run: beta: observed outcome abandoned; expected outcome passed",
@@ -1180,10 +1258,32 @@ fn webv_022() {
         run_record(&parent, &run).contains("state = \"done\""),
         "the parent advanced on the one honest receipt"
     );
+    // The ledger's digest is the honest pipe envelope's, rebuilt from known
+    // facts the way webv_021 does - never one of the driver's forged copies.
+    let mut honest = Vec::new();
+    honest.extend_from_slice(b"ratmac-receipt-v1");
+    honest.push(0);
+    for field in [
+        "run-001-inv-001".to_owned(),
+        "beta".to_owned(),
+        canonical_root(&child),
+        "run-001".to_owned(),
+        sha256_file(&child.join(".ratmac/ratmac.toml")),
+        engine_digest(),
+        sequence_naming(&child, "run-001").to_string(),
+        "passed".to_owned(),
+        "ungoverned".to_owned(),
+        String::new(),
+        String::new(),
+        String::new(),
+    ] {
+        honest.extend_from_slice(&(field.len() as u64).to_be_bytes());
+        honest.extend_from_slice(field.as_bytes());
+    }
     let ledger = ledger_text(&parent, &run);
-    assert!(
-        quoted_field(&ledger, "receipt_sha256") != sha256_hex(&envelope)
-            || quoted_field(&ledger, "receipt_sha256").len() == 64,
+    assert_eq!(
+        quoted_field(&ledger, "receipt_sha256"),
+        sha256_hex(&honest),
         "the recorded receipt digest is the Engine's own envelope digest"
     );
     assert_eq!(roster(&child), vec!["run-001".to_owned()]);
@@ -1260,7 +1360,9 @@ fn webv_023() {
     fs::write(primary.join(".gitignore"), ".ratmac/runs/\n").expect("write the ignore policy");
     fs::write(
         primary.join(".ratmac/ratmac.toml"),
-        &parent_runbook("alpha", "beta", "linked", ""),
+        // A relative root resolves against the invoking checkout (ticket
+        // line 126), so the worktree at the sandbox root is "../linked".
+        parent_runbook("alpha", "beta", "../linked", ""),
     )
     .expect("write the runbook");
     for args in [
@@ -1278,13 +1380,10 @@ fn webv_023() {
             .expect("git is executable");
         assert!(
             git.status.success(),
-            "git {:?} failed: {}",
-            &args,
-            format!(
-                "{}{}",
-                String::from_utf8_lossy(&git.stdout),
-                String::from_utf8_lossy(&git.stderr)
-            )
+            "git {:?} failed: {}{}",
+            args,
+            String::from_utf8_lossy(&git.stdout),
+            String::from_utf8_lossy(&git.stderr),
         );
     }
     let linked = sandbox.root.join("linked");
@@ -1296,12 +1395,9 @@ fn webv_023() {
         .expect("git worktree add is executable");
     assert!(
         worktree.status.success(),
-        "git worktree add failed: {}",
-        format!(
-            "{}{}",
-            String::from_utf8_lossy(&worktree.stdout),
-            String::from_utf8_lossy(&worktree.stderr)
-        )
+        "git worktree add failed: {}{}",
+        String::from_utf8_lossy(&worktree.stdout),
+        String::from_utf8_lossy(&worktree.stderr),
     );
     let run = start(&primary);
     step(&primary, &run);
@@ -1334,7 +1430,16 @@ fn webv_023() {
     let child_run = wait_for_run(&child, "webv023-aba");
     let child_record = run_record(&child, &child_run);
     let (parent_root, child_root) = (canonical_root(&parent), canonical_root(&child));
-    let refused = step(&child, &child_run);
+    // Unset, RATMAC_LINEAGE would make the child a top-level chain of one
+    // (ticket step 3); a cooperating driver inherits the carrier from the
+    // endpoint (ticket line 600), so the child's own step runs with the hex
+    // lineage alpha@<parent root> > beta@<child root>.
+    let inherited = lineage_hex(&[("alpha", &parent_root), ("beta", &child_root)]);
+    let refused = rtm_env(
+        &child,
+        &["step", "--run", &child_run],
+        &[("RATMAC_LINEAGE", &inherited)],
+    );
     assert_refusal(
         &refused,
         &format!(
@@ -1365,7 +1470,7 @@ fn webv_023() {
         "the chain unwinds: {}",
         combined(&abandon)
     );
-    let finished = finish_step(parent_step, "webv023-aba");
+    let finished = parent_step.finish("webv023-aba");
     assert_refusal(
         &finished,
         "rtm: step refused; nested_run: beta: observed outcome abandoned; expected outcome passed",
@@ -1440,7 +1545,31 @@ fn webv_023() {
         let run = wait_for_run(&projects[index], "webv023-deep");
         runs.push(run.clone());
         let project = projects[index].clone();
-        steps.push(Some(thread::spawn(move || step(&project, &run))));
+        // A cooperating driver inherits RATMAC_LINEAGE from the endpoint
+        // (ticket step 3; line 600): stepping p{index+1} with the chain
+        // p01..p{index+1} is exactly the chain its own endpoint received,
+        // so the depth grows one level per project. Unset, each would be a
+        // top-level chain of one.
+        let chain: Vec<(String, String)> = (0..=index)
+            .map(|level| {
+                (
+                    format!("p{:02}", level + 1),
+                    canonical_root(&projects[level]),
+                )
+            })
+            .collect();
+        let borrowed: Vec<(&str, &str)> = chain
+            .iter()
+            .map(|(identity, root)| (identity.as_str(), root.as_str()))
+            .collect();
+        let carrier = lineage_hex(&borrowed);
+        steps.push(Some(thread::spawn(move || {
+            rtm_env(
+                &project,
+                &["step", "--run", &run],
+                &[("RATMAC_LINEAGE", &carrier)],
+            )
+        })));
     }
     // Sixteen programs deep, the seventeenth launch would make depth 17.
     let seventeenth = finish_thread(
@@ -1725,10 +1854,11 @@ The machine-facing nested-invocation entry (WEB-006), not for human use. The par
     assert!(roster(&child).is_empty(), "no Run is admitted");
 
     // A repeated identity in the chain refuses naming it, before admission.
+    let (parent_root, child_root) = (canonical_root(&parent), canonical_root(&child));
     let repeated = lineage_hex(&[
-        ("alpha", &canonical_root(&parent)),
-        ("beta", &canonical_root(&child)),
-        ("alpha", &canonical_root(&parent)),
+        ("alpha", &parent_root),
+        ("beta", &child_root),
+        ("alpha", &parent_root),
     ]);
     let refused = rtm_env(
         &child,
@@ -1745,12 +1875,16 @@ The machine-facing nested-invocation entry (WEB-006), not for human use. The par
     );
     let text = combined(&refused);
     assert_eq!(exit_code(&refused), 1, "the refusal exits 1: {text}");
-    assert!(
-        text.contains("rtm: endpoint: ")
-            && (text.contains("lineage repeats the declared program identity")
-                || text.contains("malformed")),
-        "WEBV-023: a repeated identity refuses before admission: {text}"
+    assert_eq!(
+        text.trim(),
+        format!(
+            "rtm: endpoint: observed lineage repeats the declared program identity \"alpha\" \
+             (alpha@{parent_root} > beta@{child_root} > alpha@{parent_root}); \
+             expected every identity distinct"
+        ),
+        "WEBV-023: a repeated identity refuses naming the chain before admission"
     );
+    assert!(refused.stdout.is_empty(), "stdout stays empty: {text}");
     assert!(
         roster(&child).is_empty(),
         "no Run is admitted on a lineage refusal"
@@ -1790,7 +1924,9 @@ The machine-facing nested-invocation entry (WEB-006), not for human use. The par
 
     // --- the new runbook defects render through today's parse paths ---
     let sandbox = Sandbox::new("webv023-parses");
-    let valid = terminal_child_runbook("beta");
+    // A passed Run answers `status` from history before any runbook parse
+    // (WRS-006, src/cli.rs:603); a live Run reaches the parse path.
+    let valid = plain_child_runbook("beta");
     let base = sandbox.project("base", &valid);
     let run = start(&base);
     let deep_defect = parent_runbook("alpha", "beta", "../base", ", max-depth = 0");
@@ -1862,6 +1998,14 @@ The machine-facing nested-invocation entry (WEB-006), not for human use. The par
         "WEBV-023: doctor reports the code: {}",
         combined(&doctor)
     );
+    // A well-formed two-entry carrier isolates the parse refusal: an
+    // odd-length carrier is malformed before its bytes are parsed, which
+    // would pin an ordering the ticket does not settle.
+    fs::create_dir_all(sandbox.root.join("peer/.ratmac")).expect("create a peer Engine root");
+    let carrier = lineage_hex(&[
+        ("alpha", &canonical_root(&base)),
+        ("beta", &canonical_root(&sandbox.root.join("peer"))),
+    ]);
     let endpoint_refusal = rtm_env(
         &base,
         &[
@@ -1869,11 +2013,11 @@ The machine-facing nested-invocation entry (WEB-006), not for human use. The par
             "--invocation",
             "a",
             "--lineage",
-            "b",
+            &carrier,
             "--receipt-fd",
             "1",
         ],
-        &[("RATMAC_LINEAGE", "b")],
+        &[("RATMAC_LINEAGE", &carrier)],
     );
     assert_eq!(exit_code(&endpoint_refusal), 1);
     assert!(
@@ -2056,7 +2200,7 @@ fn webv_024() {
         run_record(&child, &child_run).contains("state = \"work\""),
         "the child Run is admitted and waits for motion"
     );
-    kill_and_collect(parent_step);
+    parent_step.kill();
     // The retry resumes the same invocation address and the same child Run.
     let retry = spawn_step(&parent, &run, &[]);
     let resumed = wait_for_run(&child, "webv024-admit retry");
@@ -2070,7 +2214,7 @@ fn webv_024() {
         "the child finishes: {}",
         combined(&child_step)
     );
-    let finished = finish_step(retry, "webv024-admit retry");
+    let finished = retry.finish("webv024-admit retry");
     assert!(
         finished.status.success(),
         "the retry completes the interrupted invocation: {}",
@@ -2135,7 +2279,7 @@ fn webv_024() {
         "after-terminal",
         "webv024-terminal",
     );
-    kill_and_collect(parent_step);
+    parent_step.kill();
     let retry = step(&parent, &run);
     assert!(
         retry.status.success(),
@@ -2194,7 +2338,7 @@ fn webv_024() {
         roster(&child).is_empty(),
         "no endpoint ran, so the child root holds no Run"
     );
-    kill_and_collect(parent_step);
+    parent_step.kill();
     assert!(
         ledger_text(&parent, &run).contains("consumed = false"),
         "the recorded entry awaits its retry"
@@ -2207,7 +2351,7 @@ fn webv_024() {
         "the child finishes: {}",
         combined(&child_step)
     );
-    let finished = finish_step(retry, "webv024-record retry");
+    let finished = retry.finish("webv024-record retry");
     assert!(
         finished.status.success(),
         "the retry launches the recorded invocation: {}",
@@ -2269,7 +2413,7 @@ fn webv_024() {
     );
     assert!(recorded.contains(&format!("child_run = \"{child_run}\"")));
     assert!(recorded.contains("consumed = false"));
-    kill_and_collect(parent_step);
+    parent_step.kill();
     let retry = step(&parent, &run);
     assert!(
         retry.status.success(),
@@ -2325,7 +2469,7 @@ fn webv_024() {
         "after-consume",
         "webv024-consume",
     );
-    kill_and_collect(parent_step);
+    parent_step.kill();
     assert!(
         ledger_text(&parent, &run).contains("consumed = true"),
         "the mark flipped before the interruption"
@@ -2334,9 +2478,12 @@ fn webv_024() {
         run_record(&parent, &run).contains("state = \"done\""),
         "the Run Record replace preceded the history append"
     );
+    // Only the interrupted transition lacks its history line (ticket line
+    // 315); the Run's own plan -> nest line is already there. Landed format:
+    // src/scheduler.rs:4479 renders "\n- Transition: {from} -> {to}; Run {id}\n".
     assert!(
-        !log_text(&parent).contains(&run),
-        "today's deliberate limit: the transition has no history line yet"
+        !log_text(&parent).contains(&format!("- Transition: nest -> done; Run {run}")),
+        "today's deliberate limit: the interrupted transition has no history line yet"
     );
     let retry = step(&parent, &run);
     let text = combined(&retry);
@@ -2408,7 +2555,7 @@ fn webv_024() {
     assert_tree_unchanged(&parent, &before, "the lock refusal writes nothing");
     let child_step = step(&child, &child_run);
     assert!(child_step.status.success());
-    let finished = finish_step(parent_step, "webv024-lock");
+    let finished = parent_step.finish("webv024-lock");
     assert!(
         finished.status.success(),
         "the wait ends when the child passes: {}",
@@ -2421,6 +2568,12 @@ fn webv_024() {
     sandbox.project("child", &terminal_child_runbook("beta"));
     fs::copy(ratmac_qa::engine_bin!(), parent.join("probe.exe")).expect("pin the probe program");
     let run = start(&parent);
+    let entered = step(&parent, &run);
+    assert!(
+        entered.status.success(),
+        "the guard-free plan stage advances: {}",
+        combined(&entered)
+    );
     let gate = step(&parent, &run);
     assert!(
         gate.status.success(),

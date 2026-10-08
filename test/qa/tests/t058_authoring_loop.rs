@@ -829,7 +829,10 @@ fn seeds(scaffold: &str) -> Vec<(&'static str, String)> {
             ),
         ),
         // t-134 (WEB-006): the nested-declaration defects join the drill.
-        ("RB711", plain("\nprogram = \"\"\n")),
+        // The empty program identity is a top-level key (ticket lines
+        // 646-648); plain() would append it after the scaffold's last
+        // [[transitions]] table, where the parser reads RB103 instead.
+        ("RB711", format!("program = \"\"\n{scaffold}")),
         (
             "RB712",
             scaffold.replace(

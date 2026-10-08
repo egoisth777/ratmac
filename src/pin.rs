@@ -233,9 +233,14 @@ pub fn evidence_path(run_dir: &Path) -> PathBuf {
 /// SHA-256 of a file's bytes, lowercase hex.
 pub fn sha256_file(path: &Path) -> std::io::Result<String> {
     let bytes = fs::read(path)?;
+    Ok(sha256_bytes(&bytes))
+}
+
+/// SHA-256 of a byte string, lowercase hex (WEB-006: receipt envelopes).
+pub fn sha256_bytes(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(&bytes);
-    Ok(format!("{:x}", hasher.finalize()))
+    hasher.update(bytes);
+    format!("{:x}", hasher.finalize())
 }
 
 /// The identity of the running Engine binary.

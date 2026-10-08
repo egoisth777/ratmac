@@ -15,12 +15,19 @@ pub struct MachineClass {
     transitions: Vec<Transition>,
     classes: BTreeMap<String, ChildClass>,
     review: Option<crate::review::ReviewDeclaration>,
+    program: Option<String>,
 }
 
 impl MachineClass {
     /// The top-level review declaration, when the class governs its Runs.
     pub fn review(&self) -> Option<&crate::review::ReviewDeclaration> {
         self.review.as_ref()
+    }
+
+    /// WEB-006 (t-134): this project's declared program identity, the
+    /// identity lineage compares. Never derived from a path or a digest.
+    pub fn program(&self) -> Option<&str> {
+        self.program.as_deref()
     }
 }
 
@@ -151,11 +158,22 @@ pub enum GuardKind {
         require: String,
         min: Option<i64>,
     },
+    /// WEB-006 (t-134): one nested invocation of another declared program.
+    /// The parent Engine launches the child Engine protocol endpoint in
+    /// the declared child checkout and judges the terminal receipt it owes.
+    NestedRun {
+        program: String,
+        root: String,
+        engine_pin: Option<String>,
+        class_pin: Option<String>,
+        driver: Option<String>,
+        max_depth: Option<i64>,
+    },
 }
 
 impl GuardKind {
     /// Every kind a runbook may name.
-    pub const VOCABULARY: [&'static str; 8] = [
+    pub const VOCABULARY: [&'static str; 9] = [
         "files_exact",
         "file_contains",
         "command_exit",
@@ -164,6 +182,7 @@ impl GuardKind {
         "intake_contract",
         "record_contract",
         "join",
+        "nested_run",
     ];
 
     /// The fields a kind accepts, `kind` itself excluded. `None` for a kind
@@ -185,6 +204,14 @@ impl GuardKind {
             ],
             "intake_contract" | "record_contract" => &[],
             "join" => &["require", "min"],
+            "nested_run" => &[
+                "program",
+                "root",
+                "engine-pin",
+                "class-pin",
+                "driver",
+                "max-depth",
+            ],
             _ => return None,
         })
     }
@@ -220,6 +247,7 @@ impl GuardKind {
             Self::IntakeContract => "intake_contract",
             Self::RecordContract => "record_contract",
             Self::Join { .. } => "join",
+            Self::NestedRun { .. } => "nested_run",
         }
     }
 
@@ -292,6 +320,29 @@ impl GuardKind {
                 let mut fields = vec![("require", string(require))];
                 if let Some(min) = min {
                     fields.push(("min", min.to_string()));
+                }
+                fields
+            }
+            Self::NestedRun {
+                program,
+                root,
+                engine_pin,
+                class_pin,
+                driver,
+                max_depth,
+            } => {
+                let mut fields = vec![("program", string(program)), ("root", string(root))];
+                if let Some(pin) = engine_pin {
+                    fields.push(("engine-pin", string(pin)));
+                }
+                if let Some(pin) = class_pin {
+                    fields.push(("class-pin", string(pin)));
+                }
+                if let Some(driver) = driver {
+                    fields.push(("driver", string(driver)));
+                }
+                if let Some(max_depth) = max_depth {
+                    fields.push(("max-depth", max_depth.to_string()));
                 }
                 fields
             }
@@ -469,7 +520,9 @@ impl MachineClass {
                 format!("failed to read {}: {error}", path.displayed()),
             )
         })?;
-        Self::from_toml(&source)
+        let class = Self::from_toml(&source)?;
+        class.validate_nested_roots(checkout)?;
+        Ok(class)
     }
     /// Parse a TOML Machine Class while rejecting a status graph dimension.
     ///
@@ -500,9 +553,17 @@ impl MachineClass {
         }
         Self::reject_unknown_keys(
             root,
-            &["roots", "states", "transitions", "classes", "review"],
+            &[
+                "roots",
+                "states",
+                "transitions",
+                "classes",
+                "review",
+                "program",
+            ],
             "top-level",
         )?;
+        let program = Self::parse_program(root)?;
         let roots = WorkflowRoots::parse(root.get("roots")).map_err(Self::roots_parse_error)?;
 
         // FDC-009: inline child classes parse first so spawn validation can
@@ -522,7 +583,85 @@ impl MachineClass {
             transitions,
             classes,
             review,
+            program,
         })
+    }
+
+    /// WEB-006 (t-134): the optional top-level declared program identity.
+    /// A non-string value is `RB110`; an empty one `RB711`, the one
+    /// nested-declaration defect a top-level key can carry.
+    fn parse_program(
+        root: &toml::map::Map<String, toml::Value>,
+    ) -> Result<Option<String>, MachineClassParseError> {
+        let Some(value) = root.get("program") else {
+            return Ok(None);
+        };
+        let program = value.as_str().ok_or_else(|| {
+            MachineClassParseError::at(
+                "RB110",
+                "top-level".to_owned(),
+                "invalid nested declaration: the declared program identity must be a string"
+                    .to_owned(),
+            )
+        })?;
+        if program.is_empty() {
+            return Err(MachineClassParseError::at(
+                "RB711",
+                "top-level".to_owned(),
+                "invalid nested declaration: the declared program identity is empty".to_owned(),
+            ));
+        }
+        Ok(Some(program.to_owned()))
+    }
+
+    /// RB712: every declared nested child root must name an existing
+    /// directory when the runbook loads. The check lives outside
+    /// `from_toml` because it needs the checkout the root resolves against.
+    pub(crate) fn validate_nested_roots(
+        &self,
+        checkout: &Path,
+    ) -> Result<(), MachineClassParseError> {
+        for (name, definition) in &self.states {
+            Self::validate_definition_nested_roots(
+                definition,
+                checkout,
+                &format!("state {name:?}"),
+            )?;
+        }
+        for (class_name, class) in &self.classes {
+            for (name, definition) in class.states() {
+                Self::validate_definition_nested_roots(
+                    definition,
+                    checkout,
+                    &format!("class {class_name:?} state {name:?}"),
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_definition_nested_roots(
+        definition: &StateDefinition,
+        checkout: &Path,
+        state_location: &str,
+    ) -> Result<(), MachineClassParseError> {
+        for (index, guard) in definition.guards().iter().enumerate() {
+            let GuardKind::NestedRun { root, .. } = guard else {
+                continue;
+            };
+            let resolved = resolve_nested_root(checkout, root);
+            if !resolved.is_dir() {
+                return Err(MachineClassParseError::at(
+                    "RB712",
+                    format!("{state_location} guard {index}"),
+                    format!(
+                        "invalid nested declaration: the declared root {root:?} is missing or \
+                         not a directory"
+                    ),
+                ));
+            }
+        }
+        Ok(())
     }
 
     fn roots_parse_error(error: RootValidationError) -> MachineClassParseError {
@@ -1373,9 +1512,21 @@ impl MachineClass {
             .keys()
             .find(|key| key.as_str() != "kind" && !accepted.contains(&key.as_str()))
         {
-            return Err(MachineClassParseError::at("RB107", location.to_owned(), format!(
-                    "invalid {location}: guard kind {kind:?} does not accept field {unknown:?}; it accepts {accepted:?}"
-                )));
+            let detail = format!(
+                "guard kind {kind:?} does not accept field {unknown:?}; it accepts {accepted:?}"
+            );
+            // WEB-006 (t-134): a nested declaration's every parse defect
+            // carries the nested-declaration detail.
+            let message = if kind == "nested_run" {
+                format!("invalid nested declaration: {detail}")
+            } else {
+                format!("invalid {location}: {detail}")
+            };
+            return Err(MachineClassParseError::at(
+                "RB107",
+                location.to_owned(),
+                message,
+            ));
         }
 
         Ok(match kind {
@@ -1407,6 +1558,7 @@ impl MachineClass {
             },
             "intake_contract" => GuardKind::IntakeContract,
             "record_contract" => GuardKind::RecordContract,
+            "nested_run" => Self::parse_nested_run_guard(guard, location)?,
             "join" => {
                 let require = field.string("require")?;
                 if require != "all_passed" {
@@ -1449,6 +1601,114 @@ impl MachineClass {
         )
     }
 
+    /// WEB-006 (t-134): parse one `nested_run` guard. Every defect -
+    /// `RB105`, `RB107`, `RB110`, and the new semantic codes - refuses at
+    /// parse in today's code position carrying the nested-declaration
+    /// detail: a value present but malformed is `RB711`, a missing root
+    /// directory `RB712`, and a `max-depth` outside 1..=16 `RB713`.
+    fn parse_nested_run_guard(
+        guard: &toml::map::Map<String, toml::Value>,
+        location: &str,
+    ) -> Result<GuardKind, MachineClassParseError> {
+        let nested = |code: &'static str, detail: String| {
+            MachineClassParseError::at(
+                code,
+                location.to_owned(),
+                format!("invalid nested declaration: {detail}"),
+            )
+        };
+        let string_field = |key: &str| -> Result<String, MachineClassParseError> {
+            match guard.get(key) {
+                None => Err(nested(
+                    "RB105",
+                    format!("guard kind \"nested_run\" is missing required field {key:?}"),
+                )),
+                Some(value) => value.as_str().map(str::to_owned).ok_or_else(|| {
+                    nested(
+                        "RB110",
+                        format!("guard kind \"nested_run\" field {key:?} must be a string"),
+                    )
+                }),
+            }
+        };
+        let optional_string_field = |key: &str| -> Result<Option<String>, MachineClassParseError> {
+            match guard.get(key) {
+                None => Ok(None),
+                Some(value) => value
+                    .as_str()
+                    .map(|text| Some(text.to_owned()))
+                    .ok_or_else(|| {
+                        nested(
+                            "RB110",
+                            format!("guard kind \"nested_run\" field {key:?} must be a string"),
+                        )
+                    }),
+            }
+        };
+        let digest_field = |key: &str| -> Result<Option<String>, MachineClassParseError> {
+            let Some(value) = optional_string_field(key)? else {
+                return Ok(None);
+            };
+            let hex = value.len() == 64
+                && value
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
+            if !hex {
+                return Err(nested(
+                    "RB711",
+                    format!("the declared {key} {value:?} is not 64 lowercase hexadecimal digits"),
+                ));
+            }
+            Ok(Some(value))
+        };
+        let program = string_field("program")?;
+        if program.is_empty() {
+            return Err(nested(
+                "RB711",
+                "the declared nested program identity is empty".to_owned(),
+            ));
+        }
+        let root = string_field("root")?;
+        if root.is_empty() {
+            return Err(nested("RB711", "the declared root is empty".to_owned()));
+        }
+        let engine_pin = digest_field("engine-pin")?;
+        let class_pin = digest_field("class-pin")?;
+        let driver = optional_string_field("driver")?;
+        let max_depth = match guard.get("max-depth") {
+            None => None,
+            Some(value) => match value.as_integer() {
+                Some(depth) => Some(depth),
+                None => {
+                    return Err(nested(
+                        "RB711",
+                        format!("the declared max-depth {value} is not an integer"),
+                    ))
+                }
+            },
+        };
+        if let Some(depth) = max_depth {
+            if !(1..=16).contains(&depth) {
+                return Err(nested(
+                    "RB713",
+                    if depth < 1 {
+                        format!("max-depth {depth} is below the minimum nesting depth 1")
+                    } else {
+                        format!("max-depth {depth} exceeds the maximum nesting depth 16")
+                    },
+                ));
+            }
+        }
+        Ok(GuardKind::NestedRun {
+            program,
+            root,
+            engine_pin,
+            class_pin,
+            driver,
+            max_depth,
+        })
+    }
+
     pub fn states(&self) -> &BTreeMap<String, StateDefinition> {
         &self.states
     }
@@ -1462,6 +1722,17 @@ impl MachineClass {
     pub fn classes(&self) -> &BTreeMap<String, ChildClass> {
         &self.classes
     }
+}
+
+/// Resolve one declared nested root: a relative spelling joins the
+/// invoking checkout, an absolute spelling stands as given. A result that
+/// names no directory is the `RB712` load-time defect.
+pub(crate) fn resolve_nested_root(checkout: &Path, root: &str) -> PathBuf {
+    let candidate = Path::new(root);
+    if candidate.is_absolute() {
+        return candidate.to_path_buf();
+    }
+    checkout.join(candidate)
 }
 
 impl StateDefinition {
