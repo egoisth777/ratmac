@@ -1770,6 +1770,17 @@ fn webv_013() {
             ],
             Shape::Presplit(".arca/state.toml"),
         ),
+        // t-135 (WCP-007): `profile` joins the route table last; planted
+        // residue still refuses first, mirroring `recover`.
+        invoking(
+            "profile",
+            vec![
+                "profile".into(),
+                "plan-build".into(),
+                "occupied-target".into(),
+            ],
+            Shape::Presplit(".arca/state.toml"),
+        ),
         invoking(
             "abandon",
             vec![

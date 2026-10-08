@@ -2383,8 +2383,9 @@ fn wrsv_003_06() {
     assert!(
         usage.stdout.contains(
             // t-134 (WEB-006): `endpoint` joins the route table last.
+            // t-135 (WCP-007): `profile` joins the route table last.
             "Commands: init, start, status, step, hold, intent, resume, recover, \
-                      abandon, spawn, respawn, doctor, scaffold, skill, endpoint\n"
+                      abandon, spawn, respawn, doctor, scaffold, skill, endpoint, profile\n"
         ),
         "WRS-003: the general usage's Commands line gains resume after intent: {}",
         usage.stdout

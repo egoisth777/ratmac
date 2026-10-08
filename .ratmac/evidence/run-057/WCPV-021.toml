@@ -1,0 +1,10 @@
+planned-test-id = "WCPV-021"
+ticket-id = "t-135"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t135_distributable_plan_build_profile wcpv_021 -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t135_distributable_plan_build_profile.rs"
+test-name = "wcpv_021"
+exit-status = 101
+output-sha256 = "137c8727f1d2f7342849f5d6e3101b38d7f15c3bb076d4faf82ddbf494a911c1"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s\n     Running tests\\t135_distributable_plan_build_profile.rs (target\\debug\\deps\\t135_distributable_plan_build_profile-5ff5fbb05334026c.exe)\n\nrunning 1 test\ntest wcpv_021 ... FAILED\n\nfailures:\n\n---- wcpv_021 stdout ----\n\nthread 'wcpv_021' (62352) panicked at test\\qa\\tests\\t135_distributable_plan_build_profile.rs:2011:5:\nWCPV-021: the fresh-path export exits 0: rtm: unsupported command or option: profile\n\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    wcpv_021\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.01s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t135_distributable_plan_build_profile`\n"

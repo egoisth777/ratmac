@@ -1,0 +1,10 @@
+planned-test-id = "WCPV-020"
+ticket-id = "t-135"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t135_distributable_plan_build_profile wcpv_020 -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t135_distributable_plan_build_profile.rs"
+test-name = "wcpv_020"
+exit-status = 101
+output-sha256 = "e451649bfea2bdc13857eb784df48978e07e96188827ea758061f476268c38c1"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s\n     Running tests\\t135_distributable_plan_build_profile.rs (target\\debug\\deps\\t135_distributable_plan_build_profile-5ff5fbb05334026c.exe)\n\nrunning 1 test\ntest wcpv_020 ... FAILED\n\nfailures:\n\n---- wcpv_020 stdout ----\n\nthread 'wcpv_020' (68768) panicked at test\\qa\\tests\\t135_distributable_plan_build_profile.rs:726:5:\nthe positive control export exits 0: rtm: unsupported command or option: profile\n\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    wcpv_020\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 1.73s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t135_distributable_plan_build_profile`\n"

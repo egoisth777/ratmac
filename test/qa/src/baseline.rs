@@ -411,6 +411,7 @@ pub fn normalize(text: &str, root: &Path, engine: &Path) -> String {
         // t-130 / WRS-003: the `resume` verb is set aside the same way.
         // t-132 / WRS-004: the `recover` verb is set aside the same way.
         // t-134 / WEB-006: the `endpoint` verb is set aside the same way.
+        // t-135 / WCP-007: the `profile` verb is set aside the same way.
         if let Some(verbs) = line.strip_prefix("Commands: ") {
             let kept: Vec<&str> = verbs
                 .split(", ")
@@ -421,6 +422,7 @@ pub fn normalize(text: &str, root: &Path, engine: &Path) -> String {
                         && *verb != "resume"
                         && *verb != "recover"
                         && *verb != "endpoint"
+                        && *verb != "profile"
                 })
                 .collect();
             cleaned.push_str("Commands: ");

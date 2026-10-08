@@ -82,9 +82,10 @@ const INIT_HELP: &str = "Usage: rtm init\n\nInstall the Engine-root tracking pol
 // t-130 (WRS-003): `resume` joins the route table after `intent`.
 // t-132 (WRS-004): `recover` joins the route table after `resume`.
 // t-134 (WEB-006): `endpoint` joins the route table last, after `skill`.
+// t-135 (WCP-007): `profile` joins the route table last, after `endpoint`.
 const COMMANDS_LINE: &str = "Commands: init, start, status, step, hold, intent, resume, \
                              recover, abandon, spawn, respawn, doctor, scaffold, skill, \
-                             endpoint";
+                             endpoint, profile";
 
 /// The runbook every start fixture shares: one workflow root and a
 /// two-state machine, proven to start a Run in the existing suites.
