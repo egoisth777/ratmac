@@ -1,0 +1,10 @@
+planned-test-id = "WEBV-008"
+ticket-id = "t-136"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t136_lock_contention webv_008_policy_claim_covers_only_the_policy_bytes -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t136_lock_contention.rs"
+test-name = "webv_008_policy_claim_covers_only_the_policy_bytes"
+exit-status = 101
+output-sha256 = "65a7d855f254bb6ca8f151da586dc27ff0b4bd2996306ecc9ea76e0c048539d6"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s\n     Running tests\\t136_lock_contention.rs (target\\debug\\deps\\t136_lock_contention-5db18410be8dcaab.exe)\n\nrunning 1 test\ntest webv_008_policy_claim_covers_only_the_policy_bytes ... FAILED\n\nfailures:\n\n---- webv_008_policy_claim_covers_only_the_policy_bytes stdout ----\n\nthread 'webv_008_policy_claim_covers_only_the_policy_bytes' (48788) panicked at test\\qa\\tests\\t136_lock_contention.rs:815:5:\nwebv-inspect: the peer must pause at the `inspect` boundary - its marker never appeared within 15 s; RATMAC_TEST_POLICY_PAUSE=inspect does not pause today (contract: 'Boundary `inspect` pauses inside the pre-claim Git inspection' / 'Boundary `verify` pauses at the start of effective-rule verification')\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    webv_008_policy_claim_covers_only_the_policy_bytes\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1 filtered out; finished in 17.16s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t136_lock_contention`\n"
