@@ -1,0 +1,27 @@
+# The goal bundle's machine-readable shape. No fact here rests on any
+# repository's prose: this file is the one definition the intake gate
+# resolves against.
+
+schema = "goal-bundle-v1"
+
+[files]
+# The bundle the goal root holds; spec.md carries the requirement rows.
+bundle = ["spec.md", "design.md", "test-list.md", "ubi-lang.md", "index.md"]
+rows = "spec.md"
+
+[requirement-row]
+# The goal specification's requirement table: one row per accepted ask.
+columns = ["Req ID", "Requirement", "Source"]
+id = "backticked requirement identifier, stable across the goal's life"
+
+[resolution]
+# PCR-008's two places: an accepted ask resolves either to a product
+# requirement row in the goal bundle's spec.md or to an explicit
+# requirement-identifier heading in the working authority. Only the
+# markdown directly beneath the authority root is read.
+places = ["goal spec.md requirement row", "working-authority requirement-ID heading"]
+
+[freeze]
+# Intake completion freezes the goal; the frozen revision is what the gap
+# records and their sprint measure against.
+fact = "the transition out of intake freezes the goal bundle"

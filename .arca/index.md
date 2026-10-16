@@ -85,7 +85,7 @@ flowchart LR
 ### Binary
 
 `rtm` - hand-rolled CLI (`src/cli.rs`, no clap): `start`, `status`, `step`,
-`hold`, `abandon`, `spawn`, `respawn`, `doctor`, `scaffold`, `skill`. `start`
+`hold`, `abandon`, `spawn`, `respawn`, `doctor`, `scaffold`, `skill`, `profile`. `start`
 takes no Run id and mints the next roster member; `status` and `step` require a
 canonical exact `--run <id>`, `hold` binds through the same `open_run`
 preflight, and retiring a live Run requires its roster id. `spawn` creates a
@@ -131,6 +131,7 @@ the identity-stamped operator-skill folder at a new path and never overwrites.
 | `doctor.rs` | Findings as data: stable code, severity, location, and message. Diagnosis goes through `machine.rs`, owns graph, guard-lint, and cycle-termination passes, pairs findings with the exact resolved Engine root, renders JSON as `{ engine_root, findings }`, and maps clean/warning/error to exit `0`/`1`/`2`. |
 | `scaffold.rs` | AAL-002: the smallest doctor-clean runbook, written at a path that does not exist yet. One file, no options, never overwrites. |
 | `skill.rs` | AOP-003/AOP-004: atomically writes one non-overwriting `ratmac-operator` skill folder whose `SKILL.md` carries the writing Engine's identity stamp and whose references teach invariant operating rules. |
+| `profile.rs` | WCP-007: embeds the distributable Plan-Build profile (tracked under `profiles/plan-build/`, `include_str!` at build time) and exports it as one deterministic offline folder - manifest self-validated against the embedded artifact table before the first byte, then the skill's atomic never-overwriting write discipline. Generic export plumbing only; the Engine gains no project-specific code from the profile. |
 
 ### Runbook shape (`.ratmac/ratmac.toml`)
 
@@ -214,6 +215,7 @@ All agent routing and documentation must use these paths.
 | `.arca/vis/` | Shared pictures and graphs. |
 | `test-hidden/` | Hidden test code, out of git, listed by its owning ticket. |
 | `test/` | The runnable suite plus `test/test-list.md`. |
+| `profiles/plan-build/` | The distributable Plan-Build profile: manifest, instructions, terms, Machine Class template, record schemas, packaged checkers, and blanks - embedded into the Engine at build time and exported by `rtm profile`. |
 | `src/` | The Engine - mapped above. |
 
 ## Issue movement and reviewable history

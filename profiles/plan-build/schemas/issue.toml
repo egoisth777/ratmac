@@ -1,0 +1,37 @@
+# The issue bundle's machine-readable shape. No fact here rests on any
+# repository's prose: this file is the one definition the contract guards
+# and the packaged checkers read.
+
+schema = "issue-bundle-v1"
+
+[files]
+# One exact five-file bundle per issue folder.
+required = ["design.md", "index.md", "spec.md", "test-plan.md", "ubi-lang.md"]
+
+[index.front-matter]
+# The keys index.md's YAML front-matter block carries.
+keys = ["issue-id", "provenance", "status"]
+
+[index.vocabulary.status]
+pending = "live in the intake work area, awaiting intake"
+deferred = "live in the deferred buffer, waiting"
+integrated = "archived, its accepted asks folded into the goal"
+rejected = "archived without landing"
+
+[spec.vocabulary.disposition]
+# Every ask carries exactly one disposition.
+accepted = "folded into the goal or the working rules, linked both ways"
+rejected = "not worked, with its rationale"
+duplicate = "already carried by another ask"
+deferred = "parked whole in the deferred buffer"
+
+[spec.columns]
+# The requirement-records table's columns, in order.
+row = ["Requirement ID", "Requirement", "Disposition", "Rationale", "Accepted Forward Authority Refs"]
+
+[namespace]
+# The three issue locations form one issue-id namespace: numbers are unique
+# across intake, deferred, and archive, and a bundle moves between them
+# whole, keeping its issue id.
+locations = [". (intake work area)", "deferred/", "archive/"]
+rule = "one issue id, one whole bundle, three locations, never two live copies"

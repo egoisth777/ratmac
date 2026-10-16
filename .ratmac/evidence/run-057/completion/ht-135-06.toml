@@ -1,0 +1,10 @@
+ticket-id = "t-135"
+check-id = "HT-135-06"
+kind = "hidden-lane"
+command = "cargo test --offline --locked --manifest-path test-hidden/t-135/Cargo.toml -- --test-threads=1"
+working-dir = "."
+exit-status = 0
+output-sha256 = "39e7fb893fc67eca40217cf20ccd42bc4b38c1dec559f53935f792d27e07bc2d"
+tree-roots = ["src","profiles","test/qa","test-hidden","tools","Cargo.toml","Cargo.lock",".gitignore",".ratmac/lanes.toml"]
+tree-sha256 = "a68f277980b0e9e116f455841338a7f45443260ad167a515e28918da1a68f141"
+output = "\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 6 tests\ntest ht_135_01_regression ... ok\ntest ht_135_02_input_routing ... ok\ntest ht_135_03_lifecycle_model ... ok\ntest ht_135_04_durability_recovery ... ok\ntest ht_135_05_output_filesystem ... ok\ntest ht_135_06_cross_feature ... ok\n\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.94s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\nwarning: field `owner` is never read\n   --> src\\lib.rs:173:5\n    |\n169 | pub struct Fixture {\n    |            ------- field in this struct\n...\n173 |     owner: Option<support::TempTree>,\n    |     ^^^^^\n    |\n    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default\n\nwarning: `ratmac-t135-hidden` (lib) generated 1 warning\nwarning: `ratmac-t135-hidden` (lib test) generated 1 warning (1 duplicate)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s\n     Running unittests src\\lib.rs (test-hidden\\t-135\\target\\debug\\deps\\ratmac_t135_hidden-7270cc954f64cd15.exe)\n     Running tests\\hidden.rs (test-hidden\\t-135\\target\\debug\\deps\\hidden-068d1e7c1237b9d9.exe)\n   Doc-tests ratmac_t135_hidden\n"

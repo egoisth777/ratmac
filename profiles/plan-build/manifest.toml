@@ -1,0 +1,93 @@
+# The plan-build profile's manifest: the strict-TOML inventory and
+# compatibility record. One row per artifact, in the bundle's declared
+# order; the manifest itself is not self-listed, because it cannot hash
+# itself.
+
+[profile]
+name = "plan-build"
+format = 1
+
+[compatibility]
+runbook = "states-v1"
+checkers = 1
+
+[[artifact]]
+path = "OPERATING.md"
+role = "instructions"
+sha256 = "e7dcfd730f4c5676424e19e0f13ad59e395dd0b67705d3cc7b8105997258a6c3"
+
+[[artifact]]
+path = "terms.md"
+role = "terms"
+sha256 = "2cc0316192d9c7bb9e9c2bdb8235bb0c3c888519c892eb710da4bacc9db7cd57"
+
+[[artifact]]
+path = "machine-class.toml"
+role = "machine-class"
+sha256 = "360fe5a5473b2cb8546166ac8546658e519e4ed0e905bb08789e2e59f538765e"
+
+[[artifact]]
+path = "schemas/issue.toml"
+role = "schema"
+sha256 = "69018dc95dae5461e53f64e1d036a4fb25c670ecce29c2018e947939e2767ffc"
+
+[[artifact]]
+path = "schemas/residual.toml"
+role = "schema"
+sha256 = "de99a2954d5a26f317de74e43ed19a3cdfec25302a89a9795d21cc55728a43b5"
+
+[[artifact]]
+path = "schemas/ticket.toml"
+role = "schema"
+sha256 = "cd00901faaff5c9e44b1e67c74b22f16b5b7917a83aa613dad454d782eed8b2a"
+
+[[artifact]]
+path = "schemas/goal.toml"
+role = "schema"
+sha256 = "8c1c9066e64a94c0597fe41f82eb241a26546929688e812713a204df6b4c75c9"
+
+[[artifact]]
+path = "checkers/verify_profile.py"
+role = "checker"
+sha256 = "a30f09537d0c13762aa95951f94c18ff8681af3792cadb5247179ff80bc6eadf"
+
+[[artifact]]
+path = "checkers/verify_issue_binding.py"
+role = "checker"
+sha256 = "97a8bdc8d6570aead507d5d1b2b93afa27bf119007f3d421ddfaf235f4602f36"
+
+[[artifact]]
+path = "blanks/issue/index.md"
+role = "blank"
+sha256 = "27cdce6037c506535e97bdde88a6458be6d59e91caaedde234d3583b13350a2e"
+
+[[artifact]]
+path = "blanks/issue/spec.md"
+role = "blank"
+sha256 = "ab35f65e1c7b019cd79a38e69464361e13ab26cd39f620d0635c6161a17b8956"
+
+[[artifact]]
+path = "blanks/issue/design.md"
+role = "blank"
+sha256 = "2bb14c917907908ad7e84cf0bf612fa22742401cc2e85ab3de290c0b5d34a702"
+
+[[artifact]]
+path = "blanks/issue/test-plan.md"
+role = "blank"
+sha256 = "221f831e5586dadf30ca0145d2c07e69d606a7d5ddc7aa2b630e5c93b0f27433"
+
+[[artifact]]
+path = "blanks/issue/ubi-lang.md"
+role = "blank"
+sha256 = "fae4637f024d84a1f27b75bdb854ef2ffadea5f38ba7bdc38325d875450487f0"
+
+[[artifact]]
+path = "blanks/residual.md"
+role = "blank"
+sha256 = "53d6f0623a74351f42706a2707b336713246488268aa5dbf05e8d6bad72a40bf"
+
+[[artifact]]
+path = "blanks/ticket.md"
+role = "blank"
+sha256 = "599a750cb3ab18dbbe0cc5359d9648bc0350917f28fb2488d751faaa3468f44b"
+

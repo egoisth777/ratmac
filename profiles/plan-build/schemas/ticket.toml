@@ -1,0 +1,49 @@
+# The work item's machine-readable shape. No fact here rests on any
+# repository's prose: this file is the one definition the contract guards
+# and the completion gate read.
+
+schema = "ticket-record-v1"
+
+[front-matter]
+# The keys a work item's YAML front-matter block carries, verbatim from the
+# packaged blank.
+keys = [
+  "ticket-id",
+  "residual-ids",
+  "behavior-refs",
+  "design-refs",
+  "planned-test-refs",
+  "focused-tests",
+  "hidden-lanes",
+  "quality-commands",
+  "dependencies",
+  "status",
+  "landed-commit",
+  "blocker-ref",
+]
+
+[sections]
+# The five sections the record contract demands, in order.
+required = [
+  "## Vertical Outcome",
+  "## Worktree Scope",
+  "## P4 Apparent Test Plan",
+  "## P5 Hidden Test Public Coverage Manifest",
+  "## Merge Gate",
+]
+
+[check-lists]
+# The three front-matter string lists the completion gate reads: opaque
+# check ids, never prose.
+fields = ["focused-tests", "hidden-lanes", "quality-commands"]
+
+[vocabulary.lanes]
+# The six adversarial lanes a P5 manifest row must assess.
+values = [
+  "Regression",
+  "Input/Routing",
+  "Lifecycle/Model",
+  "Durability/Recovery",
+  "Output/Filesystem",
+  "Cross-Feature",
+]

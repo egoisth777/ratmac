@@ -1,0 +1,33 @@
+# The residual record's machine-readable shape. No fact here rests on any
+# repository's prose: this file is the one definition the contract guards
+# read.
+
+schema = "residual-record-v1"
+
+[front-matter]
+# The keys a residual record's YAML front-matter block carries, verbatim
+# from the packaged blank.
+keys = [
+  "residual-id",
+  "goal-requirement-ref",
+  "frozen-goal-bundle-revision",
+  "implementation-revision",
+  "concrete-evidence-refs",
+  "classification-rationale",
+  "status",
+  "mutation-kill",
+  "required-test-refs",
+]
+
+[vocabulary.status]
+missing = "the tree holds no proof of the requirement"
+partial = "some proof exists, the requirement is not yet whole"
+satisfied = "concrete evidence proves the requirement against the frozen goal"
+
+[fields]
+# mutation-kill is the sole physical home for deliberate-damage evidence:
+# each line is written only after the observed failure, from the safety
+# commit. concrete-evidence-refs must be empty while status is missing.
+evidence = "concrete-evidence-refs"
+damage = "mutation-kill"
+tests = "required-test-refs"

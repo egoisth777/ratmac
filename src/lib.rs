@@ -24,6 +24,7 @@ mod observe;
 pub mod ownership;
 pub mod pause;
 pub mod pin;
+pub mod profile;
 pub mod receipt;
 pub mod recover;
 pub mod review;

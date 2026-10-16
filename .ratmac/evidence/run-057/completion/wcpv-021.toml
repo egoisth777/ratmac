@@ -1,0 +1,10 @@
+ticket-id = "t-135"
+check-id = "WCPV-021"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test t135_distributable_plan_build_profile -- --test-threads=1"
+working-dir = "."
+exit-status = 0
+output-sha256 = "fa0ca3c6884ade8ccc2b7709e5d427f271628f07d50afc30f58e1ffb42d82b7d"
+tree-roots = ["src","profiles","test/qa","test-hidden","tools","Cargo.toml","Cargo.lock",".gitignore",".ratmac/lanes.toml"]
+tree-sha256 = "a68f277980b0e9e116f455841338a7f45443260ad167a515e28918da1a68f141"
+output = "\nrunning 3 tests\ntest wcpv_019 ... ok\ntest wcpv_020 ... ok\ntest wcpv_021 ... ok\n\ntest result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 13.11s\n\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s\n     Running tests\\t135_distributable_plan_build_profile.rs (target\\debug\\deps\\t135_distributable_plan_build_profile-5ff5fbb05334026c.exe)\n"

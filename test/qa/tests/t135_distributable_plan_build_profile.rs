@@ -844,10 +844,23 @@ fn place_residual(fx: &Clean, frozen: &str) {
 fn flip_residual_satisfied(fx: &Clean, receipts: &[&str]) {
     let path = fx.root.join(format!(".arca/residual/{RESIDUAL}.md"));
     let text = fs::read_to_string(&path).expect("read the residual record");
+    // The placed record carries its filled status line, so the flip rewrites
+    // that line itself: exactly one `status: "missing"` becomes satisfied,
+    // and every other placed field (the frozen revision included) stands.
+    assert_eq!(
+        text.matches("status: \"missing\"").count(),
+        1,
+        "the placed record carries exactly one open status line: {text}"
+    );
     let flipped = set_list(
-        &fill_scalar(&text, "status", "satisfied"),
+        &text.replace("status: \"missing\"", "status: \"satisfied\""),
         "concrete-evidence-refs",
         receipts,
+    );
+    assert_eq!(
+        flipped.matches("status: \"satisfied\"").count(),
+        1,
+        "the flipped record carries its satisfied status once: {flipped}"
     );
     fs::write(&path, flipped).expect("write the satisfied residual");
 }
@@ -1433,7 +1446,7 @@ fn wcpv_019() {
     .tagged();
     for key in after.keys() {
         assert!(
-            key.starts_with("profile/") || before.contains_key(key),
+            key == "profile" || key.starts_with("profile/") || before.contains_key(key),
             "WCPV-019: every written byte sits under the one target folder, not {key:?}"
         );
     }
@@ -1840,7 +1853,14 @@ fn wcpv_020() {
                         .expect("doctor the manifest");
                 }
             }),
-            expected: corrupted_row(checker_row.clone(), sha256_hex(&pristine_checker)),
+            expected: corrupted_row(
+                (
+                    checker_row.0.clone(),
+                    checker_row.1.clone(),
+                    doctored_digest.clone(),
+                ),
+                sha256_hex(&pristine_checker),
+            ),
         },
         Twin {
             because: "the incompatible profile format",
@@ -1848,12 +1868,26 @@ fn wcpv_020() {
                 let manifest_path = manifest_path.clone();
                 move |_fx: &Clean| {
                     let text = fs::read_to_string(&manifest_path).expect("read the manifest");
-                    assert!(
-                        text.contains("format = 1"),
-                        "the manifest declares format 1"
+                    // Rewrite the format line itself, tolerant of the
+                    // manifest's spacing, and edit nothing else.
+                    let mut edited: Vec<String> = Vec::new();
+                    let mut format_lines = 0usize;
+                    for line in text.split_inclusive('\n') {
+                        let trimmed = line.trim_start();
+                        if trimmed.starts_with("format") && trimmed.contains('1') {
+                            format_lines += 1;
+                            let (indent, tail) = line.split_at(line.len() - trimmed.len());
+                            let key_end = tail.find('=').expect("the format line assigns");
+                            edited.push(format!("{indent}{}2\n", &tail[..=key_end]));
+                        } else {
+                            edited.push(line.to_owned());
+                        }
+                    }
+                    assert_eq!(
+                        format_lines, 1,
+                        "the manifest declares exactly one format line: {text}"
                     );
-                    fs::write(&manifest_path, text.replace("format = 1", "format = 2"))
-                        .expect("edit the format");
+                    fs::write(&manifest_path, edited.join("")).expect("edit the format");
                 }
             }),
             expected: "verify_profile: the installed profile declares format 2, not 1; this \
@@ -2019,7 +2053,7 @@ fn wcpv_021() {
         .tagged();
     for key in after.keys() {
         assert!(
-            key.starts_with("profile/") || before.contains_key(key),
+            key == "profile" || key.starts_with("profile/") || before.contains_key(key),
             "WCPV-021: every written byte sits under the one target folder, not {key:?}"
         );
     }
@@ -2136,7 +2170,7 @@ fn wcpv_021() {
     let settled = support::capture(
         plain,
         CaptureOptions {
-            excluded_paths: &[partial.clone()],
+            excluded_paths: &[PathBuf::from(".broken.rtm-profile-partial")],
             ..CaptureOptions::default()
         },
     )
@@ -2169,7 +2203,7 @@ fn wcpv_021() {
         support::capture(
             plain,
             CaptureOptions {
-                excluded_paths: &[partial.clone()],
+                excluded_paths: &[PathBuf::from(".broken.rtm-profile-partial")],
                 ..CaptureOptions::default()
             }
         )
@@ -2274,17 +2308,24 @@ fn wcpv_021() {
         "WCPV-021: git check-ignore runs over the probes: {}",
         support::text(&check)
     );
-    let listed = String::from_utf8_lossy(&check.stdout).into_owned();
-    for probe in ignored {
-        assert!(
-            listed.contains(probe),
-            "WCPV-021: {probe} answers ignored: {listed}"
-        );
-    }
+    // Each `check-ignore -v` row is `<source>:<line>:<pattern>\t<path>`, and
+    // the source column is `.ratmac/.gitignore` itself, so judge the set of
+    // matched paths - the text after each row's last tab - not raw bytes.
+    let mut matched: Vec<String> = String::from_utf8_lossy(&check.stdout)
+        .lines()
+        .filter_map(|row| row.rsplit_once('\t').map(|(_, probe)| probe.to_owned()))
+        .collect();
+    matched.sort();
+    let mut expected_matched: Vec<&str> = ignored.to_vec();
+    expected_matched.sort_unstable();
+    assert_eq!(
+        matched, expected_matched,
+        "WCPV-021: exactly the runtime probes answer ignored"
+    );
     for probe in visible {
         assert!(
-            !listed.contains(probe),
-            "WCPV-021: {probe} stays visible to Git: {listed}"
+            !matched.iter().any(|path| path == probe),
+            "WCPV-021: {probe} stays visible to Git: {matched:?}"
         );
     }
     assert_eq!(

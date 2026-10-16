@@ -334,6 +334,35 @@ pub(crate) mod entries {
         crate::skill::write_skill_in(path, &Roots::resolve(addressed_project_root(path)))
     }
 
+    /// Write the packaged profile `name` at `path`, or refuse (WCP-007).
+    /// The manifest self-validation precedes the target judgment and the
+    /// first byte; the name and drift faults the handler renders as their
+    /// own rows fold into the skill's engine-side catch-all here, so the
+    /// four-variant surface stays the contract's.
+    pub fn write_profile(name: &str, path: &Path) -> Result<(), crate::profile::ProfileRefusal> {
+        match crate::profile::export(name, path) {
+            Ok(_) => Ok(()),
+            Err(crate::profile::ExportFault::UnknownName(unknown)) => {
+                Err(crate::profile::ProfileRefusal::Unwritable(
+                    displayed(path),
+                    format!(
+                        "no profile named {unknown} is packaged with this engine; packaged profiles: {}",
+                        crate::profile::PACKAGED.join(", ")
+                    ),
+                ))
+            }
+            Err(crate::profile::ExportFault::Drift(detail)) => {
+                Err(crate::profile::ProfileRefusal::Unwritable(
+                    displayed(path),
+                    format!(
+                        "the packaged {name} profile fails its own manifest: {detail}; the tracked profiles/{name} bytes and the manifest have drifted - regenerate the manifest from the owning tree"
+                    ),
+                ))
+            }
+            Err(crate::profile::ExportFault::Refusal(refusal)) => Err(refusal),
+        }
+    }
+
     /// PGE-001: verify intake completion over the working tree.
     pub fn gate_intake(workspace: &Path) -> Result<(), Vec<crate::contract::ContractDefect>> {
         let project = Roots::resolve(workspace);

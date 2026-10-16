@@ -2085,8 +2085,9 @@ fn webv_020() {
     }
 }
 
-/// One throwaway copy of the repository's manifest, lock, and source, with
-/// an empty workspace so no test crate is needed to check the library.
+/// One throwaway copy of the repository's build inputs - the manifest, the
+/// lock, `src/`, and `profiles/` when the repository carries one - with an
+/// empty workspace so no test crate is needed to check the library.
 struct RepositoryCopy {
     path: PathBuf,
     _tree: TempTree,
@@ -2125,6 +2126,13 @@ impl RepositoryCopy {
         fs::copy(repository.join("Cargo.lock"), copy.join("Cargo.lock"))
             .expect("copy the dependency lock");
         copy_tree(&repository.join("src"), &copy.join("src"));
+        // t-135 (WCP-007): `src/profile.rs` embeds the bundle with
+        // `include_str!("../profiles/plan-build/...")`, so the copy also
+        // carries `profiles/` beside `src/` when the repository has one.
+        let profiles = repository.join("profiles");
+        if profiles.is_dir() {
+            copy_tree(&profiles, &copy.join("profiles"));
+        }
         Self {
             path: copy,
             _tree: tree,

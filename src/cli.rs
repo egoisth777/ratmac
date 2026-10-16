@@ -100,6 +100,9 @@ pub fn help(command: impl AsRef<str>) -> &'static str {
         "endpoint" => {
             "Usage: rtm endpoint --invocation <address> --lineage <hex> --receipt-fd <n>\n\nThe machine-facing nested-invocation entry (WEB-006), not for human use. The parent Engine launches it in the child checkout with the Engine-minted invocation address, the complete invocation lineage, and the dedicated receipt pipe's write end. The protocol lineage and the inherited RATMAC_LINEAGE environment must agree byte for byte; a repeated declared program identity or canonical Engine root, a malformed lineage, or an over-deep chain refuses naming the chain before any Run is admitted. At most one child Run exists per invocation address. On success it writes one strict terminal receipt - only after persisting and reading back the child Run's terminal fact - to the receipt pipe, prints nothing, and exits 0.\n"
         }
+        "profile" => {
+            "Usage: rtm profile <name> <path>\n\nExport the named distributable profile as one folder at a path that does not exist yet. Today one profile is packaged: plan-build - the Machine Class template, machine-readable record schemas, packaged checkers, issue/gap/work-item blanks, required terms, and operating instructions, inventoried by a manifest with per-artifact content digests. The export validates the packaged manifest before writing, is deterministic and offline - two exports of the same version contain the same bytes - creates exactly one folder, never overwrites, and creates no directories outside it. A clean repository initializes from the exported bundle's OPERATING.md; the Engine ships the profile as data and gains no project-specific code from it.\n"
+        }
         _ => general_usage(),
     }
 }
@@ -107,9 +110,9 @@ pub fn help(command: impl AsRef<str>) -> &'static str {
 /// The one public route table (WEB-004): the verbs the general usage's
 /// `Commands:` line lists are exactly the commands `rtm` dispatches, and a
 /// verb added to dispatch is added here.
-const COMMANDS: [&str; 15] = [
+const COMMANDS: [&str; 16] = [
     "init", "start", "status", "step", "hold", "intent", "resume", "recover", "abandon", "spawn",
-    "respawn", "doctor", "scaffold", "skill", "endpoint",
+    "respawn", "doctor", "scaffold", "skill", "endpoint", "profile",
 ];
 
 /// The general usage, rendered from the route table so the table stays its
@@ -310,6 +313,17 @@ where
                     .map_err(|error| CliError::refusal(error.to_string()))?;
             }
         }
+        // t-135 (WCP-007): `profile` addresses a project through its LAST
+        // non-flag argument - the target path, never the profile name - and
+        // the shared bare refusal answers ahead of the handler's own rows.
+        "profile" => {
+            if let Some(target) = command_args.iter().rev().find(|arg| !arg.starts_with('-')) {
+                let project =
+                    invocation.project(&crate::root::addressed_project_root(Path::new(target)));
+                Scheduler::refuse_flat_residue_with_roots(&project)
+                    .map_err(|error| CliError::refusal(error.to_string()))?;
+            }
+        }
         "spawn" => {
             if let Some(workspace) = sole_workspace(command_args) {
                 Scheduler::refuse_spawn_workspace_residue(&roots, Path::new(workspace))
@@ -364,6 +378,7 @@ where
         }
         "start" => start(command_args, &roots, writer),
         "step" => step(command_args, &roots, writer),
+        "profile" => profile(command_args, writer),
         _ => unreachable!("the route table lists every dispatched command"),
     }
 }
@@ -1887,6 +1902,67 @@ fn skill<W: Write>(
         "Wrote {}. Its SKILL.md carries the identity stamp of the engine that wrote it.",
         crate::root::displayed(path)
     )?;
+    Ok(0)
+}
+
+/// WCP-007 (t-135): export one packaged profile as one folder at a path
+/// that does not exist yet. The usage rows mirror skill's constructors;
+/// the unknown-name row and the embedded-manifest drift refusal carry their
+/// own envelopes - the drift an engine-content defect, so it carries the
+/// operational exit, not the usage exit.
+fn profile<W: Write>(args: &[String], writer: &mut W) -> Result<i32, CliError> {
+    const USAGE: &str = "profile takes exactly one profile name and one target path";
+    let mut name: Option<&str> = None;
+    let mut target: Option<&str> = None;
+    for arg in args {
+        if arg.starts_with('-') {
+            return Err(CliError::refusal(format!(
+                "profile: unknown option {arg:?}; {USAGE}"
+            )));
+        }
+        if name.is_some() && target.is_some() {
+            return Err(CliError::refusal(format!(
+                "profile: one profile and one path at a time; {USAGE}"
+            )));
+        }
+        if name.is_none() {
+            name = Some(arg);
+        } else {
+            target = Some(arg);
+        }
+    }
+    let (Some(name), Some(target)) = (name, target) else {
+        return Err(CliError::refusal(if name.is_none() {
+            format!("profile: no profile name given; {USAGE}")
+        } else {
+            format!("profile: no target path given; {USAGE}")
+        }));
+    };
+    let path = Path::new(target);
+    match crate::profile::export(name, path) {
+        Ok(bundle) => writeln!(
+            writer,
+            "Wrote {}: the {} profile (format {}, {} artifacts). Initialize from its OPERATING.md; the export is deterministic, offline, and never overwrites.",
+            crate::root::displayed(path),
+            bundle.name,
+            bundle.format,
+            bundle.artifacts.len()
+        )?,
+        Err(crate::profile::ExportFault::UnknownName(unknown)) => {
+            return Err(CliError::refusal(format!(
+                "profile: no profile named {unknown} is packaged with this engine; packaged profiles: {}",
+                crate::profile::PACKAGED.join(", ")
+            )));
+        }
+        Err(crate::profile::ExportFault::Drift(detail)) => {
+            return Err(CliError::new(format!(
+                "profile: the packaged {name} profile fails its own manifest: {detail}; the tracked profiles/{name} bytes and the manifest have drifted - regenerate the manifest from the owning tree"
+            )));
+        }
+        Err(crate::profile::ExportFault::Refusal(refusal)) => {
+            return Err(CliError::refusal(refusal.to_string()));
+        }
+    }
     Ok(0)
 }
 
