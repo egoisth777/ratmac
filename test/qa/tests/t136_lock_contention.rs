@@ -608,6 +608,13 @@ fn ensv_006_waiters_wait_through_a_peer_release() {
          with today's outcome for an ordinary contended wait: {}",
         combined_text(root_waiter)
     );
+    #[cfg(windows)]
+    assert!(
+        root_case.waiter_stayed_live,
+        "ensv-root-window: while the peer held the release window, the waiter was shown still running \
+         inside it - a waiting acquirer treats the window as contention and retries inside its \
+         one deadline instead of refusing at once"
+    );
     let waiter_id = started_run_id("ensv-root-window waiter", root_waiter);
     assert_eq!(
         stdout_text(root_waiter),

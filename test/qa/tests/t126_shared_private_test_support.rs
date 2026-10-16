@@ -899,13 +899,19 @@ fn wcpv_006() {
         // Expired sources and private manifests/locks describe this migration,
         // not a ban on a later authorized port or dependency update.
         if after.is_none() || !Path::new(path).starts_with("test-hidden") {
-            let bytes = fs::read(root.join(path))
-                .unwrap_or_else(|error| panic!("preserved artifact {path}: {error}"));
-            assert_eq!(
-                digest(&bytes),
-                file["sha256"].as_str().unwrap(),
-                "historical artifact {path} remains byte-identical"
-            );
+            let current = fs::read(root.join(path));
+            let unchanged = current
+                .as_ref()
+                .is_ok_and(|bytes| digest(bytes) == file["sha256"].as_str().unwrap());
+            if !unchanged && !reopened_gap_record(&root, &before, path) {
+                let bytes =
+                    current.unwrap_or_else(|error| panic!("preserved artifact {path}: {error}"));
+                assert_eq!(
+                    digest(&bytes),
+                    file["sha256"].as_str().unwrap(),
+                    "historical artifact {path} remains byte-identical"
+                );
+            }
         }
         if let Some(after) = &after {
             let preserved = records(after, "preserved")
@@ -956,6 +962,57 @@ fn wcpv_006() {
     after_binding_control();
     preserved_fault("before-verdict-archive");
     preserved_fault("before-state-replace");
+}
+
+/// The schema reopens a satisfied gap record by moving it from the residual
+/// archive back to the active folder, and it may return to the archive with new
+/// bytes once satisfied again. Such a frozen archived record may differ only
+/// when a line appended to `.arca/log.md` after the frozen prefix names it and
+/// a reopen, and exactly one copy - archived or active, same name - keeps its
+/// `residual-id`.
+fn reopened_gap_record(root: &Path, before: &toml::Value, path: &str) -> bool {
+    let Some(name) = path.strip_prefix(".arca/residual/archive/") else {
+        return false;
+    };
+    let Some(id) = name.strip_suffix(".md").filter(|id| id.starts_with("res-")) else {
+        return false;
+    };
+    let prefix = records(before, "prefixes")
+        .iter()
+        .find(|entry| entry["path"].as_str() == Some(".arca/log.md"))
+        .expect("the inventory freezes the log prefix");
+    let length = usize::try_from(prefix["byte_length"].as_integer().unwrap()).unwrap();
+    let log = fs::read(root.join(".arca/log.md")).expect("read the append-only log");
+    let appended = String::from_utf8_lossy(log.get(length..).unwrap_or_default());
+    // A lone CR ends a line too, so one displayed line never lends its
+    // reopen to a record named on the next.
+    let logged = appended
+        .split(['\n', '\r'])
+        .any(|line| line.to_lowercase().contains("reopen") && names_record(line, id));
+    let copies: Vec<Vec<u8>> = [root.join(path), root.join(".arca/residual").join(name)]
+        .iter()
+        .filter_map(|copy| fs::read(copy).ok())
+        .collect();
+    // The record's own id is its first `residual-id:` line, the reading the
+    // citation writers use.
+    let wanted = format!("residual-id: \"{id}\"");
+    logged
+        && copies.len() == 1
+        && String::from_utf8_lossy(&copies[0])
+            .lines()
+            .find(|line| line.trim_start().starts_with("residual-id:"))
+            .is_some_and(|line| line.trim() == wanted)
+}
+
+/// Whether `line` names record `id` as a whole token, so `res-11` never
+/// matches `res-110`.
+fn names_record(line: &str, id: &str) -> bool {
+    line.match_indices(id).any(|(at, _)| {
+        let before = line[..at].chars().next_back();
+        let after = line[at + id.len()..].chars().next();
+        !before.is_some_and(|c| c.is_ascii_alphanumeric() || c == '-')
+            && !after.is_some_and(|c| c.is_ascii_alphanumeric())
+    })
 }
 
 /// Whether this migration is still the latest word on the private crates:

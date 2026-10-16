@@ -103,7 +103,20 @@ impl fmt::Display for Refusal {
 /// Run the one policy step for the Engine root `rtm init` installs.
 pub(crate) fn install(invoking_checkout: &Path, engine_root: &Path) -> Result<Outcome, Refusal> {
     let policy = policy_path(engine_root);
+    // The pause seam's companions are validated before any claim or write.
+    check_pause_companions()?;
     let created_engine_root = ensure_engine_root(engine_root, &policy)?;
+    // WEB-002 (t-136): the Git inspection that reads no policy bytes runs
+    // before the claim, so a waiter never queues behind it. Its refusal
+    // texts are unchanged; an indexed runtime file now outranks a busy
+    // claim.
+    let inside = match inspect(invoking_checkout, engine_root) {
+        Ok(inside) => inside,
+        Err(refusal) => {
+            cleanup_created_root(created_engine_root, engine_root);
+            return Err(refusal);
+        }
+    };
     // The step's serialization: a transient claim directly in the Engine
     // root, never a `locks/` directory, removed when the step ends.
     let lock = crate::lock::PolicyLock::acquire(engine_root).map_err(|error| {
@@ -121,8 +134,9 @@ pub(crate) fn install(invoking_checkout: &Path, engine_root: &Path) -> Result<Ou
         &policy,
         &staged,
         &mut staged_created,
+        inside,
+        lock,
     );
-    drop(lock);
     match result {
         Ok(mut outcome) => {
             outcome.rollback.created_engine_root = created_engine_root;
@@ -145,20 +159,36 @@ fn cleanup_created_root(created: bool, engine_root: &Path) {
     }
 }
 
-/// The serialized body of the policy step.
-fn step(
-    invoking_checkout: &Path,
-    engine_root: &Path,
-    policy: &Path,
-    staged: &Path,
-    staged_created: &mut bool,
-) -> Result<Outcome, Refusal> {
+/// The pre-claim Git inspection (WEB-002, t-136): the inside-a-work-tree
+/// classification and the indexed-runtime refusal. Neither reads the
+/// policy bytes, so both run before the claim is taken; a waiter never
+/// queues behind them.
+fn inspect(invoking_checkout: &Path, engine_root: &Path) -> Result<bool, Refusal> {
+    // The `inspect` pause boundary parks here, inside the pre-claim
+    // inspection, holding no claim.
+    wait_at_policy_pause("inspect")?;
     // Classification first: Git absent or the directory outside a
     // repository means no verification, never a refusal.
     let inside = classify(invoking_checkout)?;
     if inside {
         refuse_indexed_runtime(engine_root)?;
     }
+    Ok(inside)
+}
+
+/// The serialized body of the policy step. The claim covers only the
+/// policy bytes: a caller that writes nothing releases it before its
+/// verification, while a writer keeps it through verification and, on a
+/// refusal, through restoring the prior bytes.
+fn step(
+    invoking_checkout: &Path,
+    engine_root: &Path,
+    policy: &Path,
+    staged: &Path,
+    staged_created: &mut bool,
+    inside: bool,
+    lock: crate::lock::PolicyLock,
+) -> Result<Outcome, Refusal> {
     let existing = read_policy(policy)?;
     let text = existing
         .as_deref()
@@ -172,6 +202,10 @@ fn step(
         .copied()
         .collect();
     let installed = !missing.is_empty();
+    // The claim lives exactly as long as the bytes do: a non-writer
+    // releases it before its verification, which then runs unserialized;
+    // a writer keeps it through verification and any restoration.
+    let mut claim = Some(lock);
     let mut written = existing.clone().unwrap_or_default();
     if installed {
         if !written.is_empty() && !written.ends_with(b"\n") {
@@ -182,6 +216,8 @@ fn step(
             written.push(b'\n');
         }
         write_policy(staged, policy, &written, staged_created)?;
+    } else {
+        drop(claim.take());
     }
     let rollback = Rollback {
         engine_root: engine_root.to_path_buf(),
@@ -192,6 +228,9 @@ fn step(
     };
     if inside {
         if let Err(refusal) = verify(invoking_checkout, engine_root) {
+            // The writer's claim survives through this restoration; a
+            // non-writer released above and restores its own unchanged
+            // bytes.
             rollback.rollback();
             return Err(refusal);
         }
@@ -344,6 +383,10 @@ fn refuse_indexed_runtime(engine_root: &Path) -> Result<(), Refusal> {
 /// first) not ignored, each in the contract's table order. A conflict rolls
 /// the bytes back before it refuses.
 fn verify(invoking_checkout: &Path, engine_root: &Path) -> Result<(), Refusal> {
+    // The `verify` pause boundary parks at the start of effective-rule
+    // verification, holding the claim only for a caller that wrote - a
+    // non-writer released the claim before this call.
+    wait_at_policy_pause("verify")?;
     let Some(engine_checkout) = engine_root.parent() else {
         return Ok(());
     };
@@ -486,4 +529,117 @@ fn injected_fault(boundary: &str) -> Option<Refusal> {
 #[cfg(not(feature = "test-fault-injection"))]
 fn injected_fault(_boundary: &str) -> Option<Refusal> {
     None
+}
+
+/// The policy pause seam (t-136), compiled only with `test-fault-injection`.
+/// It mirrors the recover pause seam in every rule: the marker content is
+/// the boundary name plus LF, release happens when the release file exists,
+/// the default timeout is 60000 ms, and an unset, empty, or unrecognized
+/// `RATMAC_TEST_POLICY_PAUSE` value is inert. Expiry refuses through the
+/// step's ordinary refusal path.
+#[cfg(feature = "test-fault-injection")]
+fn wait_at_policy_pause(boundary: &str) -> Result<(), Refusal> {
+    if std::env::var("RATMAC_TEST_POLICY_PAUSE").as_deref() != Ok(boundary) {
+        return Ok(());
+    }
+    let marker = std::env::var_os("RATMAC_TEST_POLICY_PAUSE_MARKER")
+        .map(PathBuf::from)
+        .unwrap_or_default();
+    let release = std::env::var_os("RATMAC_TEST_POLICY_PAUSE_RELEASE")
+        .map(PathBuf::from)
+        .unwrap_or_default();
+    let timeout = std::env::var("RATMAC_TEST_POLICY_PAUSE_TIMEOUT_MILLIS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(60000);
+    if !marker.as_os_str().is_empty() {
+        if let Some(parent) = marker.parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent).map_err(|error| {
+                    Refusal(format!(
+                        "refusing to install the ignore policy: the policy pause seam cannot \
+                         create the marker directory {}: {error}; nothing was modified",
+                        parent.displayed()
+                    ))
+                })?;
+            }
+        }
+        std::fs::write(&marker, format!("{boundary}\n")).map_err(|error| {
+            Refusal(format!(
+                "refusing to install the ignore policy: the policy pause seam cannot write \
+                 the marker {}: {error}; nothing was modified",
+                marker.displayed()
+            ))
+        })?;
+    }
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout);
+    loop {
+        if release.is_file() {
+            return Ok(());
+        }
+        let now = std::time::Instant::now();
+        if now >= deadline {
+            return Err(Refusal(format!(
+                "refusing to install the ignore policy: injected policy pause at {boundary} \
+                 expired; nothing was modified"
+            )));
+        }
+        std::thread::sleep(
+            std::time::Duration::from_millis(10).min(deadline.saturating_duration_since(now)),
+        );
+    }
+}
+
+/// A build without `test-fault-injection` pauses nowhere.
+#[cfg(not(feature = "test-fault-injection"))]
+fn wait_at_policy_pause(_boundary: &str) -> Result<(), Refusal> {
+    Ok(())
+}
+
+/// The pause seam's companions are validated when the step starts, before
+/// any claim or write. Only a recognized boundary arms the seam; an unset,
+/// empty, or unrecognized value changes nothing, even with no companion
+/// present. The timeout companion is optional and defaults to 60000 ms;
+/// when it is set it must be a positive integer.
+#[cfg(feature = "test-fault-injection")]
+fn check_pause_companions() -> Result<(), Refusal> {
+    let Ok(boundary) = std::env::var("RATMAC_TEST_POLICY_PAUSE") else {
+        return Ok(());
+    };
+    if !matches!(boundary.as_str(), "inspect" | "verify") {
+        return Ok(());
+    }
+    for companion in [
+        "RATMAC_TEST_POLICY_PAUSE_MARKER",
+        "RATMAC_TEST_POLICY_PAUSE_RELEASE",
+    ] {
+        let missing = std::env::var_os(companion)
+            .map(|value| value.is_empty())
+            .unwrap_or(true);
+        if missing {
+            return Err(Refusal(format!(
+                "refusing to install the ignore policy: the policy pause seam names no \
+                 {companion} companion; the pause test seam requires one before any claim or \
+                 write; nothing was modified"
+            )));
+        }
+    }
+    if let Ok(value) = std::env::var("RATMAC_TEST_POLICY_PAUSE_TIMEOUT_MILLIS") {
+        let timeout_valid = value.parse::<u64>().is_ok_and(|millis| millis > 0);
+        if !timeout_valid {
+            return Err(Refusal(
+                "refusing to install the ignore policy: the policy pause seam names no positive \
+                 integer RATMAC_TEST_POLICY_PAUSE_TIMEOUT_MILLIS companion; the pause test seam \
+                 requires one before any claim or write; nothing was modified"
+                    .to_owned(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// A build without `test-fault-injection` checks nothing.
+#[cfg(not(feature = "test-fault-injection"))]
+fn check_pause_companions() -> Result<(), Refusal> {
+    Ok(())
 }
