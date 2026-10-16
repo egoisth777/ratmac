@@ -1,0 +1,10 @@
+ticket-id = "t-136"
+check-id = "WEBV-008"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test t136_lock_contention -- --test-threads=1"
+working-dir = "."
+exit-status = 0
+output-sha256 = "05975fea39b03beac73a06d73113037c026b6ba25085599608af03a1ebf5a103"
+tree-roots = ["src","test/qa","test-hidden","tools","Cargo.toml","Cargo.lock",".gitignore",".ratmac/lanes.toml"]
+tree-sha256 = "eab9678a0ef108f7e5754fb3c217f03c0a9fca704e8756859102e446a9ec8861"
+output = "\nrunning 2 tests\ntest ensv_006_waiters_wait_through_a_peer_release ... ok\ntest webv_008_policy_claim_covers_only_the_policy_bytes ... ok\n\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 22.95s\n\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s\n     Running tests\\t136_lock_contention.rs (target\\debug\\deps\\t136_lock_contention-5db18410be8dcaab.exe)\n"

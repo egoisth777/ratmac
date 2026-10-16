@@ -1,0 +1,10 @@
+planned-test-id = "ENSV-006"
+ticket-id = "t-136"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t136_lock_contention ensv_006_waiters_wait_through_a_peer_release -- --exact"
+working-dir = "."
+test-file = "test/qa/tests/t136_lock_contention.rs"
+test-name = "ensv_006_waiters_wait_through_a_peer_release"
+exit-status = 101
+output-sha256 = "37ce3bde2102b825fac96f3f6901bea520734b2f7b1d0735d7b5aac9a1baee21"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.18s\n     Running tests\\t136_lock_contention.rs (target\\debug\\deps\\t136_lock_contention-5db18410be8dcaab.exe)\n\nrunning 1 test\ntest ensv_006_waiters_wait_through_a_peer_release ... FAILED\n\nfailures:\n\n---- ensv_006_waiters_wait_through_a_peer_release stdout ----\n\nthread 'ensv_006_waiters_wait_through_a_peer_release' (18532) panicked at test\\qa\\tests\\t136_lock_contention.rs:439:5:\nensv-run-window: the holder must pause after requesting its pathname's deletion - the `holding unlink lock` marker never appeared within 15 s; RATMAC_TEST_LOCK_HOLD=unlink does not pause today (contract: 'A root or Run lock's release pauses after its pathname removal has been requested and before the kernel unlock and handle close')\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    ensv_006_waiters_wait_through_a_peer_release\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1 filtered out; finished in 20.42s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t136_lock_contention`\n"

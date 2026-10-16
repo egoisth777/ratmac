@@ -19,6 +19,16 @@
 //! checked for links and Windows reparse points before opening them. That is a
 //! deliberate accidental-link guard, not a guarantee against a determined
 //! local actor racing directory replacement.
+//!
+//! On Windows a holder releases by marking its pathname for deletion and
+//! then closing its handle; until that close the pathname is delete-pending
+//! and every open of it fails access denied. A waiting domain reads that
+//! release window as ordinary contention, retrying inside its one deadline;
+//! a deadline that expires while the most recent failed open sat in the
+//! window is that open's refusal, naming its error - never the wait-expiry
+//! text. A caller that must not wait keeps the open refusal, except the
+//! under-root single try, which reports not acquired. A directory planted
+//! at a lock pathname is not the window and still refuses at once.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
@@ -201,15 +211,42 @@ impl RunLock {
         trace: TraceDomain,
     ) -> Result<Option<Self>, StateError> {
         validate_run_id(run_id)?;
+        let path = run_path(engine_root, run_id);
+        match try_acquire_once(
+            engine_root,
+            path.clone(),
+            &format!("run:{run_id}"),
+            "run",
+            trace,
+        )? {
+            Attempt::Acquired(lock) => Ok(Some(Self(lock))),
+            Attempt::Contended => Ok(None),
+            // A Windows peer's delete-pending release window keeps this
+            // plain single try's open refusal: its callers bound their own
+            // waits around the `Err`, and only the under-root single try
+            // reads the window as not acquired.
+            Attempt::ReleaseWindow(error) => Err(StateError::new(format!(
+                "cannot open lock {}: {error}",
+                path.displayed()
+            ))),
+        }
+    }
+
+    /// The same single attempt in the retry loop's verdict shape, so a
+    /// waiting caller can tell a release window from a live holder.
+    fn try_acquire_attempt(
+        engine_root: &Path,
+        run_id: &str,
+        trace: TraceDomain,
+    ) -> Result<Attempt, StateError> {
+        validate_run_id(run_id)?;
         try_acquire_once(
             engine_root,
             run_path(engine_root, run_id),
             &format!("run:{run_id}"),
             "run",
-            false,
             trace,
         )
-        .map(|lock| lock.map(Self))
     }
 
     /// Try once to acquire the addressed Run lock without waiting while a
@@ -223,16 +260,12 @@ impl RunLock {
         engine_root: &Path,
         run_id: &str,
     ) -> Result<Option<Self>, StateError> {
-        validate_run_id(run_id)?;
-        try_acquire_once(
-            engine_root,
-            run_path(engine_root, run_id),
-            &format!("run:{run_id}"),
-            "run",
-            true,
-            run_domain(run_id),
+        Ok(
+            match Self::try_acquire_attempt(engine_root, run_id, run_domain(run_id))? {
+                Attempt::Acquired(lock) => Some(Self(lock)),
+                _ => None,
+            },
         )
-        .map(|lock| lock.map(Self))
     }
 
     /// The exact Run-lock path this guard owns.
@@ -267,14 +300,20 @@ impl PolicyLock {
         crate::observe::operation("lock");
         let path = engine_root.join("gitignore.policy.lock");
         let deadline = Instant::now() + WAIT_TIMEOUT;
+        // The most recent failed open's release-window error, if any: a
+        // deadline that expires inside that window is that open's refusal,
+        // while live-holder contention keeps today's wait-expiry text.
+        let mut window = None;
         loop {
             if Instant::now() >= deadline {
-                return Err(wait_expired(&path));
+                return Err(deadline_refusal(&path, window.as_ref()));
             }
-            if let Some(lock) = try_acquire_transient(&path)? {
-                return Ok(Self(lock));
+            match try_acquire_transient(&path)? {
+                Attempt::Acquired(lock) => return Ok(Self(lock)),
+                Attempt::Contended => window = None,
+                Attempt::ReleaseWindow(error) => window = Some(error),
             }
-            wait_for_retry(&path, deadline)?;
+            wait_for_retry(&path, deadline, window.as_ref())?;
         }
     }
 }
@@ -284,17 +323,20 @@ impl PolicyLock {
 /// bookkeeping. No `locks/` directory is created, the canonical-path
 /// restriction of the root and Run domains does not apply, and their fault
 /// and hold seams stay silent.
-fn try_acquire_transient(path: &Path) -> Result<Option<OwnedLock>, StateError> {
+fn try_acquire_transient(path: &Path) -> Result<Attempt, StateError> {
     let mut file = match open_lock_file_checked(path) {
         Ok(Some(file)) => file,
-        Ok(None) => return Ok(None),
+        Ok(None) => return Ok(Attempt::Contended),
         // A releasing peer's delete-on-close leaves the pathname
         // delete-pending: every open fails ERROR_ACCESS_DENIED, so the
-        // shared classifier reads it as a genuine refusal. For this
-        // transient claim that window is plain contention - keep waiting
-        // within the caller's deadline. A directory at the name, or a
-        // denial that hides the entry even from attributes, still refuses.
-        Err(error) if transient_release_window(path, &error) => return Ok(None),
+        // shared classifier reads it as a genuine refusal. That window is
+        // plain contention - keep waiting within the caller's deadline,
+        // carrying the open error for its deadline refusal. A directory at
+        // the name, or a denial that hides the entry even from attributes,
+        // still refuses.
+        Err(error) if transient_release_window(path, &error) => {
+            return Ok(Attempt::ReleaseWindow(error))
+        }
         Err(error) => {
             return Err(StateError::new(format!(
                 "cannot open lock {}: {error}",
@@ -304,7 +346,7 @@ fn try_acquire_transient(path: &Path) -> Result<Option<OwnedLock>, StateError> {
     };
     match lock_file(&file) {
         Ok(()) => {}
-        Err(error) if lock_is_contended(&error) => return Ok(None),
+        Err(error) if lock_is_contended(&error) => return Ok(Attempt::Contended),
         Err(error) => {
             return Err(StateError::new(format!(
                 "lock claim failed for {}: {error}",
@@ -324,10 +366,11 @@ fn try_acquire_transient(path: &Path) -> Result<Option<OwnedLock>, StateError> {
         )));
     }
     trace_acquired(TraceDomain::Policy);
-    Ok(Some(OwnedLock {
+    Ok(Attempt::Acquired(OwnedLock {
         path: path.to_path_buf(),
         file: Some(file),
         release_seam: false,
+        unlink_seam: false,
         trace: TraceDomain::Policy,
     }))
 }
@@ -346,9 +389,13 @@ pub(crate) fn acquire_root_then_run(
     let deadline = Instant::now() + WAIT_TIMEOUT;
     let addressed_path = run_path(engine_root, run_id);
     let mut wait_for_run_before_retry = false;
+    // The Run path's most recent release-window open error: the deadline
+    // refusal answers to it, while live-holder contention keeps today's
+    // wait-expiry text.
+    let mut window = None;
     loop {
         if wait_for_run_before_retry {
-            wait_for_run_availability(&addressed_path, deadline)?;
+            wait_for_run_availability(&addressed_path, deadline, &mut window)?;
         }
         let root = RootLock(acquire_until(
             engine_root,
@@ -364,21 +411,21 @@ pub(crate) fn acquire_root_then_run(
             drop(root);
             return Err(wait_expired(&root_path));
         }
-        match RunLock::try_acquire(engine_root, run_id, run_domain(run_id))? {
+        match RunLock::try_acquire_attempt(engine_root, run_id, run_domain(run_id))? {
             // This attempt began before the deadline, so it may complete just
             // afterward without starting another retry.
-            Some(run) => return Ok((root, run)),
-            None => {
-                let expired = Instant::now() >= deadline;
-                drop(root);
-                // Check after the Run attempt as well: waiting ended on this
-                // exact path, not on the root path released above.
-                if expired {
-                    return Err(wait_expired(&addressed_path));
-                }
-                wait_for_run_before_retry = true;
-            }
+            Attempt::Acquired(run) => return Ok((root, RunLock(run))),
+            Attempt::Contended => window = None,
+            Attempt::ReleaseWindow(error) => window = Some(error),
         }
+        let expired = Instant::now() >= deadline;
+        drop(root);
+        // Check after the Run attempt as well: waiting ended on this
+        // exact path, not on the root path released above.
+        if expired {
+            return Err(deadline_refusal(&addressed_path, window.as_ref()));
+        }
+        wait_for_run_before_retry = true;
     }
 }
 #[derive(Debug)]
@@ -387,12 +434,21 @@ struct OwnedLock {
     file: Option<File>,
     /// The claim's trace identity (t-128), reported first on drop.
     trace: TraceDomain,
-    /// Whether `Drop` honors the QA release-boundary hold seam. The durable
-    /// root and Run lock domains set it; the transient ignore-policy claim
-    /// does not - its release is no domain's test boundary, and firing the
-    /// seam there would consume a hold meant for a lock that does not exist
-    /// yet (the policy step runs before the root lock).
+    /// Whether `Drop` honors the QA `release` hold seam
+    /// (`RATMAC_TEST_LOCK_HOLD=release`). Every durable root and Run claim
+    /// sets it, a Silent Run claim included; only the transient
+    /// ignore-policy claim does not - its release is no domain's test
+    /// boundary, and firing the seam there would consume a hold meant for a
+    /// lock that does not exist yet (the policy step runs before the root
+    /// lock).
     release_seam: bool,
+    /// Whether `Drop` honors the QA `unlink` hold seam
+    /// (`RATMAC_TEST_LOCK_HOLD=unlink`). The durable root and Run domains
+    /// set it; a Run claim that stays silent in the trace - the fresh mint's
+    /// claim on its new Run lock, and the endpoint's own Run claims - skips
+    /// it, so in `rtm start` the root lock is the first release that pauses.
+    /// The transient ignore-policy claim never fires it.
+    unlink_seam: bool,
 }
 
 impl OwnedLock {
@@ -426,8 +482,9 @@ impl Drop for OwnedLock {
         // QA-only release seam: with RATMAC_TEST_LOCK_HOLD=release this
         // marker is published before either unlink or kernel unlock. A
         // contender must therefore remain excluded until this guard removes
-        // its pathname and releases the claim. Only the durable lock domains
-        // honor it; the transient policy claim skips it.
+        // its pathname and releases the claim. Every durable-domain claim
+        // honors it, a Silent Run claim included; the transient policy
+        // claim skips it.
         if self.release_seam {
             if let Err(error) = hold_lock_if_requested("release", &self.path) {
                 crate::diag::diagnostic(format_args!(
@@ -441,14 +498,33 @@ impl Drop for OwnedLock {
         // boundary. While the claim is held, no ordinary Engine acquirer can
         // claim this file; do not consult the diagnostic token for cleanup.
         match same_file_at_path(&file, &self.path) {
-            Ok(true) => {
-                if let Err(error) = remove_owned_lock(&file, &self.path) {
+            Ok(true) => match remove_owned_lock(&file, &self.path) {
+                Ok(()) => {
+                    // QA-only unlink seam: with RATMAC_TEST_LOCK_HOLD=unlink
+                    // this pause begins after the pathname's removal has
+                    // been requested and before the kernel unlock and handle
+                    // close. On Windows the pathname is then delete-pending
+                    // for the whole pause - the release window every waiting
+                    // acquirer must wait out. The root and reported Run
+                    // claims honor it; a Silent Run claim - the fresh mint's
+                    // or the endpoint's - skips it, and the transient
+                    // policy claim stays silent.
+                    if self.unlink_seam {
+                        if let Err(error) = hold_lock_if_requested("unlink", &self.path) {
+                            crate::diag::diagnostic(format_args!(
+                                "warning: unlink-boundary hold for lock {} failed: {error}",
+                                self.path.displayed()
+                            ));
+                        }
+                    }
+                }
+                Err(error) => {
                     crate::diag::diagnostic(format_args!(
                         "warning: released lock {} but could not remove its residue: {error}",
                         self.path.displayed()
                     ));
                 }
-            }
+            },
             Ok(false) => crate::diag::diagnostic(format_args!(
                 "warning: released lock {} but did not remove it because the pathname now names another file",
                 self.path.displayed()
@@ -478,33 +554,36 @@ fn acquire_until(
     fault_domain: &str,
     deadline: Instant,
 ) -> Result<OwnedLock, StateError> {
+    // The most recent failed open's release-window error, if any: a
+    // deadline that expires inside that window is that open's refusal,
+    // while live-holder contention keeps today's wait-expiry text.
+    let mut window = None;
     loop {
         if Instant::now() >= deadline {
-            return Err(wait_expired(&path));
+            return Err(deadline_refusal(&path, window.as_ref()));
         }
-        if let Some(lock) = try_acquire_once(
+        match try_acquire_once(
             engine_root,
             path.clone(),
             guard,
             fault_domain,
-            false,
             trace_domain(guard),
         )? {
-            return Ok(lock);
+            Attempt::Acquired(lock) => return Ok(lock),
+            Attempt::Contended => window = None,
+            Attempt::ReleaseWindow(error) => window = Some(error),
         }
-        wait_for_retry(&path, deadline)?;
+        wait_for_retry(&path, deadline, window.as_ref())?;
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn try_acquire_once(
     engine_root: &Path,
     path: PathBuf,
     guard: &str,
     fault_domain: &str,
-    release_window_is_contention: bool,
     trace: TraceDomain,
-) -> Result<Option<OwnedLock>, StateError> {
+) -> Result<Attempt, StateError> {
     // WEBV-014: attempting to acquire the root or a Run lock is a lock
     // operation, recorded before the attempt can create its lock directory.
     crate::observe::operation("lock");
@@ -513,12 +592,16 @@ fn try_acquire_once(
 
     let mut file = match open_lock_file_checked(&path) {
         Ok(Some(file)) => file,
-        Ok(None) => return Ok(None),
-        // Only a caller that must not wait on this Run claim while holding
-        // root reads the delete-pending release window as contention; the
-        // waiting domains keep the shared classifier's verdict.
-        Err(error) if release_window_is_contention && transient_release_window(&path, &error) => {
-            return Ok(None);
+        Ok(None) => return Ok(Attempt::Contended),
+        // A Windows peer releasing its claim leaves the pathname
+        // delete-pending: every open fails ERROR_ACCESS_DENIED. That
+        // window reads as contention to a waiting domain, which retries
+        // inside its one deadline with the open error riding along for the
+        // refusal; a caller that must not wait decides from the verdict,
+        // from the under-root try's not-acquired to the plain single try's
+        // open refusal. A directory at the name still refuses at once.
+        Err(error) if transient_release_window(&path, &error) => {
+            return Ok(Attempt::ReleaseWindow(error))
         }
         Err(error) => {
             return Err(StateError::new(format!(
@@ -529,7 +612,7 @@ fn try_acquire_once(
     };
     match lock_file(&file) {
         Ok(()) => {}
-        Err(error) if lock_is_contended(&error) => return Ok(None),
+        Err(error) if lock_is_contended(&error) => return Ok(Attempt::Contended),
         Err(error) => {
             return Err(StateError::new(format!(
                 "lock claim failed for {}: {error}",
@@ -555,7 +638,14 @@ fn try_acquire_once(
     let lock = OwnedLock {
         path: path.clone(),
         file: Some(file),
+        // The landed `release` seam fires for every durable-domain claim,
+        // a Silent Run claim included. The `unlink` seam is the one a
+        // Silent Run claim skips: that claim is minting or endpoint
+        // mechanics, never a Run-domain test boundary, and pausing it there
+        // would consume a hold meant for the root lock that still encloses
+        // it (in `rtm start`) or for the holder under test.
         release_seam: true,
+        unlink_seam: !matches!(trace, TraceDomain::Silent),
         trace,
     };
     trace_acquired(trace);
@@ -566,39 +656,64 @@ fn try_acquire_once(
     inject_lock_fault(fault_domain, &path)?;
     hold_lock_if_requested(fault_domain, &path)?;
     lock.ensure_current()?;
-    Ok(Some(lock))
+    Ok(Attempt::Acquired(lock))
 }
 
-fn wait_for_retry(path: &Path, deadline: Instant) -> Result<(), StateError> {
+fn wait_for_retry(
+    path: &Path,
+    deadline: Instant,
+    window: Option<&std::io::Error>,
+) -> Result<(), StateError> {
     let now = Instant::now();
     if now >= deadline {
-        return Err(wait_expired(path));
+        return Err(deadline_refusal(path, window));
     }
     thread::sleep(RETRY_INTERVAL.min(deadline.saturating_duration_since(now)));
     Ok(())
 }
 /// Wait on the addressed Run after a root-first attempt found it busy. The
 /// probe never writes a token and always releases any transient kernel claim
-/// before the caller can acquire root again.
-fn wait_for_run_availability(path: &Path, deadline: Instant) -> Result<(), StateError> {
+/// before the caller can acquire root again. `window` carries the Run
+/// path's most recent release-window open error for the deadline refusal.
+fn wait_for_run_availability(
+    path: &Path,
+    deadline: Instant,
+    window: &mut Option<std::io::Error>,
+) -> Result<(), StateError> {
     loop {
         if Instant::now() >= deadline {
-            return Err(wait_expired(path));
+            return Err(deadline_refusal(path, window.as_ref()));
         }
-        if !run_lock_is_contended(path)? {
-            return Ok(());
+        match run_lock_is_contended(path)? {
+            Availability::Free => return Ok(()),
+            Availability::Held => *window = None,
+            Availability::ReleaseWindow(error) => *window = Some(error),
         }
-        wait_for_retry(path, deadline)?;
+        wait_for_retry(path, deadline, window.as_ref())?;
     }
 }
 
-/// `true` only while an existing Run lock has a live kernel claimant. A
-/// missing pathname is available; the ordered root-then-Run attempt will
-/// create it if it remains absent.
-fn run_lock_is_contended(path: &Path) -> Result<bool, StateError> {
+/// The availability verdict for one existing Run lock: free, held by a
+/// live kernel claimant, or unopenable inside a Windows peer's release
+/// window - which carries the open error a deadline inside that window
+/// refuses with. The window covers this probe's attribute read as well as
+/// its open: std's metadata read opens the path, and a peer closing its
+/// handle mid-read leaves a delete-pending or just-vanished entry reporting
+/// the original access denial, which is that same window. A missing
+/// pathname is free; the ordered root-then-Run attempt will create it if it
+/// remains absent.
+fn run_lock_is_contended(path: &Path) -> Result<Availability, StateError> {
     match fs::symlink_metadata(path) {
         Ok(metadata) => reject_link_or_reparse(path, &metadata)?,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(Availability::Free)
+        }
+        // The window surfacing in the attribute read itself: contention,
+        // retried inside the one deadline, with the error kept for the
+        // deadline refusal.
+        Err(error) if transient_release_window(path, &error) => {
+            return Ok(Availability::ReleaseWindow(error))
+        }
         Err(error) => {
             return Err(StateError::new(format!(
                 "cannot inspect lock {} while waiting: {error}",
@@ -608,7 +723,13 @@ fn run_lock_is_contended(path: &Path) -> Result<bool, StateError> {
     }
     let file = match open_existing_lock_probe(path) {
         Ok(Some(file)) => file,
-        Ok(None) => return Ok(false),
+        Ok(None) => return Ok(Availability::Free),
+        // A peer's delete-pending release window denies this probe's open
+        // exactly as it denies a claiming open: contention, retried inside
+        // the one deadline, with the error kept for its refusal.
+        Err(error) if transient_release_window(path, &error) => {
+            return Ok(Availability::ReleaseWindow(error))
+        }
         Err(error) => {
             return Err(StateError::new(format!(
                 "cannot probe lock {} while waiting: {error}",
@@ -624,14 +745,37 @@ fn run_lock_is_contended(path: &Path) -> Result<bool, StateError> {
                     path.displayed()
                 ))
             })?;
-            Ok(false)
+            Ok(Availability::Free)
         }
-        Err(error) if lock_is_contended(&error) => Ok(true),
+        Err(error) if lock_is_contended(&error) => Ok(Availability::Held),
         Err(error) => Err(StateError::new(format!(
             "lock availability probe failed for {}: {error}",
             path.displayed()
         ))),
     }
+}
+
+/// One acquisition attempt's verdict: claimed, busy under a live kernel
+/// claimant, or busy inside a Windows peer's release window. The window
+/// verdict carries its open error, because a deadline that expires while
+/// that open is the most recent failure is that open's refusal - never
+/// the wait-expiry text.
+#[derive(Debug)]
+enum Attempt {
+    Acquired(OwnedLock),
+    Contended,
+    ReleaseWindow(std::io::Error),
+}
+
+/// The availability probe's verdict for one existing Run lock: free, held
+/// by a live kernel claimant, or unopenable inside a Windows peer's
+/// release window - which carries the open error a deadline inside that
+/// window refuses with.
+#[derive(Debug)]
+enum Availability {
+    Free,
+    Held,
+    ReleaseWindow(std::io::Error),
 }
 
 fn wait_expired(path: &Path) -> StateError {
@@ -651,6 +795,17 @@ fn wait_expired(path: &Path) -> StateError {
         "lock wait expired: {}; {diagnostic}",
         path.displayed()
     ))
+}
+
+/// The one deadline refusal: a deadline that expired while the most
+/// recent failed open sat inside a Windows peer's release window is that
+/// open's own refusal, naming its last error; every other expiry keeps
+/// today's wait-expiry refusal naming the holder's diagnostic token.
+fn deadline_refusal(path: &Path, window: Option<&std::io::Error>) -> StateError {
+    match window {
+        Some(error) => StateError::new(format!("cannot open lock {}: {error}", path.displayed())),
+        None => wait_expired(path),
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -686,12 +841,12 @@ fn open_lock_file_checked(path: &Path) -> std::io::Result<Option<File>> {
     }
 }
 
-/// Whether a failed open of the transient policy lock names a peer's
-/// release window rather than a genuinely unopenable path. Only the
-/// delete-pending window (or a name that has just vanished) waits; a
-/// directory planted at the lock name refuses immediately, and an entry
-/// whose attributes cannot be read at all rides the deadline and refuses
-/// there - never past it, never having written a byte.
+/// Whether a failed open names a peer's release window rather than a
+/// genuinely unopenable path. Only the delete-pending window (or a name
+/// that has just vanished) waits; a directory planted at the lock name
+/// refuses immediately, and an entry whose attributes cannot be read at
+/// all rides the deadline and refuses there - never past it, never having
+/// written a byte.
 #[cfg(windows)]
 fn transient_release_window(path: &Path, error: &std::io::Error) -> bool {
     const ERROR_ACCESS_DENIED: i32 = 5;
@@ -841,10 +996,21 @@ fn ensure_lock_directory(path: &Path) -> Result<(), StateError> {
     }
 }
 
+/// Inspect the pathname a claiming attempt is about to open: reject a link
+/// or reparse point whenever the attribute read succeeds, and treat an
+/// absent name as claimable. A Windows peer's delete-pending release window
+/// can surface in the attribute read itself, and is not a refusal here -
+/// the claiming open behind this inspection decides the verdict, creating
+/// a vanished name or reporting the still-delete-pending one as the window.
 fn inspect_lock_path_or_absent(path: &Path) -> Result<(), StateError> {
     match fs::symlink_metadata(path) {
         Ok(metadata) => reject_link_or_reparse(path, &metadata),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        // A delete-pending entry denies the metadata read's open, and a
+        // peer closing its handle mid-read leaves a just-vanished entry
+        // reporting the same denial: both are the window, and the open
+        // decides.
+        Err(error) if transient_release_window(path, &error) => Ok(()),
         Err(error) => Err(StateError::new(format!(
             "inspect lock path {}: {error}",
             path.displayed()
@@ -1049,7 +1215,10 @@ fn test_hold_timeout() -> Result<Duration, StateError> {
 #[cfg(feature = "test-fault-injection")]
 /// Feature-gated QA lock barriers. `root` and `run` pause immediately after
 /// acquisition; `release` pauses at the start of `Drop`, while the canonical
-/// pathname and kernel claim are both still live. They use
+/// pathname and kernel claim are both still live; `unlink` pauses in `Drop`
+/// after the pathname's removal has been requested and before the kernel
+/// unlock and handle close, while a Windows pathname is delete-pending. They
+/// use
 /// `RATMAC_TEST_LOCK_HOLD`, `RATMAC_TEST_LOCK_MARKER`,
 /// `RATMAC_TEST_LOCK_RELEASE`, and the optional
 /// `RATMAC_TEST_LOCK_HOLD_TIMEOUT_MILLIS`. This function is compiled only
