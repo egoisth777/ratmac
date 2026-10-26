@@ -1036,85 +1036,85 @@ live in the goal test list without adding product requirement rows.
 
 Every executable contributor-tool change has a declared owner, a carrier in the existing issue-to-ticket process, and durable evidence appropriate to its changed behavior. The working rules name the lane and apply it to existing tools and future tools regardless of implementation language. A behavior change requires a failing behavioral check before implementation and a passing check after it; a behavior-preserving change records the narrow proof that establishes preservation. Pure documentation keeps its existing shop lane.
 
-Accepted from [contributor tools lane](issue/i-040-contributor-tools-lane/spec.md#requirement-records).
+Accepted from [contributor tools lane](issue/archive/i-040-contributor-tools-lane/spec.md#requirement-records).
 
 #### Accepted mechanics
 
 Expand the existing lane rule to name executable contributor tools and test helpers by behavior, not directory or suffix. Update the ticket guidance to identify tool ownership, changed behavior, and the narrow check. Use existing fixtures for lifecycle tools and isolated filesystem fixtures for link-checker changes. Do not create a separate tool registry or duplicate the ticket system.
 
-The mechanics implement [WCP-001](issue/i-040-contributor-tools-lane/spec.md#requirement-records) and are tested by the [verification plan](issue/i-040-contributor-tools-lane/test-plan.md#verification).
+The mechanics implement [WCP-001](issue/archive/i-040-contributor-tools-lane/spec.md#requirement-records) and are tested by the [verification plan](issue/archive/i-040-contributor-tools-lane/test-plan.md#verification).
 
 
 ### WCP-002 — shared private test support
 
 Current private regression lanes use one maintained support surface for fixture construction, process execution, snapshots, and fault setup, with isolated process environments and filesystem state. One aggregate runner accounts for every declared live lane or valid expiry without silent skips. A documented current-versus-history boundary preserves archived evidence and every migrated lane's identity, requirement, and assertion strength. The migration covers existing live duplication, names any retained exception, and measures full-sweep growth rather than merely adding a helper unused by current lanes.
 
-Accepted from [shared private test support](issue/i-041-shared-private-test-support/spec.md#requirement-records).
+Accepted from [shared private test support](issue/archive/i-041-shared-private-test-support/spec.md#requirement-records).
 
 #### Accepted mechanics
 
 Inventory the live roster and identify duplicated fixture/launch/snapshot/fault setup, then extract only repeated behavior into the existing test support crate. Maintain the low-level implementation as one standard-library-only source module owned by that crate, exported normally by the QA crate and reused through exact source-module references from private libraries; do not add dependencies that change their effective Engine features. Active lane sources are distinguished from the owning migration ticket's frozen before-source fixture corpus, which is historical input rather than another live lane. Keep per-lane assertions in their owning crates. Child process environments are built explicitly instead of changing shared parent environment. Keep unique temporary roots, restore guards, and deterministic captured output. The current runner remains the aggregate entry point; report crate count and elapsed/build reuse measurements as observations, not a brittle timing gate. Publish the migration ledger in its owning ticket/evidence and leave archived issue, ticket, and residual bytes intact.
 
-The mechanics implement [WCP-002](issue/i-041-shared-private-test-support/spec.md#requirement-records) and are tested by the [verification plan](issue/i-041-shared-private-test-support/test-plan.md#verification).
+The mechanics implement [WCP-002](issue/archive/i-041-shared-private-test-support/spec.md#requirement-records) and are tested by the [verification plan](issue/archive/i-041-shared-private-test-support/test-plan.md#verification).
 
 
 ### WCP-004 — review before proofs
 
 The build order obtains an independent review of the proposed source and tests before executing the expensive private-lane and deliberate-damage proof set. The accepted review identifies the exact reviewed snapshot. A rejected review returns to repair without running that proof set. Later source or oracle changes invalidate the affected review and proofs rather than claiming a once-only guarantee over changed bytes. A clean reviewed snapshot earns one complete private/damage proof set after review. This once-only rule applies to earning that unchanged proof, not to mandatory restored-green checks after each mutation or the declared post-merge verification from main; both remain required. Later source or oracle repair still requires renewed affected proof.
 
-Accepted from [review before proofs](issue/i-043-review-before-proofs/spec.md#requirement-records).
+Accepted from [review before proofs](issue/archive/i-043-review-before-proofs/spec.md#requirement-records).
 
 #### Accepted mechanics
 
 Update working order, ticket template guidance, and the workflow states together when integrated. The order is: public checks green; independent source and test-oracle review accepted; full private-lane and quality checks green; safety checkpoint created from that reviewed green work; deliberate damage with checkpoint restoration and mandatory restored-green verification after each mutation; landing and merge; required post-merge verification on main. Resolve review findings and record the accepted snapshot before the private checks; a failed check returns to repair and invalidates affected review or proof. The safety checkpoint is never created before all required checks are green. Before accepting final evidence, compare it and the review against their declared source/test roots. Record command-order events in fixture execution so a wording change alone cannot certify behavioral ordering. The command trace distinguishes earning the reviewed private/damage proof from restored-green reruns after each mutation and the required post-merge verification on main. Those mandatory reruns remain intact and are never suppressed by the once-only claim.
 
-The mechanics implement [WCP-004](issue/i-043-review-before-proofs/spec.md#requirement-records) and are tested by the [verification plan](issue/i-043-review-before-proofs/test-plan.md#verification).
+The mechanics implement [WCP-004](issue/archive/i-043-review-before-proofs/spec.md#requirement-records) and are tested by the [verification plan](issue/archive/i-043-review-before-proofs/test-plan.md#verification).
 
 
 ### WCP-005 — byte verified restores
 
 Before deliberate damage, record the exact bytes and effective checkout conversion settings for every declared tracked mutation target. A restore is accepted only after recomputing each restored target's digest and matching its frozen digest, with index and tracked-tree state also verified. Refuse before damage when effective line-ending or checkout filters cannot reproduce those frozen bytes; never silently change global or repository Git settings. A clean Git status alone cannot pass a restore whose bytes differ, and a refusal names the affected path and corrective action.
 
-Accepted from [byte verified restores](issue/i-044-byte-verified-restores/spec.md#requirement-records).
+Accepted from [byte verified restores](issue/archive/i-044-byte-verified-restores/spec.md#requirement-records).
 
 #### Accepted mechanics
 
 The supported damage/restore operation stores a frozen manifest beside ticket evidence and reads it before every restore. Derive checkpoint target bytes and effective Git attributes/configuration, prove their checkout round-trip or refuse before permitting mutation, and verify actual worktree bytes afterward. Report mismatched paths explicitly and leave unrelated work untouched. Integrate this verifier into the checkpoint-only restore mechanism instead of creating a competing restore path.
 
-The mechanics implement [WCP-005](issue/i-044-byte-verified-restores/spec.md#requirement-records) and are tested by the [verification plan](issue/i-044-byte-verified-restores/test-plan.md#verification).
+The mechanics implement [WCP-005](issue/archive/i-044-byte-verified-restores/spec.md#requirement-records) and are tested by the [verification plan](issue/archive/i-044-byte-verified-restores/test-plan.md#verification).
 
 
 ### WCP-006 — checkpoint only restoration
 
 The supported ticket damage and recovery mechanism resolves and records exactly one safety commit for the current reviewed green work, accepts only mutation targets tracked by that commit, and restores their index and worktree bytes only from that commit. Backup-copy, latest-file, implicit-index, arbitrary-revision, and inverse-edit restore modes are absent or explicitly refused before mutation. A stale checkpoint, untracked target, unsafe path, or unrelated unsaved work refuses by name. Interruption recovery uses the same recorded checkpoint and byte verifier. Historical evidence remains unchanged.
 
-Accepted from [checkpoint only restoration](issue/i-045-checkpoint-only-restoration/spec.md#requirement-records).
+Accepted from [checkpoint only restoration](issue/archive/i-045-checkpoint-only-restoration/spec.md#requirement-records).
 
 #### Accepted mechanics
 
 Reuse turn ownership and declared roots. Bind the current item's reviewed source manifest to its safety commit and fail if the selected checkpoint does not contain that exact green snapshot. The restore verb consumes this recorded checkpoint, never a caller-supplied backup path or revision. Validate all targets and preserve unrelated work before touching any file; invoke Git restore with the explicit checkpoint for both index and worktree. Then invoke the byte-verification contract. Recovery reports the same checkpoint and exact allowed command without copy-back fallbacks.
 
-The mechanics implement [WCP-006](issue/i-045-checkpoint-only-restoration/spec.md#requirement-records) and are tested by the [verification plan](issue/i-045-checkpoint-only-restoration/test-plan.md#verification).
+The mechanics implement [WCP-006](issue/archive/i-045-checkpoint-only-restoration/spec.md#requirement-records) and are tested by the [verification plan](issue/archive/i-045-checkpoint-only-restoration/test-plan.md#verification).
 
 
 ### WCP-008 — edition proof preflight
 
 The supported edition-cut path validates the candidate annotation using the same proof-text contract as the edition audit, confirms the exact intended clean commit and all required successful checks against its bytes, validates edition naming/sequence and target reachability, and proves the edition rule EDN-001 rest condition at that commit before creating a tag: no pending intake, no open work item, and no unproven gap record. A missing proof phrase, failed or stale check, unfinished cycle despite green quality commands, dirty tree, moved target, existing name, or malformed input creates no tag and alters no existing tag. A valid cut creates one immutable annotated tag using the validated text and exact checked commit; ledger recording still follows tag creation. Text that merely names checks is not proof that they passed.
 
-Accepted from [edition proof preflight](issue/i-047-edition-proof-preflight/spec.md#requirement-records).
+Accepted from [edition proof preflight](issue/archive/i-047-edition-proof-preflight/spec.md#requirement-records).
 
 #### Accepted mechanics
 
 Extract or reuse one pure annotation validator for preflight and post-creation audit. Resolve the intended commit once, require a clean proven checkout for it, execute or verify fresh declared quality-check evidence, and recheck target/tree identity immediately before tag creation. Supply annotation text through a file or structured argument without shell interpolation. Create the annotated tag only after every refusal check passes, using a non-overwriting tag creation. Leave recording the edition ledger to the subsequent existing landing rule; never repair a failed audit by rewriting a tag. Before tag creation, inspect the candidate commit's declared workflow records to establish EDN-001 rest: no pending intake bundle, no open work item, and no unproven gap. All three remain independent prerequisites even when every quality command is green; recheck them with the target/tree identity immediately before the tag write.
 
-The mechanics implement [WCP-008](issue/i-047-edition-proof-preflight/spec.md#requirement-records) and are tested by the [verification plan](issue/i-047-edition-proof-preflight/test-plan.md#verification).
+The mechanics implement [WCP-008](issue/archive/i-047-edition-proof-preflight/spec.md#requirement-records) and are tested by the [verification plan](issue/archive/i-047-edition-proof-preflight/test-plan.md#verification).
 
 
 ### WEB-003 — tracked repository audits
 
 Tree-scanning repository acceptance audits enumerate tracked and staged paths from the addressed repository index, read their current working-tree bytes, and never recurse into ignored or untracked directories merely because they exist. This applies to the shared retired-name audit and every acceptance check that claims to scan repository content. An intentionally untracked input is included only by a caller-supplied explicit relative file list, is reported as an extra input, and is subject to the same checks. Missing tracked inputs, invalid or escaping extra paths, unreadable inputs, and repository-listing failures are named failures, not silent omissions or a fallback directory walk. The audit declares how it handles binary inputs, reports any deliberate exclusions, and never disguises decoding failure as an unreadable-file omission. Existing historical allowlist matching and stale-entry detection remain enforced against the selected inputs.
 
-Accepted from [tracked repository audits](issue/i-057-tracked-repository-audits/spec.md#requirement-records).
+Accepted from [tracked repository audits](issue/archive/i-057-tracked-repository-audits/spec.md#requirement-records).
 
 #### Accepted mechanics
 

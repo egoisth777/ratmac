@@ -1,0 +1,34 @@
+Observed before post-rest activation, 2026-10-26
+Driver: C:/Users/egois/AppData/Local/Temp/tmp.bra931kcbg/ratmac-stable-edition-008/target/debug/rtm.exe
+Driver identity: stable edition-008 rebuilt at its tag (channel stable, source commit d9dfff15e586535717ad9865b13c5a0f9bde361b) in a clean scratch checkout; sha256 31a31fa4243284bdaf6473b5b21b116072b218ade67f9692ec92f9fef893a95d. The build pinned when run-034 started (sha256 70332d81c4b129353914d6d34d8582ecf49687eb3cbf8b9223ad55b81868ff0a) is gone with its folder, E:/repos/projs/skill-dev/ratmac-stable-edition-008. This Engine's step never compares itself with that pin; its doctor checks channel and source commit and reported no findings.
+Invocations: step --run run-034; verdict input clean; step --run run-034; status --run run-034
+Captured tool result, first step (close to gap-check, exit 0):
+
+Freeze the goal and measure it. Compare every frozen requirement against what
+the tree actually holds, and state each answer as missing, partial, or
+satisfied with a pointer to the proof and a short why. Then answer this stage's
+question: are there gaps to work, or is the goal clean?
+
+
+Exit Guards:
+- intake_contract
+
+Legal transition inputs:
+- gaps
+- clean
+next: rtm step --run run-034
+Captured tool result, second step (gap-check to rest, exit 0) and status (exit 0):
+
+Nothing is open. The cycle is at rest until the next issue arrives.
+
+Engine root: E:/hive/packs/projs/skills/ratmac/.ratmac
+State: rest
+Status: passed
+Goal revision: 212b80c1acf651aaf8a7f18edf49393bf5c4408153ad711649de839c7386ee28
+Input revision: 
+Output revision: 
+Active refs: 
+Blocker: 
+
+Nothing is open. The cycle is at rest until the next issue arrives.
+
