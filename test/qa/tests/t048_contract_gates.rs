@@ -947,9 +947,10 @@ fn the_record_gate_passes_on_this_repository_as_it_stands() {
     // with today's algorithm (t-123): the expected freeze is the revision
     // this repository's live residual records themselves cite - every live
     // record under `.arca/residual/` that is not archived, all agreeing on
-    // one value - so this check needs no machine-local Run state and keeps
-    // asserting the same green verdict with a legacy or a `v2:` citation as
-    // the archive grows.
+    // one value, or today's revision when a close has archived them all -
+    // so this check needs no machine-local Run state and keeps asserting the
+    // same green verdict with a legacy or a `v2:` citation as the archive
+    // grows.
     let mut live: Vec<PathBuf> = fs::read_dir(root.join(".arca/residual"))
         .expect("list this repository's residual records")
         .flatten()
@@ -959,10 +960,6 @@ fn the_record_gate_passes_on_this_repository_as_it_stands() {
         })
         .collect();
     live.sort();
-    assert!(
-        !live.is_empty(),
-        "this repository keeps live residual records to cite its freeze"
-    );
     let mut cited: Option<(PathBuf, String)> = None;
     for record in &live {
         let text = fs::read_to_string(record).expect("read the live residual record");
@@ -994,7 +991,15 @@ fn the_record_gate_passes_on_this_repository_as_it_stands() {
             ),
         }
     }
-    let (_, frozen) = cited.expect("the live records above cited one freeze");
+    // At rest every record is archived and answers to its own freeze
+    // (ARF-001), so no live citation exists to agree with: the freeze is the
+    // one a Run started now would record.
+    let frozen = match cited {
+        Some((_, token)) => token,
+        None => ratmac::goal::revision(&root.join(".arca/goal"))
+            .expect("read this repository's goal revision")
+            .expect("this repository has a goal to freeze"),
+    };
     let engine = std::env::temp_dir().join(format!(
         "ratmac-t048-selfcheck-{}-{}",
         std::process::id(),
