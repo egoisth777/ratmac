@@ -115,3 +115,7 @@ Plain-word definitions for terms used in work with Billy. Consult this file befo
 - **Transition intent**: The canonical fresh facts an approval signs: project, Run, current and proposed State, selected input or action, sequence, current authority identities, and declared-work digest.
 
 - **Wishlist verification identifiers**: WCPV, WRSV, WEBV, and WRAV name planned checks for WCP, WRS, WEB, and WRA requirements respectively. A check identifier is not a test result.
+- **Same verdict everywhere (SVE)**: Requirement prefix for the 2026-10-26 wish batch that keeps a test's verdict independent of what runs beside it: test Engines and the bootstrap take the binary Cargo reported, lanes and sweeps build apart, and scratch folders, pause markers, and test hooks stay inside their own test.
+- **Windows timing and commands (WTC)**: Requirement prefix for the 2026-10-26 wish batch that refuses a repeated `--run` or an unreadable record by name and waits out another program's brief Windows file hold within the lock module's five-second bound.
+- **Same-verdict verification identifiers**: SVEV and WTCV name planned checks for SVE and WTC requirements respectively. A check identifier is not a test result.
+- **Live-run pin (LRP)**: Requirement prefix for Billy's 2026-10-27 planning decision that the bootstrap checks the Engine it resolves against the pin of every live Run and refuses only when a pinned file changed. LRPV names its planned checks; a check identifier is not a test result.

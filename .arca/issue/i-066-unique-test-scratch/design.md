@@ -1,0 +1,11 @@
+# Issue design
+## Proposed mechanics
+Keep the existing shared helper and move every test that makes its own scratch folder onto it. `TempTree::new` in [the shared test support](../../../test/qa/src/support.rs) already creates with `fs::create_dir`, adds the process-wide counter to the name, and moves on when a name is taken. Split its loop so that a check can supply a fixed clock value, for example a public constructor that takes a fixed stamp, which `new` calls with the real clock. A public item can be called from the check's own test file, which is a separate crate, and raises no unused-code warning in the private lanes that include the support file. Then the check can force two requests into one clock tick without any race.
+
+Replace the clock-named helpers in public suite files (77 sites in 67 files), the seven process-and-thread names in six files and four process-id names, the five clock-named helpers and two other names in [the test library](../../../test/qa/src/lib.rs), and the folders made by `Pair::new` in [the baseline support](../../../test/qa/src/baseline.rs) with `TempTree` folders. A test that needs a fixed path joins it below its own helper folder. Each migrated helper keeps its `TempTree` alive for the whole test (it returns the tree or a value holding it) and never calls `persist()`, which would leave the folder behind. Each migrated helper also loses its `remove_dir_all` make-room step and its `create_dir_all` on the scratch root. The shared-support oracle lane (`t-126`) keeps its own allocator unchanged.
+
+Add a source inventory check that fails when a test makes a folder under the system temporary folder without the helper; it stays red until the last site has moved, so the one ticket that carries SVE-004 moves every site before it lands. Leave the freeze build folder, which is shared build output, to its owning issue. No new dependency, no new runner or registry; migrate in bounded steps inside that one ticket.
+
+The mechanics implement [SVE-004](spec.md#requirement-records) and are tested by the [verification plan](test-plan.md#verification).
+
+This file is incoming evidence. Integrated mechanics remain authoritative only in the accepted forward authority.

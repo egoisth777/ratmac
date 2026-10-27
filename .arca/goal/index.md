@@ -222,3 +222,29 @@ implementation status; this routing list is not proof.
 - [safe nested invocations](../issue/archive/i-060-safe-nested-invocations/index.md): WEB-006, product requirement.
 - [deterministic trace channel](../issue/archive/i-061-deterministic-trace-channel/index.md): WEB-007, product requirement.
 - [authorized review transitions](../issue/archive/i-062-authorized-review-transitions/index.md): WRA-001, product requirement.
+
+## Integrated same-verdict and Windows timing
+
+The accepted 2026-10-26 issues follow. Gap records and owning tickets report
+implementation status; this routing list is not proof. Decisions are in
+[ADR-0024](design.md#same-verdict-and-windows-timing-decision-adr-0024).
+
+- [build message test engine](../issue/i-063-build-message-test-engine/index.md): SVE-001, working authority.
+- [cargo built bootstrap engine](../issue/i-064-cargo-built-bootstrap-engine/index.md): SVE-002, product requirement.
+- [same lane verdict](../issue/i-065-same-lane-verdict/index.md): SVE-003, SVE-007, and SVE-008, working authority.
+- [unique test scratch](../issue/i-066-unique-test-scratch/index.md): SVE-004, working authority.
+- [whole pause marker](../issue/i-067-whole-pause-marker/index.md): SVE-005, working authority.
+- [case scoped hold barrier](../issue/i-068-case-scoped-hold-barrier/index.md): SVE-006, working authority.
+- [repeated run refusal](../issue/i-069-repeated-run-refusal/index.md): WTC-001, product requirement.
+- [unreadable record refusal](../issue/i-070-unreadable-record-refusal/index.md): WTC-002, product requirement.
+- [skill move retry](../issue/i-071-skill-move-retry/index.md): WTC-003, product requirement.
+- [abandon release window](../issue/i-072-abandon-release-window/index.md): WTC-004, product requirement.
+- [endpoint release window](../issue/i-073-endpoint-release-window/index.md): WTC-005, product requirement.
+
+## Integrated live-run pin check
+
+The accepted 2026-10-27 issue follows. Its gap record and owning ticket report
+implementation status; this routing list is not proof. Decisions are in
+[ADR-0025](design.md#live-run-pin-decision-adr-0025).
+
+- [live run pin check](../issue/i-074-live-run-pin-check/index.md): LRP-001, product requirement.

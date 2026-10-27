@@ -1,0 +1,9 @@
+# Issue design
+## Proposed mechanics
+Arm the hold barrier only in the environment of the arming case's own commands, and keep any remaining process-wide arming behind the hook lane, with every in-process case of that test binary on the lane. In [the cycle-pause-routes suite](../../../test/qa/tests/t130_cycle_pause_routes.rs), `wrsv_003_08` would run every barrier-armed command as a child process of the test build of the Engine (`rtm-qa`) through one suite helper that starts it with `support::command` and passes the four settings with `.env`, as `t050_blocked_route.rs` (lines 647-650) and `t086_single_engine_binary.rs` (lines 423-426) already do on children they start with `Command::new`. Its 43 `std::env::set_var` and `remove_var` lines go away, and its unarmed commands keep the in-process `fn rtm`. No other case's in-process command can then read a barrier from the process environment. Serializing the suite's cases under the hook lane alone would not do, because the check needs an in-process hold to run while a barrier-armed hold is parked.
+
+Add a source inventory check that each process-wide arming of a `RATMAC_TEST_*` setting, directly or through a lane wrapper such as `env_set` or `fn answered`, sits inside an isolated child, inside a child of the test binary that runs one named case, or in a case holding the hook lane (directly or through a wrapper such as `lane_guard`), in a test binary whose every in-process Engine case also holds it. The rule-fix recovery and authorized review transitions suites already meet this through the lane; the check keeps them that way. No Engine change, no new dependency, runner, or registry.
+
+The mechanics implement [SVE-006](spec.md#requirement-records) and are tested by the [verification plan](test-plan.md#verification).
+
+This file is incoming evidence. Integrated mechanics remain authoritative only in the accepted forward authority.

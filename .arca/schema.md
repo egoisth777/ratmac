@@ -1129,3 +1129,167 @@ Update all repository-tree audit callers found in the implementation inventory t
 Assumed binary policy: read each selected regular file as bytes. Valid UTF-8 without NUL bytes is checked as text with line locations; all other readable content is checked for the same forbidden ASCII token byte sequences, reporting byte offsets rather than lossy text. Path-name checks still apply to every selected path. Thus binary classification is explicit and causes no content exclusion; unreadable bytes remain a named failure. If a future audit needs a true binary exclusion, that exclusion must be explicitly declared and reported rather than inferred from a decoding error.
 
 This is contributor-test behavior, not a new Engine guard. Integrate it into the working authority with an executable deliverable and link its public test proof; do not make the generic Engine know this repository's legacy spellings.
+
+## Same-verdict working requirements
+
+Accepted under Billy's 2026-10-26 wish selection after independent contract review.
+A public suite or private lane must give the same verdict inside the full workspace
+proof, inside a lane sweep, and alone. These requirements bind contributor tests,
+test support, and contributor tools, not the Engine. Each has an executable
+deliverable, a gap record, and a ticket; its planned checks live in the
+[goal test list](goal/test-list.md#integrated-same-verdict-and-windows-timing-verification)
+without adding product requirement rows. The product half of the batch is in the
+[goal specification](goal/spec.md#integrated-same-verdict-and-windows-timing-requirements),
+and its decisions are in [ADR-0024](goal/design.md#same-verdict-and-windows-timing-decision-adr-0024).
+
+### SVE-001 — test Engine from build messages
+
+The shared test helper `today_engine()`, and every test helper that runs `cargo build` and then launches the built file itself, runs the executable Cargo reported for that build (the `executable` in its `compiler-artifact` record under `--message-format=json`), never a path joined from a fixed folder such as `target/debug`; helpers where Cargo runs what it built, such as `cargo test`, are out of scope. With output redirected by `CARGO_TARGET_DIR`, `CARGO_BUILD_TARGET_DIR`, `build.target-dir` in any Cargo configuration, or `CARGO_BUILD_TARGET`, the fresh build still runs and an older binary at the fixed folder never runs; a build that reports no such executable refuses, naming the binary and the build, and runs nothing. Private lanes use this shared helper instead of their own copies.
+
+Accepted from [build message test engine](issue/i-063-build-message-test-engine/spec.md#requirement-records).
+
+#### Accepted mechanics
+
+Give the baseline support one function that asks Cargo where it put a binary, and send every helper that builds and then launches one through it. Add `pub fn built_executable` to [the baseline support](../test/qa/src/baseline.rs). It takes a build root, the caller's `cargo build` arguments, and the binary's name; runs the build in that root with `--message-format=json` added; reads standard output line by line with the test crate's existing reader ([json.rs](../test/qa/src/json.rs)), so no new dependency; keeps `compiler-artifact` records whose target name is the requested binary and whose `executable` is not empty; and returns the one distinct path. None or several paths return an error naming the binary, the build command, and what Cargo reported, and a failed build's error carries the `rendered` text of every `compiler-message` record, then Cargo's standard error. The function returns its error instead of panicking: `today_engine()` and the freeze Engine panic with that text, as they assert today, and `fn build_edition_cut` hands it to its caller, as it does now.
+
+`today_engine()` calls it with the repository root, inside its existing once-per-process cache and with today's build arguments; the freeze `fn build` calls it with the freeze tree and its own output folder; and `fn build_edition_cut` in the edition proof preflight suite and the two building tests of the single-Engine-binary suite call it. Private lanes, the single-Engine-binary lane (`t-086`) included, replace their own build-message readers, the refusal in the refusing lane (`t-116`), the fallback in the TOML-reading lane (`t-133`), and their fixed joins with calls into `ratmac_qa::baseline`, keeping each lane's identity and assertions. The general test support ([support.rs](../test/qa/src/support.rs)) stays standard-library-only, the frozen before-source corpus is not touched, and the function neither sets nor clears the redirect variables: the child-process scrub already lets them through. Add a source inventory check that finds build-message reading only in the baseline support. No new dependency, runner, or registry.
+
+#### Scope and assumptions
+
+- Cargo reports the `compiler-artifact` record, `executable` included, for a binary that was already up to date as well as for one it rebuilt; the first lane that read build messages itself (`t-117`) relies on this. The ticket confirms it on the pinned toolchain before the TOML-reading lane's fallback goes.
+- Exactly one distinct reported path for the named binary counts; none or several refuse by name.
+- The scope is helpers that build from this repository's sources, the freeze tree included. Helpers where Cargo runs what it built (`cargo test`), fixtures, and the bootstrap are out of scope; the bootstrap belongs to SVE-002.
+- The single-Engine-binary lane (`t-086`) moves in this ticket; the lane-folder requirement (SVE-007) later changes only which folder it builds into.
+- Migrated lanes keep their identity, requirement, and assertion strength under the history boundary of shared private test support ([WCP-002](#wcp-002--shared-private-test-support)), and the frozen before-source corpus under `test-hidden/t-126/fixtures/before/` stays byte-identical.
+- Must not break: the single-Engine-binary rule (`DEB-001`), whose tests launch the build they were compiled against; the build-output collision check (`DEB-002`); shared private test support (WCP-002); edition proof preflight ([WCP-008](#wcp-008--edition-proof-preflight)), whose `edition-cut` binary changes only how it is located; and the landed-lane sweep (`LNR-001`), which must still read every migrated lane green. No selected issue is a prerequisite.
+
+The mechanics implement [SVE-001](issue/i-063-build-message-test-engine/spec.md#requirement-records) and are tested by the [verification plan](issue/i-063-build-message-test-engine/test-plan.md#verification).
+
+### SVE-003 — sweep crates build apart
+
+By default the lane sweep (`tools/sweep_lanes.py`) runs each crate's `cargo test --offline` with a Cargo output folder no other crate builds into, even when a Cargo configuration file sends every build in the repository to one folder. That configured folder still decides where build output is stored: each crate's folder then sits inside it, named after the crate. With no such setting, a crate builds in its own `target`, as today. Inherited `CARGO_` variables are still dropped, and the explicit `--target-dir` opt-in to one shared folder stays.
+
+Accepted from [same lane verdict](issue/i-065-same-lane-verdict/spec.md#requirement-records).
+
+#### Accepted mechanics
+
+Before it tests a crate, `run_crate` in [the lane sweep](../tools/sweep_lanes.py) asks Cargo where the crate's build would go: it runs `cargo metadata --format-version 1 --no-deps --offline` in the crate, with inherited `CARGO_` variables dropped as today, and reads `target_directory`. Unless `--target-dir` opts in, it passes the crate's own folder as `--target-dir` on the crate's `cargo test --offline` command line, never in its environment, so no lane process inherits it: the crate's own `target` when Cargo already resolves it there, otherwise a folder named after the crate inside the resolved folder. A Cargo configuration file then still decides where builds are stored but can no longer merge crates. When Cargo cannot answer, the crate reads red with Cargo's error, as a build refusal does today. The sweep keeps one `cargo test --offline` per crate, its report, roster, and expiry rules stay, and its own description of where each crate builds changes with it. No new dependency, runner, or registry.
+
+#### Scope and assumptions
+
+- The configured folder keeps deciding where build output is stored, because this machine's Cargo configuration names its local build storage; the crates only stop sharing one folder inside it.
+- The folder is named to Cargo on the command line, so no lane check can pass only because the sweep moved its output.
+- The explicit `--target-dir` opt-in stays as it is; only the default changes.
+- Must not break: the landed-lane sweep (`LNR-001`), its expiry markers (`LNR-002`), the close guard that reads its verdict (`LNR-003`), and the post-split ports rule (`RLR-003`). No selected issue is a prerequisite.
+
+The mechanics implement [SVE-003](issue/i-065-same-lane-verdict/spec.md#requirement-records) and are tested by the [verification plan](issue/i-065-same-lane-verdict/test-plan.md#verification).
+
+### SVE-004 — unique test scratch folders
+
+Every test that makes a scratch folder - public suites under `test/qa` and declared, non-expired private lanes under `test-hidden` - receives one no other test can be handed, even when two requests share one clock tick. It is created new, never adopting, emptying, or deleting an existing folder; its name does not rest on the clock alone; and a taken name is retried with a new one. One shared test-support helper hands out every such folder; only the shared-support oracle lane (`t-126`) keeps its own allocator, which puts a counter in each name, creates each folder new, and stops on a taken name instead of retrying. A check pins the clock and proves two requests get separate folders, so a suite gives the same verdict in parallel as alone.
+
+Accepted from [unique test scratch](issue/i-066-unique-test-scratch/spec.md#requirement-records).
+
+#### Accepted mechanics
+
+Keep the existing shared helper and move every test that makes its own scratch folder onto it. `TempTree::new` in [the shared test support](../test/qa/src/support.rs) already creates with `fs::create_dir`, adds the process-wide counter to the name, and moves on when a name is taken. Split its loop behind a public constructor that takes a fixed stamp, which `new` calls with the real clock. The check calls that constructor from its own test file, which is a separate crate, so the item raises no unused-code warning in the private lanes that include the support file, and the check forces two requests into one clock tick without any race or environment setting.
+
+Replace the clock-named helpers in public suite files (77 sites in 67 files), the seven process-and-thread names in six files and four process-id names, the five clock-named helpers and two other names in [the test library](../test/qa/src/lib.rs), and the folders made by `Pair::new` in [the baseline support](../test/qa/src/baseline.rs) with `TempTree` folders. A test that needs a fixed path joins it below its own helper folder. Each migrated helper keeps its `TempTree` alive for the whole test (it returns the tree or a value holding it) and never calls `persist()`, which would leave the folder behind. Each migrated helper also loses its `remove_dir_all` make-room step and its `create_dir_all` on the scratch root. The shared-support oracle lane (`t-126`) keeps its own allocator unchanged.
+
+Add a source inventory check that fails when a test makes a folder under the system temporary folder without the helper. It stays red until the last site has moved, so the one ticket that carries SVE-004 moves every site before it lands: the support crate first, then the test library helpers and `Pair::new`, then the suite files. The freeze build folder is shared build output and belongs to SVE-008. No new dependency, runner, or registry.
+
+#### Scope and assumptions
+
+- The shared helper is `TempTree` in `test/qa/src/support.rs`, with `TempRepo` built on it.
+- Deleting is allowed only for a test's own folder when it finishes, never to make room for a new one.
+- Pinning the clock is a test-support seam only; no Engine code changes.
+- The shared-support oracle lane (`t-126`) stops on a taken name instead of retrying: the retry clause binds the shared helper, not that allocator, and a taken name there needs a leftover folder with the same process id, clock value, and counter.
+- Out of scope: removing folders a run leaves behind in the system temporary folder, expired lanes, lane `target/` folders, the frozen before-source corpus under `test-hidden/t-126/fixtures/before/`, and folders the Engine itself creates inside a fixture.
+- Must not break the shared private test support rule ([WCP-002](#wcp-002--shared-private-test-support)): `TempTree` stays standard-library only and reachable from private lanes, and its concurrent-fixtures check (WCPV-005) keeps passing.
+
+The mechanics implement [SVE-004](issue/i-066-unique-test-scratch/spec.md#requirement-records) and are tested by the [verification plan](issue/i-066-unique-test-scratch/test-plan.md#verification).
+
+### SVE-005 — whole pause marker line
+
+Every test that waits on a pause marker - public suites under `test/qa` and declared, non-expired private lanes under `test-hidden` - acts only on the marker's whole boundary line: its complete text, ending in its newline. A missing file, an empty read, or text without its closing newline counts as not yet published; the test keeps waiting until its time limit and never compares, parses, or proceeds on such a read, nor on the file merely existing. A wait therefore fails only when the whole line never arrives in time or arrives with other text, so a pause-seam test never fails on timing alone. A check stages empty and partial markers deterministically and proves every waiter holds until the line is whole.
+
+Accepted from [whole pause marker](issue/i-067-whole-pause-marker/spec.md#requirement-records).
+
+#### Accepted mechanics
+
+Give the shared test support one whole-line wait and send every pause-marker wait through it. Add to [the shared test support](../test/qa/src/support.rs) a function that polls a marker until its bytes end in a newline and, when the caller knows it, equal the expected line or start with the expected prefix. It returns the line, or at its limit reports the last bytes read (or none); `fn await_marker` in the review before proofs lane (`t-131`) already has this shape. Private lanes reach it through the existing source-module include or the `ratmac-qa` dependency; no lane keeps its own wait.
+
+Replace `fn await_marker` in the byte-verified restores (`t-124`), checkpoint-only restoration (`t-125`), and edition proof preflight (`t-127`) lanes, folding the review before proofs lane's copy into the shared one; `fn wait_boundary` and `fn wait_marked` in the successor ownership lane (`t-122`); the prefix waits `fn wait_for_line_starting` in the safe nested invocations lane (`t-134`) and `fn wait_for_file_prefix` in the authorized review transitions lane (`t-129`); the existence-only waits in the lock split (`t-073`), runbook States (`t-080`), Run Record file (`t-081`), one-command suite proof (`t-086`), no work-item (`t-087`), and deterministic trace channel (`t-128`) lanes; and the lock-marker wait at line 902 of the lock contention lane (`t-136`). In the public suites, replace the waits in `t050_blocked_route.rs`, `t086_single_engine_binary.rs`, `t122_successor_ownership.rs`, `t125_checkpoint_only_restoration.rs`, `t127_edition_proof_preflight.rs`, `t128_deterministic_trace_channel.rs`, `t130_cycle_pause_routes.rs`, `t134_safe_nested_invocations.rs`, and `t136_lock_contention.rs`. Callers that compared one read afterwards compare the returned line instead. Checks made after the publishing command has exited, that a marker is absent or still there, stay as they are.
+
+Leave every publisher as it is: the requirement binds waiters, not publishers. The turn tool keeps writing its marker in place with `WriteAllText` and does not move a file over the marker path, because on Windows replacing a file that a waiter has open can fail, and the planted-marker check (`SVEV-014`) creates exactly that situation. Add a source inventory check for marker waits. No new dependency, runner, or registry.
+
+#### Scope and assumptions
+
+- A pause marker is any file whose path is passed as a `RATMAC_TEST_*_MARKER` setting: the Engine's pause points, the turn tool's pause, and the edition-cut test binary's pause.
+- A waiter that knows the exact line waits for that line; a waiter that knows only a prefix (a lock marker naming a path that can be spelled several ways) waits for a newline-terminated line that starts with it.
+- Public suites are included beyond the wish's words, which name private lanes, because they wait on the same markers in the same full workspace proof. Existence-only waits are included even where nothing reads the content afterwards.
+- Must not break checkpoint only restoration ([WCP-006](#wcp-006--checkpoint-only-restoration)), review before proofs ([WCP-004](#wcp-004--review-before-proofs)), shared private test support ([WCP-002](#wcp-002--shared-private-test-support)), or the cycle pause routes checks (WRSV-003-01 to WRSV-003-09). The case-scoped hook rule (SVE-006) uses this wait in its check, and the Windows timing checks that wait on a pause marker follow it.
+
+The mechanics implement [SVE-005](issue/i-067-whole-pause-marker/spec.md#requirement-records) and are tested by the [verification plan](issue/i-067-whole-pause-marker/test-plan.md#verification).
+
+### SVE-006 — case-scoped test hooks
+
+A test hook that one test case arms through process-wide environment settings (`RATMAC_TEST_*`, such as the Engine's hold test barrier) reaches only that case's own commands. No other case running alongside - in the same test process or another - has its `rtm hold` or any other command wait on the hook, time out on it, or otherwise observe it. This holds in public suites under `test/qa` and declared, non-expired private lanes under `test-hidden`. The arming case still meets its hook, including today's expiry refusal, whose reason reads `hold test barrier expired before <boundary> waiting for <release file>`. A check proves deterministically that an `rtm hold` on another fixture, run while a barrier-armed `rtm hold` is parked, never sees the barrier.
+
+Accepted from [case scoped hold barrier](issue/i-068-case-scoped-hold-barrier/spec.md#requirement-records).
+
+#### Accepted mechanics
+
+Arm the hold barrier only in the environment of the arming case's own commands, and keep any remaining process-wide arming behind the hook lane, with every in-process case of that test binary on the lane. In [the cycle-pause-routes suite](../test/qa/tests/t130_cycle_pause_routes.rs), `wrsv_003_08` runs every barrier-armed command as a child process of the test build of the Engine (`rtm-qa`) through one suite helper that starts it with `support::command` and passes the four settings with `.env`, as `t050_blocked_route.rs` and `t086_single_engine_binary.rs` already do on children they start with `Command::new`. Its 43 `std::env::set_var` and `remove_var` lines go away, and its unarmed commands keep the in-process `fn rtm`. No other case's in-process command can then read a barrier from the process environment. Serializing the suite's cases under the hook lane alone would not do, because the check needs an in-process hold to run while a barrier-armed hold is parked.
+
+Add a source inventory check that each process-wide arming of a `RATMAC_TEST_*` setting, directly or through a lane wrapper such as `env_set` or `fn answered`, sits inside an isolated child, inside a child of the test binary that runs one named case, or in a case holding the hook lane (directly or through a wrapper such as `lane_guard`), in a test binary whose every in-process Engine case also holds it. The rule-fix recovery and authorized review transitions suites already meet this through the lane and stay serialized under it; the check keeps them that way. `HookLane` gains no refusal of its own: the inventory check is the guard. No Engine change, no new dependency, runner, or registry.
+
+#### Scope and assumptions
+
+- Arming a hook only in the environment of a child command (`.env` on a child started through `support::command`, which first removes inherited `RATMAC_TEST_*` values) is case-scoped by construction. Process-wide arming (`std::env::set_var`, `StepFault::set`, or a lane wrapper around them) counts as case-scoped only inside an isolated child process, inside a child of the test binary that runs exactly one named case, or when every case of that test binary that runs Engine commands in-process holds the hook lane.
+- The rule covers every test hook in public suites and current private lanes, wider than the wish's cycle-pause-routes cases. The Engine's seam keeps reading its process environment; no Engine change is needed.
+- The check learns that the armed case is parked from its marker's whole boundary line (SVE-005).
+- Must not break the cycle pause routes requirement (WRS-003) and its checks WRSV-003-01 to WRSV-003-09, nor shared private test support ([WCP-002](#wcp-002--shared-private-test-support)): `hook_lane`, `scrub`, and `isolated_test` keep their behavior, and the concurrent-fixtures check (WCPV-005) keeps passing.
+
+The mechanics implement [SVE-006](issue/i-068-case-scoped-hold-barrier/spec.md#requirement-records) and are tested by the [verification plan](issue/i-068-case-scoped-hold-barrier/test-plan.md#verification).
+
+### SVE-007 — lane builds stay private
+
+Every private lane test that runs Cargo on the repository or on another lane's crate - to build and launch an Engine (`rtm`, `rtm-qa`) or another binary of this repository (`edition-cut`, `snapshot-manifest`), or to run that crate's tests - builds in an output folder only that lane uses, holds a cross-process lock on that folder for the whole run so a second run of the same lane waits, and launches only the executable that build reported. It never reads, runs, or rebuilds the repository's shared build output. With that output rewritten, or replaced by a plain file, and the lane started twice at once, each run gives the lane's standalone verdict.
+
+Accepted from [same lane verdict](issue/i-065-same-lane-verdict/spec.md#requirement-records).
+
+#### Accepted mechanics
+
+Give the baseline support one locked-folder helper beside `built_executable` (SVE-001) in [the baseline support](../test/qa/src/baseline.rs). Given the lane's name and the folder Cargo gives the lane's own tests for their files (`CARGO_TARGET_TMPDIR`, inside the lane's build output, passed by the lane), it creates a folder named after the lane there and takes the standard library's exclusive file lock (`File::lock`) on the lock file `lane.lock` inside it. The first call in a test process takes the lock and keeps it until the process exits, printing one line that names the lock file when it has to wait; later calls in the same process reuse it. Every `cargo build` and `cargo test` a lane runs on the repository or on another lane's crate takes that folder as `--target-dir`, and every binary it launches comes from `built_executable`. The folder is build output: the next run of the same lane reuses it, and nothing removes it, as with any crate's `target`.
+
+The single-Engine-binary lane (`t-086`) builds both `rtm-qa` and `rtm` there and keeps its before-and-after and identity assertions. The lanes that call `today_engine()` (`t-085`, `t-112`, `t-115`, `t-116`), the thirteen lanes with their own build-message readers, and the snapshot and edition-cut lanes (`t-113`, `t-127`) build there; the audit-consumer, lane-sweep, and shared-support lanes (`t-084`, `t-118`, `t-108`, `t-126`) run their `cargo test` there. Add a source inventory check that finds no `cargo build` or `cargo test` in a live lane outside the helper. No check holds or relies on Cargo's own lock files. No new dependency, runner, or registry.
+
+#### Scope and assumptions
+
+- "Only that lane uses" is met by the per-lane folder held under the lane's lock for the whole run, so a second run of the same lane waits rather than sharing it; the ticket measures full-sweep time, as shared private test support ([WCP-002](#wcp-002--shared-private-test-support)) asks.
+- The checks force the overlap deterministically: stand-ins of different bytes fill the shared output, or a plain file takes its place, for the whole window.
+- Every lane keeps its identity, requirement, and assertion strength; the single-Engine-binary lane still proves that building the shipped command leaves the test Engine untouched, inside its own folder.
+- Out of scope: per-test scratch folders (SVE-004), a hold barrier shared between cases in one process (SVE-006), wall-clock limits, and public suites, except as the concurrent writers a lane must not depend on. Meeting this does not by itself prove the wish's desired end: if verdicts still differ once no lane shares build output, wall-clock limits are the next suspect and the wish stays open.
+- Depends on SVE-001: a lane launches only the executable `built_executable` reports. Must not break: the landed-lane sweep (`LNR-001`), its expiry markers (`LNR-002`), the close guard that reads its verdict (`LNR-003`), shared private test support (WCP-002), the single-Engine-binary rule (`DEB-001`), and the post-split ports rule (`RLR-003`).
+
+The mechanics implement [SVE-007](issue/i-065-same-lane-verdict/spec.md#requirement-records) and are tested by the [verification plan](issue/i-065-same-lane-verdict/test-plan.md#verification).
+
+### SVE-008 — run-private freeze and ports folders
+
+The freeze build folder (`ratmac-freeze-<commit>` under the system temp folder) and the pre-split ports sweep folder (`target/lanes`) stop being shared. Every test that builds the freeze tree extracts and builds it in a folder only its own run uses, and the pre-split ports lane (`t-109`) sweeps its copied crates, and the pre-split ports suite runs the pre-split crates in place, each into a folder only that run uses. No run reads or rewrites the old shared paths: a plain file at the freeze folder's old name changes no verdict, and `target/lanes` keeps every path and byte.
+
+Accepted from [same lane verdict](issue/i-065-same-lane-verdict/spec.md#requirement-records).
+
+#### Accepted mechanics
+
+Reuse the locked-folder helper (SVE-007) for every run that used a shared folder. The freeze `fn build` in [the baseline support](../test/qa/src/baseline.rs) takes its folder from its caller instead of naming `ratmac-freeze-<commit>`: a private lane passes its lane folder, and a public suite passes a folder named after the suite in its own `CARGO_TARGET_TMPDIR`, taken through the same helper. It extracts the freeze tree there afresh each run, builds it with output inside that folder, and locates the binary through `built_executable` (SVE-001); the once-per-process cache stays. The pre-split ports lane (`t-109`) names its lane folder as its nested sweep's `--target-dir`, and [the pre-split ports suite](../test/qa/tests/t109_pre_split_ports.rs) runs the pre-split crates in place with a folder of its own from the same helper, instead of `target/lanes`. No new dependency, runner, or registry.
+
+#### Scope and assumptions
+
+- The freeze build stays one build per test process; the ticket measures the added build time.
+- Nothing removes or migrates an existing `ratmac-freeze-<commit>` folder or `target/lanes`; runs simply stop using them.
+- Depends on SVE-001 and SVE-007. The scratch-folder rule (SVE-004) leaves the freeze build folder to this requirement.
+- Must not break: the pre-split and post-split ports rules (`RLR-002`, `RLR-003`), the landed-lane sweep (`LNR-001`), and shared private test support (WCP-002).
+
+The mechanics implement [SVE-008](issue/i-065-same-lane-verdict/spec.md#requirement-records) and are tested by the [verification plan](issue/i-065-same-lane-verdict/test-plan.md#verification).

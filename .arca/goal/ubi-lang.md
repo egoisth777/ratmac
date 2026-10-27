@@ -159,3 +159,27 @@ and enrollment terms are in [the project glossary](../dict.md).
 - [safe nested invocations terms](../issue/archive/i-060-safe-nested-invocations/ubi-lang.md).
 - [deterministic trace channel terms](../issue/archive/i-061-deterministic-trace-channel/ubi-lang.md).
 - [authorized review transitions terms](../issue/archive/i-062-authorized-review-transitions/ubi-lang.md).
+
+## Same-verdict and Windows-timing vocabulary
+
+Issue-specific terms keep their definitions in the accepted bundles; the SVE and WTC
+prefixes and their check identifiers are in [the project glossary](../dict.md).
+
+- [build message test engine terms](../issue/i-063-build-message-test-engine/ubi-lang.md).
+- [cargo built bootstrap engine terms](../issue/i-064-cargo-built-bootstrap-engine/ubi-lang.md).
+- [same lane verdict terms](../issue/i-065-same-lane-verdict/ubi-lang.md).
+- [unique test scratch terms](../issue/i-066-unique-test-scratch/ubi-lang.md).
+- [whole pause marker terms](../issue/i-067-whole-pause-marker/ubi-lang.md).
+- [case scoped hold barrier terms](../issue/i-068-case-scoped-hold-barrier/ubi-lang.md).
+- [repeated run refusal terms](../issue/i-069-repeated-run-refusal/ubi-lang.md).
+- [unreadable record refusal terms](../issue/i-070-unreadable-record-refusal/ubi-lang.md).
+- [skill move retry terms](../issue/i-071-skill-move-retry/ubi-lang.md).
+- [abandon release window terms](../issue/i-072-abandon-release-window/ubi-lang.md).
+- [endpoint release window terms](../issue/i-073-endpoint-release-window/ubi-lang.md).
+
+## Live-run pin vocabulary
+
+Issue-specific terms keep their definitions in the accepted bundle; the LRP prefix
+and its check identifiers are in [the project glossary](../dict.md).
+
+- [live run pin check terms](../issue/i-074-live-run-pin-check/ubi-lang.md).
