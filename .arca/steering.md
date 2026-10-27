@@ -172,62 +172,51 @@ wrote down is drift.
 
 ## Current sprint
 
-Derived at planning close on 2026-09-22 from Billy's all-wishes request and
-explicit workflow dispatch. Freeze stamp:
-`git:c86c472a1ef157cccbdbb4ba416e5d67feabf160` +
-`goal-sha256:212b80c1acf651aaf8a7f18edf49393bf5c4408153ad711649de839c7386ee28`.
-The stable edition-008 Engine froze this accepted bundle for run-034.
+Derived at planning close on 2026-10-27 from Billy's 2026-10-26 wish selection
+and his 2026-10-27 live-run pin decision. Freeze stamp:
+`git:e7499db117a3b45a9f873bf066d449d9080fd069` +
+`goal-sha256:v2:fa3e740c95a958e84039a791a10fdd8f67ca94042f56be0744c662d282ae2c52`.
+The stable edition-009 Engine froze this accepted bundle for run-060.
 
-The signed batch contains 23 accepted issues, advancing Generic engine,
-Every boundary machine-checked, One writer, append-only, and Self-hosted.
-The contributor-tools lane is a working rule effective at integration;
-all other executable outcomes require proof. Independently controlled trust
-enrollment is an external live-adoption prerequisite, not an assumed credential.
+The signed batch contains 12 accepted issues, advancing Every boundary
+machine-checked, Self-hosted, Refusals are branchable, and One writer,
+append-only. A test, a private lane, or a command gives the same answer
+whatever runs beside it, wherever Cargo puts its build output, and however
+briefly another program holds a file. Seven working-authority requirements
+bind contributor tests, test support, and tools; seven product requirements
+bind the Engine and the project-local bootstrap. Every one needs executable
+proof.
 
 Accepted issue set:
 
-- [contributor tools lane](issue/archive/i-040-contributor-tools-lane/index.md) (WCP-001).
-- [shared private test support](issue/archive/i-041-shared-private-test-support/index.md) (WCP-002).
-- [selected issue completion](issue/archive/i-042-selected-issue-completion/index.md) (WCP-003).
-- [review before proofs](issue/archive/i-043-review-before-proofs/index.md) (WCP-004).
-- [byte verified restores](issue/archive/i-044-byte-verified-restores/index.md) (WCP-005).
-- [checkpoint only restoration](issue/archive/i-045-checkpoint-only-restoration/index.md) (WCP-006).
-- [distributable plan build profile](issue/archive/i-046-distributable-plan-build-profile/index.md) (WCP-007).
-- [edition proof preflight](issue/archive/i-047-edition-proof-preflight/index.md) (WCP-008).
-- [successor ownership](issue/archive/i-048-successor-ownership/index.md) (WRS-001).
-- [child class hold](issue/archive/i-049-child-class-hold/index.md) (WRS-002).
-- [cycle pause routes](issue/archive/i-050-cycle-pause-routes/index.md) (WRS-003).
-- [rule fix recovery](issue/archive/i-051-rule-fix-recovery/index.md) (WRS-004).
-- [descriptive run roster](issue/archive/i-052-descriptive-run-roster/index.md) (WRS-005).
-- [terminal history status](issue/archive/i-053-terminal-history-status/index.md) (WRS-006).
-- [abandon confirmation hints](issue/archive/i-054-abandon-confirmation-hints/index.md) (WRS-007).
-- [portable goal fingerprints](issue/archive/i-055-portable-goal-fingerprints/index.md) (WEB-001).
-- [engine ignore initialization](issue/archive/i-056-engine-ignore-initialization/index.md) (WEB-002).
-- [tracked repository audits](issue/archive/i-057-tracked-repository-audits/index.md) (WEB-003).
-- [residue refusal precedence](issue/archive/i-058-residue-refusal-precedence/index.md) (WEB-004).
-- [single root resolution](issue/archive/i-059-single-root-resolution/index.md) (WEB-005).
-- [safe nested invocations](issue/archive/i-060-safe-nested-invocations/index.md) (WEB-006).
-- [deterministic trace channel](issue/archive/i-061-deterministic-trace-channel/index.md) (WEB-007).
-- [authorized review transitions](issue/archive/i-062-authorized-review-transitions/index.md) (WRA-001).
+- [build-message test Engine](issue/i-063-build-message-test-engine/index.md) (SVE-001).
+- [Cargo-built bootstrap Engine](issue/i-064-cargo-built-bootstrap-engine/index.md) (SVE-002).
+- [same lane verdict](issue/i-065-same-lane-verdict/index.md) (SVE-003, SVE-007, SVE-008).
+- [unique test scratch](issue/i-066-unique-test-scratch/index.md) (SVE-004).
+- [whole pause marker](issue/i-067-whole-pause-marker/index.md) (SVE-005).
+- [case-scoped hold barrier](issue/i-068-case-scoped-hold-barrier/index.md) (SVE-006).
+- [repeated run refusal](issue/i-069-repeated-run-refusal/index.md) (WTC-001).
+- [unreadable record refusal](issue/i-070-unreadable-record-refusal/index.md) (WTC-002).
+- [skill move retry](issue/i-071-skill-move-retry/index.md) (WTC-003).
+- [abandon release window](issue/i-072-abandon-release-window/index.md) (WTC-004).
+- [endpoint release window](issue/i-073-endpoint-release-window/index.md) (WTC-005).
+- [live run pin check](issue/i-074-live-run-pin-check/index.md) (LRP-001).
 
 Route — accepted issue dependencies, not progress or implementation status:
 
-- descriptive run roster follows terminal history status because it uses the named outcome's established boundary or proof mechanism.
-- residue refusal precedence follows single root resolution because it uses the named outcome's established boundary or proof mechanism.
-- engine ignore initialization follows residue refusal precedence because it uses the named outcome's established boundary or proof mechanism.
-- successor ownership follows single root resolution because it uses the named outcome's established boundary or proof mechanism.
-- checkpoint only restoration follows byte verified restores because it uses the named outcome's established boundary or proof mechanism.
-- shared private test support follows tracked repository audits because it uses the named outcome's established boundary or proof mechanism.
-- deterministic trace channel follows residue refusal precedence, successor ownership because it uses the named outcome's established boundary or proof mechanism.
-- authorized review transitions follows single root resolution, residue refusal precedence because it uses the named outcome's established boundary or proof mechanism.
-- cycle pause routes follows child class hold, authorized review transitions because it uses the named outcome's established boundary or proof mechanism.
-- review before proofs follows authorized review transitions, checkpoint only restoration because it uses the named outcome's established boundary or proof mechanism.
-- rule fix recovery follows authorized review transitions, cycle pause routes because it uses the named outcome's established boundary or proof mechanism.
-- selected issue completion follows authorized review transitions, review before proofs because it uses the named outcome's established boundary or proof mechanism.
-- safe nested invocations follows authorized review transitions, engine ignore initialization, successor ownership because it uses the named outcome's established boundary or proof mechanism.
-- distributable plan build profile follows selected issue completion, engine ignore initialization, cycle pause routes, edition proof preflight because it uses the named outcome's established boundary or proof mechanism.
-- The stable driver retains its exact pinned runbook during this batch. New fields and
-  pause routes are tested as prepared capabilities and activated only at a compatible
-  cycle boundary; no current pin is rewritten to admit a changed rule.
-- Review authentication precedes governed recovery, selected-issue completion, and
-  nested authenticated evidence because a builder cannot supply its own authority.
+- same lane verdict follows build-message test Engine because a private lane
+  launches only the executable the shared test helper reports: lane builds stay
+  private (SVE-007) depends on SVE-001, and the run-private freeze and ports
+  folders (SVE-008) depend on both.
+- case-scoped hold barrier follows whole pause marker because its check learns
+  that the armed case is parked from the marker's whole boundary line
+  (SVE-006 depends on SVE-005), and both rewrite the same cycle-pause check.
+- live run pin check lands after Cargo-built bootstrap Engine because both edit
+  the same lines of `tools/rtm.ps1` and the same bootstrap suite; neither needs
+  the other.
+- skill move retry, abandon release window, and endpoint release window land
+  after whole pause marker and case-scoped hold barrier because their new pauses
+  and faults follow those two test-isolation rules; neither rule is a
+  prerequisite.
+- The stable driver retains its exact pinned runbook during this batch: no
+  requirement here changes the runbook, and no Run pin is rewritten.
