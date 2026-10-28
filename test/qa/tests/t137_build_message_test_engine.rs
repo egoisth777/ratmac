@@ -80,7 +80,9 @@ fn svev_001() {
         let verdict = if case == "e" {
             freeze_child(&fresh)
         } else {
-            rtm_qa_child(&env_path(ROOT), &fresh)
+            // Cases (a), (b), and (d) build the repository itself, exactly
+            // what `today_engine()` builds; (c) builds a scratch copy.
+            rtm_qa_child(&env_path(ROOT), &fresh, case != "c")
         };
         return settle(verdict);
     }
@@ -187,18 +189,14 @@ fn variable_case(repo: &Path, case: &str, variable: &str) -> Result<(), String> 
 
 /// `build.target-dir` in a scratch copy's own `.cargo/config.toml`, with
 /// every redirect variable cleared from the child; the checkout's own Cargo
-/// configuration is absent before the case and after it.
+/// configuration, present or absent, is exactly the same after the case as
+/// before it.
 fn config_case(repo: &Path) -> Result<(), String> {
     let own = [
         repo.join(".cargo").join("config.toml"),
         repo.join(".cargo").join("config"),
     ];
-    if let Some(present) = own.iter().find(|path| path.exists()) {
-        return Err(format!(
-            "FIXTURE: the checkout already holds {}; this case needs it absent",
-            present.display()
-        ));
-    }
+    let before = configuration(&own);
     let scratch = fresh_tree("t137-c-copy")?;
     let fresh = fresh_tree("t137-c-output")?;
     copy_repository(repo, scratch.path())?;
@@ -215,13 +213,40 @@ fn config_case(repo: &Path) -> Result<(), String> {
             (FRESH, fresh.path().as_os_str()),
         ],
     );
-    match own.iter().find(|path| path.exists()) {
-        Some(written) => Err(format!(
-            "the checkout's own Cargo configuration {} was written during the case; \
+    let after = configuration(&own);
+    let changed: Vec<String> = own
+        .iter()
+        .zip(before.iter().zip(&after))
+        .filter(|(_, (was, now))| was != now)
+        .map(|(path, (was, now))| {
+            format!(
+                "{} ({} before, {} after)",
+                path.display(),
+                described(was),
+                described(now)
+            )
+        })
+        .collect();
+    if changed.is_empty() {
+        outcome
+    } else {
+        Err(format!(
+            "the checkout's own Cargo configuration changed during the case: {}; \
              the case itself: {outcome:?}",
-            written.display()
-        )),
-        None => outcome,
+            changed.join(", ")
+        ))
+    }
+}
+
+/// Each file's bytes, or `None` while it is absent.
+fn configuration(paths: &[PathBuf]) -> Vec<Option<Vec<u8>>> {
+    paths.iter().map(|path| fs::read(path).ok()).collect()
+}
+
+fn described(bytes: &Option<Vec<u8>>) -> String {
+    match bytes {
+        Some(bytes) => format!("{} bytes", bytes.len()),
+        None => "absent".to_owned(),
     }
 }
 
@@ -393,12 +418,34 @@ fn settle(verdict: Result<(), String>) {
 }
 
 /// One redirect: the shared function's answer for `rtm-qa` against Cargo's
-/// own report for the same root, arguments, and environment.
-fn rtm_qa_child(root: &Path, fresh: &Path) -> Result<(), String> {
+/// own report for the same root, arguments, and environment. With
+/// `today_engine`, the root is the repository and `baseline::today_engine()`
+/// - which builds exactly that - must give the same answer.
+fn rtm_qa_child(root: &Path, fresh: &Path, today_engine: bool) -> Result<(), String> {
     let returned = built_executable(root, &RTM_QA, "rtm-qa");
     let reported = reported_executable(root, &RTM_QA, "rtm-qa", None)?;
     under_fresh(&reported, fresh)?;
-    judge("built_executable", returned, &reported)
+    let mut failures: Vec<String> = judge("built_executable", returned, &reported)
+        .err()
+        .into_iter()
+        .collect();
+    if today_engine {
+        if root != baseline::repo_root() {
+            return Err(format!(
+                "FIXTURE: today_engine() builds the repository {}, but this case's root is {}",
+                baseline::repo_root().display(),
+                root.display()
+            ));
+        }
+        let engine = std::panic::catch_unwind(|| baseline::today_engine().to_path_buf())
+            .map_err(|payload| panic_text(&*payload));
+        failures.extend(judge("baseline::today_engine()", engine, &reported).err());
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(failures.join("\n"))
+    }
 }
 
 /// The freeze build under the host-target redirect: `baseline::engine()`
@@ -486,7 +533,8 @@ fn older_binary_child(fresh: &Path) -> Result<(), String> {
         &format!("\ncompile_error!(\"{PLANTED_ERROR}\");\n"),
     )?;
     // The compiler's own rendering opens with this line; a dump of the raw
-    // JSON records would carry the message with an escaped line break instead.
+    // JSON records would carry the message with an escaped line break instead
+    // (and see `located_error`).
     let rendered = format!("error: {PLANTED_ERROR}\n");
     match built_executable(root, &RTM_QA, "rtm-qa") {
         Ok(path) => {
@@ -505,7 +553,8 @@ fn older_binary_child(fresh: &Path) -> Result<(), String> {
                 ("the build command", RTM_QA_BUILD),
                 ("the build root", &shown_root),
             ],
-        )?,
+        )
+        .and_then(|()| located_error(&refusal))?,
     }
     keeps(&stand_in, STAND_IN_RTM_QA)?;
     keeps(&other_stand_in, STAND_IN_RTM)
@@ -646,6 +695,28 @@ fn reports(refusal: &str, reported: &str) -> Result<(), String> {
 /// doubles each backslash (a path shown through `{:?}`).
 fn carries(text: &str, piece: &str) -> bool {
     text.contains(piece) || text.contains(&piece.replace('\\', "\\\\"))
+}
+
+/// The compiler's own rendering of the planted error: its headline, then on
+/// the next line the ` --> ` location naming `rtm.rs`. A refusal rebuilt from
+/// a record's level and message carries the headline alone.
+fn located_error(refusal: &str) -> Result<(), String> {
+    let headline = format!("error: {PLANTED_ERROR}\n");
+    let located = refusal.match_indices(&headline).any(|(at, _)| {
+        refusal[at + headline.len()..]
+            .lines()
+            .next()
+            .is_some_and(|line| line.trim_start().starts_with("--> ") && line.contains("rtm.rs:"))
+    });
+    if located {
+        Ok(())
+    } else {
+        Err(format!(
+            "the refusal for a build that cannot compile must carry the compiler's rendered \
+             error: `error: {PLANTED_ERROR}` and, on the next line, its ` --> ` location \
+             naming rtm.rs; it does not:\n{refusal}"
+        ))
+    }
 }
 
 /// Cargo's report runs as the Engine: `--help` answers with the Engine's

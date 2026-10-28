@@ -1224,7 +1224,16 @@ const REDIRECT_VARIABLES: [&str; 3] = [
 ];
 
 /// The calls whose answer says whether a variable is set.
-const PRESENCE_TESTS: [&str; 4] = ["is_none", "is_some", "is_ok", "is_err"];
+const PRESENCE_TESTS: [&str; 8] = [
+    "is_none",
+    "is_some",
+    "is_ok",
+    "is_err",
+    "is_some_and",
+    "is_none_or",
+    "is_ok_and",
+    "is_err_and",
+];
 
 /// Cargo's build-output profile folders.
 const PROFILES: [&str; 2] = ["debug", "release"];
@@ -1361,7 +1370,7 @@ fn svev_003() {
 /// exactly the findings it must yield, by line.
 fn inventory_controls() {
     use Finding::{FixedJoin, Reader, Refusal};
-    let controls: [(&str, &[(usize, Finding)]); 20] = [
+    let controls: &[(&str, &[(usize, Finding)])] = &[
         // Readers, comments included.
         (
             "//! from cargo's own `compiler-artifact` message\nlet x = 1;\n",
@@ -1377,7 +1386,42 @@ fn inventory_controls() {
             "if std::env::var(\"CARGO_BUILD_TARGET_DIR\")\n    .is_ok()\n{\n    panic!();\n}\n",
             &[(1, Refusal)],
         ),
-        // Not refusals: a comparison, a child's setting, a comment.
+        // ... the `_and`/`_or` presence tests ...
+        (
+            "assert!(!std::env::var_os(\"CARGO_TARGET_DIR\").is_some_and(|dir| !dir.is_empty()));\n",
+            &[(1, Refusal)],
+        ),
+        (
+            "assert!(std::env::var_os(\"CARGO_BUILD_TARGET\").is_none_or(|target| target.is_empty()));\n",
+            &[(1, Refusal)],
+        ),
+        (
+            "if std::env::var(\"CARGO_BUILD_TARGET_DIR\").is_ok_and(|dir| !dir.is_empty()) {}\n",
+            &[(1, Refusal)],
+        ),
+        (
+            "if std::env::var(\"CARGO_TARGET_DIR\").is_err_and(|error| error != NotPresent) {}\n",
+            &[(1, Refusal)],
+        ),
+        // ... and a read bound by `let Some(..)`/`let Ok(..)`, or matched on.
+        (
+            "if let Some(dir) = std::env::var_os(\"CARGO_TARGET_DIR\") {\n    panic!(\"{dir:?}\");\n}\n",
+            &[(1, Refusal)],
+        ),
+        (
+            "let Ok(dir) = std::env::var(\"CARGO_BUILD_TARGET_DIR\") else {\n    return;\n};\n",
+            &[(1, Refusal)],
+        ),
+        (
+            "while let Some(_) = env::var_os(\"CARGO_BUILD_TARGET\") {}\n",
+            &[(1, Refusal)],
+        ),
+        (
+            "match std::env::var(\"CARGO_TARGET_DIR\").as_deref() {\n    Ok(_) => panic!(),\n    Err(_) => {}\n}\n",
+            &[(1, Refusal)],
+        ),
+        // Not refusals: a comparison, a child's setting, a comment, a plain
+        // read, an equality test, and a lookup that is not the environment.
         (
             "assert_eq!(\n    std::env::var_os(\"CARGO_TARGET_DIR\"),\n    expected\n);\n",
             &[],
@@ -1385,6 +1429,15 @@ fn inventory_controls() {
         ("command.env(\"CARGO_TARGET_DIR\", target);\n", &[]),
         (
             "// std::env::var_os(\"CARGO_TARGET_DIR\").is_none()\n",
+            &[],
+        ),
+        ("let dir = std::env::var_os(\"CARGO_TARGET_DIR\");\n", &[]),
+        (
+            "let same = Some(dir) == std::env::var_os(\"CARGO_TARGET_DIR\");\n",
+            &[],
+        ),
+        (
+            "if let Some(dir) = settings.get(\"CARGO_TARGET_DIR\") {}\n",
             &[],
         ),
         // Fixed joins in every spelling the tree uses.
@@ -1413,8 +1466,23 @@ fn inventory_controls() {
             "let quote = '\"';\nlet built = root.join(\"target/debug\");\n",
             &[(2, FixedJoin)],
         ),
+        // A bare `debug` in any path-building call.
+        ("exe.push(\"debug\");\n", &[(1, FixedJoin)]),
+        (
+            "let built = out.join(Path::new(\"debug\"));\n",
+            &[(1, FixedJoin)],
+        ),
+        (
+            "let built = out.join(if release { \"release\" } else { \"debug\" });\n",
+            &[(1, FixedJoin)],
+        ),
+        (
+            "let built = out.join(format!(\"debug/{name}{}\", EXE_SUFFIX));\n",
+            &[(1, FixedJoin)],
+        ),
         // Not fixed joins: release markers, other folders, fixture text,
-        // prose, and comments.
+        // prose, a `debug` word outside a path, a `debug.log` file, and
+        // comments.
         (
             "let release = barrier_dir.join(\"release\");\nlet held = base.path().join(\"release\");\n",
             &[],
@@ -1429,6 +1497,8 @@ fn inventory_controls() {
             "panic!(\"selecting the hard-coded target/debug binary\");\n",
             &[],
         ),
+        ("let level = \"debug\";\n", &[]),
+        ("let log = scratch.join(\"debug.log\");\n", &[]),
         (
             "/// see `root.join(\"target/debug\").join(\"rtm-qa\")`\n/* root.join(\"debug\") */\n",
             &[],
@@ -1437,7 +1507,7 @@ fn inventory_controls() {
     for (source, expected) in controls {
         let found: Vec<(usize, Finding)> = source_findings(source).into_iter().collect();
         assert_eq!(
-            found, expected,
+            found, *expected,
             "SVEV-003 control: the inventory's matchers misread this source:\n{source}"
         );
     }
@@ -1598,7 +1668,9 @@ fn source_findings(source: &str) -> BTreeSet<(usize, Finding)> {
                     .filter(|segment| !segment.is_empty())
                     .collect();
                 let in_path = calls.iter().any(|forms| *forms);
-                if (in_path && profile_under_target(&segments))
+                // A bare `debug` is a build-output folder in any path; a bare
+                // `release` only on a build folder (see `bare_profile_join`).
+                if (in_path && (profile_under_target(&segments) || segments.contains(&"debug")))
                     || profile_then_binary(&segments)
                     || bare_profile_join(&tokens, at)
                 {
@@ -1654,9 +1726,10 @@ fn forms_path(before: &[(usize, Token)]) -> bool {
     }
 }
 
-/// `.join("debug")`, or `.join("release")` on a receiver naming a build
-/// folder (`target`, `build_dir`, `.join("target")`, ...); a `release`
-/// marker beside a barrier or a scratch folder is not a build folder.
+/// `.join("release")` on a receiver naming a build folder (`target`,
+/// `build_dir`, `.join("target")`, ...). A `release` marker beside a barrier
+/// or a scratch folder is not a build folder, so a bare `release` counts only
+/// here; a bare `debug` counts in any path-building call.
 fn bare_profile_join(tokens: &[(usize, Token)], at: usize) -> bool {
     let token = |index: Option<usize>| {
         index
@@ -1668,16 +1741,13 @@ fn bare_profile_join(tokens: &[(usize, Token)], at: usize) -> bool {
         return false;
     };
     let component = text.trim_end_matches(['/', '\\']);
-    let joined = PROFILES.contains(&component)
+    let joined = component == "release"
         && back(1) == Some(&Token::Mark('('))
         && matches!(back(2), Some(Token::Word(call)) if call == "join")
         && back(3) == Some(&Token::Mark('.'))
         && token(Some(at + 1)) == Some(&Token::Mark(')'));
     if !joined {
         return false;
-    }
-    if component == "debug" {
-        return true;
     }
     match back(4) {
         Some(Token::Word(name)) => names_build_folder(name),
@@ -1697,14 +1767,83 @@ fn names_build_folder(name: &str) -> bool {
     name.contains("target") || name.contains("build")
 }
 
-/// `"CARGO_TARGET_DIR")` (or another redirect variable) followed by
-/// `.is_none()`, `.is_some()`, `.is_ok()`, or `.is_err()`.
+/// A redirect variable whose being set decides a branch: `"CARGO_TARGET_DIR")`
+/// (or another redirect variable) followed by `.is_none()`, `.is_some()`,
+/// `.is_ok()`, `.is_err()`, or their `_and`/`_or` forms; or a `std::env::var`
+/// or `var_os` read of it bound by `let Some(..) =` or `let Ok(..) =` (`if
+/// let`, `while let`, let-else) or matched on.
 fn presence_test(tokens: &[(usize, Token)], at: usize) -> bool {
-    let token = |index: usize| tokens.get(index).map(|(_, token)| token);
-    matches!(token(at), Some(Token::Text(name)) if REDIRECT_VARIABLES.contains(&name.as_str()))
-        && token(at + 1) == Some(&Token::Mark(')'))
-        && token(at + 2) == Some(&Token::Mark('.'))
-        && matches!(token(at + 3), Some(Token::Word(test)) if PRESENCE_TESTS.contains(&test.as_str()))
+    let token = |index: Option<usize>| {
+        index
+            .and_then(|index| tokens.get(index))
+            .map(|(_, token)| token)
+    };
+    let named = matches!(token(Some(at)), Some(Token::Text(name)) if REDIRECT_VARIABLES.contains(&name.as_str()))
+        && token(Some(at + 1)) == Some(&Token::Mark(')'));
+    if !named {
+        return false;
+    }
+    if token(Some(at + 2)) == Some(&Token::Mark('.'))
+        && matches!(token(Some(at + 3)), Some(Token::Word(test)) if PRESENCE_TESTS.contains(&test.as_str()))
+    {
+        return true;
+    }
+    let reads = token(at.checked_sub(1)) == Some(&Token::Mark('('))
+        && matches!(token(at.checked_sub(2)), Some(Token::Word(call)) if call == "var" || call == "var_os");
+    if !reads {
+        return false;
+    }
+    // Back over the read's path (`std::env::`, `env::`) to where it starts.
+    let mut start = at - 2;
+    while start >= 3
+        && token(Some(start - 1)) == Some(&Token::Mark(':'))
+        && token(Some(start - 2)) == Some(&Token::Mark(':'))
+        && matches!(token(Some(start - 3)), Some(Token::Word(_)))
+    {
+        start -= 3;
+    }
+    match token(start.checked_sub(1)) {
+        Some(Token::Word(keyword)) => keyword == "match",
+        Some(Token::Mark('=')) => binds_presence(tokens, start - 1),
+        _ => false,
+    }
+}
+
+/// Whether the `=` at `equals` closes a `let Some(..)` or `let Ok(..)`
+/// pattern. The `=` of `==`, `!=`, `<=`, `+=`, and the like has another mark
+/// before it, never the pattern's `)`.
+fn binds_presence(tokens: &[(usize, Token)], equals: usize) -> bool {
+    let token = |index: Option<usize>| {
+        index
+            .and_then(|index| tokens.get(index))
+            .map(|(_, token)| token)
+    };
+    let Some(mut cursor) = equals.checked_sub(1) else {
+        return false;
+    };
+    if token(Some(cursor)) != Some(&Token::Mark(')')) {
+        return false;
+    }
+    // Back to the `(` that opens the pattern's payload.
+    let mut depth = 0usize;
+    loop {
+        match token(Some(cursor)) {
+            Some(Token::Mark(')')) => depth += 1,
+            Some(Token::Mark('(')) => {
+                depth -= 1;
+                if depth == 0 {
+                    break;
+                }
+            }
+            _ => {}
+        }
+        let Some(previous) = cursor.checked_sub(1) else {
+            return false;
+        };
+        cursor = previous;
+    }
+    matches!(token(cursor.checked_sub(1)), Some(Token::Word(variant)) if variant == "Some" || variant == "Ok")
+        && matches!(token(cursor.checked_sub(2)), Some(Token::Word(keyword)) if keyword == "let")
 }
 
 /// One token of Rust source.

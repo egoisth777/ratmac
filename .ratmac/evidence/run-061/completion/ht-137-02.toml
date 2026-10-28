@@ -1,0 +1,10 @@
+ticket-id = "t-137"
+check-id = "HT-137-02"
+kind = "hidden-lane"
+command = "cargo test --offline --locked --manifest-path test-hidden/t-137/Cargo.toml -- --test-threads=1"
+working-dir = "."
+exit-status = 0
+output-sha256 = "bf29a58d1dba809f2ae127cb90e86a66f6a9e25960892d2b219979166acabe18"
+tree-roots = ["src","profiles","test","test-hidden","tools","Cargo.toml","Cargo.lock","AGENTS.md",".gitignore",".ratmac/ratmac.toml",".ratmac/turn.toml",".ratmac/lanes.toml"]
+tree-sha256 = "4cfe73e9916308178d09c6f07baf0139941a0bb9a808a925cbc8328c1d949899"
+output = "\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 6 tests\ntest ht_137_01_up_to_date_binary_is_still_found ... ok\ntest ht_137_02_only_the_requested_target_name_chooses ... ok\ntest ht_137_03_each_call_answers_only_for_its_own_build ... ok\ntest ht_137_04_nothing_left_behind_carries_into_a_later_run ... ok\ntest ht_137_05_refusal_carries_what_cargo_reported ... ok\ntest ht_137_06_refusing_lane_meets_redirects_through_the_shared_function ... ok\n\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 83.12s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s\n     Running unittests src\\lib.rs (test-hidden\\t-137\\target\\debug\\deps\\ratmac_t137_hidden-30e9a38a09148c33.exe)\n     Running tests\\hidden.rs (test-hidden\\t-137\\target\\debug\\deps\\hidden-a78edb028963c04e.exe)\n   Doc-tests ratmac_t137_hidden\n"

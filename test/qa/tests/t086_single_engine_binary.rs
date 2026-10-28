@@ -5,6 +5,7 @@
 //! DEBV-003 the shipped command keeps its name and stays free of pause points.
 //! DEBV-004 a planted duplicate fails the audit naming both declarations.
 
+use ratmac_qa::baseline::built_executable;
 use ratmac_qa::engine_bin;
 use ratmac_qa::targets::{self, Kind};
 use std::fs;
@@ -130,19 +131,8 @@ fn a_test_launches_the_build_it_was_compiled_against() {
     // through the shipped one: the first parks at the pre-State pause point,
     // the second has none to park at. The pair is what makes the answer
     // meaningful - a drive that always claimed success would fail the second.
-    let build = Command::new(cargo())
-        .args(["build", "--offline", "--bin", "rtm"])
-        .current_dir(&root)
-        .output()
-        .expect("build the shipped command");
-    assert!(
-        build.status.success(),
-        "DEBV-002: the shipped build must succeed: {}",
-        String::from_utf8_lossy(&build.stderr)
-    );
-    let shipped_binary = root
-        .join("target/debug")
-        .join(format!("rtm{}", std::env::consts::EXE_SUFFIX));
+    let shipped_binary = built_executable(&root, &["--offline", "--bin", "rtm"], "rtm")
+        .unwrap_or_else(|refusal| panic!("DEBV-002: the shipped build must succeed: {refusal}"));
 
     assert!(
         HoldFixture::new("debv-002-launched", &launched).reaches_the_snapshot_barrier(),
@@ -178,20 +168,10 @@ fn the_shipped_command_keeps_its_name_and_stays_pause_free() {
         "DEBV-003: the shipped command is built from src/bin/rtm.rs"
     );
 
-    let build = Command::new(cargo())
-        .args(["build", "--offline", "--bin", "rtm"])
-        .current_dir(&root)
-        .output()
-        .expect("build the shipped command");
-    assert!(
-        build.status.success(),
-        "DEBV-003: building the shipped command must succeed: {}",
-        String::from_utf8_lossy(&build.stderr)
-    );
-
-    let binary = root
-        .join("target/debug")
-        .join(format!("rtm{}", std::env::consts::EXE_SUFFIX));
+    let binary =
+        built_executable(&root, &["--offline", "--bin", "rtm"], "rtm").unwrap_or_else(|refusal| {
+            panic!("DEBV-003: building the shipped command must succeed: {refusal}")
+        });
     let bytes = fs::read(&binary).expect("read the shipped command");
     assert!(
         !contains(&bytes, PAUSE_POINT.as_bytes()),
@@ -277,11 +257,6 @@ fn a_planted_duplicate_target_fails_by_name() {
         repaired.collisions.join("\n")
     );
     fs::remove_dir_all(&base).ok();
-}
-
-/// The cargo that built this test.
-fn cargo() -> String {
-    std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned())
 }
 
 /// Whether `haystack` contains `needle`.

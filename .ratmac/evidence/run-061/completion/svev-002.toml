@@ -1,0 +1,10 @@
+ticket-id = "t-137"
+check-id = "SVEV-002"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test t137_build_message_test_engine -- --test-threads=1"
+working-dir = "."
+exit-status = 0
+output-sha256 = "b6838b3e1305ebcaee601a8de2c6b2468461e86d57f3b771cb3c7b0ab0a57012"
+tree-roots = ["src","profiles","test","test-hidden","tools","Cargo.toml","Cargo.lock","AGENTS.md",".gitignore",".ratmac/ratmac.toml",".ratmac/turn.toml",".ratmac/lanes.toml"]
+tree-sha256 = "4cfe73e9916308178d09c6f07baf0139941a0bb9a808a925cbc8328c1d949899"
+output = "\nrunning 2 tests\ntest svev_001 ... ok\ntest svev_002 ... ok\n\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 74.32s\n\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.05s\n     Running tests\\t137_build_message_test_engine.rs (target\\debug\\deps\\t137_build_message_test_engine-b1cd5aa6b7a5a015.exe)\n"

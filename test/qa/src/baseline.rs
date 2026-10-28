@@ -10,7 +10,8 @@
 //! `git archive` into a temporary directory and built with its own build
 //! directory, so no checkout, index, or worktree is disturbed.
 
-use std::collections::BTreeMap;
+use crate::json::Json;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -165,8 +166,10 @@ pub fn repo_root() -> PathBuf {
 /// Returns the built command's path. The extraction directory lives for the
 /// life of the process on purpose: several checks share one build.
 pub fn engine() -> &'static Path {
-    static ENGINE: LazyLock<PathBuf> =
-        LazyLock::new(|| build(&repo_root()).expect("the freeze Engine builds offline"));
+    static ENGINE: LazyLock<PathBuf> = LazyLock::new(|| {
+        build(&repo_root())
+            .unwrap_or_else(|refusal| panic!("the freeze Engine builds offline: {refusal}"))
+    });
     ENGINE.as_path()
 }
 
@@ -207,36 +210,23 @@ fn build(repo_root: &Path) -> Result<PathBuf, String> {
         ));
     }
 
-    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned());
-    let built = Command::new(cargo)
-        // The same feature set the harness's own Engine is built with, so
-        // fault-injection scenarios can be compared at all.
-        .args([
-            "build",
-            "--offline",
-            "--bin",
-            "rtm",
-            "--features",
-            "test-fault-injection",
-        ])
-        .current_dir(&tree)
-        .env("CARGO_TARGET_DIR", &build_dir)
-        .output()
-        .map_err(|error| format!("build the freeze Engine: {error}"))?;
-    if !built.status.success() {
-        return Err(format!(
-            "the freeze Engine did not build: {}",
-            String::from_utf8_lossy(&built.stderr)
-        ));
-    }
-
-    let binary = build_dir
-        .join("debug")
-        .join(format!("rtm{}", std::env::consts::EXE_SUFFIX));
-    if !binary.is_file() {
-        return Err(format!("no freeze Engine at {}", binary.display()));
-    }
-    Ok(binary)
+    // The same feature set the harness's own Engine is built with, so
+    // fault-injection scenarios can be compared at all; the freeze build's
+    // own output folder is named on the command line.
+    built_executable(
+        &tree,
+        &[
+            OsStr::new("--offline"),
+            OsStr::new("--bin"),
+            OsStr::new("rtm"),
+            OsStr::new("--features"),
+            OsStr::new("test-fault-injection"),
+            OsStr::new("--target-dir"),
+            build_dir.as_os_str(),
+        ],
+        "rtm",
+    )
+    .map_err(|refusal| format!("the freeze Engine did not build: {refusal}"))
 }
 
 /// Today's Engine, rebuilt before the first comparison.
@@ -244,26 +234,15 @@ fn build(repo_root: &Path) -> Result<PathBuf, String> {
 /// Cargo hands a built binary's path only to the package that declares it, so
 /// a private lane crate cannot read `CARGO_BIN_EXE_rtm-qa`. Building the same
 /// target here gives every caller the same fresh artifact - never a stale one
-/// left in the build directory by an older run.
+/// left in the build directory by an older run - at the path Cargo reported.
 pub fn today_engine() -> &'static Path {
     static ENGINE: LazyLock<PathBuf> = LazyLock::new(|| {
-        let root = repo_root();
-        let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned());
-        let built = Command::new(cargo)
-            .args(["build", "--offline", "-p", "ratmac-qa", "--bin", "rtm-qa"])
-            .current_dir(&root)
-            .output()
-            .expect("build today's Engine");
-        assert!(
-            built.status.success(),
-            "today's Engine must build: {}",
-            String::from_utf8_lossy(&built.stderr)
-        );
-        let binary = root
-            .join("target/debug")
-            .join(format!("rtm-qa{}", std::env::consts::EXE_SUFFIX));
-        assert!(binary.is_file(), "no Engine at {}", binary.display());
-        binary
+        built_executable(
+            &repo_root(),
+            &["--offline", "-p", "ratmac-qa", "--bin", "rtm-qa"],
+            "rtm-qa",
+        )
+        .unwrap_or_else(|refusal| panic!("today's Engine must build: {refusal}"))
     });
     ENGINE.as_path()
 }
@@ -271,36 +250,103 @@ pub fn today_engine() -> &'static Path {
 /// SVE-001: the executable a `cargo build` of `root` produced for `binary`.
 ///
 /// `args` are the caller's `cargo build` arguments, without `build` itself.
+/// The build runs in `root` with `--message-format=json` added, in this
+/// process's own environment: no redirect variable is set or cleared here.
+/// The answer is the one distinct non-empty `executable` among the
+/// `compiler-artifact` records whose target name is `binary` - Cargo's own
+/// word for where it put the file, wherever its output went - and never a
+/// path joined from a fixed folder.
 ///
-/// t-137 red seam: this answers the way every helper answers today - the
-/// build runs, then the path is joined from the fixed `target/debug` folder -
-/// so the ticket's planned checks can compile and observe that answer before
-/// the shared reader replaces it.
+/// Every refusal names the binary, the build command, the build root, and
+/// every record Cargo reported - or `nothing` when it reported none. No such
+/// record and several distinct paths refuse so; a failed build refuses so and
+/// then carries the `rendered` text of every `compiler-message` record in
+/// Cargo's order, then Cargo's standard error. A refusal launches nothing.
 pub fn built_executable<S: AsRef<OsStr>>(
     root: &Path,
     args: &[S],
     binary: &str,
 ) -> Result<PathBuf, String> {
-    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned());
+    let mut line = String::from("cargo build --message-format=json");
+    for arg in args {
+        line.push(' ');
+        line.push_str(&arg.as_ref().to_string_lossy());
+    }
+    let asked = format!("`{binary}`: `{line}` in {}", root.display());
+    let cargo = std::env::var_os("CARGO")
+        .filter(|cargo| !cargo.is_empty())
+        .unwrap_or_else(|| "cargo".into());
     let built = Command::new(cargo)
-        .arg("build")
+        .args(["build", "--message-format=json"])
         .args(args)
         .current_dir(root)
         .output()
-        .map_err(|error| format!("run cargo build: {error}"))?;
+        .map_err(|error| format!("{asked} did not start: {error}; Cargo reported: nothing"))?;
+
+    let mut rendered = String::new();
+    let mut reported: Vec<(String, Option<String>)> = Vec::new();
+    for message in String::from_utf8_lossy(&built.stdout)
+        .lines()
+        .filter_map(|line| Json::parse(line).ok())
+    {
+        let fields = message.as_object();
+        match message.field("reason") {
+            Some("compiler-message") => {
+                let text = fields
+                    .and_then(|fields| fields.get("message"))
+                    .and_then(|diagnostic| diagnostic.field("rendered"));
+                if let Some(text) = text {
+                    rendered.push_str(text);
+                    if !text.ends_with('\n') {
+                        rendered.push('\n');
+                    }
+                }
+            }
+            Some("compiler-artifact") => {
+                let name = fields
+                    .and_then(|fields| fields.get("target"))
+                    .and_then(|target| target.field("name"))
+                    .unwrap_or_default();
+                let executable = message.field("executable").filter(|path| !path.is_empty());
+                reported.push((name.to_owned(), executable.map(str::to_owned)));
+            }
+            _ => {}
+        }
+    }
+
+    let mut listing = String::new();
+    for (name, executable) in &reported {
+        listing.push_str(&format!(
+            "\n  {name}: {}",
+            executable.as_deref().unwrap_or("no executable")
+        ));
+    }
+    if listing.is_empty() {
+        listing.push_str(" nothing");
+    }
     if !built.status.success() {
         return Err(format!(
-            "the build failed: {}",
+            "{asked} failed ({}); Cargo reported:{listing}\n{rendered}Cargo's standard error:\n{}",
+            built.status,
             String::from_utf8_lossy(&built.stderr)
         ));
     }
-    let path = root
-        .join("target/debug")
-        .join(format!("{binary}{}", std::env::consts::EXE_SUFFIX));
-    if !path.is_file() {
-        return Err(format!("no Engine at {}", path.display()));
+    let paths: BTreeSet<&str> = reported
+        .iter()
+        .filter(|(name, _)| name == binary)
+        .filter_map(|(_, executable)| executable.as_deref())
+        .collect();
+    let mut each = paths.iter();
+    if let (Some(path), None) = (each.next(), each.next()) {
+        return Ok(PathBuf::from(path));
     }
-    Ok(path)
+    let found = match paths.len() {
+        0 => "no executable".to_owned(),
+        several => format!("{several} distinct executables"),
+    };
+    Err(format!(
+        "{asked} reported {found} for it; Cargo reported:{listing}"
+    ))
 }
 
 /// One command a caller can run, written in the freeze's words.

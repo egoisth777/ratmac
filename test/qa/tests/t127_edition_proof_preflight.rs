@@ -4,10 +4,12 @@
 //!
 //! The `edition-cut` carrier is a harness contributor tool the implementer of
 //! this ticket still owns, so these checks never name it at compile time: they
-//! build it once per process with the usual scrubbed cargo invocation and fail
-//! with a clear message while it does not exist. Every fixture is an isolated
-//! temporary repository; the `edition` audit functions are the shared oracle.
+//! build it once per process through the baseline support's shared build
+//! helper and fail with a clear message while it does not exist. Every fixture
+//! is an isolated temporary repository; the `edition` audit functions are the
+//! shared oracle.
 
+use ratmac_qa::baseline::built_executable;
 use ratmac_qa::edition::{
     audit_editions, audit_sequence, edition_commit, edition_tags, repo_root, AuditFinding,
     EXAMPLE_BAR_MESSAGE, LEDGER_PATH, RECORDED_BAR,
@@ -41,36 +43,12 @@ fn edition_cut_binary() -> PathBuf {
 /// Build the carrier once per process, or say why in cargo's own words. The
 /// failure is data, never a panic, so every red test reports it verbatim.
 fn build_edition_cut() -> Result<PathBuf, String> {
-    let root = repo_root();
-    let build = support::command("cargo", &root)
-        .args([
-            "build",
-            "--offline",
-            "-p",
-            "ratmac-qa",
-            "--bin",
-            "edition-cut",
-        ])
-        .output()
-        .map_err(|error| format!("run cargo build for the edition-cut binary: {error}"))?;
-    if !build.status.success() {
-        return Err(format!(
-            "`cargo build --offline -p ratmac-qa --bin edition-cut` must succeed; \
-             the edition-cut carrier does not exist yet:\n{}",
-            support::text(&build)
-        ));
-    }
-    let binary = root
-        .join("target")
-        .join("debug")
-        .join(format!("edition-cut{}", std::env::consts::EXE_SUFFIX));
-    if !binary.is_file() {
-        return Err(format!(
-            "the edition-cut binary must exist at {} after the build",
-            binary.display()
-        ));
-    }
-    Ok(binary)
+    built_executable(
+        &repo_root(),
+        &["--offline", "-p", "ratmac-qa", "--bin", "edition-cut"],
+        "edition-cut",
+    )
+    .map_err(|refusal| format!("the edition-cut carrier must build:\n{refusal}"))
 }
 
 /// Give one `edition-cut` child process the isolated Git configuration every
