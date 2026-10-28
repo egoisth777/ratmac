@@ -7,6 +7,7 @@
 //! LNRV-003 `an_expiry_marker_moves_a_lane_out_of_both_counts_naming_its_edition`
 //! LNRV-004 `the_close_guard_refuses_only_a_red_unexpired_verdict`
 //! LNRV-005 `a_sweep_changes_only_the_report_and_a_marker_changes_only_its_own_bytes`
+//! SVEV-019 `svev_019` (t-138 / SVE-003: sweep crates build apart)
 //!
 //! The surface under test is `tools/sweep_lanes.py`, the link check's sibling
 //! under `tools/`: one command enumerating the declared lanes root in id
@@ -68,11 +69,12 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf, Prefix};
 use std::process::{Command, Output};
 use std::sync::{Arc, Mutex};
 
 use ratmac_qa::lane_runs;
+use ratmac_qa::support::TempTree;
 use ratmac_qa::turn::SKIP;
 
 /// One declared report row: (crate, verdict, detail).
@@ -1125,4 +1127,353 @@ fn a_sweep_changes_only_the_report_and_a_marker_changes_only_its_own_bytes() {
         before_marker, after_unmark,
         "unmarking restores the tree exactly"
     );
+}
+
+// --- SVEV-019 -----------------------------------------------------------------
+
+/// The SVEV-019 fixture crates: each crate id with its package name. The
+/// package names differ from the ids and from each other, so either crate's
+/// build output can be told apart by name in any folder.
+const BUILD_APART_CRATES: [(&str, &str); 2] =
+    [("t-001", "svev019_first"), ("t-002", "svev019_second")];
+
+/// Each fixture crate's one lane: it writes the path of the test executable
+/// it runs as into `executable.txt` inside its own crate.
+const RECORDING_LANE: &str = r#"#[test]
+fn records_its_test_executable() {
+    let executable = std::env::current_exe().expect("the test executable has a path");
+    let path = executable.to_str().expect("the test executable's path is UTF-8");
+    let record = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("executable.txt");
+    std::fs::write(record, path).expect("record the test executable's path");
+}
+"#;
+
+/// The SVEV-019 fixture: a lanes root of two standard-library-only crates
+/// below a `.cargo/config.toml` whose `build.target-dir` names the
+/// configured folder, a tree of its own outside the fixture; a third tree is
+/// the folder the explicit `--target-dir` opt-in names. All three trees are
+/// removed when this value drops.
+struct BuildApart {
+    root: TempTree,
+    configured: TempTree,
+    named: TempTree,
+}
+
+impl BuildApart {
+    fn new() -> Self {
+        let root = TempTree::new("svev019-fixture").expect("create the SVEV-019 fixture");
+        let configured = TempTree::new("svev019-configured").expect("create the configured folder");
+        let named = TempTree::new("svev019-named").expect("create the named folder");
+        root.write(
+            ".ratmac/lanes.toml",
+            "# The SVEV-019 fixture lane declaration - the runbook's [roots] shape.\n\
+             [roots]\nlanes = \"test-hidden\"\n\
+             report = \".ratmac/evidence/lane-sweep/report.md\"\n\
+             roster = [\"t-001\", \"t-002\"]\n",
+        );
+        for (crate_id, package) in BUILD_APART_CRATES {
+            root.write(
+                format!("test-hidden/{crate_id}/Cargo.toml"),
+                format!(
+                    "# SVEV-019 fixture lane crate for {crate_id}.\n[package]\n\
+                     name = \"{package}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\
+                     publish = false\n\n[workspace]\n"
+                ),
+            );
+            root.write(format!("test-hidden/{crate_id}/src/lib.rs"), RECORDING_LANE);
+        }
+        let fixture = Self {
+            root,
+            configured,
+            named,
+        };
+        fixture.set_configured(true);
+        fixture
+    }
+
+    fn crate_dir(&self, crate_id: &str) -> PathBuf {
+        self.root.join("test-hidden").join(crate_id)
+    }
+
+    /// Put the setting in place - `.cargo/config.toml` in the fixture root,
+    /// above both crates, with `build.target-dir` naming the configured
+    /// folder - or take it away.
+    fn set_configured(&self, setting: bool) {
+        if setting {
+            let folder = self
+                .configured
+                .path()
+                .to_str()
+                .expect("the configured folder's path is UTF-8");
+            assert!(
+                !folder.contains('\''),
+                "the configured folder fits a TOML literal string: {folder}"
+            );
+            self.root.write(
+                ".cargo/config.toml",
+                format!(
+                    "# Every build below this folder goes to one configured folder.\n\
+                     [build]\ntarget-dir = '{folder}'\n"
+                ),
+            );
+        } else {
+            let file = self.root.join(".cargo/config.toml");
+            fs::remove_file(&file)
+                .unwrap_or_else(|error| panic!("take away {}: {error}", file.display()));
+        }
+    }
+
+    /// One `sweep` through the shipped script and the fixture's declaration,
+    /// `extra` after the verb. Both crates must read green and each lane must
+    /// have recorded its test executable afresh; the recorded paths come back
+    /// in roster order.
+    fn sweep(&self, extra: &[&str], what: &str) -> [PathBuf; 2] {
+        let report = self.root.join(".ratmac/evidence/lane-sweep/report.md");
+        // Nothing an earlier sweep left may pass for this sweep's report or
+        // records.
+        let _ = fs::remove_file(&report);
+        for (crate_id, _) in BUILD_APART_CRATES {
+            let _ = fs::remove_file(self.crate_dir(crate_id).join("executable.txt"));
+        }
+        let declaration = self.root.join(".ratmac/lanes.toml");
+        let mut args = vec![
+            "sweep",
+            "--config",
+            declaration.to_str().expect("the fixture's path is UTF-8"),
+        ];
+        args.extend_from_slice(extra);
+        let output = run_sweep(self.root.path(), &args);
+        let text = fs::read_to_string(&report).unwrap_or_else(|error| {
+            panic!(
+                "SVEV-019: {what} wrote no report at {} ({error}); the sweep said: {}",
+                report.display(),
+                combined(&output)
+            )
+        });
+        let rows = rows_of(&text);
+        let verdicts: Vec<(&str, &str)> = rows
+            .iter()
+            .map(|(crate_id, verdict, _)| (crate_id.as_str(), verdict.as_str()))
+            .collect();
+        assert!(
+            output.status.code() == Some(0) && verdicts == [("t-001", "pass"), ("t-002", "pass")],
+            "SVEV-019: {what} must read both crates green; observed exit {:?} and rows \
+             {rows:?}; the sweep said: {}",
+            output.status.code(),
+            combined(&output)
+        );
+        BUILD_APART_CRATES.map(|(crate_id, _)| {
+            let record = self.crate_dir(crate_id).join("executable.txt");
+            let recorded = fs::read_to_string(&record).unwrap_or_else(|error| {
+                panic!(
+                    "SVEV-019: in {what}, {crate_id}'s lane recorded no test executable at {} \
+                     ({error})",
+                    record.display()
+                )
+            });
+            PathBuf::from(recorded.trim())
+        })
+    }
+}
+
+/// A path as comparable parts. `canonicalize` resolves short names and
+/// letter case the way the file system does; the `\\?\` prefix it adds on
+/// Windows is reduced to the plain drive or share, the same way on both
+/// sides of every comparison.
+fn path_parts(path: &Path) -> Vec<String> {
+    let resolved = path
+        .canonicalize()
+        .unwrap_or_else(|error| panic!("SVEV-019: resolve {}: {error}", path.display()));
+    resolved
+        .components()
+        .map(|component| match component {
+            Component::Prefix(prefix) => match prefix.kind() {
+                Prefix::Disk(letter) | Prefix::VerbatimDisk(letter) => {
+                    format!("{}:", char::from(letter).to_ascii_uppercase())
+                }
+                Prefix::UNC(server, share) | Prefix::VerbatimUNC(server, share) => format!(
+                    r"\\{}\{}",
+                    server.to_string_lossy(),
+                    share.to_string_lossy()
+                ),
+                _ => component.as_os_str().to_string_lossy().into_owned(),
+            },
+            other => other.as_os_str().to_string_lossy().into_owned(),
+        })
+        .collect()
+}
+
+/// The folder Cargo built a test executable in, as path parts: a test
+/// executable sits at `<build folder>/debug/deps/<name>`.
+fn build_folder(executable: &[String]) -> Option<&[String]> {
+    match executable {
+        [folder @ .., debug, deps, _name] if debug == "debug" && deps == "deps" => Some(folder),
+        _ => None,
+    }
+}
+
+/// Where a test executable was built, in words, against `folder` (called
+/// `called`): in that folder itself, in a folder inside it, or outside it.
+fn placement(executable: &[String], folder: &[String], called: &str) -> String {
+    match build_folder(executable) {
+        Some(built) if built == folder => format!("in {called} itself"),
+        Some(built) if built.starts_with(folder) => {
+            format!("in {} inside {called}", built[folder.len()..].join("/"))
+        }
+        Some(_) => format!("outside {called}"),
+        None => "outside Cargo's `debug/deps` layout".to_owned(),
+    }
+}
+
+/// Every path below `folder` whose name carries `name`: a crate's build
+/// output (fingerprints, objects, test executables) carries its crate name.
+/// A folder that does not exist holds nothing.
+fn named_entries(folder: &Path, name: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut pending = Vec::new();
+    if folder.is_dir() {
+        pending.push(folder.to_path_buf());
+    }
+    while let Some(directory) = pending.pop() {
+        let entries = fs::read_dir(&directory)
+            .unwrap_or_else(|error| panic!("SVEV-019: list {}: {error}", directory.display()));
+        for entry in entries {
+            let path = entry.expect("read a build output entry").path();
+            if path
+                .file_name()
+                .is_some_and(|file| file.to_string_lossy().contains(name))
+            {
+                found.push(path.display().to_string());
+            }
+            if path.is_dir() {
+                pending.push(path);
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
+/// SVEV-019 (t-138, SVE-003): by default the sweep builds each crate in a
+/// folder no other crate builds into, even when a Cargo configuration file
+/// above both crates sends every build to one folder: each crate's folder
+/// then sits inside that configured folder, named after the crate. Without
+/// the setting each crate builds in its own `target`, and the explicit
+/// `--target-dir` opt-in still sends both crates to the one folder it names.
+#[test]
+fn svev_019() {
+    let fixture = BuildApart::new();
+    let [(first, first_package), (second, second_package)] = BUILD_APART_CRATES;
+
+    // One default sweep over the fixture as built, the setting in place,
+    // reads both crates green. Where it built them is judged last, after the
+    // two sweeps whose readings hold both today and after the change, so a
+    // failure there is about the configured folder alone. What each crate's
+    // folder inside the configured folder holds is read now, before any later
+    // sweep runs.
+    let configured_run = fixture.sweep(&[], "the default sweep under the configured folder");
+    let crossed = [
+        (
+            first,
+            second,
+            named_entries(&fixture.configured.join(first), second_package),
+        ),
+        (
+            second,
+            first,
+            named_entries(&fixture.configured.join(second), first_package),
+        ),
+    ];
+
+    // The same root swept again without the setting: each crate builds in
+    // its own `target`.
+    fixture.set_configured(false);
+    let unconfigured_run = fixture.sweep(&[], "the default sweep without the setting");
+    let own_targets = BUILD_APART_CRATES.map(|(crate_id, _)| {
+        let mut parts = path_parts(&fixture.crate_dir(crate_id));
+        parts.push("target".to_owned());
+        parts
+    });
+    let built = unconfigured_run.each_ref().map(|path| path_parts(path));
+    assert!(
+        build_folder(&built[0]) == Some(&own_targets[0][..])
+            && build_folder(&built[1]) == Some(&own_targets[1][..]),
+        "SVEV-019: without the setting each crate must build in its own `target`; observed \
+         {first}'s test executable at {} ({}) and {second}'s at {} ({})",
+        unconfigured_run[0].display(),
+        placement(&built[0], &own_targets[0], "its own `target`"),
+        unconfigured_run[1].display(),
+        placement(&built[1], &own_targets[1], "its own `target`"),
+    );
+
+    // And swept again with `--target-dir`. The reading chosen: the setting is
+    // put back and the opt-in names a third folder, outside the fixture and
+    // the configured folder, so the explicit opt-in must still win over the
+    // configured folder and send both crates to the one folder it names, as
+    // it does today.
+    fixture.set_configured(true);
+    let named_folder = fixture
+        .named
+        .path()
+        .to_str()
+        .expect("the named folder's path is UTF-8");
+    let opted_run = fixture.sweep(
+        &["--target-dir", named_folder],
+        "the sweep with `--target-dir`",
+    );
+    let named = path_parts(fixture.named.path());
+    let built = opted_run.each_ref().map(|path| path_parts(path));
+    assert!(
+        built
+            .iter()
+            .all(|parts| build_folder(parts) == Some(&named[..])),
+        "SVEV-019: with `--target-dir {named_folder}` both crates must build in that one named \
+         folder; observed {first}'s test executable at {} ({}) and {second}'s at {} ({})",
+        opted_run[0].display(),
+        placement(&built[0], &named, "the named folder"),
+        opted_run[1].display(),
+        placement(&built[1], &named, "the named folder"),
+    );
+
+    // The default sweep under the configured folder must have built each
+    // crate in a folder of its own inside it, named after the crate: the
+    // crate's id, so `<configured folder>/t-001`. Today both builds share the
+    // configured folder itself.
+    let configured = path_parts(fixture.configured.path());
+    let expected = BUILD_APART_CRATES.map(|(crate_id, _)| {
+        let mut parts = configured.clone();
+        parts.push(crate_id.to_owned());
+        parts
+    });
+    let built = configured_run.each_ref().map(|path| path_parts(path));
+    let words = built
+        .each_ref()
+        .map(|parts| placement(parts, &configured, "the configured folder"));
+    let finding = if words[0] == words[1] {
+        format!("both paths lie {}", words[0])
+    } else {
+        format!(
+            "{first}'s path lies {} and {second}'s {}",
+            words[0], words[1]
+        )
+    };
+    assert!(
+        build_folder(&built[0]) == Some(&expected[0][..])
+            && build_folder(&built[1]) == Some(&expected[1][..]),
+        "SVEV-019: the default sweep must build each crate in a folder of its own inside the \
+         configured folder {}, named after the crate; observed {first}'s test executable at {} \
+         and {second}'s at {}: {finding}",
+        fixture.configured.path().display(),
+        configured_run[0].display(),
+        configured_run[1].display(),
+    );
+
+    // Neither crate's build output appears in the other's folder.
+    for (owner, intruder, entries) in &crossed {
+        assert!(
+            entries.is_empty(),
+            "SVEV-019: {intruder}'s build output appears in {owner}'s folder inside the \
+             configured folder: {entries:?}"
+        );
+    }
 }
