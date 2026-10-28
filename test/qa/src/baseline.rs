@@ -11,6 +11,7 @@
 //! directory, so no checkout, index, or worktree is disturbed.
 
 use std::collections::BTreeMap;
+use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -265,6 +266,41 @@ pub fn today_engine() -> &'static Path {
         binary
     });
     ENGINE.as_path()
+}
+
+/// SVE-001: the executable a `cargo build` of `root` produced for `binary`.
+///
+/// `args` are the caller's `cargo build` arguments, without `build` itself.
+///
+/// t-137 red seam: this answers the way every helper answers today - the
+/// build runs, then the path is joined from the fixed `target/debug` folder -
+/// so the ticket's planned checks can compile and observe that answer before
+/// the shared reader replaces it.
+pub fn built_executable<S: AsRef<OsStr>>(
+    root: &Path,
+    args: &[S],
+    binary: &str,
+) -> Result<PathBuf, String> {
+    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned());
+    let built = Command::new(cargo)
+        .arg("build")
+        .args(args)
+        .current_dir(root)
+        .output()
+        .map_err(|error| format!("run cargo build: {error}"))?;
+    if !built.status.success() {
+        return Err(format!(
+            "the build failed: {}",
+            String::from_utf8_lossy(&built.stderr)
+        ));
+    }
+    let path = root
+        .join("target/debug")
+        .join(format!("{binary}{}", std::env::consts::EXE_SUFFIX));
+    if !path.is_file() {
+        return Err(format!("no Engine at {}", path.display()));
+    }
+    Ok(path)
 }
 
 /// One command a caller can run, written in the freeze's words.

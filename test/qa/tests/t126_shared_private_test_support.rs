@@ -5,7 +5,7 @@ use ratmac_qa::json::Json;
 use ratmac_qa::lane_runs;
 use ratmac_qa::tempgit::TempRepo;
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
@@ -1186,4 +1186,695 @@ fn wcpv_005() {
         second_before,
         "independent victim remains unchanged"
     );
+}
+
+// --- SVEV-003: one reader of Cargo's build messages ---------------------------
+
+/// What one SVEV-003 inventory finding is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Finding {
+    /// `--message-format` or `compiler-artifact`, comments included: a source
+    /// reading Cargo's build messages itself.
+    Reader,
+    /// A test of whether a build-redirect variable is set: a lane refusing
+    /// (or falling back) because Cargo's output may have moved.
+    Refusal,
+    /// A `debug` or `release` build-output folder joined into a path.
+    FixedJoin,
+}
+
+impl Finding {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Reader => "build-message reader",
+            Self::Refusal => "redirect refusal",
+            Self::FixedJoin => "fixed join",
+        }
+    }
+}
+
+/// Words only a source reading Cargo's build messages carries.
+const BUILD_MESSAGE_WORDS: [&str; 2] = ["--message-format", "compiler-artifact"];
+
+/// The variables that move Cargo's build output.
+const REDIRECT_VARIABLES: [&str; 3] = [
+    "CARGO_TARGET_DIR",
+    "CARGO_BUILD_TARGET_DIR",
+    "CARGO_BUILD_TARGET",
+];
+
+/// The calls whose answer says whether a variable is set.
+const PRESENCE_TESTS: [&str; 4] = ["is_none", "is_some", "is_ok", "is_err"];
+
+/// Cargo's build-output profile folders.
+const PROFILES: [&str; 2] = ["debug", "release"];
+
+/// The binaries this repository builds and its test helpers launch.
+const LAUNCHED_BINARIES: [&str; 4] = ["rtm", "rtm-qa", "edition-cut", "snapshot-manifest"];
+
+/// One named exception: a file, or every file under a folder ending in `/`;
+/// the finding kinds it may hold; and why.
+struct Exception {
+    path: &'static str,
+    kinds: &'static [Finding],
+    reason: &'static str,
+}
+
+/// SVEV-003's exceptions, file by file. The baseline support is exempt only as
+/// the one reader: its fixed joins stay findings. No exception covers a
+/// redirect refusal.
+const EXCEPTIONS: [Exception; 10] = [
+    Exception {
+        path: "test/qa/src/baseline.rs",
+        kinds: &[Finding::Reader],
+        reason: "the one shared reader of Cargo's build messages (`built_executable`)",
+    },
+    Exception {
+        path: "test/qa/tests/t045_bootstrap_doctor.rs",
+        kinds: &[Finding::FixedJoin],
+        reason: "out of scope (i-063): inspects the bootstrap, which belongs to \
+                 i-064-cargo-built-bootstrap-engine",
+    },
+    Exception {
+        path: "test/qa/tests/t102_stable_bootstrap.rs",
+        kinds: &[Finding::FixedJoin],
+        reason: "out of scope (i-063): inspects the bootstrap, which belongs to \
+                 i-064-cargo-built-bootstrap-engine",
+    },
+    Exception {
+        path: "test-hidden/t-102/",
+        kinds: &[Finding::FixedJoin],
+        reason: "the stable bootstrap suite's private lane: the same bootstrap product, \
+                 i-064's (a site i-063's evidence does not name)",
+    },
+    Exception {
+        path: "test/qa/tests/t101_engine_channels.rs",
+        kinds: &[Finding::FixedJoin],
+        reason: "out of scope (i-063): `target/debug/rtm` is a made-up recorded identity \
+                 that no build produces",
+    },
+    Exception {
+        path: "test-hidden/t-101/",
+        kinds: &[Finding::FixedJoin],
+        reason: "the Engine channels suite's private lane: the same made-up recorded \
+                 identity (a site i-063's evidence does not name)",
+    },
+    Exception {
+        path: "test/qa/tests/t110_post_split_ports.rs",
+        kinds: &[Finding::FixedJoin],
+        reason: "out of scope (i-063): only names a path for text normalization and runs nothing",
+    },
+    Exception {
+        path: "test/qa/tests/t126_shared_private_test_support.rs",
+        kinds: &[Finding::Reader, Finding::FixedJoin],
+        reason: "this inventory's own patterns and controls, and a fixture lane's folder \
+                 (out of scope, i-063)",
+    },
+    Exception {
+        path: "test/qa/tests/t137_build_message_test_engine.rs",
+        kinds: &[Finding::Reader, Finding::FixedJoin],
+        reason: "the t-137 public oracle: its independent comparison build reads Cargo's \
+                 messages, and its scratch copies plant stand-ins at the fixed folder",
+    },
+    Exception {
+        path: "test-hidden/t-137/",
+        kinds: &[Finding::Reader, Finding::FixedJoin],
+        reason: "the t-137 private lane: the same independent comparison builds and \
+                 planted stand-ins",
+    },
+];
+
+/// SVEV-003 / SVE-001: one reader of Cargo's build messages. A source
+/// inventory over the test crate and every live private lane on the roster
+/// finds `--message-format` and `compiler-artifact` only in the baseline
+/// support, no lane testing whether a build-redirect variable is set, and no
+/// `debug` or `release` build-output folder joined into a path outside the
+/// exceptions named file by file. Every `target/` folder and the frozen
+/// before-source corpus are not sources. The matchers first prove themselves
+/// on known shapes, so a blind matcher cannot pass.
+#[test]
+fn svev_003() {
+    inventory_controls();
+    let root = repo_root();
+    let (sources, lanes) = build_message_inventory(&root);
+    let mut findings = Vec::new();
+    let mut set_aside: BTreeMap<(String, Finding), (Vec<usize>, &str)> = BTreeMap::new();
+    for (path, text) in &sources {
+        let lines: Vec<&str> = text.lines().collect();
+        for (line, kind) in source_findings(text) {
+            match exception_for(path, kind) {
+                Some(reason) => set_aside
+                    .entry((path.clone(), kind))
+                    .or_insert_with(|| (Vec::new(), reason))
+                    .0
+                    .push(line),
+                None => findings.push(format!(
+                    "  {path}:{line}: {}: {}",
+                    kind.label(),
+                    clip(lines.get(line - 1).copied().unwrap_or_default())
+                )),
+            }
+        }
+    }
+    let exempt: Vec<String> = set_aside
+        .iter()
+        .map(|((path, kind), (lines, reason))| {
+            let lines: Vec<String> = lines.iter().map(ToString::to_string).collect();
+            format!("  {path}:{} ({}): {reason}", lines.join(","), kind.label())
+        })
+        .collect();
+    assert!(
+        findings.is_empty(),
+        "SVEV-003: Cargo's build messages must be read only in test/qa/src/baseline.rs, no lane \
+         may test whether a build-redirect variable is set, and no debug or release build-output \
+         folder may be joined into a path outside the named exceptions; the inventory of {} \
+         sources (test/qa/src, test/qa/tests, and {lanes} roster lanes) found {}:\n{}\n\
+         set aside by named exceptions:\n{}",
+        sources.len(),
+        findings.len(),
+        findings.join("\n"),
+        exempt.join("\n")
+    );
+}
+
+/// The matchers on known shapes first: each control is a source text and
+/// exactly the findings it must yield, by line.
+fn inventory_controls() {
+    use Finding::{FixedJoin, Reader, Refusal};
+    let controls: [(&str, &[(usize, Finding)]); 20] = [
+        // Readers, comments included.
+        (
+            "//! from cargo's own `compiler-artifact` message\nlet x = 1;\n",
+            &[(1, Reader)],
+        ),
+        ("command.arg(\"--message-format=json\");\n", &[(1, Reader)]),
+        // Refusals: a presence test on a redirect variable, split or not.
+        (
+            "assert!(\n    std::env::var_os(\"CARGO_TARGET_DIR\").is_none(),\n    \"unset it\"\n);\n",
+            &[(2, Refusal)],
+        ),
+        (
+            "if std::env::var(\"CARGO_BUILD_TARGET_DIR\")\n    .is_ok()\n{\n    panic!();\n}\n",
+            &[(1, Refusal)],
+        ),
+        // Not refusals: a comparison, a child's setting, a comment.
+        (
+            "assert_eq!(\n    std::env::var_os(\"CARGO_TARGET_DIR\"),\n    expected\n);\n",
+            &[],
+        ),
+        ("command.env(\"CARGO_TARGET_DIR\", target);\n", &[]),
+        (
+            "// std::env::var_os(\"CARGO_TARGET_DIR\").is_none()\n",
+            &[],
+        ),
+        // Fixed joins in every spelling the tree uses.
+        (
+            "let binary = root\n    .join(\"target/debug\")\n    .join(format!(\"rtm-qa{}\", SUFFIX));\n",
+            &[(2, FixedJoin)],
+        ),
+        (
+            "let binary = build_dir\n    .join(\"debug\")\n    .join(name);\n",
+            &[(2, FixedJoin)],
+        ),
+        (
+            "let binary = root.join(\"target\").join(\"release\").join(name);\n",
+            &[(1, FixedJoin)],
+        ),
+        (
+            "let path = PathBuf::from(format!(\"{}/target/debug/{name}\", root.display()));\n",
+            &[(1, FixedJoin)],
+        ),
+        ("resolved: \"target/debug/rtm\".into(),\n", &[(1, FixedJoin)]),
+        (
+            "let cut = Path::new(r\"out\\release\\edition-cut.exe\");\n",
+            &[(1, FixedJoin)],
+        ),
+        (
+            "let quote = '\"';\nlet built = root.join(\"target/debug\");\n",
+            &[(2, FixedJoin)],
+        ),
+        // Not fixed joins: release markers, other folders, fixture text,
+        // prose, and comments.
+        (
+            "let release = barrier_dir.join(\"release\");\nlet held = base.path().join(\"release\");\n",
+            &[],
+        ),
+        ("let marker = scratch.join(\"release\");\n", &[]),
+        (
+            "let proof = fixture.linked.join(\"artifacts/release/proof.txt\");\n",
+            &[],
+        ),
+        ("tree.write(\"target/debug/build.log\", &carrier);\n", &[]),
+        (
+            "panic!(\"selecting the hard-coded target/debug binary\");\n",
+            &[],
+        ),
+        (
+            "/// see `root.join(\"target/debug\").join(\"rtm-qa\")`\n/* root.join(\"debug\") */\n",
+            &[],
+        ),
+    ];
+    for (source, expected) in controls {
+        let found: Vec<(usize, Finding)> = source_findings(source).into_iter().collect();
+        assert_eq!(
+            found, expected,
+            "SVEV-003 control: the inventory's matchers misread this source:\n{source}"
+        );
+    }
+}
+
+/// Every Rust source of the test crate and of each live lane on the roster in
+/// `.ratmac/lanes.toml`, keyed by its `/`-separated path under `root`, and
+/// the number of roster lanes. Every `target/` folder and the frozen
+/// before-source corpus are left out; a roster lane without a folder, or any
+/// inventoried folder without a Rust source, fails the check, so the
+/// inventory is never vacuous.
+fn build_message_inventory(root: &Path) -> (BTreeMap<String, String>, usize) {
+    let declaration = root.join(".ratmac").join("lanes.toml");
+    let lanes: toml::Value = fs::read_to_string(&declaration)
+        .unwrap_or_else(|error| panic!("SVEV-003: read {}: {error}", declaration.display()))
+        .parse()
+        .unwrap_or_else(|error| panic!("SVEV-003: parse {}: {error}", declaration.display()));
+    let roots = lanes.get("roots");
+    let folder = roots
+        .and_then(|roots| roots.get("lanes"))
+        .and_then(toml::Value::as_str)
+        .expect("SVEV-003: .ratmac/lanes.toml names the lane folder (roots.lanes)");
+    let roster: Vec<&str> = roots
+        .and_then(|roots| roots.get("roster"))
+        .and_then(toml::Value::as_array)
+        .expect("SVEV-003: .ratmac/lanes.toml declares the lane roster (roots.roster)")
+        .iter()
+        .map(|id| {
+            id.as_str()
+                .expect("SVEV-003: every roster entry is a lane id")
+        })
+        .collect();
+    assert!(
+        !roster.is_empty(),
+        "SVEV-003: the lane roster names no lane"
+    );
+    let missing: Vec<String> = roster
+        .iter()
+        .filter(|id| !root.join(folder).join(id).is_dir())
+        .map(|id| format!("{folder}/{id}"))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "SVEV-003: every roster lane must have its folder, or the inventory is vacuous; \
+         missing: {missing:?}"
+    );
+    let frozen = root
+        .join(folder)
+        .join("t-126")
+        .join("fixtures")
+        .join("before");
+    let mut files = Vec::new();
+    for start in [root.join("test/qa/src"), root.join("test/qa/tests")]
+        .into_iter()
+        .chain(roster.iter().map(|id| root.join(folder).join(id)))
+    {
+        rust_sources(&start, &frozen, &mut files);
+    }
+    let mut sources = BTreeMap::new();
+    for file in files {
+        let relative: Vec<String> = file
+            .strip_prefix(root)
+            .expect("SVEV-003: inventoried sources lie under the repository")
+            .components()
+            .map(|part| part.as_os_str().to_string_lossy().into_owned())
+            .collect();
+        let bytes = fs::read(&file)
+            .unwrap_or_else(|error| panic!("SVEV-003: read {}: {error}", file.display()));
+        sources.insert(
+            relative.join("/"),
+            String::from_utf8_lossy(&bytes).into_owned(),
+        );
+    }
+    let empty: Vec<String> = ["test/qa/src/", "test/qa/src/bin/", "test/qa/tests/"]
+        .into_iter()
+        .map(str::to_owned)
+        .chain(roster.iter().map(|id| format!("{folder}/{id}/")))
+        .filter(|prefix| !sources.keys().any(|path| path.starts_with(prefix.as_str())))
+        .collect();
+    assert!(
+        empty.is_empty(),
+        "SVEV-003: every inventoried folder must hold Rust sources; none under {empty:?}"
+    );
+    assert!(
+        sources.contains_key("test/qa/src/baseline.rs"),
+        "SVEV-003: the inventory must read the baseline support"
+    );
+    (sources, roster.len())
+}
+
+/// The `.rs` files under `folder`, skipping every `target/` folder and the
+/// frozen corpus.
+fn rust_sources(folder: &Path, frozen: &Path, found: &mut Vec<PathBuf>) {
+    let entries = fs::read_dir(folder)
+        .unwrap_or_else(|error| panic!("SVEV-003: list {}: {error}", folder.display()));
+    for entry in entries {
+        let entry =
+            entry.unwrap_or_else(|error| panic!("SVEV-003: list {}: {error}", folder.display()));
+        let path = entry.path();
+        let kind = entry
+            .file_type()
+            .unwrap_or_else(|error| panic!("SVEV-003: inspect {}: {error}", path.display()));
+        if kind.is_dir() {
+            if entry.file_name() != "target" && path != frozen {
+                rust_sources(&path, frozen, found);
+            }
+        } else if kind.is_file() && path.extension().is_some_and(|extension| extension == "rs") {
+            found.push(path);
+        }
+    }
+}
+
+/// The exception that covers a `kind` finding in `path`, by its reason.
+fn exception_for(path: &str, kind: Finding) -> Option<&'static str> {
+    EXCEPTIONS
+        .iter()
+        .find(|exception| {
+            exception.kinds.contains(&kind)
+                && if exception.path.ends_with('/') {
+                    path.starts_with(exception.path)
+                } else {
+                    path == exception.path
+                }
+        })
+        .map(|exception| exception.reason)
+}
+
+/// One source line, trimmed and cut short for a failure message.
+fn clip(line: &str) -> String {
+    let line = line.trim();
+    match line.char_indices().nth(110) {
+        Some((cut, _)) => format!("{}...", &line[..cut]),
+        None => line.to_owned(),
+    }
+}
+
+/// The findings in one Rust source, by 1-based line. Readers count anywhere,
+/// comments included; refusals and fixed joins count only in code.
+fn source_findings(source: &str) -> BTreeSet<(usize, Finding)> {
+    let mut found = BTreeSet::new();
+    for (index, line) in source.lines().enumerate() {
+        if BUILD_MESSAGE_WORDS.iter().any(|word| line.contains(word)) {
+            found.insert((index + 1, Finding::Reader));
+        }
+    }
+    let tokens = rust_tokens(source);
+    // One entry per open parenthesis: whether that call forms a path.
+    let mut calls: Vec<bool> = Vec::new();
+    for (at, (line, token)) in tokens.iter().enumerate() {
+        match token {
+            Token::Mark('(') => calls.push(forms_path(&tokens[..at])),
+            Token::Mark(')') => {
+                calls.pop();
+            }
+            Token::Text(text) => {
+                let segments: Vec<&str> = text
+                    .split(['/', '\\'])
+                    .filter(|segment| !segment.is_empty())
+                    .collect();
+                let in_path = calls.iter().any(|forms| *forms);
+                if (in_path && profile_under_target(&segments))
+                    || profile_then_binary(&segments)
+                    || bare_profile_join(&tokens, at)
+                {
+                    found.insert((*line, Finding::FixedJoin));
+                }
+                if presence_test(&tokens, at) {
+                    found.insert((*line, Finding::Refusal));
+                }
+            }
+            _ => {}
+        }
+    }
+    found
+}
+
+/// `target` then `debug` or `release`: a build-output folder named in a path.
+fn profile_under_target(segments: &[&str]) -> bool {
+    segments
+        .windows(2)
+        .any(|pair| pair[0] == "target" && PROFILES.contains(&pair[1]))
+}
+
+/// `debug` or `release` then a launched binary (`rtm-qa.exe`, `rtm{}`, ...).
+fn profile_then_binary(segments: &[&str]) -> bool {
+    segments.windows(2).any(|pair| {
+        let stem: String = pair[1]
+            .chars()
+            .take_while(|character| character.is_ascii_alphanumeric() || *character == '-')
+            .collect();
+        PROFILES.contains(&pair[0]) && LAUNCHED_BINARIES.contains(&stem.as_str())
+    })
+}
+
+/// Whether the call opened by the next `(` forms a path from its arguments:
+/// `.join(`, `.push(`, `Path::new(`, `PathBuf::from(`, and the like.
+fn forms_path(before: &[(usize, Token)]) -> bool {
+    let back = |count: usize| {
+        before
+            .len()
+            .checked_sub(count)
+            .map(|index| &before[index].1)
+    };
+    match back(1) {
+        Some(Token::Word(name)) if name == "join" || name == "push" => {
+            back(2) == Some(&Token::Mark('.'))
+        }
+        Some(Token::Word(name)) if name == "new" || name == "from" => {
+            back(2) == Some(&Token::Mark(':'))
+                && back(3) == Some(&Token::Mark(':'))
+                && matches!(back(4), Some(Token::Word(owner)) if owner == "Path" || owner == "PathBuf")
+        }
+        _ => false,
+    }
+}
+
+/// `.join("debug")`, or `.join("release")` on a receiver naming a build
+/// folder (`target`, `build_dir`, `.join("target")`, ...); a `release`
+/// marker beside a barrier or a scratch folder is not a build folder.
+fn bare_profile_join(tokens: &[(usize, Token)], at: usize) -> bool {
+    let token = |index: Option<usize>| {
+        index
+            .and_then(|index| tokens.get(index))
+            .map(|(_, token)| token)
+    };
+    let back = |count: usize| token(at.checked_sub(count));
+    let Some(Token::Text(text)) = token(Some(at)) else {
+        return false;
+    };
+    let component = text.trim_end_matches(['/', '\\']);
+    let joined = PROFILES.contains(&component)
+        && back(1) == Some(&Token::Mark('('))
+        && matches!(back(2), Some(Token::Word(call)) if call == "join")
+        && back(3) == Some(&Token::Mark('.'))
+        && token(Some(at + 1)) == Some(&Token::Mark(')'));
+    if !joined {
+        return false;
+    }
+    if component == "debug" {
+        return true;
+    }
+    match back(4) {
+        Some(Token::Word(name)) => names_build_folder(name),
+        Some(Token::Mark(')')) => match (back(5), back(6)) {
+            (Some(Token::Text(folder)), Some(Token::Mark('('))) => {
+                folder.trim_end_matches(['/', '\\']) == "target"
+            }
+            (Some(Token::Mark('(')), Some(Token::Word(name))) => names_build_folder(name),
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+fn names_build_folder(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    name.contains("target") || name.contains("build")
+}
+
+/// `"CARGO_TARGET_DIR")` (or another redirect variable) followed by
+/// `.is_none()`, `.is_some()`, `.is_ok()`, or `.is_err()`.
+fn presence_test(tokens: &[(usize, Token)], at: usize) -> bool {
+    let token = |index: usize| tokens.get(index).map(|(_, token)| token);
+    matches!(token(at), Some(Token::Text(name)) if REDIRECT_VARIABLES.contains(&name.as_str()))
+        && token(at + 1) == Some(&Token::Mark(')'))
+        && token(at + 2) == Some(&Token::Mark('.'))
+        && matches!(token(at + 3), Some(Token::Word(test)) if PRESENCE_TESTS.contains(&test.as_str()))
+}
+
+/// One token of Rust source.
+#[derive(Debug, PartialEq)]
+enum Token {
+    /// An identifier, keyword, or number.
+    Word(String),
+    /// A string literal's text, raw and byte forms included.
+    Text(String),
+    /// Any other character.
+    Mark(char),
+}
+
+/// Rust source as tokens, each with the 1-based line it starts on. Comments
+/// are dropped, string literals are decoded enough to read paths, and
+/// character literals and lifetimes never open a string.
+fn rust_tokens(source: &str) -> Vec<(usize, Token)> {
+    let chars: Vec<char> = source.chars().collect();
+    let mut tokens = Vec::new();
+    let mut line = 1;
+    let mut at = 0;
+    while let Some(&character) = chars.get(at) {
+        let next = chars.get(at + 1).copied();
+        if character == '\n' {
+            line += 1;
+            at += 1;
+        } else if character.is_whitespace() {
+            at += 1;
+        } else if character == '/' && next == Some('/') {
+            while chars.get(at).is_some_and(|c| *c != '\n') {
+                at += 1;
+            }
+        } else if character == '/' && next == Some('*') {
+            let mut depth = 0usize;
+            while let Some(&c) = chars.get(at) {
+                let after = chars.get(at + 1).copied();
+                if c == '/' && after == Some('*') {
+                    depth += 1;
+                    at += 2;
+                } else if c == '*' && after == Some('/') {
+                    depth -= 1;
+                    at += 2;
+                    if depth == 0 {
+                        break;
+                    }
+                } else {
+                    line += usize::from(c == '\n');
+                    at += 1;
+                }
+            }
+        } else if character == '"' {
+            let start = line;
+            at += 1;
+            let text = quoted(&chars, &mut at, &mut line);
+            tokens.push((start, Token::Text(text)));
+        } else if character == '\'' {
+            at = past_quote(&chars, at);
+        } else if character.is_alphanumeric() || character == '_' {
+            let begin = at;
+            while chars
+                .get(at)
+                .is_some_and(|c| c.is_alphanumeric() || *c == '_')
+            {
+                at += 1;
+            }
+            let word: String = chars[begin..at].iter().collect();
+            let start = line;
+            match (word.as_str(), chars.get(at)) {
+                ("r" | "br" | "cr", Some('"' | '#')) => {
+                    match raw_text(&chars, &mut at, &mut line) {
+                        Some(text) => tokens.push((start, Token::Text(text))),
+                        None => tokens.push((start, Token::Word(word))),
+                    }
+                }
+                ("b" | "c", Some('"')) => {
+                    at += 1;
+                    let text = quoted(&chars, &mut at, &mut line);
+                    tokens.push((start, Token::Text(text)));
+                }
+                _ => tokens.push((start, Token::Word(word))),
+            }
+        } else {
+            tokens.push((line, Token::Mark(character)));
+            at += 1;
+        }
+    }
+    tokens
+}
+
+/// The text of a string literal whose opening quote is just behind `at`;
+/// leaves `at` past the closing quote.
+fn quoted(chars: &[char], at: &mut usize, line: &mut usize) -> String {
+    let mut text = String::new();
+    while let Some(&c) = chars.get(*at) {
+        *at += 1;
+        match c {
+            '"' => break,
+            '\\' => {
+                let Some(&escaped) = chars.get(*at) else {
+                    break;
+                };
+                *at += 1;
+                match escaped {
+                    'n' => text.push('\n'),
+                    't' => text.push('\t'),
+                    'r' => text.push('\r'),
+                    '0' => text.push('\0'),
+                    '\r' | '\n' => {
+                        // A line continuation: the break and the next
+                        // line's leading whitespace are not text.
+                        *line += usize::from(escaped == '\n');
+                        while let Some(&space) = chars.get(*at) {
+                            if !space.is_whitespace() {
+                                break;
+                            }
+                            *line += usize::from(space == '\n');
+                            *at += 1;
+                        }
+                    }
+                    other => text.push(other),
+                }
+            }
+            other => {
+                *line += usize::from(other == '\n');
+                text.push(other);
+            }
+        }
+    }
+    text
+}
+
+/// The text of a raw string literal whose hashes or opening quote start at
+/// `at`, or `None` (with `at` unmoved) for a raw identifier such as `r#type`.
+fn raw_text(chars: &[char], at: &mut usize, line: &mut usize) -> Option<String> {
+    let mut cursor = *at;
+    let mut hashes = 0;
+    while chars.get(cursor) == Some(&'#') {
+        hashes += 1;
+        cursor += 1;
+    }
+    if chars.get(cursor) != Some(&'"') {
+        return None;
+    }
+    cursor += 1;
+    let mut text = String::new();
+    while let Some(&c) = chars.get(cursor) {
+        cursor += 1;
+        if c == '"' && (0..hashes).all(|offset| chars.get(cursor + offset) == Some(&'#')) {
+            cursor += hashes;
+            break;
+        }
+        *line += usize::from(c == '\n');
+        text.push(c);
+    }
+    *at = cursor;
+    Some(text)
+}
+
+/// Past a character literal at `at`, or just past the quote of a lifetime or
+/// label, so neither can open a string.
+fn past_quote(chars: &[char], at: usize) -> usize {
+    match (chars.get(at + 1), chars.get(at + 2)) {
+        (Some('\\'), _) => {
+            let mut cursor = at + 3;
+            while chars.get(cursor).is_some_and(|c| *c != '\'' && *c != '\n') {
+                cursor += 1;
+            }
+            cursor + 1
+        }
+        (Some(_), Some('\'')) => at + 3,
+        _ => at + 1,
+    }
 }
