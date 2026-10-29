@@ -27,8 +27,9 @@
 //! lane and are correspondingly slow. The two share one sweep per test
 //! process through `real_sweep` - LNRV-005 reads the same genuinely executed
 //! sweep and its bracketing tree snapshots, reused only while the tree still
-//! matches the one that sweep left (WCP-002); each crate builds into its own
-//! target directory exactly as the lane always has, so a sweep re-executes
+//! matches the one that sweep left (WCP-002); each crate builds in a folder
+//! of its own - its own target directory, or a folder named after it inside
+//! the folder a Cargo configuration names (SVE-003) - so a sweep re-executes
 //! lanes rather than perturbing how they run. Every other check runs the
 //! same shipped script over small fixture lanes roots, including `t-078`
 //! and `t-079` twins whose lanes refuse the way the real frozen-source
@@ -66,6 +67,13 @@
 //!   output excluded, the declared skip discipline - must be identical
 //!   apart from the report artifact, and a mark/unmark pair must change
 //!   exactly the marker's own bytes.
+//! - Would SVEV-019 pass a sweep that puts both crates in one folder inside
+//!   the configured folder, or names a crate's folder after anything but
+//!   its id? No. Each test executable must sit at `<configured folder>/<crate
+//!   id>/debug/deps`, neither crate's package-named output may appear in the
+//!   other crate's folder, and the same fixture must still build in each
+//!   crate's own `target` without the setting and in the one named folder
+//!   under `--target-dir`.
 
 use std::collections::BTreeMap;
 use std::fs;

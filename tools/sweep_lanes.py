@@ -36,8 +36,13 @@ against the config's repository root, so a fixture config sweeps a fixture.
 Overrides: --config PATH, --lanes-root PATH, --report PATH, --timeout
 SECONDS per crate (default 1800), and --target-dir PATH - shared build
 output for every crate, an explicit opt-in; by default each crate builds
-into its own target/ directory exactly as the lane always has, so the
-sweep's orchestration perturbs nothing the lane can observe.
+in a folder of its own: its own `target` when Cargo resolves it there,
+otherwise a folder named after the crate inside the folder a Cargo
+configuration names, which still decides where builds are stored (crate
+t-001 then builds in that configured folder's t-001). The sweep asks Cargo
+where a crate's build would go (`cargo metadata`, run in the crate) and
+names the crate's folder only on that crate's `cargo test` command line,
+never in its environment, so no lane process inherits it.
 Exit codes: sweep exits 0 when every present crate reads pass or expired, 1
 tool error. check exits 0 only when the report gives every rostered crate
 pass or expired - a red unexpired verdict, a named-missing crate, a foreign
@@ -48,6 +53,7 @@ from __future__ import annotations
 
 import datetime
 import io
+import json
 import os
 import re
 import subprocess
@@ -170,21 +176,35 @@ def stray_entries(config):
 def run_crate(config, crate, timeout):
     """One `cargo test` in the crate's directory; (verdict, detail).
 
-    The lane runs exactly as it always has - in its own crate, against its
-    own build output - so nothing the sweep does perturbs what the lane can
-    observe: no environment the historical run lacked. `--target-dir`
-    deliberately opts a caller into shared build output instead.
+    The lane runs in its own crate with no environment the historical run
+    lacked. By default it also builds in a folder of its own: before the
+    test, Cargo, asked in the crate, says where the build would go, and the
+    crate's folder is named to Cargo with `--target-dir` on the crate's
+    `cargo test --offline` command line only, never in its environment, so
+    no lane process inherits it. That folder is the crate's own `target`
+    when Cargo resolves it there, as it always was; otherwise it is
+    a folder named after the crate inside the folder a Cargo configuration
+    names, which still decides where builds are stored. When Cargo cannot
+    say where the crate builds, the crate reads red with Cargo's error, as
+    a build refusal does. `--target-dir` deliberately opts a caller into
+    shared build output instead, through the environment as it always has.
     """
     environment = {
         key: value
         for key, value in os.environ.items()
         if not key.upper().startswith("CARGO_")
     }
+    command = ["cargo", "test", "--offline"]
     if config["target_dir"]:
         environment["CARGO_TARGET_DIR"] = config["target_dir"]
+    else:
+        folder, refusal = build_folder(config, crate, environment, timeout)
+        if folder is None:
+            return "red", refusal
+        command += ["--target-dir", folder]
     try:
         completed = subprocess.run(
-            ["cargo", "test", "--offline"],
+            command,
             cwd=crate_dir(config, crate),
             env=environment,
             stdin=subprocess.DEVNULL,
@@ -202,11 +222,70 @@ def run_crate(config, crate, timeout):
     lanes = FAILING_LANE.findall(text)
     if lanes:
         return "red", ", ".join(lanes)
-    match = ERROR_LINE.search(text)
-    if match:
-        detail = " ".join(match.group(1).split())[:160]
-        return "red", f"build refused: {detail}"
+    refusal = build_refusal(text)
+    if refusal:
+        return "red", refusal
     return "red", "cargo exited non-zero with no named lane or error line"
+
+
+def build_folder(config, crate, environment, timeout):
+    """The folder the crate builds in by default: (folder, None), or
+    (None, detail) when Cargo cannot say where the crate's build would go.
+
+    Cargo is asked in the crate, with the environment its test gets. The
+    answer is the crate's own `target` unless a Cargo configuration names
+    another folder, one other crates may share; the crate then builds in
+    a folder named after it inside that one.
+    """
+    try:
+        completed = subprocess.run(
+            ["cargo", "metadata", "--format-version", "1", "--no-deps", "--offline"],
+            cwd=crate_dir(config, crate),
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return None, f"cargo metadata timed out after {timeout}s"
+    except OSError as error:
+        return None, f"cargo did not run: {error}"
+    if completed.returncode != 0:
+        refusal = build_refusal(completed.stderr.decode("utf-8", errors="replace"))
+        return None, refusal or "build refused: cargo metadata exited non-zero with no error line"
+    try:
+        metadata = json.loads(completed.stdout)
+    except ValueError:
+        metadata = None
+    resolved = metadata.get("target_directory") if isinstance(metadata, dict) else None
+    if not isinstance(resolved, str) or not os.path.isabs(resolved):
+        return None, "build refused: cargo metadata printed no usable target_directory"
+    if comparable(resolved) == comparable(os.path.join(crate_dir(config, crate), "target")):
+        return resolved, None
+    return os.path.join(resolved, crate), None
+
+
+def comparable(path):
+    """One spelling for a path, so two spellings of one folder compare equal:
+    the Windows long-path prefix taken off, links and short names resolved,
+    and letter case and separators made the same."""
+    if os.name == "nt" and path.startswith("\\\\?\\"):
+        path = "\\\\" + path[8:] if path.startswith("\\\\?\\UNC\\") else path[4:]
+    try:
+        path = os.path.realpath(path)
+    except (OSError, ValueError):
+        path = os.path.normpath(path)
+    return os.path.normcase(path)
+
+
+def build_refusal(text):
+    """Cargo's first error line as a build refusal's detail, or None."""
+    match = ERROR_LINE.search(text)
+    if not match:
+        return None
+    detail = " ".join(match.group(1).split())[:160]
+    return f"build refused: {detail}"
 
 
 # --- the report --------------------------------------------------------------

@@ -1,0 +1,10 @@
+ticket-id = "t-138"
+check-id = "SVEV-019"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test t108_lane_sweep svev_019 -- --exact"
+working-dir = "."
+exit-status = 0
+output-sha256 = "f34004960bc8cd6ba2117f18788f6a4f850cb4c3cb4e4f654e5b613589914f5b"
+tree-roots = ["src","profiles","test","test-hidden","tools","Cargo.toml","Cargo.lock","AGENTS.md",".gitignore",".ratmac/ratmac.toml",".ratmac/turn.toml",".ratmac/lanes.toml"]
+tree-sha256 = "b103843d0fdf4ac3bc2ee7078cac57c48bcb3d555af4624b78fba36210005ceb"
+output = "\nrunning 1 test\ntest svev_019 ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 3.01s\n\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s\n     Running tests\\t108_lane_sweep.rs (target\\debug\\deps\\t108_lane_sweep-ca48a98abd56bc65.exe)\n"
