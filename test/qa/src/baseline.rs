@@ -349,6 +349,108 @@ pub fn built_executable<S: AsRef<OsStr>>(
     ))
 }
 
+/// SVE-007: a lane's private build folder, held under the lane's lock for the
+/// whole run. Every `cargo build` and `cargo test` a lane runs on the
+/// repository or on another lane's crate goes through it: [`Self::engine`]
+/// for today's Engine, [`Self::build`] for any other binary, [`Self::test`]
+/// for a `cargo test`, and [`Self::cargo`] for any other Cargo command.
+pub struct LaneFolder {
+    path: PathBuf,
+    lock_file: PathBuf,
+}
+
+impl LaneFolder {
+    /// The folder: `<target_tmpdir>/<lane>`, every Cargo run's `--target-dir`.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// The lock file `lane.lock` inside the folder, held until the process
+    /// that took it exits.
+    pub fn lock_file(&self) -> &Path {
+        &self.lock_file
+    }
+
+    /// `cargo build` in `root` with `args` and this folder as `--target-dir`:
+    /// the executable [`built_executable`] reports for `binary`, or its
+    /// refusal.
+    ///
+    /// t-139 red seam: builds without `--target-dir`, where every lane builds
+    /// today.
+    pub fn build<S: AsRef<OsStr>>(
+        &self,
+        root: &Path,
+        args: &[S],
+        binary: &str,
+    ) -> Result<PathBuf, String> {
+        built_executable(root, args, binary)
+    }
+
+    /// Today's Engine (`rtm-qa`), built in this folder on the first call in a
+    /// process and answered again on later calls: the executable Cargo
+    /// reported for `cargo build --offline -p ratmac-qa --bin rtm-qa` in the
+    /// repository with this folder as `--target-dir`. A refusal panics,
+    /// naming it.
+    ///
+    /// t-139 red seam: [`today_engine`], built in the repository's shared
+    /// `target`.
+    pub fn engine(&self) -> &Path {
+        today_engine()
+    }
+
+    /// `cargo <subcommand>` in `directory` with this folder as
+    /// `--target-dir`, scrubbed like [`crate::support::command`]; the caller
+    /// adds its own arguments and environment, then runs it.
+    ///
+    /// t-139 red seam: no `--target-dir`, where every lane runs Cargo today.
+    pub fn cargo(&self, subcommand: &str, directory: impl AsRef<Path>) -> Command {
+        let mut command = crate::support::command("cargo", directory);
+        command.arg(subcommand);
+        command
+    }
+
+    /// `cargo test` in `directory`: [`Self::cargo`] with `test`.
+    pub fn test(&self, directory: impl AsRef<Path>) -> Command {
+        self.cargo("test", directory)
+    }
+}
+
+/// SVE-007: the build folder only `lane` uses.
+///
+/// `lane` is the lane's id (`t-086`); `target_tmpdir` is the folder Cargo
+/// gives the lane's own tests for their files, which the lane passes as
+/// `env!("CARGO_TARGET_TMPDIR")`. The first call in a process creates
+/// `<target_tmpdir>/<lane>` and takes the standard library's exclusive file
+/// lock on `lane.lock` inside it, keeping it until the process exits; when
+/// another process holds it, the call first writes one line naming the lock
+/// file straight to standard error, past the test harness's capture -
+/// `<lane>: waiting for the lane lock <lock file>` - then waits. Later calls
+/// in the same process answer the same folder without waiting; a different
+/// lane or folder gets a folder and lock of its own. A process that takes a
+/// lock adds its lock file to `RATMAC_LANE_LOCKS` (a path list) in its own
+/// environment, so every child it starts inherits the holding: a child that
+/// asks for a folder whose lock file is listed there - an isolated child of
+/// the same test executable, say - answers it without taking the lock or
+/// waiting on its own ancestor. A lane therefore takes its folder before it
+/// starts a child that asks for it. Nothing removes the folder: the next run
+/// reuses it as build output.
+///
+/// t-139 red seam: answers the repository's shared `target`, where every
+/// lane builds today, with no folder of the lane's own and no lock, so the
+/// ticket's planned checks compile and observe today's behavior before the
+/// helper replaces it.
+pub fn lane_folder(lane: &str, target_tmpdir: impl AsRef<Path>) -> &'static LaneFolder {
+    static SHARED: LazyLock<LaneFolder> = LazyLock::new(|| {
+        let path = repo_root().join("target");
+        LaneFolder {
+            lock_file: path.join("lane.lock"),
+            path,
+        }
+    });
+    let _ = (lane, target_tmpdir.as_ref());
+    &SHARED
+}
+
 /// One command a caller can run, written in the freeze's words.
 #[derive(Debug, Clone)]
 pub struct Scenario {
