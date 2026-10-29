@@ -1,0 +1,10 @@
+ticket-id = "t-138"
+check-id = "HT-138-02"
+kind = "hidden-lane"
+command = "cargo test --offline --locked --manifest-path test-hidden/t-138/Cargo.toml -- --test-threads=1"
+working-dir = "."
+exit-status = 0
+output-sha256 = "b24effb7b3ffcb12cdcdf3e9b3fe2aef9f2d431bd57a71beb3bdb4f32ea97b64"
+tree-roots = ["src","profiles","test","test-hidden","tools","Cargo.toml","Cargo.lock","AGENTS.md",".gitignore",".ratmac/ratmac.toml",".ratmac/turn.toml",".ratmac/lanes.toml"]
+tree-sha256 = "b103843d0fdf4ac3bc2ee7078cac57c48bcb3d555af4624b78fba36210005ceb"
+output = "\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 6 tests\ntest ht_138_01_verdicts_and_expiry_hold_under_a_configured_folder ... ok\ntest ht_138_02_each_crate_folder_follows_its_own_cargo_resolution ... ok\ntest ht_138_03_crate_cargo_cannot_place_reads_red_and_the_sweep_goes_on ... ok\ntest ht_138_04_shared_leftovers_are_neither_run_nor_rewritten ... ok\ntest ht_138_05_build_paths_sit_in_folders_named_after_crates ... ok\ntest ht_138_06_nested_cargo_and_check_keep_their_own_view ... ok\n\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.79s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s\n     Running unittests src\\lib.rs (test-hidden\\t-138\\target\\debug\\deps\\ratmac_t138_hidden-27e7f9b5efad873b.exe)\n     Running tests\\hidden.rs (test-hidden\\t-138\\target\\debug\\deps\\hidden-69f7a5d0c1c97600.exe)\n   Doc-tests ratmac_t138_hidden\n"
