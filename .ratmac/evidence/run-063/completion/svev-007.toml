@@ -1,0 +1,10 @@
+ticket-id = "t-139"
+check-id = "SVEV-007"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test t139_same_lane_verdict -- --test-threads=1"
+working-dir = "."
+exit-status = 0
+output-sha256 = "84d4fe5104128fd924871d66178cbf06430e209ce84a1b58e36a67b820da6004"
+tree-roots = ["src","profiles","test","test-hidden","tools","Cargo.toml","Cargo.lock","AGENTS.md",".gitignore",".ratmac/ratmac.toml",".ratmac/turn.toml",".ratmac/lanes.toml"]
+tree-sha256 = "c865c3ad228823ca8c3f52f23b8456efed39c58a769a5151662889930711b245"
+output = "\nrunning 2 tests\ntest svev_007 ... ok\ntest svev_008 ... ok\n\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 971.02s\n\n   Compiling ratmac-qa v0.1.0 (E:\\hive\\packs\\projs\\skills\\ratmac-t-139\\test\\qa)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.03s\n     Running tests\\t139_same_lane_verdict.rs (target\\debug\\deps\\t139_same_lane_verdict-c3ffe3833af27109.exe)\n"

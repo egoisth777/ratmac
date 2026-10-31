@@ -12,11 +12,12 @@
 
 use crate::json::Json;
 use std::collections::{BTreeMap, BTreeSet};
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::LazyLock;
+use std::sync::{LazyLock, Mutex, OnceLock, PoisonError};
 
 /// The commit the goal bundle was frozen at, before the first rename landed.
 pub const FREEZE_COMMIT: &str = "4f78de5";
@@ -273,10 +274,7 @@ pub fn built_executable<S: AsRef<OsStr>>(
         line.push_str(&arg.as_ref().to_string_lossy());
     }
     let asked = format!("`{binary}`: `{line}` in {}", root.display());
-    let cargo = std::env::var_os("CARGO")
-        .filter(|cargo| !cargo.is_empty())
-        .unwrap_or_else(|| "cargo".into());
-    let built = Command::new(cargo)
+    let built = Command::new(cargo())
         .args(["build", "--message-format=json"])
         .args(args)
         .current_dir(root)
@@ -354,9 +352,20 @@ pub fn built_executable<S: AsRef<OsStr>>(
 /// repository or on another lane's crate goes through it: [`Self::engine`]
 /// for today's Engine, [`Self::build`] for any other binary, [`Self::test`]
 /// for a `cargo test`, and [`Self::cargo`] for any other Cargo command.
+/// Each passes this folder to Cargo as both its target folder and its build
+/// folder (`build.build-dir`), so no Cargo configuration or inherited
+/// variable moves any of the lane's build output elsewhere. [`Self::build`]
+/// and [`Self::engine`] run Cargo through [`built_executable`], in this
+/// process's own environment; [`Self::cargo`] and [`Self::test`] start from
+/// [`crate::support::command`]'s scrubbed one.
 pub struct LaneFolder {
     path: PathBuf,
     lock_file: PathBuf,
+    /// The open lock file whose lock this process holds, kept open until the
+    /// process exits; `None` in a child granted the lock while some process -
+    /// its parent, when the lane passes the grant as intended - holds it.
+    _held: Option<fs::File>,
+    engine: OnceLock<Result<PathBuf, String>>,
 }
 
 impl LaneFolder {
@@ -374,38 +383,56 @@ impl LaneFolder {
     /// `cargo build` in `root` with `args` and this folder as `--target-dir`:
     /// the executable [`built_executable`] reports for `binary`, or its
     /// refusal.
-    ///
-    /// t-139 red seam: builds without `--target-dir`, where every lane builds
-    /// today.
     pub fn build<S: AsRef<OsStr>>(
         &self,
         root: &Path,
         args: &[S],
         binary: &str,
     ) -> Result<PathBuf, String> {
-        built_executable(root, args, binary)
+        let build_dir = self.build_dir();
+        let mut args: Vec<&OsStr> = args.iter().map(AsRef::as_ref).collect();
+        args.extend([
+            OsStr::new("--target-dir"),
+            self.path.as_os_str(),
+            OsStr::new("--config"),
+            build_dir.as_os_str(),
+        ]);
+        built_executable(root, &args, binary)
     }
 
-    /// Today's Engine (`rtm-qa`), built in this folder on the first call in a
-    /// process and answered again on later calls: the executable Cargo
-    /// reported for `cargo build --offline -p ratmac-qa --bin rtm-qa` in the
-    /// repository with this folder as `--target-dir`. A refusal panics,
-    /// naming it.
-    ///
-    /// t-139 red seam: [`today_engine`], built in the repository's shared
-    /// `target`.
+    /// Today's Engine (`rtm-qa`): the executable Cargo reported for
+    /// `cargo build --offline -p ratmac-qa --bin rtm-qa` in the repository
+    /// through [`Self::build`], built on the first call in a process. Later
+    /// calls answer the same path, or panic again with the first call's
+    /// refusal.
     pub fn engine(&self) -> &Path {
-        today_engine()
+        let built = self.engine.get_or_init(|| {
+            self.build(
+                &repo_root(),
+                &["--offline", "-p", "ratmac-qa", "--bin", "rtm-qa"],
+                "rtm-qa",
+            )
+        });
+        match built {
+            Ok(path) => path,
+            Err(refusal) => panic!(
+                "today's Engine must build in {}: {refusal}",
+                self.path.display()
+            ),
+        }
     }
 
-    /// `cargo <subcommand>` in `directory` with this folder as
-    /// `--target-dir`, scrubbed like [`crate::support::command`]; the caller
+    /// `cargo <subcommand>` in `directory` with this folder as its target and
+    /// build folder, scrubbed like [`crate::support::command`]; the caller
     /// adds its own arguments and environment, then runs it.
-    ///
-    /// t-139 red seam: no `--target-dir`, where every lane runs Cargo today.
     pub fn cargo(&self, subcommand: &str, directory: impl AsRef<Path>) -> Command {
-        let mut command = crate::support::command("cargo", directory);
-        command.arg(subcommand);
+        let mut command = crate::support::command(cargo(), directory);
+        command
+            .arg(subcommand)
+            .arg("--target-dir")
+            .arg(&self.path)
+            .arg("--config")
+            .arg(self.build_dir());
         command
     }
 
@@ -413,7 +440,65 @@ impl LaneFolder {
     pub fn test(&self, directory: impl AsRef<Path>) -> Command {
         self.cargo("test", directory)
     }
+
+    /// The environment variable, and its value, that lets a child process of
+    /// this run use this folder while some process - the run itself, when the
+    /// lane passes it as intended - holds its lock. A lane puts it on the
+    /// command of any child of its own test executable that asks for the same
+    /// folder - an isolated child, say - which would otherwise wait on its own
+    /// parent. The child answers the folder without taking the lock only
+    /// while some process holds it, and takes it otherwise; the standard
+    /// library cannot tell which process that is. [`crate::support::command`]
+    /// drops the variable from every environment it inherits.
+    pub fn grant(&self) -> (&'static str, &OsStr) {
+        (LANE_GRANT, self.lock_file.as_os_str())
+    }
+
+    /// The `--config` value naming this folder as Cargo's build folder: a
+    /// TOML basic string, so a backslash or quote in the path stays itself.
+    /// Cargo reads braces in that value as a template variable and has no
+    /// escape for them, so a folder whose path holds `{` or `}` is refused.
+    fn build_dir(&self) -> OsString {
+        let path = self.path.to_str().unwrap_or_else(|| {
+            panic!(
+                "the lane folder {} is not UTF-8, so no Cargo configuration can name it",
+                self.path.display()
+            )
+        });
+        assert!(
+            !path.contains(['{', '}']),
+            "the lane folder {path} holds a brace, which Cargo reads as a template \
+             variable in build.build-dir and cannot escape"
+        );
+        let mut value = String::from("build.build-dir=\"");
+        for character in path.chars() {
+            match character {
+                '\\' => value.push_str("\\\\"),
+                '"' => value.push_str("\\\""),
+                character if character.is_control() => {
+                    value.push_str(&format!("\\u{:04X}", u32::from(character)));
+                }
+                character => value.push(character),
+            }
+        }
+        value.push('"');
+        value.into()
+    }
 }
+
+/// The Cargo that launched this process when it says so, else the `cargo` on
+/// `PATH`: the one Cargo every build here runs.
+fn cargo() -> OsString {
+    std::env::var_os("CARGO")
+        .filter(|cargo| !cargo.is_empty())
+        .unwrap_or_else(|| "cargo".into())
+}
+
+/// The variable through which a run grants its lane lock to a child it
+/// starts, naming the lock file - see [`LaneFolder::grant`]. Its
+/// `RATMAC_SUPPORT_` prefix keeps it out of every environment
+/// [`crate::support::command`] inherits.
+const LANE_GRANT: &str = "RATMAC_SUPPORT_LANE_GRANT";
 
 /// SVE-007: the build folder only `lane` uses.
 ///
@@ -425,30 +510,115 @@ impl LaneFolder {
 /// another process holds it, the call first writes one line naming the lock
 /// file straight to standard error, past the test harness's capture -
 /// `<lane>: waiting for the lane lock <lock file>` - then waits. Later calls
-/// in the same process answer the same folder without waiting; a different
-/// lane or folder gets a folder and lock of its own. A process that takes a
-/// lock adds its lock file to `RATMAC_LANE_LOCKS` (a path list) in its own
-/// environment, so every child it starts inherits the holding: a child that
-/// asks for a folder whose lock file is listed there - an isolated child of
-/// the same test executable, say - answers it without taking the lock or
-/// waiting on its own ancestor. A lane therefore takes its folder before it
-/// starts a child that asks for it. Nothing removes the folder: the next run
-/// reuses it as build output.
+/// in the same process answer the same folder without waiting, however its
+/// path is spelled; a different lane or folder gets a folder and lock of its
+/// own. One exception keeps a run from waiting on itself: a child the run
+/// starts with the folder's [`LaneFolder::grant`] - an isolated child of the
+/// same test executable, say - answers the folder without taking the lock
+/// while some process holds it - its parent, when the lane passes the grant
+/// as intended. Nothing removes the folder: the next run reuses it as build
+/// output.
 ///
-/// t-139 red seam: answers the repository's shared `target`, where every
-/// lane builds today, with no folder of the lane's own and no lock, so the
-/// ticket's planned checks compile and observe today's behavior before the
-/// helper replaces it.
+/// A drive-letter folder path loses Windows's verbatim marker `\\?\` when
+/// the rest names the same place on its own (a marked network path,
+/// `\\?\UNC\...`, keeps it): Cargo reports the executables it builds there
+/// under the folder's spelling, and `cmd.exe` cannot start a program spelled
+/// with the marker.
 pub fn lane_folder(lane: &str, target_tmpdir: impl AsRef<Path>) -> &'static LaneFolder {
-    static SHARED: LazyLock<LaneFolder> = LazyLock::new(|| {
-        let path = repo_root().join("target");
-        LaneFolder {
-            lock_file: path.join("lane.lock"),
-            path,
-        }
+    static FOLDERS: Mutex<BTreeMap<PathBuf, &'static OnceLock<LaneFolder>>> =
+        Mutex::new(BTreeMap::new());
+    // Absolute, so Cargo, started in another folder, builds where the lock is.
+    let path = std::path::absolute(target_tmpdir.as_ref().join(lane))
+        .map(unmarked)
+        .unwrap_or_else(|error| panic!("{lane}: locate the lane folder: {error}"));
+    fs::create_dir_all(&path).unwrap_or_else(|error| {
+        panic!("{lane}: create the lane folder {}: {error}", path.display())
     });
-    let _ = (lane, target_tmpdir.as_ref());
-    &SHARED
+    // One entry per folder however its path is spelled: a second handle on
+    // the lock file would wait on this process's own lock.
+    let key = fs::canonicalize(&path).unwrap_or_else(|error| {
+        panic!(
+            "{lane}: resolve the lane folder {}: {error}",
+            path.display()
+        )
+    });
+    let folder: &'static OnceLock<LaneFolder> = FOLDERS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .entry(key)
+        .or_insert_with(|| Box::leak(Box::default()));
+    folder.get_or_init(|| take_folder(lane, path))
+}
+
+/// `path` without Windows's verbatim marker `\\?\` when the rest of it names
+/// the same place on its own; otherwise `path` unchanged.
+///
+/// A crate Cargo builds from a folder spelled with the marker - as a lane
+/// sweep started inside a test does - is handed `CARGO_TARGET_TMPDIR` spelled
+/// with it too.
+fn unmarked(path: PathBuf) -> PathBuf {
+    let Some(rest) = path.to_str().and_then(|text| text.strip_prefix(r"\\?\")) else {
+        return path;
+    };
+    match std::path::absolute(rest) {
+        Ok(plain) if plain.as_os_str() == rest => plain,
+        _ => path,
+    }
+}
+
+/// Hold the lock on `lane.lock` in the folder `path` - after one line naming
+/// it when another process holds it - or answer the folder unlocked when this
+/// process was granted that lock and another process holds it.
+fn take_folder(lane: &str, path: PathBuf) -> LaneFolder {
+    let lock_file = path.join("lane.lock");
+    let refused = |error: std::io::Error| -> String {
+        format!(
+            "{lane}: take the lane lock {}: {error}",
+            lock_file.display()
+        )
+    };
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&lock_file)
+        .unwrap_or_else(|error| panic!("{}", refused(error)));
+    let held = match file.try_lock() {
+        Ok(()) => Some(file),
+        Err(fs::TryLockError::WouldBlock) if granted(&lock_file) => None,
+        Err(fs::TryLockError::WouldBlock) => {
+            // Straight to standard error, past the test harness's capture.
+            let line = format!(
+                "{lane}: waiting for the lane lock {}\n",
+                lock_file.display()
+            );
+            let _ = std::io::stderr().write_all(line.as_bytes());
+            if let Err(error) = file.lock() {
+                panic!("{}", refused(error));
+            }
+            Some(file)
+        }
+        Err(fs::TryLockError::Error(error)) => panic!("{}", refused(error)),
+    };
+    LaneFolder {
+        path,
+        lock_file,
+        _held: held,
+        engine: OnceLock::new(),
+    }
+}
+
+/// Whether [`LANE_GRANT`] in this process's environment names `lock_file`,
+/// however either path is spelled.
+fn granted(lock_file: &Path) -> bool {
+    let Some(granted) = std::env::var_os(LANE_GRANT) else {
+        return false;
+    };
+    match (fs::canonicalize(granted), fs::canonicalize(lock_file)) {
+        (Ok(granted), Ok(own)) => granted == own,
+        _ => false,
+    }
 }
 
 /// One command a caller can run, written in the freeze's words.

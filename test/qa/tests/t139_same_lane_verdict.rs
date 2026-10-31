@@ -15,10 +15,19 @@
 //! the worktree indexes (`t-084` selects indexed files). A lane runs the way
 //! `tools/sweep_lanes.py` runs a crate: `cargo test --offline --target-dir
 //! <crate>/target` in the crate's folder, with every inherited `CARGO_`
-//! variable dropped. The valid control is each lane's standalone verdict:
-//! that command outside any sweep, with the copy's default `target` an
-//! ordinary folder. Every lane must pass alone there. If one does not, the
-//! check fails as a control failure, because then it proves nothing.
+//! variable dropped. A lane run the checks start that has not ended after 30
+//! minutes is stopped and reads as timed out. Every lane run and sweep the
+//! checks start also gets `TMP`, `TEMP`, and `TMPDIR` naming one short folder
+//! directly inside the scratch tree. So the lanes' temporary trees, and the
+//! `linked-t094` folder that t-094's tests make beside theirs, never meet
+//! another process's. The two runs started at once share that folder, so
+//! only the lane lock keeps their t-094 runs apart. The valid control is
+//! each lane's standalone verdict: that command outside any sweep, with the
+//! copy's default `target` an ordinary folder. Every lane must pass alone
+//! there. If one does not, the check fails as a control failure, because
+//! then it proves nothing. After every `t-108` run, the copy must still have
+//! no `test-hidden/t-094/target` (it starts without one): `t-108` must build
+//! the t-094 tests it runs in its own lane folder.
 //!
 //! Cost and reuse: there is one copy per test process. The first check that
 //! needs it prepares it. Both checks hold `lane_runs::exclusive` and the
@@ -29,10 +38,20 @@
 //! while the copy's inputs still match what the control runs saw from start
 //! to finish (build output is not an input). Every lane's own build output in
 //! the copy carries over between steps, the same way a lane's `target` does
-//! between two runs. The copy is removed when the test process ends normally.
-//! The test harness ends a failed run without any cleanup, so each copy holds
-//! a lock file for its process's life, and the next run that prepares a copy
-//! first removes every copy whose lock no process holds.
+//! between two runs. The copy is removed as soon as both checks have used
+//! it, passed or failed: a check that panics while it uses the copy counts
+//! too, and each check's final assert comes after that use. The count stays
+//! short in a run that selects one check, or in one where a check fails
+//! before it uses the copy (`svev_007`'s inventory self-check runs first).
+//! Such a run removes the copy when the test process exits, but on Windows
+//! a failing test ends the process without that step, so such a run that
+//! fails keeps its copy until the next run removes it. A run that is
+//! killed, or whose removal fails, also leaves its copy behind. So each copy
+//! holds a lock file for its process's life, and the next run that prepares
+//! a copy first removes every copy whose lock no process holds. A removal
+//! deletes that lock file last, so a removal that fails part way leaves a
+//! copy the next run still finds. A copy that has `copy/` but no lock file
+//! is removed too: the lock file is named before `copy/` exists.
 //!
 //! SVEV-007: first, Cargo builds `rtm`, `rtm-qa`, `edition-cut`, and
 //! `snapshot-manifest` in the copy's default `target`, with the arguments the
@@ -63,9 +82,12 @@
 //!   `.current_dir(..)`, or the lane's own crate when it has none. It counts
 //!   when its first literal `.arg`/`.args` is `build`, `test`, or `run`, or
 //!   when it has none and the caller adds the arguments. `<cargo>` is the
-//!   literal `"cargo"`, a read of `CARGO`, or a lane function that returns one.
+//!   literal `"cargo"`, a read of `CARGO`, or a lane function that returns one;
+//! - a call of the shared helper itself, `lane_folder(name, root)`: a lane
+//!   must pass the folder Cargo gives its tests (`CARGO_TARGET_TMPDIR`),
+//!   never one in the repository's build output.
 //!
-//! The last two count only when `root` is the repository or a crate in it.
+//! The last three count only when `root` is the repository or a crate in it.
 //! That holds when the root expression reaches `repo_root()`,
 //! `env!("CARGO_MANIFEST_DIR")`, or a lane function returning `Path` or
 //! `PathBuf` whose tail or `return` expression reaches them. A function that
@@ -78,40 +100,68 @@
 //! The shared helper's own methods on a `lane_folder(..)` value (`.engine()`,
 //! `.build(..)`, `.test(..)`, `.cargo(..)`) are never sites either. Neither is
 //! `baseline::engine()`, the freeze build, which belongs to SVE-008. One named
-//! exception is set aside and listed: `ht_137_01_child` in
-//! `test-hidden/t-137/tests/hidden.rs`. HT-137-01 proves `today_engine()`
-//! itself, and that child's builds go through `CARGO_TARGET_DIR` into
-//! `t-137`'s lane folder, which its parent holds under the lane lock. The
-//! matcher proves itself on known shapes first, so a blind matcher cannot
-//! pass.
+//! exception is set aside and listed: four findings in `ht_137_01_child` in
+//! `test-hidden/t-137/tests/hidden.rs`, each named by its kind and its source
+//! line. HT-137-01 proves `today_engine()` itself, and that child's builds go
+//! through `CARGO_TARGET_DIR` into `t-137`'s lane folder, which its parent
+//! holds under the lane lock. Any other finding in that function, or one more
+//! of the same, is reported. The matcher proves itself on known shapes first,
+//! so a blind matcher cannot pass.
 //!
 //! SVEV-008: the copy's default `target` is a plain file. For each lane, two
 //! runs start at once, each in its own process, and both must read the
-//! standalone verdict. A Cargo build into that output does not fail on this
-//! toolchain: Cargo renames a fresh folder over the plain file and builds
-//! there. So after the two runs, and again after the held run below, the
-//! plain file must still hold the bytes the check wrote. If it does not, a
-//! run built in the repository's shared output; the check reports it and
-//! writes the plain file again before the next runs. Then the check itself
-//! holds the lane's lock file with
-//! `File::lock`. That file is never one of Cargo's; it is the path the
-//! contract names, `<CARGO_TARGET_TMPDIR>/<lane>/lane.lock`, which for a crate
-//! building in `<crate>/target` is `<crate>/target/tmp/<lane>/lane.lock`.
-//! With that file held, one run starts. It must print `<lane>: waiting for the
-//! lane lock <that file>`. For five seconds after that line, the folder's
-//! listing (names, sizes, modified times) must not change; the lock file
-//! counts by name and size only, since opening it is how a run waits. Once
-//! the check releases the lock, the run must read the standalone verdict.
+//! standalone verdict. At least one of the two must print a line that says
+//! it waits and names the lane's lock file (below): the run that takes the
+//! lock first holds it for its whole run, so the other waits. A Cargo build
+//! into that output does not fail on this toolchain: Cargo renames a fresh
+//! folder over the plain file and builds there. So after the two runs, and
+//! again after the held run below, the plain file must still hold the bytes
+//! the check wrote. If it does not, a run built in the repository's shared
+//! output; the check reports it and writes the plain file again before the
+//! next runs.
+//!
+//! Then the check itself takes the lane's lock file with `File::try_lock`,
+//! retrying for up to 15 minutes; if some process still holds it then, that
+//! lane's held step fails naming the file. That file is never one of Cargo's;
+//! it is the path the contract names, `<CARGO_TARGET_TMPDIR>/<lane>/lane.lock`,
+//! which for a crate building in `<crate>/target` is
+//! `<crate>/target/tmp/<lane>/lane.lock`. With the lock
+//! held, the check deletes the executables in each profile folder of the
+//! lane folder (one holding `deps/`) and in its `deps/`: on Windows every
+//! `*.exe`, elsewhere every file with an execute bit. The next build there
+//! must write them again. Then one run starts. It must print exactly one line
+//! that says it waits (any form of the word) and names that file, spelled
+//! any way that resolves to it. For five seconds after that line, the
+//! folder's listing (names, sizes, modified times) must not change; the lock
+//! file counts by name and size only, since opening it is how a run waits.
+//! Once the check releases the lock, the run must read the standalone
+//! verdict, and the folder's listing must differ from the one taken before
+//! the run started: the run built there, and only after the release.
 //!
 //! Hole-poke notes:
 //! - A lane that rebuilds into the shared `target` but keeps its verdict still
 //!   fails SVEV-007, because every stand-in is compared byte for byte.
-//! - A lane outside the six that still builds in the shared output is caught
-//!   by the inventory. The inventory's limits: it does not trace a root held in
-//!   a struct field or a static, or a Cargo command built by a method wrapper
-//!   (`self.command("cargo", ..)`). No live lane uses either shape.
-//! - A lane that waits on some other lock never prints the line naming this
-//!   file. A lane that prints the line but builds anyway changes the listing.
+//! - A lane outside the six that still builds in the shared output, or hands
+//!   the helper a folder in it, is caught by the inventory. The inventory's
+//!   limits: it does not trace a root held in a struct field or a static, or
+//!   a Cargo command built by a method wrapper (`self.command("cargo", ..)`).
+//!   It also finds nothing for `cargo --offline build` (an option before the
+//!   subcommand), a Cargo program held in a `const`, a `--manifest-path` into
+//!   the repository from a scratch folder, a root bound by `for`, `if let`,
+//!   or a closure parameter, a lane function that returns the root as a
+//!   `String`, a site function called under another name (say `b` for
+//!   `built_executable`), or a relative root such as `"../.."`. No live lane
+//!   uses any of these shapes.
+//! - A lane that waits on some other lock never prints a line naming this
+//!   file. A lane that prints the line but builds anyway writes the deleted
+//!   executables again while the check holds the lock, which changes the
+//!   listing. A lane that builds somewhere else leaves the listing as it was.
+//! - A lane that lets its lock go as soon as it takes it (say, it never
+//!   keeps the open file) lets the second of two runs in without waiting, so
+//!   neither run prints the line. A lane that holds the lock only while each
+//!   Cargo command runs still makes the second run wait and print the line,
+//!   so it passes here: holding the lock for the whole run is proved by the
+//!   private check HT-139-03.
 
 use ratmac_qa::baseline::{built_executable, repo_root};
 use ratmac_qa::lane_runs::{self, Observations};
@@ -123,7 +173,7 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, Once, PoisonError, TryLockError};
+use std::sync::{Arc, Mutex, MutexGuard, Once, PoisonError, TryLockError};
 use std::time::{Duration, Instant, SystemTime};
 
 /// One lane of each kind of Cargo run, in id order.
@@ -131,6 +181,10 @@ const LANES: [&str; 6] = ["t-084", "t-086", "t-108", "t-113", "t-116", "t-127"];
 
 /// The single-Engine-binary lane, also run alone with `CARGO_TARGET_DIR`.
 const SINGLE_ENGINE_LANE: &str = "t-086";
+
+/// The lane-sweep lane, and the lane crate whose tests it runs.
+const LANE_SWEEP_LANE: &str = "t-108";
+const SWEPT_CRATE: &str = "t-094";
 
 /// The repository binaries a lane builds and launches, each with the `cargo
 /// build` arguments the lanes build it with.
@@ -159,14 +213,29 @@ const FROZEN_CORPUS: &str = "test-hidden/t-126/fixtures/before/";
 /// Cargo subcommands that build.
 const BUILDING: [&str; 3] = ["build", "test", "run"];
 
-/// The one named inventory exception: file, function, reason.
-const EXCEPTION: (&str, &str, &str) = (
-    "test-hidden/t-137/tests/hidden.rs",
-    "ht_137_01_child",
-    "HT-137-01 proves today_engine() itself (SVE-001: one build per test process); the child's \
-     builds go by CARGO_TARGET_DIR into t-137's lane folder, which its parent holds under the \
-     lane lock",
-);
+/// The one named inventory exception.
+struct Exception {
+    file: &'static str,
+    function: &'static str,
+    reason: &'static str,
+    /// The findings it covers, each by its kind and a piece of its source
+    /// line, so a line moved by an edit above it is still the same finding.
+    covers: [(&'static str, &'static str); 4],
+}
+
+const EXCEPTION: Exception = Exception {
+    file: "test-hidden/t-137/tests/hidden.rs",
+    function: "ht_137_01_child",
+    reason: "HT-137-01 proves today_engine() itself (SVE-001: one build per test process); the \
+             child's builds go by CARGO_TARGET_DIR into t-137's lane folder, which its parent \
+             holds under the lane lock",
+    covers: [
+        ("today_engine()", "let first = today_engine();"),
+        ("cargo build", "report(&repo_root(), &ENGINE_ARGS)"),
+        ("today_engine()", "thread::spawn(today_engine)"),
+        ("today_engine()", "answers.push(today_engine());"),
+    ],
+};
 
 const RUN_LIMIT: Duration = Duration::from_secs(1800);
 const WAIT_LIMIT: Duration = Duration::from_secs(900);
@@ -193,10 +262,20 @@ fn svev_007() {
     let _lanes = lane_runs::exclusive();
     with_copy(|shared| {
         let controls = standalone(shared);
+        failures.extend(swept_target_absent(
+            shared,
+            LANE_SWEEP_LANE,
+            "after its standalone run",
+        ));
         default_target_folder(shared);
         let built = default_binaries(shared);
         let planted = plant_stand_ins(&built);
         let rows = sweep(shared);
+        failures.extend(swept_target_absent(
+            shared,
+            LANE_SWEEP_LANE,
+            "after the sweep",
+        ));
         for (lane, control) in controls.iter() {
             match rows.get(lane) {
                 Some(verdict) if *verdict == control.verdict => {}
@@ -361,7 +440,9 @@ fn sweep(shared: &Shared) -> BTreeMap<String, String> {
         ),
     )
     .expect("write the sweep declaration");
-    let output = support::command("python", &shared.copy)
+    let mut command = support::command("python", &shared.copy);
+    scratch_temp(shared, &mut command);
+    let output = command
         .arg(shared.copy.join("tools").join("sweep_lanes.py"))
         .args(["sweep", "--config"])
         .arg(&declaration)
@@ -405,15 +486,7 @@ fn toml_path(path: &Path) -> String {
 
 /// `t-086` alone, outside the sweep, with `CARGO_TARGET_DIR` naming `folder`.
 fn redirected_run(shared: &Shared, folder: &Path) -> Run {
-    let directory = lane_dir(shared, SINGLE_ENGINE_LANE);
-    let mut command = support::command("cargo", &directory);
-    drop_cargo_variables(&mut command);
-    let output = command
-        .env("CARGO_TARGET_DIR", folder)
-        .args(["test", "--offline"])
-        .output()
-        .expect("run t-086 with CARGO_TARGET_DIR");
-    judged(Some(output.status), &support::text(&output))
+    Started::redirected(shared, SINGLE_ENGINE_LANE, "redirected", folder).finish()
 }
 
 // --- SVEV-008 -----------------------------------------------------------------
@@ -423,12 +496,21 @@ fn svev_008() {
     let _lanes = lane_runs::exclusive();
     let failures = with_copy(|shared| {
         let controls = standalone(shared);
-        default_target_file(shared);
         let mut failures = Vec::new();
+        failures.extend(swept_target_absent(
+            shared,
+            LANE_SWEEP_LANE,
+            "after its standalone run",
+        ));
+        default_target_file(shared);
         for (lane, control) in controls.iter() {
+            let lock_file = lane_lock(shared, lane);
             let first = Started::new(shared, lane, "first");
             let second = Started::new(shared, lane, "second");
-            for (which, run) in [("first", first.finish()), ("second", second.finish())] {
+            let mut waited = false;
+            for (which, started) in [("first", first), ("second", second)] {
+                let (run, text) = started.finished();
+                waited |= !waiting_lines(&text, &lock_file, &lane_dir(shared, lane)).is_empty();
                 if run.verdict != control.verdict {
                     failures.push(format!(
                         "{lane}: the {which} of two runs started at once reads {} where the lane \
@@ -437,36 +519,55 @@ fn svev_008() {
                     ));
                 }
             }
-            failures.extend(plain_target_kept(
-                shared,
-                lane,
-                "after two runs started at once",
-            ));
+            if !waited {
+                failures.push(format!(
+                    "{lane}: of two runs started at once, neither printed a line that it waits \
+                     for {}, so neither kept the other out of the lane folder",
+                    lock_file.display()
+                ));
+            }
+            let when = "after two runs started at once";
+            failures.extend(plain_target_kept(shared, lane, when));
+            failures.extend(swept_target_absent(shared, lane, when));
             failures.extend(held(shared, lane, control));
-            failures.extend(plain_target_kept(
-                shared,
-                lane,
-                "after the run started while the check held the lane lock",
-            ));
+            let when = "after the run started while the check held the lane lock";
+            failures.extend(plain_target_kept(shared, lane, when));
+            failures.extend(swept_target_absent(shared, lane, when));
         }
         failures
     });
     assert!(
         failures.is_empty(),
         "SVEV-008: with the default target a plain file, each lane must give its standalone \
-         verdict in two runs started at once, and a run started while the check holds the \
-         lane's lane.lock must say it waits for that file, write nothing in the folder until \
-         release, then give its standalone verdict; observed:\n{}",
+         verdict in two runs started at once, one of which says it waits for the lane's \
+         lane.lock; a run started while the check holds that file must say once that it waits \
+         for it, write nothing in the folder until release, then build there and give its \
+         standalone verdict; observed:\n{}",
         failures.join("\n")
     );
 }
 
-/// One run started while the check holds the lane's own lock file.
+/// The lane's lock file at the path the contract names,
+/// `<CARGO_TARGET_TMPDIR>/<lane>/lane.lock`, for the crate built the way the
+/// sweep builds it: in `<crate>/target`.
+fn lane_lock(shared: &Shared, lane: &str) -> PathBuf {
+    lane_dir(shared, lane)
+        .join("target")
+        .join("tmp")
+        .join(lane)
+        .join("lane.lock")
+}
+
+/// One run started while the check holds the lane's own lock file, after
+/// the check deleted the executables in the lane folder.
 fn held(shared: &Shared, lane: &str, control: &Run) -> Vec<String> {
-    let folder = lane_dir(shared, lane).join("target").join("tmp").join(lane);
+    let lock_file = lane_lock(shared, lane);
+    let folder = lock_file
+        .parent()
+        .expect("the lock file lies in the lane folder")
+        .to_path_buf();
     fs::create_dir_all(&folder)
         .unwrap_or_else(|error| panic!("create {}: {error}", folder.display()));
-    let lock_file = folder.join("lane.lock");
     let lock = OpenOptions::new()
         .read(true)
         .write(true)
@@ -474,20 +575,23 @@ fn held(shared: &Shared, lane: &str, control: &Run) -> Vec<String> {
         .truncate(false)
         .open(&lock_file)
         .unwrap_or_else(|error| panic!("open {}: {error}", lock_file.display()));
-    lock.lock()
-        .unwrap_or_else(|error| panic!("hold {}: {error}", lock_file.display()));
+    if let Err(refusal) = taken(&lock, &lock_file) {
+        return vec![format!("{lane}: {refusal}")];
+    }
+    let mut failures: Vec<String> = deleted_executables(&folder)
+        .into_iter()
+        .map(|(path, error)| {
+            format!(
+                "{lane}: before the held run, {} would not be deleted: {error}",
+                path.display()
+            )
+        })
+        .collect();
     let before = listing(&folder, &lock_file);
     let mut started = Started::new(shared, lane, "held");
     let line = format!("{lane}: waiting for the lane lock {}", lock_file.display());
-    let mut failures = Vec::new();
-    match started.wait_line(lane, WAIT_LIMIT) {
-        Waiting::Named(named) => {
-            if !same_path(Path::new(&named), &lock_file) {
-                failures.push(format!(
-                    "{lane}: the waiting run names {named}, not the lane's lock file {}",
-                    lock_file.display()
-                ));
-            }
+    let waited = match started.wait_for(&lock_file, WAIT_LIMIT) {
+        Waiting::Named => {
             std::thread::sleep(SETTLE);
             let during = listing(&folder, &lock_file);
             if during != before {
@@ -497,29 +601,130 @@ fn held(shared: &Shared, lane: &str, control: &Run) -> Vec<String> {
                     changes(&before, &during)
                 ));
             }
+            true
         }
-        Waiting::Ended => failures.push(format!(
-            "{lane}: with {} held by the check, a started run ended without the wait line `{line}`",
-            lock_file.display()
-        )),
-        Waiting::Silent => failures.push(format!(
-            "{lane}: with {} held by the check, a started run neither printed `{line}` nor ended \
-             within {}s",
-            lock_file.display(),
-            WAIT_LIMIT.as_secs()
-        )),
-    }
+        Waiting::Ended => {
+            failures.push(format!(
+                "{lane}: with {} held by the check, a started run ended without a line that it \
+                 waits for that file, such as `{line}`{}",
+                lock_file.display(),
+                said_wait(&started.text())
+            ));
+            false
+        }
+        Waiting::Silent => {
+            failures.push(format!(
+                "{lane}: with {} held by the check, a started run neither printed a line that it \
+                 waits for that file, such as `{line}`, nor ended within {}s{}",
+                lock_file.display(),
+                WAIT_LIMIT.as_secs(),
+                said_wait(&started.text())
+            ));
+            false
+        }
+    };
     lock.unlock()
         .unwrap_or_else(|error| panic!("release {}: {error}", lock_file.display()));
     drop(lock);
-    let run = started.finish();
+    let (run, text) = started.finished();
     if run.verdict != control.verdict {
         failures.push(format!(
             "{lane}: the run started under the held lock reads {} where the lane alone reads {}{}",
             run.verdict, control.verdict, run.excerpt
         ));
     }
+    let lines = waiting_lines(&text, &lock_file, &lane_dir(shared, lane));
+    if waited && lines.len() != 1 {
+        failures.push(format!(
+            "{lane}: the run started under the held lock printed {} lines that say it waits for \
+             {}, not one:\n    {}",
+            lines.len(),
+            lock_file.display(),
+            lines.join("\n    ")
+        ));
+    }
+    if listing(&folder, &lock_file) == before {
+        failures.push(format!(
+            "{lane}: after the check released {}, the run left {} as it was: it did not build \
+             in the lane folder",
+            lock_file.display(),
+            folder.display()
+        ));
+    }
     failures
+}
+
+/// Take the lock on `lock_file` through `lock`, trying until `WAIT_LIMIT`: a
+/// test executable that outlived its `cargo` (one `taskkill` could not
+/// stop) may still hold it. Past the limit, the refusal names the file.
+fn taken(lock: &File, lock_file: &Path) -> Result<(), String> {
+    let deadline = Instant::now() + WAIT_LIMIT;
+    loop {
+        match lock.try_lock() {
+            Ok(()) => return Ok(()),
+            Err(fs::TryLockError::WouldBlock) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(200));
+            }
+            Err(fs::TryLockError::WouldBlock) => {
+                return Err(format!(
+                    "the check could not take {} within {}s: some process, perhaps a test \
+                     executable an earlier run left, still holds it, so the held-lock step \
+                     did not run",
+                    lock_file.display(),
+                    WAIT_LIMIT.as_secs()
+                ));
+            }
+            Err(fs::TryLockError::Error(error)) => {
+                panic!("hold {}: {error}", lock_file.display())
+            }
+        }
+    }
+}
+
+/// Delete the executables in each profile folder of `folder` (a folder
+/// holding `deps/`) and in its `deps/`, so the next build there must write
+/// them again; the ones that would not go, each with its error.
+fn deleted_executables(folder: &Path) -> Vec<(PathBuf, std::io::Error)> {
+    let mut kept = Vec::new();
+    let Ok(entries) = fs::read_dir(folder) else {
+        return kept;
+    };
+    for profile in entries.flatten().map(|entry| entry.path()) {
+        let deps = profile.join("deps");
+        if !deps.is_dir() {
+            continue;
+        }
+        for place in [profile, deps] {
+            let Ok(files) = fs::read_dir(&place) else {
+                continue;
+            };
+            for path in files.flatten().map(|entry| entry.path()) {
+                let executable = fs::symlink_metadata(&path)
+                    .is_ok_and(|metadata| metadata.is_file() && is_executable(&path, &metadata));
+                if !executable {
+                    continue;
+                }
+                if let Err(error) = fs::remove_file(&path) {
+                    kept.push((path, error));
+                }
+            }
+        }
+    }
+    kept
+}
+
+/// On Windows, an executable is a `.exe` file.
+#[cfg(windows)]
+fn is_executable(path: &Path, _metadata: &fs::Metadata) -> bool {
+    path.extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
+}
+
+/// Elsewhere, an executable is a file with an execute bit.
+#[cfg(not(windows))]
+fn is_executable(_path: &Path, metadata: &fs::Metadata) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    metadata.permissions().mode() & 0o111 != 0
 }
 
 /// Every entry under `folder`: files with size and modified time, folders by
@@ -593,15 +798,58 @@ fn comparable(path: &Path) -> String {
     }
 }
 
-/// The path a `<lane>: waiting for the lane lock <file>` line names, without
-/// any quotes around it.
-fn wait_line(text: &str, lane: &str) -> Option<String> {
-    let words = format!("{lane}: waiting for the lane lock ");
-    text.lines().find_map(|line| {
-        let at = line.find(&words)?;
-        let named = line[at + words.len()..].trim();
-        Some(named.trim_matches(['`', '"', '\'']).to_owned())
+/// Whether a line says it waits, in any form of the word.
+fn says_wait(line: &str) -> bool {
+    line.to_lowercase().contains("wait")
+}
+
+/// The lines of `text` that say they wait and name `lock_file`, spelled any
+/// way that resolves to it; a relative path is read from `directory`, where
+/// the run started.
+fn waiting_lines(text: &str, lock_file: &Path, directory: &Path) -> Vec<String> {
+    text.lines()
+        .filter(|line| says_wait(line) && names_path(line, lock_file, directory))
+        .map(|line| line.trim_end().to_owned())
+        .collect()
+}
+
+/// The most words a path in a printed line may span: a path may hold spaces.
+const PATH_WORDS: usize = 8;
+
+/// Whether some run of words in `line`, without the quotes or brackets
+/// around it and the punctuation after it, is a path to `file`.
+fn names_path(line: &str, file: &Path, directory: &Path) -> bool {
+    const AROUND: [char; 9] = ['`', '"', '\'', '(', ')', '[', ']', '<', '>'];
+    let words: Vec<&str> = line.split_whitespace().collect();
+    (0..words.len()).any(|start| {
+        (start..words.len().min(start + PATH_WORDS)).any(|end| {
+            let joined = words[start..=end].join(" ");
+            let named = joined
+                .trim_matches(AROUND)
+                .trim_end_matches(['.', ',', ';', ':', '!', '?'])
+                .trim_matches(AROUND);
+            if named.is_empty() {
+                return false;
+            }
+            let named = Path::new(named);
+            same_path(&directory.join(named), file)
+        })
     })
+}
+
+/// The lines of `text` that say they wait, shown under a failure.
+fn said_wait(text: &str) -> String {
+    let lines: Vec<String> = text
+        .lines()
+        .filter(|line| says_wait(line))
+        .take(3)
+        .map(|line| format!("\n    {}", clip(line.trim(), 220)))
+        .collect();
+    if lines.is_empty() {
+        String::new()
+    } else {
+        format!("; the lines that say it waits:{}", lines.concat())
+    }
 }
 
 // --- the scratch copy and its lane runs ---------------------------------------
@@ -622,41 +870,80 @@ const TREE_LABEL: &str = "t139-svev-copy";
 /// The lock file a scratch tree's owning process holds for its whole life.
 const OWNER_LOCK: &str = "svev-copy-owner.lock";
 
+/// The scratch tree's one temporary folder for the runs, short and directly
+/// inside it: lanes build deep below their temporary trees.
+const TEMP_FOLDER: &str = "t";
+
 static SHARED: Mutex<Option<Shared>> = Mutex::new(None);
 static CONTROLS: Observations<Vec<(String, Run)>> = Observations::new();
 static REMOVAL: Once = Once::new();
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 
+/// The checks that share the copy, each through one `with_copy` call.
+const SHARING_CHECKS: usize = 2;
+
+/// How many `with_copy` calls have finished, a panic included.
+static FINISHED: AtomicUsize = AtomicUsize::new(0);
+
 extern "C" {
     fn atexit(callback: extern "C" fn()) -> c_int;
 }
 
-/// Remove the scratch copy when the test process ends normally: no static is
-/// dropped, and the copy outlives every check that shares it. A copy still in
-/// use stays; the next run removes it.
+/// Remove the scratch copy when the test process exits, for a run that
+/// selected only one check (both checks remove it themselves once both are
+/// done): no static is dropped. On Windows a failing test ends the process
+/// without calling this. A copy still in use stays; the next run removes it.
 extern "C" fn remove_scratch() {
     let shared = match SHARED.try_lock() {
         Ok(mut shared) => shared.take(),
         Err(TryLockError::Poisoned(poisoned)) => poisoned.into_inner().take(),
         Err(TryLockError::WouldBlock) => None,
     };
-    drop(shared);
+    if let Some(shared) = shared {
+        removed(shared);
+    }
+}
+
+/// Remove a scratch copy's tree, its owner lock released last.
+fn removed(shared: Shared) {
+    let Shared {
+        _owner: owner,
+        scratch,
+        ..
+    } = shared;
+    remove_tree(&scratch.persist(), Some(owner));
+}
+
+/// The scratch copy for one `with_copy` call. Dropping it, at the call's end
+/// or while a panic unwinds through it, counts the call as finished; once
+/// every check that shares the copy has finished, the copy goes.
+struct Lease<'a>(MutexGuard<'a, Option<Shared>>);
+
+impl Drop for Lease<'_> {
+    fn drop(&mut self) {
+        if FINISHED.fetch_add(1, Ordering::SeqCst) + 1 >= SHARING_CHECKS {
+            if let Some(shared) = self.0.take() {
+                removed(shared);
+            }
+        }
+    }
 }
 
 /// Run `check` over the scratch copy, preparing it on first use; the copy's
-/// lock serializes every step over it.
+/// lock serializes every step over it. The copy is removed once both checks
+/// have finished with it, whether they passed or not.
 fn with_copy<R>(check: impl FnOnce(&Shared) -> R) -> R {
-    let mut shared = SHARED.lock().unwrap_or_else(PoisonError::into_inner);
-    if shared.is_none() {
+    let mut lease = Lease(SHARED.lock().unwrap_or_else(PoisonError::into_inner));
+    if lease.0.is_none() {
         REMOVAL.call_once(|| {
             // SAFETY: `atexit` only records a plain function pointer; the
             // callback touches nothing but this file's static.
             let registered = unsafe { atexit(remove_scratch) };
             assert_eq!(registered, 0, "register the scratch copy's removal at exit");
         });
-        *shared = Some(prepare());
+        *lease.0 = Some(prepare());
     }
-    check(shared.as_ref().expect("the scratch copy is prepared"))
+    check(lease.0.as_ref().expect("the scratch copy is prepared"))
 }
 
 /// The worktree root, without the verbatim prefix `canonicalize` adds on
@@ -674,6 +961,7 @@ fn prepare() -> Shared {
     let scratch =
         TempTree::new(TREE_LABEL).unwrap_or_else(|error| panic!("own the scratch tree: {error}"));
     let owner = own(&scratch);
+    fs::create_dir_all(scratch.join(TEMP_FOLDER)).expect("create the runs' temporary folder");
     let copy = scratch.join("copy");
     let source = worktree();
     let mut indexed = Vec::new();
@@ -729,8 +1017,10 @@ fn own(scratch: &TempTree) -> File {
 }
 
 /// Remove every scratch tree an earlier run of these checks left behind: one
-/// whose owner lock no process holds. The test harness ends a failed run
-/// without any cleanup, so this is where that run's copy goes.
+/// whose owner lock no process holds, or one with `copy/` and no lock file
+/// (a tree names its lock file before `copy/` exists, so only a removal that
+/// failed part way leaves that). The test harness ends a failed run without
+/// any cleanup, so this is where that run's copy goes.
 fn remove_stale_trees() {
     let prefix = format!("ratmac-{TREE_LABEL}-");
     let Ok(entries) = fs::read_dir(std::env::temp_dir()) else {
@@ -741,17 +1031,43 @@ fn remove_stale_trees() {
             continue;
         }
         let tree = entry.path();
-        let Ok(owner) = OpenOptions::new()
+        let owner = match OpenOptions::new()
             .read(true)
             .write(true)
             .open(tree.join(OWNER_LOCK))
-        else {
-            continue;
+        {
+            Ok(owner) if owner.try_lock().is_ok() => Some(owner),
+            Ok(_) => continue,
+            Err(_) if tree.join("copy").is_dir() => None,
+            Err(_) => continue,
         };
-        if owner.try_lock().is_ok() {
-            drop(owner);
-            let _ = fs::remove_dir_all(&tree);
+        remove_tree(&tree, owner);
+    }
+}
+
+/// Remove a scratch tree, its owner lock file last: a removal that fails part
+/// way leaves a tree whose lock file the next run finds free. `owner`, when
+/// given, holds that lock until then.
+fn remove_tree(tree: &Path, owner: Option<File>) {
+    let Ok(entries) = fs::read_dir(tree) else {
+        return;
+    };
+    let mut removed = true;
+    for entry in entries.flatten() {
+        if entry.file_name() == OWNER_LOCK {
+            continue;
         }
+        let path = entry.path();
+        let gone = match entry.file_type() {
+            Ok(kind) if kind.is_dir() => fs::remove_dir_all(&path),
+            _ => fs::remove_file(&path),
+        };
+        removed &= gone.is_ok();
+    }
+    drop(owner);
+    if removed {
+        let _ = fs::remove_file(tree.join(OWNER_LOCK));
+        let _ = fs::remove_dir(tree);
     }
 }
 
@@ -875,26 +1191,9 @@ fn plain_target_kept(shared: &Shared, lane: &str, when: &str) -> Option<String> 
     let target = shared.copy.join("target");
     let found = match fs::symlink_metadata(&target) {
         Ok(metadata) if metadata.is_dir() => {
-            let mut names: Vec<String> = fs::read_dir(&target)
-                .map(|entries| {
-                    entries
-                        .flatten()
-                        .map(|entry| entry.file_name().to_string_lossy().into_owned())
-                        .collect()
-                })
-                .unwrap_or_default();
-            names.sort();
-            let mut attempt = 0;
-            while let Err(error) = fs::remove_dir_all(&target) {
-                attempt += 1;
-                assert!(
-                    attempt < 40,
-                    "clear the folder at {}: {error}",
-                    target.display()
-                );
-                std::thread::sleep(Duration::from_millis(500));
-            }
-            format!("a folder holding {}", names.join(" "))
+            let names = entry_names(&target);
+            cleared(&target);
+            format!("a folder holding {names}")
         }
         Ok(_) => match fs::read(&target) {
             Ok(bytes) if bytes == PLAIN_TARGET => return None,
@@ -909,6 +1208,70 @@ fn plain_target_kept(shared: &Shared, lane: &str, when: &str) -> Option<String> 
          wrote but {found}: a run built in the repository's shared build output",
         target.display()
     ))
+}
+
+/// `None` unless `lane` is the lane-sweep lane and the copy now has a
+/// `test-hidden/t-094/target`, which it starts without: that run built the
+/// t-094 tests in that crate's own build output, not in its lane folder. The
+/// finding, and the folder goes so the next run is judged on its own.
+fn swept_target_absent(shared: &Shared, lane: &str, when: &str) -> Option<String> {
+    if lane != LANE_SWEEP_LANE {
+        return None;
+    }
+    let target = lane_dir(shared, SWEPT_CRATE).join("target");
+    let metadata = fs::symlink_metadata(&target).ok()?;
+    let found = if metadata.is_dir() {
+        let names = entry_names(&target);
+        cleared(&target);
+        format!("a folder holding {names}")
+    } else {
+        fs::remove_file(&target)
+            .unwrap_or_else(|error| panic!("remove {}: {error}", target.display()));
+        "a file".to_owned()
+    };
+    Some(format!(
+        "{lane}: {when}, the copy has {}, {found}: the run built the {SWEPT_CRATE} tests in \
+         that crate's own build output, not in its lane folder",
+        target.display()
+    ))
+}
+
+/// The names directly inside `folder`, sorted and joined by spaces.
+fn entry_names(folder: &Path) -> String {
+    let mut names: Vec<String> = fs::read_dir(folder)
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    names.sort();
+    names.join(" ")
+}
+
+/// Remove a folder, retrying while another program (an indexer or a virus
+/// scanner) briefly holds a file inside it.
+fn cleared(folder: &Path) {
+    let mut attempt = 0;
+    while let Err(error) = fs::remove_dir_all(folder) {
+        attempt += 1;
+        assert!(
+            attempt < 40,
+            "clear the folder at {}: {error}",
+            folder.display()
+        );
+        std::thread::sleep(Duration::from_millis(500));
+    }
+}
+
+/// Point a run's temporary folder (`TMP`, `TEMP`, `TMPDIR`) at the scratch
+/// tree's own, so no lane's temporary trees meet another process's.
+fn scratch_temp(shared: &Shared, command: &mut Command) {
+    let temp = shared.scratch.join(TEMP_FOLDER);
+    for key in ["TMP", "TEMP", "TMPDIR"] {
+        command.env(key, &temp);
+    }
 }
 
 /// Rename a folder, retrying while another program (an indexer or a virus
@@ -1036,17 +1399,38 @@ fn clip(text: &str, limit: usize) -> String {
 struct Started {
     child: Child,
     log: PathBuf,
+    /// The lane's crate folder, where the run started.
+    directory: PathBuf,
     status: Option<ExitStatus>,
 }
 
 enum Waiting {
-    Named(String),
+    Named,
     Ended,
     Silent,
 }
 
 impl Started {
+    /// The lane's `cargo test` the way the sweep runs a crate: with
+    /// `--target-dir <crate>/target` on its command line.
     fn new(shared: &Shared, lane: &str, label: &str) -> Self {
+        let target = lane_dir(shared, lane).join("target");
+        Self::start(shared, lane, label, |command| {
+            command.arg("--target-dir").arg(target);
+        })
+    }
+
+    /// The lane's `cargo test` with no `--target-dir` and `CARGO_TARGET_DIR`
+    /// naming `folder`: a run outside the sweep, which drops that variable.
+    fn redirected(shared: &Shared, lane: &str, label: &str, folder: &Path) -> Self {
+        Self::start(shared, lane, label, |command| {
+            command.env("CARGO_TARGET_DIR", folder);
+        })
+    }
+
+    /// `cargo test --offline` in the lane's crate folder, every inherited
+    /// `CARGO_` variable dropped, then `adjust`ed.
+    fn start(shared: &Shared, lane: &str, label: &str, adjust: impl FnOnce(&mut Command)) -> Self {
         let log = fresh_path(shared, &format!("log-{lane}-{label}"));
         let file =
             File::create(&log).unwrap_or_else(|error| panic!("create {}: {error}", log.display()));
@@ -1056,17 +1440,17 @@ impl Started {
         let directory = lane_dir(shared, lane);
         let mut command = support::command("cargo", &directory);
         drop_cargo_variables(&mut command);
-        command
-            .args(["test", "--offline", "--target-dir"])
-            .arg(directory.join("target"))
-            .stdout(Stdio::from(also))
-            .stderr(Stdio::from(file));
+        scratch_temp(shared, &mut command);
+        command.args(["test", "--offline"]);
+        adjust(&mut command);
+        command.stdout(Stdio::from(also)).stderr(Stdio::from(file));
         let child = command
             .spawn()
             .unwrap_or_else(|error| panic!("start {lane}'s cargo test: {error}"));
         Self {
             child,
             log,
+            directory,
             status: None,
         }
     }
@@ -1087,12 +1471,14 @@ impl Started {
         self.status.is_some()
     }
 
-    fn wait_line(&mut self, lane: &str, limit: Duration) -> Waiting {
+    /// Watch the run until it prints a line that it waits for `lock_file`,
+    /// ends, or `limit` passes.
+    fn wait_for(&mut self, lock_file: &Path, limit: Duration) -> Waiting {
         let deadline = Instant::now() + limit;
         loop {
             let ended = self.ended();
-            if let Some(named) = wait_line(&self.text(), lane) {
-                return Waiting::Named(named);
+            if !waiting_lines(&self.text(), lock_file, &self.directory).is_empty() {
+                return Waiting::Named;
             }
             if ended {
                 return Waiting::Ended;
@@ -1104,7 +1490,13 @@ impl Started {
         }
     }
 
-    fn finish(mut self) -> Run {
+    fn finish(self) -> Run {
+        self.finished().0
+    }
+
+    /// Wait for the run to end, stopping it past `RUN_LIMIT`: its verdict and
+    /// its whole output.
+    fn finished(mut self) -> (Run, String) {
         let deadline = Instant::now() + RUN_LIMIT;
         while !self.ended() {
             if Instant::now() >= deadline {
@@ -1114,7 +1506,8 @@ impl Started {
             }
             std::thread::sleep(Duration::from_millis(250));
         }
-        judged(self.status, &self.text())
+        let text = self.text();
+        (judged(self.status, &text), text)
     }
 
     /// Stop the run and the test executable it started: on Windows, killing
@@ -1157,18 +1550,27 @@ fn inventory(root: &Path) -> Inventory {
         files: 0,
         lanes: 0,
     };
+    let mut covered = [false; 4];
     for lane in roster.iter().filter(|lane| *lane != PORTS_LANE) {
         let files = lane_sources(root, lane);
         inventory.files += files.len();
         inventory.lanes += 1;
         for finding in Lane::new(&files).findings() {
             let shown = finding.shown(lane, &files);
-            if (finding.file.as_str(), finding.function.as_str()) == (EXCEPTION.0, EXCEPTION.1) {
-                inventory
-                    .set_aside
-                    .push(format!("{shown}\n      ({})", EXCEPTION.2));
-            } else {
-                inventory.findings.push(shown);
+            let excepted = finding.file == EXCEPTION.file && finding.function == EXCEPTION.function;
+            let text = finding.text(&files);
+            let cover = (0..EXCEPTION.covers.len()).find(|&index| {
+                let (kind, piece) = EXCEPTION.covers[index];
+                excepted && !covered[index] && finding.kind == kind && text.contains(piece)
+            });
+            match cover {
+                Some(index) => {
+                    covered[index] = true;
+                    inventory
+                        .set_aside
+                        .push(format!("{shown}\n      ({})", EXCEPTION.reason));
+                }
+                None => inventory.findings.push(shown),
             }
         }
     }
@@ -1221,12 +1623,17 @@ struct Finding {
 }
 
 impl Finding {
-    fn shown(&self, lane: &str, files: &[(String, String)]) -> String {
-        let text = files
+    /// The source line the finding names.
+    fn text<'a>(&self, files: &'a [(String, String)]) -> &'a str {
+        files
             .iter()
             .find(|(path, _)| *path == self.file)
             .and_then(|(_, text)| text.lines().nth(self.line - 1))
-            .unwrap_or_default();
+            .unwrap_or_default()
+    }
+
+    fn shown(&self, lane: &str, files: &[(String, String)]) -> String {
+        let text = self.text(files);
         let through = match &self.through {
             Some((file, line)) if *file == self.file => format!(" (the Cargo run at line {line})"),
             Some((file, line)) => format!(" (the Cargo run at {file}:{line})"),
@@ -1295,10 +1702,13 @@ fn inventory_controls() {
             "fn run_lane(directory: &Path) -> Output {\n    let mut command = support::command(\"cargo\", directory);\n    command.output().unwrap()\n}\nfn a() {\n    run_lane(&repo_root().join(\"test-hidden\").join(\"t-116\"));\n    let lane = TempTree::new(\"lane\").unwrap();\n    run_lane(&lane.join(\"t-116\"));\n    let own = Command::new(\"cargo\").args([\"test\", \"--offline\"]).output();\n}\n",
             &[(6, "cargo"), (9, "cargo test")],
         ),
-        // The shared locked-folder helper's methods are not sites.
+        // The shared locked-folder helper's methods are not sites, and
+        // neither is the helper on the folder Cargo gives the lane's tests,
+        // directly or through a lane function's parameter; the helper on a
+        // folder in the repository is, at the caller's line.
         (
-            "fn a() {\n    let lane = lane_folder(\"t-086\", env!(\"CARGO_TARGET_TMPDIR\"));\n    let engine = lane.engine();\n    let rtm = lane.build(&repo_root(), &[\"--bin\", \"rtm\"], \"rtm\");\n    let output = lane.test(repo_root().join(\"test-hidden/t-094\")).output();\n    let comparison = lane.cargo(\"build\", &repo_root()).output();\n}\n",
-            &[],
+            "fn lane(target_tmpdir: &str) -> &'static LaneFolder {\n    LANE.get_or_init(|| ratmac_qa::baseline::lane_folder(\"t-115\", target_tmpdir))\n}\nfn a() {\n    let own = lane_folder(\"t-086\", env!(\"CARGO_TARGET_TMPDIR\"));\n    let engine = own.engine();\n    let rtm = own.build(&repo_root(), &[\"--bin\", \"rtm\"], \"rtm\");\n    let output = own.test(repo_root().join(\"test-hidden/t-094\")).output();\n    let comparison = own.cargo(\"build\", &repo_root()).output();\n    lane(env!(\"CARGO_TARGET_TMPDIR\"));\n    let shared = lane_folder(\"t-086\", repo_root().join(\"target\"));\n    lane(repo_root().join(\"target\").to_str().unwrap());\n}\n",
+            &[(11, "lane_folder"), (12, "lane_folder")],
         ),
     ];
     for (number, (source, expected)) in controls.iter().enumerate() {
@@ -1963,6 +2373,18 @@ impl Lane {
                 let (arguments, _) = call_args(tokens, at + 1);
                 let root = arguments.first()?.clone();
                 Some(("built_executable".to_owned(), SiteRoot::Expression(root)))
+            }
+            // The helper itself, handed a folder the root rule leads to the
+            // repository from instead of the one Cargo gives the lane's tests.
+            "lane_folder" if called => {
+                let (arguments, _) = call_args(tokens, at + 1);
+                if arguments.len() != 2 {
+                    return None;
+                }
+                Some((
+                    "lane_folder".to_owned(),
+                    SiteRoot::Expression(arguments[1].clone()),
+                ))
             }
             "command" if called => {
                 let (arguments, close) = call_args(tokens, at + 1);
