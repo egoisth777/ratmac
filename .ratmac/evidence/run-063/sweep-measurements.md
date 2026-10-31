@@ -16,6 +16,7 @@ three.
 | before 3 | primary checkout, same code, 2026-10-30 18:45Z, per-crate times | 81 | 79 pass, 2 expired | 2,004 s |
 | after 1 | ticket worktree with the reviewed change, 2026-10-30 17:16Z | 82 | 80 pass, 2 expired | 2,676 s |
 | after 2 | ticket worktree, same bytes, 2026-10-30 18:02Z, per-crate times | 82 | 80 pass, 2 expired | 2,584 s |
+| close | primary checkout right after the merge, every lane folder new, 2026-10-31 15:02Z; the turn tool's close ran the sweep and then the check, with its report in the ignored `target/` | 82 | 80 pass, 2 expired | 1,864 s |
 
 The same sweep of the same code varied from 1,337 s to 2,004 s on this
 machine, so only the per-crate pair below says where the time goes. "after 2"
@@ -35,9 +36,14 @@ and "before 3" ran back to back, each printing a time per crate:
   a lane folder was rebuilt during them; only Cargo's dependency listings
   (`.d` files) were rewritten. The one fresh build is the test-Engine lane's
   (`t-137`) own fixture, which builds into a new folder on purpose.
-- Cold: a checkout's first sweep builds `rtm-qa` once in each of the 25 lane
-  folders, where before it built once for all of them. The cold time is
-  measured by the primary checkout's sweep at this ticket's close.
+- Cold: a checkout's first sweep builds once in each of the 25 lane folders
+  what that lane runs, where before one build served them all: `rtm-qa` in
+  21 of them, and in the other four the shipped `rtm` with `t-094`'s tests
+  (`t-108`), `snapshot-manifest` (`t-113`), `edition-cut` (`t-127`), and
+  other lanes' tests (`t-126`). The primary checkout's sweep at this ticket's
+  close was such a first sweep: all 21 `rtm-qa` builds are dated inside it.
+  It took 1,864 s, inside the spread of the warm sweeps above, so this
+  machine's own variation hides what the cold builds cost.
 
 ## Disk
 
