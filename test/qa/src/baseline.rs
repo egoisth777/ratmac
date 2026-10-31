@@ -422,6 +422,26 @@ impl LaneFolder {
         }
     }
 
+    /// SVE-008: the freeze Engine (`rtm` at [`FREEZE_COMMIT`]), built in this
+    /// folder. The first call in a process removes whatever an earlier run
+    /// left in `<folder>/freeze/tree`, extracts the freeze commit's tree there
+    /// afresh, and builds it with `cargo build --offline --bin rtm --features
+    /// test-fault-injection --target-dir <folder>/freeze/build` through
+    /// [`built_executable`], whose report is the answer. Every extracted file
+    /// is newer than any earlier build output, so Cargo builds the Engine from
+    /// the bytes just extracted and never reuses an earlier run's build of
+    /// other bytes. Later calls in the same process answer the same path
+    /// without extracting or building again, or panic again with the first
+    /// call's refusal; a different folder builds its own. A private lane asks
+    /// its own lane folder; a public suite asks the folder named after the
+    /// suite in its own `CARGO_TARGET_TMPDIR`. Nothing here reads, writes, or
+    /// removes `ratmac-freeze-<commit>` under the system temp folder.
+    pub fn freeze_engine(&self) -> &Path {
+        // Red seam (t-140): still the shared freeze build under the system
+        // temp folder.
+        engine()
+    }
+
     /// `cargo <subcommand>` in `directory` with this folder as its target and
     /// build folder, scrubbed like [`crate::support::command`]; the caller
     /// adds its own arguments and environment, then runs it.

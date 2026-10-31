@@ -15,3 +15,5 @@ mod t109_pre_split_ports;
 mod t110_post_split_ports;
 #[path = "t139_same_lane_verdict.rs"]
 mod t139_same_lane_verdict;
+#[path = "t140_same_lane_verdict.rs"]
+mod t140_same_lane_verdict;
