@@ -51,6 +51,11 @@ name = "t110_post_split_ports"
 path = "tests/t110_post_split_ports.rs"
 test = false
 
+[[test]]
+name = "t139_same_lane_verdict"
+path = "tests/t139_same_lane_verdict.rs"
+test = false
+
 [dependencies]
 ratmac = { path = "../..", features = ["test-fault-injection"] }
 toml = "0.8"

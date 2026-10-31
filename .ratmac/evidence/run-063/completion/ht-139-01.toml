@@ -1,0 +1,10 @@
+ticket-id = "t-139"
+check-id = "HT-139-01"
+kind = "hidden-lane"
+command = "cargo test --offline --locked --manifest-path test-hidden/t-139/Cargo.toml -- --test-threads=1"
+working-dir = "."
+exit-status = 0
+output-sha256 = "7d63547996b17353a66341844c405dc9deee55c8408c5cd1b8a0d825dc75554a"
+tree-roots = ["src","profiles","test","test-hidden","tools","Cargo.toml","Cargo.lock","AGENTS.md",".gitignore",".ratmac/ratmac.toml",".ratmac/turn.toml",".ratmac/lanes.toml"]
+tree-sha256 = "c865c3ad228823ca8c3f52f23b8456efed39c58a769a5151662889930711b245"
+output = "\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 6 tests\ntest ht_139_01_every_lane_keeps_its_identity_and_t086_proves_inside_its_folder ... ok\ntest ht_139_02_two_lanes_sharing_one_tmpdir_get_separate_folders_and_locks ... ok\ntest ht_139_03_one_run_takes_the_lock_once_and_keeps_it_until_it_ends ... ok\ntest ht_139_04_a_killed_run_leaves_a_folder_the_next_run_reuses ... ok\ntest ht_139_05_no_lane_reads_runs_or_rebuilds_the_shared_output ... ok\ntest ht_139_06_a_lane_running_another_lanes_tests_builds_apart_from_the_sweep ... ok\n\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 775.96s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s\n     Running unittests src\\lib.rs (test-hidden\\t-139\\target\\debug\\deps\\ratmac_t139_hidden-9b38b8985992f00a.exe)\n     Running tests\\hidden.rs (test-hidden\\t-139\\target\\debug\\deps\\hidden-814f896ab14348b3.exe)\n   Doc-tests ratmac_t139_hidden\n"

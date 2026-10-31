@@ -13,3 +13,5 @@ mod t108_lane_sweep;
 mod t109_pre_split_ports;
 #[path = "t110_post_split_ports.rs"]
 mod t110_post_split_ports;
+#[path = "t139_same_lane_verdict.rs"]
+mod t139_same_lane_verdict;
