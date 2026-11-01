@@ -247,8 +247,12 @@ fn every_post_split_crate_passes_and_the_baseline_helper_trims_entries() {
         );
     }
 
+    // SVE-008: the freeze Engine, extracted and built in this suite's own
+    // folder, held under its lock for the whole run.
+    let folder = baseline::lane_folder("t110_post_split_ports", env!("CARGO_TARGET_TMPDIR"));
     let pair = Pair::new(
         "t110-listing",
+        folder.freeze_engine(),
         baseline::today_engine(),
         baseline::DEFAULT_RUNBOOK,
         &[(".ratmac/log.md", "- 2026-09-17: a landing\n")],

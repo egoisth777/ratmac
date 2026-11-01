@@ -13,7 +13,7 @@
 //! changes, every redirect names its own fresh folder, and stand-ins are
 //! planted only inside scratch copies of the repository.
 
-use ratmac_qa::baseline::{self, built_executable, FREEZE_COMMIT};
+use ratmac_qa::baseline::{self, built_executable};
 use ratmac_qa::json::Json;
 use ratmac_qa::support::{self, TempTree};
 use std::any::Any;
@@ -115,7 +115,7 @@ fn svev_001() {
         (
             format!(
                 "(e) the freeze build under CARGO_BUILD_TARGET={host} and CARGO_TARGET_DIR, \
-                 TMP and TEMP naming a fresh folder"
+                 in a lane folder inside a fresh folder that TMP and TEMP name too"
             ),
             freeze_case(&host),
         ),
@@ -267,8 +267,10 @@ fn host_target_case(repo: &Path, host: &str) -> Result<(), String> {
     )
 }
 
-/// The freeze build under the same host-target redirect, with `TMP` and
-/// `TEMP` naming a fresh folder so the freeze tree and its build are new.
+/// The freeze build under the same host-target redirect, in a lane folder
+/// inside a fresh folder (SVE-008: the freeze build takes its folder from its
+/// caller), so the freeze tree and its build are new; `TMP` and `TEMP` name
+/// that fresh folder too.
 fn freeze_case(host: &str) -> Result<(), String> {
     let output = fresh_tree("t137-e-output")?;
     let temporary = fresh_tree("t137-e-temp")?;
@@ -448,9 +450,9 @@ fn rtm_qa_child(root: &Path, fresh: &Path, today_engine: bool) -> Result<(), Str
     }
 }
 
-/// The freeze build under the host-target redirect: `baseline::engine()`
-/// must return what Cargo reports for `rtm` when the freeze tree is built
-/// into the freeze build's own output folder.
+/// The freeze build under the host-target redirect: a lane folder's
+/// `freeze_engine()` (SVE-008) must return what Cargo reports for `rtm` when
+/// the freeze tree is built into that folder's own freeze output folder.
 fn freeze_child(fresh: &Path) -> Result<(), String> {
     let temp = std::env::temp_dir();
     if !lies_under(&temp, fresh) {
@@ -460,19 +462,21 @@ fn freeze_child(fresh: &Path) -> Result<(), String> {
             temp.display()
         ));
     }
-    let returned = std::panic::catch_unwind(|| baseline::engine().to_path_buf())
+    let folder = baseline::lane_folder("t137-freeze", fresh);
+    let returned = std::panic::catch_unwind(|| folder.freeze_engine().to_path_buf())
         .map_err(|payload| panic_text(&*payload));
-    // Where the freeze build keeps its tree and its own output folder.
-    let base = temp.join(format!("ratmac-freeze-{FREEZE_COMMIT}"));
+    // Where the freeze build keeps its tree and its own output folder: the
+    // `freeze` folder inside the lane folder it was handed.
+    let base = folder.path().join("freeze");
     let reported = reported_executable(
         &base.join("tree"),
         &FREEZE_BUILD,
         "rtm",
         Some(&base.join("build")),
     )
-    .map_err(|error| format!("{error}\n  baseline::engine() gave: {returned:?}"))?;
+    .map_err(|error| format!("{error}\n  freeze_engine() gave: {returned:?}"))?;
     under_fresh(&reported, fresh)?;
-    judge("baseline::engine()", returned, &reported)
+    judge("freeze_engine()", returned, &reported)
 }
 
 /// SVEV-002 inside its child, where `CARGO_TARGET_DIR` names `fresh`.

@@ -1,0 +1,10 @@
+ticket-id = "t-140"
+check-id = "cargo fmt --check"
+kind = "quality"
+command = "cargo fmt --check"
+working-dir = "."
+exit-status = 0
+output-sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+tree-roots = ["src","profiles","test","test-hidden","tools",".arca","Cargo.toml","Cargo.lock","AGENTS.md",".gitignore",".ratmac/ratmac.toml",".ratmac/turn.toml",".ratmac/lanes.toml"]
+tree-sha256 = "ac298cbc49727c64dc916bd4341221b53c03170a22b0df19e823ff7fdc87a1db"
+output = ""

@@ -1,0 +1,10 @@
+ticket-id = "t-140"
+check-id = "SVEV-009"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test lane_sweeps -- --exact t109_pre_split_ports::svev_009 t140_same_lane_verdict::svev_009"
+working-dir = "."
+exit-status = 0
+output-sha256 = "610ee8a514f669b78f7589baac784eb91fe51417a88fdc0efb4503829c2158a5"
+tree-roots = ["src","profiles","test","test-hidden","tools","Cargo.toml","Cargo.lock","AGENTS.md",".gitignore",".ratmac/ratmac.toml",".ratmac/turn.toml",".ratmac/lanes.toml"]
+tree-sha256 = "0841aff7f5806c2b201a132fe21b8ec94d1a23e41a5fbb414d90838faca501ed"
+output = "\nrunning 2 tests\ntest t109_pre_split_ports::svev_009 ... ok\ntest t140_same_lane_verdict::svev_009 has been running for over 60 seconds\ntest t140_same_lane_verdict::svev_009 ... ok\n\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 83.87s\n\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s\n     Running tests\\lane_sweeps.rs (target\\debug\\deps\\lane_sweeps-f5c3f65febaaedd7.exe)\n"
