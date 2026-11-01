@@ -24,9 +24,9 @@
 //!   suite's own folder, `lane_folder("t109_pre_split_ports",
 //!   env!("CARGO_TARGET_TMPDIR"))`, never one under `target/lanes`.
 //!
-//! The crates run with one shared build directory (`target/lanes`) so the
-//! thirteen builds of the Engine collapse into one; the sweep shares build
-//! output the same way through `--target-dir`.
+//! The crates run in the suite's own folder from the locked-folder helper
+//! (SVE-008), one build folder for all thirteen, so their builds of the
+//! Engine collapse into one there; nothing builds under `target/lanes`.
 //!
 //! Both checks demand the same crate runs, so one test process executes each
 //! crate once and both read that observation while its inputs are unchanged
@@ -228,22 +228,25 @@ fn declared_lanes(root: &Path, crate_id: &str) -> Vec<String> {
     names
 }
 
-/// The sweep's per-crate command, in the crate's own directory, with one
-/// shared build directory under the checkout so the Engine builds once.
+/// The sweep's per-crate command, in the crate's own directory, with the
+/// suite's own folder (SVE-008) as its target and build folder, so the
+/// Engine builds once there and never under `target/lanes`.
 /// A run is reused within this process only while the checkout still
 /// matches what it saw from start to finish (`lane_runs::Observations`).
 fn run_crate(root: &Path, crate_id: &str) -> Arc<Output> {
     static RUNS: lane_runs::Observations<Output> = lane_runs::Observations::new();
     let _lanes = lane_runs::exclusive();
     RUNS.observe(root, crate_id, || {
-        let mut command = support::command("cargo", crate_dir(root, crate_id));
-        command.args(["test", "--offline"]).stdin(Stdio::null());
+        let folder = ratmac_qa::baseline::lane_folder(SUITE_FOLDER, env!("CARGO_TARGET_TMPDIR"));
+        let mut command = folder.test(crate_dir(root, crate_id));
+        command.arg("--offline").stdin(Stdio::null());
+        // Like the sweep, no inherited `CARGO_` variable reaches the run; the
+        // folder rides on the command line.
         for (key, _) in std::env::vars_os() {
             if key.to_string_lossy().to_uppercase().starts_with("CARGO_") {
                 command.env_remove(&key);
             }
         }
-        command.env("CARGO_TARGET_DIR", root.join("target").join("lanes"));
         command.output().expect("invoke cargo test in the crate")
     })
 }
@@ -817,11 +820,13 @@ fn svev_009_controls() {
         "control: lock file names are told from build output, misread {misread:?}"
     );
 
+    // Sample paths use a custom Cargo profile's folder (qa), not debug: the reader
+    // takes any folder, and the build-message check (SVEV-003) flags debug in a path.
     let transcript = [
         "   Compiling ratmac-t058-hidden v0.1.0 (C:\\x)",
-        "     Running unittests src\\lib.rs (C:\\a b\\out (1)\\debug\\deps\\lib-1.exe)",
+        "     Running unittests src\\lib.rs (C:\\a b\\out (1)\\qa\\deps\\lib-1.exe)",
         "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out",
-        "     Running tests\\hidden.rs (target\\debug\\deps\\hidden-2.exe)",
+        "     Running tests\\hidden.rs (target\\qa\\deps\\hidden-2.exe)",
         "test ht_058_01_regression ... ok",
         "   Doc-tests ratmac_t058_hidden",
     ]
@@ -830,11 +835,11 @@ fn svev_009_controls() {
     let expected = vec![
         (
             "src/lib.rs".to_owned(),
-            PathBuf::from("C:\\a b\\out (1)\\debug\\deps\\lib-1.exe"),
+            PathBuf::from("C:\\a b\\out (1)\\qa\\deps\\lib-1.exe"),
         ),
         (
             "tests/hidden.rs".to_owned(),
-            PathBuf::from("target\\debug\\deps\\hidden-2.exe"),
+            PathBuf::from("target\\qa\\deps\\hidden-2.exe"),
         ),
     ];
     assert_eq!(

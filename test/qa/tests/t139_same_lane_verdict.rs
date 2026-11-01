@@ -70,10 +70,13 @@
 //! them; its rule follows.
 //!
 //! The inventory rule. It covers every `.rs` file of every live lane in
-//! `.ratmac/lanes.toml` except the pre-split ports lane `t-109`, whose folder
-//! belongs to the freeze and ports folder ticket (`t-140`). It skips every
-//! `target/` folder and `test-hidden/t-126/fixtures/before/`. Comments and
-//! string literals never count as code. A site is:
+//! `.ratmac/lanes.toml`, the pre-split ports lane `t-109` among them: since
+//! the freeze and ports folder ticket (`t-140`, SVE-008) its cold-build check
+//! runs a copy in a fresh scratch tree. Its nested sweep, a `python` command
+//! the inventory does not see, builds in its own lane folder and is guarded
+//! by that ticket's checks (SVEV-009). It skips every `target/` folder and
+//! `test-hidden/t-126/fixtures/before/`. Comments and string literals never
+//! count as code. A site is:
 //! - `today_engine` anywhere outside a `use` item, as a call or as a function
 //!   value;
 //! - a call of the free function `built_executable(root, ..)`;
@@ -98,15 +101,14 @@
 //! finding then names the caller's line. Scratch copies and synthetic fixtures
 //! in an owned temporary tree reach none of these, so they are never sites.
 //! The shared helper's own methods on a `lane_folder(..)` value (`.engine()`,
-//! `.build(..)`, `.test(..)`, `.cargo(..)`) are never sites either. Neither is
-//! `baseline::engine()`, the freeze build, which belongs to SVE-008. One named
-//! exception is set aside and listed: four findings in `ht_137_01_child` in
-//! `test-hidden/t-137/tests/hidden.rs`, each named by its kind and its source
-//! line. HT-137-01 proves `today_engine()` itself, and that child's builds go
-//! through `CARGO_TARGET_DIR` into `t-137`'s lane folder, which its parent
-//! holds under the lane lock. Any other finding in that function, or one more
-//! of the same, is reported. The matcher proves itself on known shapes first,
-//! so a blind matcher cannot pass.
+//! `.freeze_engine()`, `.build(..)`, `.test(..)`, `.cargo(..)`) are never
+//! sites either. One named exception is set aside and listed: four findings
+//! in `ht_137_01_child` in `test-hidden/t-137/tests/hidden.rs`, each named by
+//! its kind and its source line. HT-137-01 proves `today_engine()` itself,
+//! and that child's builds go through `CARGO_TARGET_DIR` into `t-137`'s lane
+//! folder, which its parent holds under the lane lock. Any other finding in
+//! that function, or one more of the same, is reported. The matcher proves
+//! itself on known shapes first, so a blind matcher cannot pass.
 //!
 //! SVEV-008: the copy's default `target` is a plain file. For each lane, two
 //! runs start at once, each in its own process, and both must read the
@@ -204,9 +206,6 @@ const STAND_INS: [(&str, &[&str]); 4] = [
     ),
 ];
 
-/// The pre-split ports lane: its folder moves in `t-140` (SVE-008).
-const PORTS_LANE: &str = "t-109";
-
 /// The frozen before-source corpus, never a source.
 const FROZEN_CORPUS: &str = "test-hidden/t-126/fixtures/before/";
 
@@ -251,7 +250,7 @@ fn svev_007() {
     let mut failures = Vec::new();
     if !inventory.findings.is_empty() {
         failures.push(format!(
-            "the inventory of {} sources in {} live lanes (t-109 aside) finds {} Cargo run(s) on \
+            "the inventory of {} sources in {} live lanes finds {} Cargo run(s) on \
              the repository or a lane crate outside the shared locked-folder helper:\n{}",
             inventory.files,
             inventory.lanes,
@@ -1551,7 +1550,7 @@ fn inventory(root: &Path) -> Inventory {
         lanes: 0,
     };
     let mut covered = [false; 4];
-    for lane in roster.iter().filter(|lane| *lane != PORTS_LANE) {
+    for lane in &roster {
         let files = lane_sources(root, lane);
         inventory.files += files.len();
         inventory.lanes += 1;

@@ -2,13 +2,15 @@
 //!
 //! `SVC-007` says the state-vocabulary cutover changed names only. Proving
 //! that needs the before as well as the after, so this module builds the
-//! Engine as it stood at the freeze commit into a throwaway directory and
+//! Engine as it stood at the freeze commit in its caller's own folder and
 //! offers the one translation table that separates a renamed word from a
 //! changed behavior.
 //!
-//! Nothing here touches the repository: the freeze tree is extracted with
-//! `git archive` into a temporary directory and built with its own build
-//! directory, so no checkout, index, or worktree is disturbed.
+//! The freeze commit's `git archive` is extracted with `tar` into its caller's
+//! own folder ([`LaneFolder::freeze_engine`]) and built with its own build
+//! directory there, so no checkout, index, or worktree is disturbed; a public
+//! suite's folder lies in the repository's ignored build output, its own
+//! `CARGO_TARGET_TMPDIR`.
 
 use crate::json::Json;
 use std::collections::{BTreeMap, BTreeSet};
@@ -162,24 +164,36 @@ pub fn repo_root() -> PathBuf {
         .expect("repository root resolves")
 }
 
-/// The freeze Engine, built once per test process.
+/// SVE-008: the freeze Engine built in `folder`, the folder its caller takes
+/// from the locked-folder helper - [`LaneFolder::freeze_engine`], which keeps
+/// one build per folder per process.
 ///
-/// Returns the built command's path. The extraction directory lives for the
-/// life of the process on purpose: several checks share one build.
-pub fn engine() -> &'static Path {
-    static ENGINE: LazyLock<PathBuf> = LazyLock::new(|| {
-        build(&repo_root())
-            .unwrap_or_else(|refusal| panic!("the freeze Engine builds offline: {refusal}"))
-    });
-    ENGINE.as_path()
-}
-
-fn build(repo_root: &Path) -> Result<PathBuf, String> {
-    // Keyed by the freeze commit alone, so repeated runs reuse one build;
-    // cargo's own build lock serializes two processes that arrive together.
-    let base = std::env::temp_dir().join(format!("ratmac-freeze-{FREEZE_COMMIT}"));
+/// Everything lives in `<folder>/freeze`: whatever an earlier run left at
+/// `tree` is removed, the freeze commit's `git archive` is written to
+/// `freeze.tar` and extracted into `tree` afresh, every file stamped with the
+/// time of extraction rather than the commit's, and Cargo builds it with
+/// `build` as both its target folder and its build folder. A folder Cargo
+/// cannot be told to build in is refused before anything is removed.
+fn build(repo_root: &Path, folder: &Path) -> Result<PathBuf, String> {
+    let base = folder.join("freeze");
     let tree = base.join("tree");
     let build_dir = base.join("build");
+    let build_setting = build_dir_setting(&build_dir)?;
+    // Whatever kind of entry an earlier run left there, never extracted over:
+    // a folder with everything in it; a link to a folder or a junction, which
+    // Windows removes as a folder - the link alone, never what it points at;
+    // any other entry, a file or a link to one, removed as a file, so a
+    // refusal names the error that removal met.
+    match fs::symlink_metadata(&tree) {
+        Ok(metadata) if metadata.is_dir() => fs::remove_dir_all(&tree),
+        Ok(metadata) if metadata.is_symlink() => {
+            fs::remove_file(&tree).or_else(|_| fs::remove_dir(&tree))
+        }
+        Ok(_) => fs::remove_file(&tree),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+    }
+    .map_err(|error| format!("remove the earlier freeze tree {}: {error}", tree.display()))?;
     fs::create_dir_all(&tree).map_err(|error| format!("create {}: {error}", tree.display()))?;
 
     let tarball = base.join("freeze.tar");
@@ -200,8 +214,12 @@ fn build(repo_root: &Path) -> Result<PathBuf, String> {
         ));
     }
 
+    // `-m`: each extracted file is stamped with the time of extraction, newer
+    // than any earlier build output unless the clock has gone back since that
+    // build, so Cargo rebuilds from these bytes and never reuses a build of
+    // others.
     let extract = crate::support::command("tar", &tree)
-        .args(["-xf", &tarball.to_string_lossy()])
+        .args(["-xmf", &tarball.to_string_lossy()])
         .output()
         .map_err(|error| format!("run tar: {error}"))?;
     if !extract.status.success() {
@@ -213,7 +231,8 @@ fn build(repo_root: &Path) -> Result<PathBuf, String> {
 
     // The same feature set the harness's own Engine is built with, so
     // fault-injection scenarios can be compared at all; the freeze build's
-    // own output folder is named on the command line.
+    // own output folder is named on the command line, as the target folder
+    // and the build folder both.
     built_executable(
         &tree,
         &[
@@ -224,6 +243,8 @@ fn build(repo_root: &Path) -> Result<PathBuf, String> {
             OsStr::new("test-fault-injection"),
             OsStr::new("--target-dir"),
             build_dir.as_os_str(),
+            OsStr::new("--config"),
+            build_setting.as_os_str(),
         ],
         "rtm",
     )
@@ -350,8 +371,9 @@ pub fn built_executable<S: AsRef<OsStr>>(
 /// SVE-007: a lane's private build folder, held under the lane's lock for the
 /// whole run. Every `cargo build` and `cargo test` a lane runs on the
 /// repository or on another lane's crate goes through it: [`Self::engine`]
-/// for today's Engine, [`Self::build`] for any other binary, [`Self::test`]
-/// for a `cargo test`, and [`Self::cargo`] for any other Cargo command.
+/// for today's Engine, [`Self::freeze_engine`] for the freeze Engine,
+/// [`Self::build`] for any other binary, [`Self::test`] for a `cargo test`,
+/// and [`Self::cargo`] for any other Cargo command.
 /// Each passes this folder to Cargo as both its target folder and its build
 /// folder (`build.build-dir`), so no Cargo configuration or inherited
 /// variable moves any of the lane's build output elsewhere. [`Self::build`]
@@ -366,6 +388,7 @@ pub struct LaneFolder {
     /// its parent, when the lane passes the grant as intended - holds it.
     _held: Option<fs::File>,
     engine: OnceLock<Result<PathBuf, String>>,
+    freeze: OnceLock<Result<PathBuf, String>>,
 }
 
 impl LaneFolder {
@@ -426,20 +449,29 @@ impl LaneFolder {
     /// folder. The first call in a process removes whatever an earlier run
     /// left in `<folder>/freeze/tree`, extracts the freeze commit's tree there
     /// afresh, and builds it with `cargo build --offline --bin rtm --features
-    /// test-fault-injection --target-dir <folder>/freeze/build` through
-    /// [`built_executable`], whose report is the answer. Every extracted file
-    /// is newer than any earlier build output, so Cargo builds the Engine from
-    /// the bytes just extracted and never reuses an earlier run's build of
-    /// other bytes. Later calls in the same process answer the same path
-    /// without extracting or building again, or panic again with the first
-    /// call's refusal; a different folder builds its own. A private lane asks
-    /// its own lane folder; a public suite asks the folder named after the
+    /// test-fault-injection`, with `<folder>/freeze/build` as both its target
+    /// folder and its build folder, through [`built_executable`], whose report
+    /// is the answer. Every extracted file is newer than any earlier build
+    /// output unless the clock has gone back since that build, so Cargo builds
+    /// the Engine from the bytes just extracted and never reuses an earlier
+    /// run's build of other bytes. Later calls in the same process answer the
+    /// same path without extracting or building again, or panic again with the
+    /// first call's refusal; a different folder builds its own. A private lane
+    /// asks its own lane folder; a public suite asks the folder named after the
     /// suite in its own `CARGO_TARGET_TMPDIR`. Nothing here reads, writes, or
-    /// removes `ratmac-freeze-<commit>` under the system temp folder.
+    /// removes `ratmac-freeze-<commit>` under the system temp folder. A child
+    /// granted this folder ([`Self::grant`]) must not call this while its
+    /// parent may be running the freeze Engine: as a new process it extracts
+    /// and builds again, and Windows refuses to replace a running program.
     pub fn freeze_engine(&self) -> &Path {
-        // Red seam (t-140): still the shared freeze build under the system
-        // temp folder.
-        engine()
+        let built = self.freeze.get_or_init(|| build(&repo_root(), &self.path));
+        match built {
+            Ok(path) => path,
+            Err(refusal) => panic!(
+                "the freeze Engine builds offline in {}: {refusal}",
+                self.path.display()
+            ),
+        }
     }
 
     /// `cargo <subcommand>` in `directory` with this folder as its target and
@@ -474,36 +506,42 @@ impl LaneFolder {
         (LANE_GRANT, self.lock_file.as_os_str())
     }
 
-    /// The `--config` value naming this folder as Cargo's build folder: a
-    /// TOML basic string, so a backslash or quote in the path stays itself.
-    /// Cargo reads braces in that value as a template variable and has no
-    /// escape for them, so a folder whose path holds `{` or `}` is refused.
+    /// The `--config` value naming this folder as Cargo's build folder.
     fn build_dir(&self) -> OsString {
-        let path = self.path.to_str().unwrap_or_else(|| {
-            panic!(
-                "the lane folder {} is not UTF-8, so no Cargo configuration can name it",
-                self.path.display()
-            )
-        });
-        assert!(
-            !path.contains(['{', '}']),
-            "the lane folder {path} holds a brace, which Cargo reads as a template \
-             variable in build.build-dir and cannot escape"
-        );
-        let mut value = String::from("build.build-dir=\"");
-        for character in path.chars() {
-            match character {
-                '\\' => value.push_str("\\\\"),
-                '"' => value.push_str("\\\""),
-                character if character.is_control() => {
-                    value.push_str(&format!("\\u{:04X}", u32::from(character)));
-                }
-                character => value.push(character),
-            }
-        }
-        value.push('"');
-        value.into()
+        build_dir_setting(&self.path).unwrap_or_else(|refusal| panic!("{refusal}"))
     }
+}
+
+/// The `--config` value naming `folder` as Cargo's build folder: a TOML basic
+/// string, so a backslash or quote in the path stays itself. Cargo reads
+/// braces in that value as a template variable and has no escape for them, so
+/// a folder whose path holds `{` or `}` is refused.
+fn build_dir_setting(folder: &Path) -> Result<OsString, String> {
+    let path = folder.to_str().ok_or_else(|| {
+        format!(
+            "the build folder {} is not UTF-8, so no Cargo configuration can name it",
+            folder.display()
+        )
+    })?;
+    if path.contains(['{', '}']) {
+        return Err(format!(
+            "the build folder {path} holds a brace, which Cargo reads as a template \
+             variable in build.build-dir and cannot escape"
+        ));
+    }
+    let mut value = String::from("build.build-dir=\"");
+    for character in path.chars() {
+        match character {
+            '\\' => value.push_str("\\\\"),
+            '"' => value.push_str("\\\""),
+            character if character.is_control() => {
+                value.push_str(&format!("\\u{:04X}", u32::from(character)));
+            }
+            character => value.push(character),
+        }
+    }
+    value.push('"');
+    Ok(value.into())
 }
 
 /// The Cargo that launched this process when it says so, else the `cargo` on
@@ -626,6 +664,7 @@ fn take_folder(lane: &str, path: PathBuf) -> LaneFolder {
         lock_file,
         _held: held,
         engine: OnceLock::new(),
+        freeze: OnceLock::new(),
     }
 }
 
@@ -1247,9 +1286,17 @@ pub struct Pair {
 impl Pair {
     /// Build both projects from one description, written in freeze words.
     ///
+    /// `freeze_engine` is the freeze Engine the caller's own folder built
+    /// ([`LaneFolder::freeze_engine`]); `today_engine` is today's.
     /// `extra` adds or replaces files, relative to the project root; its
     /// contents are translated for the today side exactly as the runbook is.
-    pub fn new(label: &str, today_engine: &Path, runbook: &str, extra: &[(&str, &str)]) -> Self {
+    pub fn new(
+        label: &str,
+        freeze_engine: &Path,
+        today_engine: &Path,
+        runbook: &str,
+        extra: &[(&str, &str)],
+    ) -> Self {
         let stamp = format!(
             "{}-{}",
             std::process::id(),
@@ -1273,7 +1320,7 @@ impl Pair {
         Self {
             freeze_root,
             today_root,
-            freeze_engine: engine().to_path_buf(),
+            freeze_engine: freeze_engine.to_path_buf(),
             today_engine: today_engine.to_path_buf(),
         }
     }

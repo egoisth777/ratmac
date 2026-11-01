@@ -45,8 +45,12 @@ fn behavior_is_unchanged() {
     // The harness's own copy of the Engine, rebuilt by every `cargo test`
     // run, so the "today" side can never be a stale binary.
     let today_engine = PathBuf::from(ratmac_qa::engine_bin!());
+    // SVE-008: the freeze Engine, extracted and built in this suite's own
+    // folder, held under its lock for the whole run.
+    let folder = baseline::lane_folder("t085_rename_is_behavior_free", env!("CARGO_TARGET_TMPDIR"));
     let pair = Pair::new(
         "t085",
+        folder.freeze_engine(),
         &today_engine,
         baseline::DEFAULT_RUNBOOK,
         &[("done/done.txt", "done\n")],

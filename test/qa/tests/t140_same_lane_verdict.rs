@@ -15,13 +15,13 @@
 //! `test-hidden/<lane>` folders. The second part's oracle is the
 //! repository's own `target/lanes`, which a copy could only stand in for.
 //! Neither lane edits a tracked file: each writes its own `target` folder
-//! and scratch trees under the system temp folder (and, today, the pre-split
-//! ports lane writes `target/lanes`, which is what the check catches). The
-//! private proof agent never runs lanes in place here, so nothing else
-//! drives these lanes in this checkout meanwhile; a second run of the same
-//! lane would wait on that lane's own lock (SVE-007) rather than share its
-//! folder. A copy would also cost a full copy and cold builds of both lanes
-//! in every process.
+//! and scratch trees under the system temp folder (and, before t-140, the
+//! pre-split ports lane wrote `target/lanes`, which is what the check
+//! catches). The private proof agent never runs lanes in place here, so
+//! nothing else drives these lanes in this checkout meanwhile; a second run
+//! of the same lane would wait on that lane's own lock (SVE-007) rather than
+//! share its folder. A copy would also cost a full copy and cold builds of
+//! both lanes in every process.
 //!
 //! The freeze folder. Fixture: a scratch tree this check owns, holding one
 //! short folder made fresh for the run, `t`, which holds nothing but a plain
@@ -30,11 +30,14 @@
 //! naming `t`, so `t` is its system temp folder: Rust's `std::env::temp_dir()`
 //! reads `TMP`, then `TEMP`, on Windows and `TMPDIR` elsewhere. Oracle: that
 //! run gives the lane's standalone verdict (`ht_085_01`..`ht_085_06` all
-//! `ok`), and the plain file is still a plain file holding exactly those
-//! bytes. Red today: the shared freeze build tries to create
-//! `<t>/ratmac-freeze-<commit>/tree`, so the first test that asks for the
-//! freeze Engine fails with "the freeze Engine builds offline" and every
-//! later one finds that once-per-process build poisoned. The folder is fresh
+//! `ok`), the plain file is still a plain file holding exactly those
+//! bytes, and the lane's own freeze tree - `<crate>/target/tmp/t-085/freeze/
+//! tree`, inside the lane folder of the run's `--target-dir` - holds a
+//! `Cargo.toml` written during that run (`tar -xm` stamps every extracted
+//! file with the time of extraction). Red before t-140: the shared freeze build tried to create
+//! `<t>/ratmac-freeze-<commit>/tree`, so the first test that asked for the
+//! freeze Engine failed with "the freeze Engine builds offline" and every
+//! later one found that once-per-process build poisoned. The folder is fresh
 //! and holds nothing warm, so no earlier build can hide that.
 //!
 //! The ports sweep folder. Fixture: this checkout's `target/lanes` as it is,
@@ -48,8 +51,8 @@
 //! absent before and present after is a change. A lock file some run may
 //! hold - Cargo's own (`.cargo-lock`, `.cargo-build-lock`), rustc's session
 //! locks, a lane folder's `lane.lock`: any file named `*.lock` or `*-lock` -
-//! counts by name and length only and is never opened. Red today: HT-109-06's
-//! nested sweep builds two copied crates with `--target-dir
+//! counts by name and length only and is never opened. Red before t-140:
+//! HT-109-06's nested sweep built two copied crates with `--target-dir
 //! <repo>/target/lanes`. Each run copies the two crates afresh, to a new path
 //! and with one source file rewritten, so Cargo finds their units stale and
 //! rebuilds them there even when `target/lanes` is warm and every other unit
@@ -91,6 +94,10 @@
 //! - A freeze build that still names `ratmac-freeze-<commit>` under the
 //!   system temp folder meets the plain file and fails the lane; one that
 //!   removes or rewrites the plain file to get past it changes its bytes.
+//! - A freeze build moved to another shared folder - one under the system
+//!   temp folder the plain file does not block, say - leaves the plain file
+//!   alone and the lane green, but extracts nothing into the lane's own tree
+//!   during the run; a tree an earlier run left there is older than the run.
 //! - A lane run that ignores `TMP`, `TEMP`, and `TMPDIR` never meets the plain
 //!   file. Rust's standard library reads them, and today's red run shows the
 //!   lane stopping at that very file; a lane that took its temp folder some
@@ -111,7 +118,7 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 /// The rename lane and its six tests, as its source declares them.
 const RENAME_LANE: &str = "t-085";
@@ -140,6 +147,11 @@ const PLAIN_FILE: &[u8] =
     b"t-140 SVEV-009: a plain file at the shared freeze build folder's name\n";
 
 const RUN_LIMIT: Duration = Duration::from_secs(1800);
+
+/// How much older than the run's start an extracted file may read and still
+/// count as written during the run: the two-second time stamps some file
+/// systems keep. An earlier run's tree is older by a whole freeze build.
+const STAMP_SLACK: Duration = Duration::from_secs(2);
 
 /// How many changed paths a finding lists.
 const SHOWN: usize = 20;
@@ -184,6 +196,7 @@ fn freeze_folder(root: &Path, scratch: &TempTree) -> Vec<String> {
     fs::write(&plain, PLAIN_FILE)
         .unwrap_or_else(|error| panic!("write the plain file {}: {error}", plain.display()));
     temp_folder_control(&temp, &plain);
+    let started = SystemTime::now();
     let run = Run::lane(
         root,
         RENAME_LANE,
@@ -204,7 +217,42 @@ fn freeze_folder(root: &Path, scratch: &TempTree) -> Vec<String> {
             plain.display()
         ));
     }
+    if let Some(observed) = own_tree_stale(root, started) {
+        failures.push(format!(
+            "one run of the rename lane {RENAME_LANE} did not extract the freeze tree into \
+             its own lane folder: {observed}"
+        ));
+    }
     failures
+}
+
+/// `None` when the rename lane's own freeze tree holds a `Cargo.toml`
+/// written no earlier than `started` (less [`STAMP_SLACK`]); otherwise what
+/// is there instead. The tree sits in the lane folder `lane_folder` makes
+/// under the lane's `CARGO_TARGET_TMPDIR`, which is `<target folder>/tmp`
+/// for the `--target-dir` [`Run::lane`] names.
+fn own_tree_stale(root: &Path, started: SystemTime) -> Option<String> {
+    let manifest = root
+        .join("test-hidden")
+        .join(RENAME_LANE)
+        .join("target")
+        .join("tmp")
+        .join(RENAME_LANE)
+        .join("freeze")
+        .join("tree")
+        .join("Cargo.toml");
+    let modified = match fs::metadata(&manifest).and_then(|metadata| metadata.modified()) {
+        Ok(modified) => modified,
+        Err(error) => return Some(format!("{} cannot be read: {error}", manifest.display())),
+    };
+    match started.duration_since(modified) {
+        Ok(older) if older > STAMP_SLACK => Some(format!(
+            "{} was written {}s before the run started",
+            manifest.display(),
+            older.as_secs()
+        )),
+        _ => None,
+    }
 }
 
 /// `None` while `plain` is a plain file holding exactly [`PLAIN_FILE`];
