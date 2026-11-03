@@ -5,7 +5,7 @@ build loop, issues, gap records, tickets, evidence, ownership, bootstrap,
 trials. It is law, not orientation.
 
 To locate anything - paths, the project manifest, steering, the system map -
-read [index.md](index.md): that is the index; this is the schema it points to.
+read [index.md](packs/projs/skills/ratmac/.arca/index.md): that is the index; this is the schema it points to.
 
 # Two rule sets — read this first
 
@@ -369,7 +369,7 @@ below and bind at integration while minting no goal row, gap record, or ticket.
 Integrated from [issue i-024](issue/archive/i-024-engine-namespace-split/spec.md#requirement-records).
 
 The working rules name no pre-split Engine path and no pre-cutover Run Record. `.arca/schema.md` and
-[index.md](index.md) name the Engine root `.ratmac/`, its runtime contents, and the per-Run
+[index.md](packs/projs/skills/ratmac/.arca/index.md) name the Engine root `.ratmac/`, its runtime contents, and the per-Run
 Run Record `.ratmac/runs/<run-id>/run.toml` (renamed from the flat and per-Run `state.toml`
 spellings by goal `SVC-004`). Archived and frozen records stay byte-for-byte unchanged.
 
@@ -393,7 +393,7 @@ below and bind at integration while minting no goal row, gap record, or ticket.
 Integrated from [issue i-025](issue/archive/i-025-state-vocabulary/spec.md#requirement-records).
 
 The working rules and the orientation they point at speak the settled vocabulary: `.arca/schema.md`,
-[index.md](index.md), `.arca/dict.md`, `.arca/runbook-spec.md`, `.arca/runbook-authoring.md`,
+[index.md](packs/projs/skills/ratmac/.arca/index.md), `.arca/dict.md`, `.arca/runbook-spec.md`, `.arca/runbook-authoring.md`,
 `.arca/steering.md`, and the blank forms in `.arca/tpl/` name **State** (the position in the machine
 graph), **Run Record** (the one file the Engine writes for one Run), **Run** (the whole live
 instance), and `status` (Engine-owned lifecycle, never a position). The glossary's `Phase` entry is

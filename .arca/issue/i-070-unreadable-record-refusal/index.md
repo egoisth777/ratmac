@@ -20,7 +20,7 @@ Ideal-shape properties advanced: **Refusals are branchable and Every boundary ma
 
 | Need | File |
 | :--- | :--- |
-| Terms | [Ubiquitous language](ubi-lang.md) |
+| Terms | [Ubiquitous language](packs/repos/skills/ratmac/.arca/issue/i-070-unreadable-record-refusal/ubi-lang.md) |
 | Requirements | [Specification](spec.md) |
 | Proposed mechanics | [Design](design.md) |
 | Verification and integration traces | [Test plan](test-plan.md) |

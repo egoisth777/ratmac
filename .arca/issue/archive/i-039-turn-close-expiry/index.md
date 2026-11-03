@@ -20,7 +20,7 @@ properties. No Engine behavior, runbook guard kind, or new expiry policy is aske
 
 | Need | File |
 | :--- | :--- |
-| Terms | [Ubiquitous language](ubi-lang.md) |
+| Terms | [Ubiquitous language](packs/repos/skills/ratmac/.arca/issue/archive/i-039-turn-close-expiry/ubi-lang.md) |
 | Requirements | [Specification](spec.md) |
 | Proposed mechanics | [Design](design.md) |
 | Verification and integration traces | [Test plan](test-plan.md) |

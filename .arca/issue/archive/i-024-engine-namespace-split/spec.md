@@ -2,7 +2,7 @@
 
 Dispositions below record the author's proposed decision; P1 confirms or revises them at
 integration. `ENS` expands to **Engine namespace split** and is this issue's stable
-requirement-ID prefix, defined in [ubi-lang.md](ubi-lang.md).
+requirement-ID prefix, defined in [ubi-lang.md](packs/repos/skills/ratmac/.arca/issue/archive/i-024-engine-namespace-split/ubi-lang.md).
 
 ## Requirement Records
 

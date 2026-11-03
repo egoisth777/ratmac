@@ -6,7 +6,7 @@ pass and are recorded in the goal design
 ([ADR-0019](../../../goal/design.md#the-citation-check-ships-in-the-qa-crate-reachability-is-any-ref-adr-0019)).
 
 `RCR` is this issue's stable requirement-ID prefix — **Records Cite Resolving
-commits** — defined in [ubi-lang.md](ubi-lang.md).
+commits** — defined in [ubi-lang.md](packs/repos/skills/ratmac/.arca/issue/archive/i-036-records-cite-resolving-commits/ubi-lang.md).
 
 ## Requirement Records
 

@@ -20,7 +20,7 @@ The Engine runtime is one shared `.ratmac/` Engine root at the primary checkout 
 
 | Need | File |
 | :--- | :--- |
-| Terms | [Ubiquitous language](ubi-lang.md) |
+| Terms | [Ubiquitous language](packs/repos/skills/ratmac/.arca/goal/ubi-lang.md) |
 | Required behavior | [Specification](spec.md) |
 | Decisions and mechanics | [Design](design.md) |
 | Verification | [Test list](test-list.md) |

@@ -4,7 +4,7 @@ Dispositions were confirmed at the 2026-08-21 planning pass (P1), signed by
 Billy's sprint authorization of the same day.
 
 `AOP` is this issue's stable requirement-ID prefix — **Agent Operator
-Protocol** — defined in [ubi-lang.md](ubi-lang.md).
+Protocol** — defined in [ubi-lang.md](packs/repos/skills/ratmac/.arca/issue/archive/i-033-agent-operator-protocol/ubi-lang.md).
 
 ## Requirement Records
 

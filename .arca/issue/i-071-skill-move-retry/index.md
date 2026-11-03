@@ -20,7 +20,7 @@ Ideal-shape properties advanced: **Refusals are branchable and Self-hosted** in 
 
 | Need | File |
 | :--- | :--- |
-| Terms | [Ubiquitous language](ubi-lang.md) |
+| Terms | [Ubiquitous language](packs/repos/skills/ratmac/.arca/issue/i-071-skill-move-retry/ubi-lang.md) |
 | Requirements | [Specification](spec.md) |
 | Proposed mechanics | [Design](design.md) |
 | Verification and integration traces | [Test plan](test-plan.md) |

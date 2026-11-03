@@ -2,7 +2,7 @@
 
 Dispositions below record the author's proposed decision; P1 confirms or revises them at
 integration. `ARF` expands to **Archived record freeze** and is this issue's stable
-requirement-ID prefix, defined in [ubi-lang.md](ubi-lang.md).
+requirement-ID prefix, defined in [ubi-lang.md](packs/repos/skills/ratmac/.arca/issue/archive/i-029-archived-records-cite-their-own-freeze/ubi-lang.md).
 
 ## Requirement Records
 

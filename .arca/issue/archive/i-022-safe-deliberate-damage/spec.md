@@ -1,7 +1,7 @@
 # Issue specification
 
 Dispositions below are final: planning step 1 (P1) integrated this bundle on 2026-08-03. `SDC` expands
-to **Safe Deliberate-damage Checks**, defined in [ubi-lang.md](ubi-lang.md).
+to **Safe Deliberate-damage Checks**, defined in [ubi-lang.md](packs/repos/skills/ratmac/.arca/issue/archive/i-022-safe-deliberate-damage/ubi-lang.md).
 
 The accepted asks are working-authority requirements: each resolves to its requirement-ID heading in
 `.arca/schema.md`, and mints no goal row, no gap record, and no ticket - the branch planning step 1

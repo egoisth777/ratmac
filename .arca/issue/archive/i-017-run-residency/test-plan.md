@@ -13,7 +13,7 @@
 
 | Goal/Test File | Status | Reverse Issue Refs |
 | :--- | :--- | :--- |
-| `.arca/goal/index.md` | integrated 2026-07-29 | "Integrated canonical run residency" links back to this issue's [index.md](index.md) and names the Ideal-shape property the fold-in advances. |
+| `.arca/goal/index.md` | integrated 2026-07-29 | "Integrated canonical run residency" links back to this issue's [index.md](packs/projs/skills/ratmac/.arca/issue/archive/i-017-run-residency/index.md) and names the Ideal-shape property the fold-in advances. |
 | `.arca/goal/ubi-lang.md` | integrated 2026-07-29 | Five terms coined goal-side: the plural `runs` path, run id namespace, verdict slot, spawn-ledger path (location only - its contract stays machine composition's (`i-018-machine-composition`) to coin), flat-layout residue. |
 | `.arca/goal/spec.md` | integrated 2026-07-29 | `FDC-004` - `FDC-006` under "Integrated run-residency requirements", each Source cell linking back to [spec.md](spec.md); `R-022` and `R-023` carry their supersession note. |
 | `.arca/goal/design.md` | integrated 2026-07-29 | "Canonical run residency and identity (FDC-004-FDC-006)", integrated from this issue's [design.md](design.md). |

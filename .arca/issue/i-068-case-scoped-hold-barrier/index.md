@@ -13,7 +13,7 @@ Ideal-shape properties advanced: **Every boundary machine-checked; Self-hosted**
 ## Routes
 | Need | File |
 | :--- | :--- |
-| Terms | [Ubiquitous language](ubi-lang.md) |
+| Terms | [Ubiquitous language](packs/repos/skills/ratmac/.arca/issue/i-068-case-scoped-hold-barrier/ubi-lang.md) |
 | Requirements | [Specification](spec.md) |
 | Proposed mechanics | [Design](design.md) |
 | Verification and integration traces | [Test plan](test-plan.md) |

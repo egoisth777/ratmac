@@ -11,7 +11,7 @@ ruling** (not revocable by an agent) or an **adopted default** (revocable; batch
 Moved from the i-016 seed at the 2026-07-29 split.
 
 `FDC` expands to **FSM Doctrine Convergence** - the requirement-ID prefix shared across the split,
-defined in [ubi-lang.md](ubi-lang.md); IDs stay stable and are never renumbered.
+defined in [ubi-lang.md](packs/repos/skills/ratmac/.arca/issue/archive/i-018-machine-composition/ubi-lang.md); IDs stay stable and are never renumbered.
 
 ## Requirement Records
 
@@ -36,7 +36,7 @@ defined in [ubi-lang.md](ubi-lang.md); IDs stay stable and are never renumbered.
 - Every requirement above names its provenance. `FDC-007`–`FDC-010` trace to their decision records in the
   seed's [design.md](../i-016-fsm-doctrine-convergence/design.md): human ruling or adopted
   default (revocable). `FDC-011` and `FDC-012` trace to the individual human rulings of 2026-08-03 (Billy),
-  recorded in this bundle ([index.md](index.md), Disposition log); `FDC-011` additionally extends the
+  recorded in this bundle ([index.md](packs/projs/skills/ratmac/.arca/issue/archive/i-018-machine-composition/index.md), Disposition log); `FDC-011` additionally extends the
   2026-07-29 scope settlement (accepted review fix) that named this issue the ledger-contract home.
 - **Billy's 2026-07-30 cut** created input-routed transitions, input delivery and durability, and
   Run completion as separate pending concerns. **Assumed dependency forecast, revocable at planning

@@ -2,7 +2,7 @@
 
 Dispositions below record the author's proposed decision; P1 confirms or revises them at
 integration. `EDN` expands to **Edition** and is this issue's stable requirement-ID prefix,
-defined in [ubi-lang.md](ubi-lang.md).
+defined in [ubi-lang.md](packs/repos/skills/ratmac/.arca/issue/archive/i-028-stable-edition-tags/ubi-lang.md).
 
 All three asks bind contributors and this repository's own Machine Class, not the engine
 program: no goal row is proposed, and each accepted ask resolves to a requirement-ID heading

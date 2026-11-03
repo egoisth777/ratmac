@@ -209,7 +209,7 @@ markers. Opt-in release lane: `RATMAC_RELEASE_ACCEPTANCE=1`.
 | Where we are heading; the lines no work may cross | [steering.md](steering.md) |
 | How to contribute: loop, tickets, evidence - **binding** | [schema.md](schema.md) |
 | What happened lately | [log.md](log.md) tail |
-| Unchosen ideas parked with zero commitment | [Wishlist](wishlist.md) |
+| Unchosen ideas parked with zero commitment | [Wishlist](packs/repos/skills/ratmac/.arca/wishlist.md) |
 
 ## Where things live
 

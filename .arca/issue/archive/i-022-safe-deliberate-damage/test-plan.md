@@ -35,6 +35,6 @@ through this bundle.
 | `.arca/tpl/residual.md` | updated | `mutation-kill` field plus the single-evidence-home note. |
 | `.arca/tpl/ticket.md` | updated | Pointer-only comment under `residual-ids` (SDC-003). |
 | `.arca/issue/deferred/i-015-cycle-as-runbook/spec.md` | updated | `PCR-001` carrier extension for `SDC-005` (duplicate). |
-| `.arca/wishlist.md` | updated | The source wish left the pool at this bundle's creation - promotion made this bundle its sole carrier; provenance is recorded in [index.md](index.md). |
+| `.arca/wishlist.md` | updated | The source wish left the pool at this bundle's creation - promotion made this bundle its sole carrier; provenance is recorded in [index.md](packs/projs/skills/ratmac/.arca/issue/archive/i-022-safe-deliberate-damage/index.md). |
 | `tools/check_links.py` | updated | Working-authority branch for accepted asks, landed in this same integration landing; verified by the SDCV-006 differential and probe. |
 | `.arca/log.md` | updated | One P1 integration line, appended per the append-only history rule. |

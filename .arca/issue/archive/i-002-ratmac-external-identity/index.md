@@ -16,7 +16,7 @@ The work must begin with collision, authentication, access, and working-tree pre
 
 | Need | File |
 | :--- | :--- |
-| Terms | [Ubiquitous language](ubi-lang.md) |
+| Terms | [Ubiquitous language](packs/repos/skills/ratmac/.arca/issue/archive/i-002-ratmac-external-identity/ubi-lang.md) |
 | Requirements and decisions | [Specification](spec.md) |
 | Proposed mechanics | [Design](design.md) |
 | Verification and integration traces | [Test plan](test-plan.md) |

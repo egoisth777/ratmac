@@ -5,7 +5,7 @@ minted this issue; the batch was signed by Billy's sprint authorization of
 the same day.
 
 `ELR` is this issue's stable requirement-ID prefix - **Edition Ledger
-Recording** - defined in [ubi-lang.md](ubi-lang.md).
+Recording** - defined in [ubi-lang.md](packs/repos/skills/ratmac/.arca/issue/archive/i-034-edition-ledger-recording-order/ubi-lang.md).
 
 ## Requirement Records
 
