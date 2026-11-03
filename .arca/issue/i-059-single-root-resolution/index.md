@@ -18,7 +18,7 @@ Ideal-shape properties advanced: **Every boundary machine-checked and Generic en
 
 | Need | File |
 | :--- | :--- |
-| Terms | [Ubiquitous language](ubi-lang.md) |
+| Terms | [Ubiquitous language](packs/repos/skills/ratmac-stable-edition-009/.arca/issue/i-059-single-root-resolution/ubi-lang.md) |
 | Requirements | [Specification](spec.md) |
 | Proposed mechanics | [Design](design.md) |
 | Verification and integration traces | [Test plan](test-plan.md) |

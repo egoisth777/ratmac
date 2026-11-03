@@ -4,7 +4,7 @@ Dispositions below record the author's proposed decision; P1 confirms or revises
 them at integration.
 
 `ECP` is this issue's stable requirement-ID prefix - **Edition-Channel Pin**,
-defined in [ubi-lang.md](ubi-lang.md). Every record extends the existing Stable
+defined in [ubi-lang.md](packs/repos/skills/ratmac-stable-edition-009/.arca/issue/archive/i-031-stable-and-nightly-engine-channels/ubi-lang.md). Every record extends the existing Stable
 Engine pin (`Evidence::engine`) and the `ORS-002` bootstrap; none introduces a
 second pin mechanism.
 

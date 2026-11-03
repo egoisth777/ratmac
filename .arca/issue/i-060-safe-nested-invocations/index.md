@@ -18,7 +18,7 @@ Ideal-shape properties advanced: **Generic engine, Every boundary machine-checke
 
 | Need | File |
 | :--- | :--- |
-| Terms | [Ubiquitous language](ubi-lang.md) |
+| Terms | [Ubiquitous language](packs/repos/skills/ratmac-stable-edition-009/.arca/issue/i-060-safe-nested-invocations/ubi-lang.md) |
 | Requirements | [Specification](spec.md) |
 | Proposed mechanics | [Design](design.md) |
 | Verification and integration traces | [Test plan](test-plan.md) |

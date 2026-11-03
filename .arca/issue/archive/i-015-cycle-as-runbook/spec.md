@@ -4,7 +4,7 @@ Dispositions below were confirmed or revised at the 2026-08-10 planning pass; th
 
 The formal artifact name is **Plan-Build Runbook**. `PCR` remains this
 issue's stable requirement-ID prefix, coined from the earlier working name
-**P-Cycle Runbook** and defined in [ubi-lang.md](ubi-lang.md).
+**P-Cycle Runbook** and defined in [ubi-lang.md](packs/repos/skills/ratmac-stable-edition-009/.arca/issue/archive/i-015-cycle-as-runbook/ubi-lang.md).
 
 ## Requirement Records
 

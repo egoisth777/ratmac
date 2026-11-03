@@ -32,7 +32,7 @@ they built. It proposes no engine behavior change.
 
 | Need | File |
 | :--- | :--- |
-| Terms | [Ubiquitous language](ubi-lang.md) |
+| Terms | [Ubiquitous language](packs/repos/skills/ratmac-stable-edition-009/.arca/issue/archive/i-027-duplicate-engine-binary/ubi-lang.md) |
 | Requirements | [Specification](spec.md) |
 | Proposed mechanics | [Design](design.md) |
 | Verification and integration traces | [Test plan](test-plan.md) |

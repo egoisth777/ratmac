@@ -10,7 +10,7 @@ the earlier accepted dispositions and their working-authority ownership do not
 change.
 
 `CGD` is this issue's stable requirement-ID prefix - **Completion from
-Declared Data** - defined in [ubi-lang.md](ubi-lang.md).
+Declared Data** - defined in [ubi-lang.md](packs/repos/skills/ratmac-stable-edition-009/.arca/issue/archive/i-032-completion-gate-reads-declared-data/ubi-lang.md).
 
 ## Requirement Records
 

@@ -12,7 +12,7 @@ the edition and history-gate requirements did; the three executable ones
 are measured by gap records and worked by tickets under `PCR-008`.
 
 `RLR` is this issue's stable requirement-ID prefix - **Red-lane recovery** -
-defined in [ubi-lang.md](ubi-lang.md).
+defined in [ubi-lang.md](packs/repos/skills/ratmac-stable-edition-009/.arca/issue/archive/i-038-red-lanes-recovered/ubi-lang.md).
 
 ## Requirement Records
 

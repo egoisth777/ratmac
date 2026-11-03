@@ -9,7 +9,7 @@ the goal design
 ([ADR-0020](../../../goal/design.md#landed-lanes-sweep-on-demand-and-expire-by-in-crate-marker-adr-0020)).
 
 `LNR` is this issue's stable requirement-ID prefix - **Landed-lane
-runnability** - defined in [ubi-lang.md](ubi-lang.md).
+runnability** - defined in [ubi-lang.md](packs/repos/skills/ratmac-stable-edition-009/.arca/issue/archive/i-037-landed-lanes-stay-runnable/ubi-lang.md).
 
 ## Requirement Records
 

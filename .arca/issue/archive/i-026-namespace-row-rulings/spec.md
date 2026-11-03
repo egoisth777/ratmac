@@ -2,7 +2,7 @@
 
 Dispositions below record the author's proposed decision; P1 confirms or revises them at
 integration. `NRR` expands to **Namespace row rulings** and is this issue's stable
-requirement-ID prefix, defined in [ubi-lang.md](ubi-lang.md).
+requirement-ID prefix, defined in [ubi-lang.md](packs/repos/skills/ratmac-stable-edition-009/.arca/issue/archive/i-026-namespace-row-rulings/ubi-lang.md).
 
 Both asks were forks a human owns. Billy ruled both on 2026-08-10 and P1 records the rulings
 below; the wording of each ask is unchanged from the filing.

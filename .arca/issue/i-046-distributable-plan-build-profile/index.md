@@ -20,7 +20,7 @@ This advances the Self-hosted and Every-boundary-machine-checked properties in [
 
 | Need | File |
 | :--- | :--- |
-| Terms | [Ubiquitous language](ubi-lang.md) |
+| Terms | [Ubiquitous language](packs/repos/skills/ratmac-stable-edition-009/.arca/issue/i-046-distributable-plan-build-profile/ubi-lang.md) |
 | Requirements | [Specification](spec.md) |
 | Proposed mechanics | [Design](design.md) |
 | Verification and integration traces | [Test plan](test-plan.md) |

@@ -3,7 +3,7 @@
 Disposition confirmed at the 2026-09-18 planning pass under Billy's explicit
 request to fix ticket-close expiry first. The executable contract resolves
 to the goal; the working rules carry the matching contributor procedure.
-`TCE` means Turn-close expiry, defined in [ubi-lang.md](ubi-lang.md).
+`TCE` means Turn-close expiry, defined in [ubi-lang.md](packs/repos/skills/ratmac-stable-edition-009/.arca/issue/archive/i-039-turn-close-expiry/ubi-lang.md).
 
 ## Requirement Records
 

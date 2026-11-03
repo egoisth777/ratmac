@@ -11,7 +11,7 @@ ruling** (not revocable by an agent) or an **adopted default** (revocable; batch
 Moved from the i-016 seed at the 2026-07-29 split.
 
 `FDC` expands to **FSM Doctrine Convergence** - the requirement-ID prefix shared across the split,
-defined in [ubi-lang.md](ubi-lang.md); IDs stay stable and are never renumbered.
+defined in [ubi-lang.md](packs/repos/skills/ratmac-stable-edition-009/.arca/issue/archive/i-017-run-residency/ubi-lang.md); IDs stay stable and are never renumbered.
 
 ## Requirement Records
 

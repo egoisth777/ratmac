@@ -31,7 +31,7 @@ Earlier split, identifiers unchanged: Run residency (`FDC-004` through `FDC-006`
 
 | Need | File |
 | :--- | :--- |
-| Terms | [Ubiquitous language](ubi-lang.md) |
+| Terms | [Ubiquitous language](packs/repos/skills/ratmac-stable-edition-009/.arca/issue/archive/i-016-fsm-doctrine-convergence/ubi-lang.md) |
 | Requirements | [Specification](spec.md) |
 | Proposed mechanics and decision history | [Design](design.md) |
 | Verification, adversarial-review ledger, and integration traces | [Test plan](test-plan.md) |

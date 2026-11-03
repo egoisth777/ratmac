@@ -14,7 +14,7 @@ status: "{{pending|deferred|integrated|rejected}}"
 
 | Need | File |
 | :--- | :--- |
-| Terms | [Ubiquitous language](ubi-lang.md) |
+| Terms | [Ubiquitous language](packs/repos/skills/ratmac-stable-edition-009/profiles/plan-build/blanks/issue/ubi-lang.md) |
 | Requirements | [Specification](spec.md) |
 | Proposed mechanics | [Design](design.md) |
 | Verification and integration traces | [Test plan](test-plan.md) |

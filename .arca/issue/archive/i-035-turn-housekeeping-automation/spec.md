@@ -8,7 +8,7 @@ design
 ([ADR-0018](../../../goal/design.md#the-turn-lifecycle-is-shop-tooling-beside-the-trial-lifecycle-adr-0018)).
 
 `THK` is this issue's stable requirement-ID prefix — **Turn Housekeeping**
-— defined in [ubi-lang.md](ubi-lang.md). The prefix was verified unique
+— defined in [ubi-lang.md](packs/repos/skills/ratmac-stable-edition-009/.arca/issue/archive/i-035-turn-housekeeping-automation/ubi-lang.md). The prefix was verified unique
 against `.arca/goal/spec.md`, `.arca/schema.md`, and the whole repository at
 filing.
 

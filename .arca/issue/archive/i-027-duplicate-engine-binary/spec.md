@@ -2,7 +2,7 @@
 
 Dispositions below record the author's proposed decision; P1 confirms or revises them at
 integration. `DEB` expands to **Duplicate engine binary** and is this issue's stable
-requirement-ID prefix, defined in [ubi-lang.md](ubi-lang.md).
+requirement-ID prefix, defined in [ubi-lang.md](packs/repos/skills/ratmac-stable-edition-009/.arca/issue/archive/i-027-duplicate-engine-binary/ubi-lang.md).
 
 Both asks are repairs with an obvious shape, not forks a human must settle, so both are
 proposed `accepted`.

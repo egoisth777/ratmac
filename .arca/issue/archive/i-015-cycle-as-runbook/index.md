@@ -23,7 +23,7 @@ yet. They are recorded here as requirements, not as intentions.
 
 | Need | File |
 | :--- | :--- |
-| Terms | [Ubiquitous language](ubi-lang.md) |
+| Terms | [Ubiquitous language](packs/repos/skills/ratmac-stable-edition-009/.arca/issue/archive/i-015-cycle-as-runbook/ubi-lang.md) |
 | Requirements | [Specification](spec.md) |
 | Proposed mechanics | [Design](design.md) |
 | Verification and integration traces | [Test plan](test-plan.md) |
@@ -55,7 +55,7 @@ yet. They are recorded here as requirements, not as intentions.
   [ADR-0015](../../../goal/design.md#the-shops-own-cycle-as-a-runbook-adr-0015).
   This pass also renumbered [the test plan](test-plan.md) one for one against the accepted checks,
   dropping the rows for the rejected `PCR-004` and the earlier-dropped `PCR-006` and adding rows for
-  the three newly accepted asks. Two entries in [the terms](ubi-lang.md) describe the problem as it
+  the three newly accepted asks. Two entries in [the terms](packs/repos/skills/ratmac-stable-edition-009/.arca/issue/archive/i-015-cycle-as-runbook/ubi-lang.md) describe the problem as it
   stood when the issue was written and are kept as authored context: the active-references mechanism
   named there is not the one integrated, and the per-item gate's literal address form survives beside
   the bound form rather than being replaced.
