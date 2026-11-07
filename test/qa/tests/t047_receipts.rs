@@ -17,32 +17,21 @@ use ratmac::ownership::{
     audit_ownership, runbook_instructions, template_instructions, Instruction, SCHEDULER_OWNED,
 };
 use ratmac::receipt::{sha256_text, EVIDENCE_DIR};
+use ratmac_qa::support::TempTree;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 struct Fixture {
+    _tree: TempTree,
     root: PathBuf,
-}
-
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
-    }
 }
 
 impl Fixture {
     /// A project whose single transition is gated on t-900's receipts.
     fn new(label: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "ratmac-t047-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&root);
+        let tree = TempTree::new(&format!("t047-{label}")).expect("create fixture project");
+        let root = tree.path().to_path_buf();
         fs::create_dir_all(root.join(".arca/ticket")).expect("create fixture project");
         fs::create_dir_all(root.join(".ratmac")).expect("create Engine directory");
         fs::create_dir_all(root.join("test/qa/tests")).expect("create test tree");
@@ -81,7 +70,7 @@ impl Fixture {
             "#[test]\nfn planned_behavior_is_checked() {\n    assert!(true);\n}\n",
         )
         .expect("write the planned test");
-        Fixture { root }
+        Fixture { _tree: tree, root }
     }
 
     fn start(&self) {

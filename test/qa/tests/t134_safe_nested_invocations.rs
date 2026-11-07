@@ -23,6 +23,7 @@
 //! same-root spawn model, Run-lock discipline, and ordinary command gates
 //! keep working beside a nested guard.
 
+use ratmac_qa::support::TempTree;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
@@ -40,21 +41,12 @@ const ZERO64: &str = "0000000000000000000000000000000000000000000000000000000000
 /// One owned temporary sandbox: every fixture project lives beneath it and
 /// the whole tree is removed on drop, including while unwinding.
 struct Sandbox {
-    root: PathBuf,
+    root: TempTree,
 }
 
 impl Sandbox {
     fn new(label: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "ratmac-t134-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(&root).expect("create the t-134 sandbox");
+        let root = TempTree::new(&format!("t134-{label}")).expect("create the t-134 sandbox");
         Self { root }
     }
 
@@ -74,12 +66,6 @@ impl Sandbox {
         fs::write(dir.join("src/lib.rs"), "pub fn fixture() {}\n")
             .expect("write the fixture source");
         dir
-    }
-}
-
-impl Drop for Sandbox {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
     }
 }
 

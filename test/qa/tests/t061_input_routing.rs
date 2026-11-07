@@ -5,6 +5,7 @@ use std::fs;
 use ratmac::graph::MachineGraph;
 use ratmac::machine::MachineClass;
 use ratmac::{Scheduler, StepRequest};
+use ratmac_qa::support::TempTree;
 
 fn parse(source: &str) -> MachineClass {
     MachineClass::from_toml(source).unwrap_or_else(|error| {
@@ -148,15 +149,11 @@ fn selection_is_input_only_and_prompt_discloses_values() {
         .transition_for_input("review", Some("foreign"))
         .is_none());
 
-    let root = std::env::temp_dir().join(format!(
-        "ratmac-t061-prompt-{}-{:?}",
-        std::process::id(),
-        std::thread::current().id()
-    ));
-    let _ = fs::remove_dir_all(&root);
+    let prompt_tree = TempTree::new("t061-prompt").expect("create prompt tree");
+    let root = prompt_tree.path();
     fs::create_dir_all(root.join(".ratmac")).expect("create prompt project");
     fs::write(root.join(".ratmac/ratmac.toml"), &source).expect("write branching machine class");
-    let mut scheduler = Scheduler::open(&root).expect("open branching project");
+    let mut scheduler = Scheduler::open(root).expect("open branching project");
     scheduler.start().expect("start branching Run");
     let rendered = scheduler
         .status()
@@ -169,12 +166,8 @@ fn selection_is_input_only_and_prompt_discloses_values() {
     assert!(!rendered.contains("Rework."));
     assert!(!rendered.contains("to ="));
 
-    let straight_root = std::env::temp_dir().join(format!(
-        "ratmac-t061-straight-{}-{:?}",
-        std::process::id(),
-        std::thread::current().id()
-    ));
-    let _ = fs::remove_dir_all(&straight_root);
+    let straight_tree = TempTree::new("t061-straight").expect("create straight tree");
+    let straight_root = straight_tree.path();
     fs::create_dir_all(straight_root.join(".ratmac")).expect("create straight project");
     fs::write(
         straight_root.join(".ratmac/ratmac.toml"),
@@ -182,7 +175,7 @@ fn selection_is_input_only_and_prompt_discloses_values() {
          [[transitions]]\nfrom = \"a\"\nto = \"b\"\n",
     )
     .expect("write straight machine class");
-    let mut straight_scheduler = Scheduler::open(&straight_root).expect("open straight project");
+    let mut straight_scheduler = Scheduler::open(straight_root).expect("open straight project");
     straight_scheduler.start().expect("start straight Run");
     let outcome = straight_scheduler
         .step(StepRequest::new("ready"))
@@ -191,6 +184,4 @@ fn selection_is_input_only_and_prompt_discloses_values() {
         format!("{outcome}").contains("advanced: a -> b"),
         "straight-line step must need no transition input: {outcome}"
     );
-    fs::remove_dir_all(straight_root).expect("remove straight project");
-    fs::remove_dir_all(root).expect("remove prompt project");
 }

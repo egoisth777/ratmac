@@ -13,32 +13,21 @@
 //! every evaluation.
 
 use ratmac_qa::snapshot::sha256_file;
+use ratmac_qa::support::TempTree;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 struct Fixture {
+    _tree: TempTree,
     root: PathBuf,
-}
-
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
-    }
 }
 
 impl Fixture {
     /// A project whose single transition is guarded by `guard_table`.
     fn new(label: &str, guard_table: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "ratmac-t042-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&root);
+        let tree = TempTree::new(&format!("t042-{label}")).expect("create fixture project");
+        let root = tree.path().to_path_buf();
         fs::create_dir_all(root.join(".ratmac")).expect("create fixture project");
         let class = format!(
             "[states.prepare]\n\
@@ -53,7 +42,7 @@ impl Fixture {
              to = \"done\"\n"
         );
         fs::write(root.join(".ratmac/ratmac.toml"), class).expect("write machine class");
-        Fixture { root }
+        Fixture { _tree: tree, root }
     }
 
     /// Copy the QA probe into the project so it is a project-derived artifact.

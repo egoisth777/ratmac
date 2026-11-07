@@ -1,20 +1,16 @@
 //! PT-021-01 / R-020: a refused step is observationally idempotent.
 
 use ratmac::{Scheduler, StepOutcome, StepRequest};
+use ratmac_qa::support::TempTree;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 fn fixture_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../fixtures/r020-failing-guard")
 }
 
-fn isolated_project() -> PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system clock is before the Unix epoch")
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!("ratmac-r020-{}-{nonce}", std::process::id()));
+fn isolated_project() -> TempTree {
+    let root = TempTree::new("r020").expect("create isolated project");
     let engine = root.join(".ratmac");
     fs::create_dir_all(root.join("artifacts")).expect("create failing artifact directory");
     fs::create_dir_all(&engine).expect("create Engine directory");
@@ -42,7 +38,8 @@ fn request() -> StepRequest {
 
 #[test]
 fn failure_step_is_idempotent() {
-    let root = isolated_project();
+    let tree = isolated_project();
+    let root = tree.path().to_path_buf();
     let mut scheduler = Scheduler::open_run(&root, "run-001").expect("open isolated Scheduler");
     let before = state_and_log(&root);
 
@@ -79,6 +76,4 @@ fn failure_step_is_idempotent() {
         .0
         .windows(b"counter".len())
         .any(|window| window == b"counter"));
-
-    fs::remove_dir_all(root).expect("remove isolated project");
 }

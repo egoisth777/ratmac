@@ -41,6 +41,7 @@
 //!   `rtm step --run <id>`: R-020 keeps step accepted in that state once the
 //!   artifact is repaired, and the retry is pinned byte-identical.
 
+use ratmac_qa::support::TempTree;
 use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Output};
@@ -227,31 +228,18 @@ fn repair(class: &str) -> &'static RepairRow {
 }
 
 struct Fixture {
-    base: PathBuf,
+    /// The owned scratch tree; dropping it removes the fixture.
+    _base: TempTree,
     root: PathBuf,
-}
-
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.base);
-    }
 }
 
 impl Fixture {
     fn new(label: &str, runbook: &str) -> Self {
-        let base = std::env::temp_dir().join(format!(
-            "ratmac-t103-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&base);
+        let base = TempTree::new(&format!("t103-{label}")).expect("create fixture tree");
         let root = base.join("project");
         fs::create_dir_all(root.join(".ratmac")).expect("create the Engine root");
         fs::write(root.join(".ratmac/ratmac.toml"), runbook).expect("write the runbook");
-        Fixture { base, root }
+        Fixture { _base: base, root }
     }
 
     fn rtm(&self, args: &[&str]) -> Output {

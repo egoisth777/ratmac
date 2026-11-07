@@ -1,9 +1,9 @@
 //! PT-032-01 / HT-032-01..04: canonical executable routing and diagnostics.
 
+use ratmac_qa::support::TempTree;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 const CLI_RATMAC: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -11,24 +11,16 @@ const CLI_RATMAC: &str = include_str!(concat!(
 ));
 
 struct Project {
+    _tree: TempTree,
     root: PathBuf,
 }
 
-impl Drop for Project {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
-    }
-}
-
 fn project() -> Project {
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system clock is after the Unix epoch")
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!("ratmac-t032-{}-{stamp}", std::process::id()));
+    let tree = TempTree::new("t032").expect("create isolated project");
+    let root = tree.path().to_path_buf();
     fs::create_dir_all(root.join(".ratmac")).expect("create isolated .ratmac directory");
     fs::write(root.join(".ratmac/ratmac.toml"), CLI_RATMAC).expect("write CLI fixture");
-    Project { root }
+    Project { _tree: tree, root }
 }
 
 fn rtm(project: &Path, args: &[&str]) -> Output {

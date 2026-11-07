@@ -9,6 +9,7 @@
 //! reference the Engine only locates, and no file under a workflow root is
 //! touched.
 
+use ratmac_qa::support::TempTree;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -17,27 +18,16 @@ use std::process::{Command, Output};
 /// A project whose runbook declares a blocked route and one workflow root
 /// full of documents the Engine must never write.
 struct Fixture {
+    /// The owned scratch tree; dropping it removes the fixture.
+    _tree: TempTree,
     root: PathBuf,
     run_id: String,
 }
 
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
-    }
-}
-
 impl Fixture {
     fn new(label: &str, runbook: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "ratmac-t087-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&root);
+        let tree = TempTree::new(&format!("t087-{label}")).expect("create fixture tree");
+        let root = tree.path().to_path_buf();
         for dir in ["work", "work/notes", ".ratmac"] {
             fs::create_dir_all(root.join(dir)).expect("create fixture tree");
         }
@@ -55,6 +45,7 @@ impl Fixture {
         fs::write(root.join(".ratmac/ratmac.toml"), runbook).expect("write machine class");
 
         let mut fixture = Fixture {
+            _tree: tree,
             root,
             run_id: String::new(),
         };

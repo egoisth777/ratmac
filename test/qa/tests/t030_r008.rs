@@ -1,30 +1,22 @@
 use ratmac::cli;
+use ratmac_qa::support::TempTree;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 struct Project {
+    _tree: TempTree,
     root: PathBuf,
 }
 
-impl Drop for Project {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
-    }
-}
-
 fn setup_project() -> Project {
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system clock is after the Unix epoch")
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!("ratmac-t030-{}-{stamp}", std::process::id()));
+    let tree = TempTree::new("t030").expect("create isolated step-help project");
+    let root = tree.path().to_path_buf();
     let engine = root.join(".ratmac");
     fs::create_dir_all(&engine).expect("create isolated step-help project");
     let fixture =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../fixtures/r008-step-policy/ratmac.toml");
     fs::copy(fixture, engine.join("ratmac.toml")).expect("copy step-policy fixture");
-    Project { root }
+    Project { _tree: tree, root }
 }
 
 #[test]

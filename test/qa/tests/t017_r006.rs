@@ -1,9 +1,9 @@
 //! PT-017-01 / R-006: Exit Guards use observable artifacts, never agent claims.
 
 use ratmac::{Scheduler, StepOutcome, StepRequest};
+use ratmac_qa::support::TempTree;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 const STATE: &str = r#"state = "guarded"
 status = "executing"
@@ -18,12 +18,8 @@ fn fixture_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../fixtures/t017-artifact-guards")
 }
 
-fn isolated_project() -> PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system clock is before the Unix epoch")
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!("ratmac-t017-{}-{nonce}", std::process::id()));
+fn isolated_project() -> TempTree {
+    let root = TempTree::new("t017").expect("create isolated project");
     let engine = root.join(".ratmac");
     fs::create_dir_all(root.join("artifacts")).expect("create artifact directory");
     fs::create_dir_all(&engine).expect("create Engine directory");
@@ -89,7 +85,8 @@ fn assert_refused(outcome: StepOutcome, kind: &str) {
 
 #[test]
 fn guards_use_artifacts_not_agent_claims() {
-    let root = isolated_project();
+    let tree = isolated_project();
+    let root = tree.path().to_path_buf();
     let mut scheduler = Scheduler::open_run(&root, "run-001").expect("open isolated Scheduler");
     // Every request below carries the identical completion claim.
 
@@ -143,6 +140,4 @@ fn guards_use_artifacts_not_agent_claims() {
             .any(|window| window == b"state = \"complete\""),
         "all artifact guards passing must advance to the defined next State"
     );
-
-    fs::remove_dir_all(root).expect("remove isolated project");
 }

@@ -13,31 +13,22 @@ use std::fs;
 use std::path::PathBuf;
 
 use ratmac::doctor::{self, Severity};
+use ratmac_qa::support::TempTree;
 
 /// The stable finding code this ticket introduces.
 const TERMINATION_CODE: &str = "RB214";
 
 /// A throwaway directory holding runbooks to diagnose.
 struct Bench {
+    _tree: TempTree,
     root: PathBuf,
-}
-
-impl Drop for Bench {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
-    }
 }
 
 impl Bench {
     fn new(label: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "ratmac-t067-{label}-{}-{:?}",
-            std::process::id(),
-            std::thread::current().id()
-        ));
-        let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(&root).expect("create bench");
-        Self { root }
+        let tree = TempTree::new(&format!("t067-{label}")).expect("create bench");
+        let root = tree.path().to_path_buf();
+        Self { _tree: tree, root }
     }
 
     fn runbook(&self, name: &str, source: &str) -> PathBuf {

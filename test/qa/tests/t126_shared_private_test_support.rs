@@ -13,32 +13,18 @@ use std::process::{Child, Command, Output, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Barrier};
 use std::thread;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
-static NEXT: AtomicU64 = AtomicU64::new(0);
 const CHILD_MODE: &str = "RATMAC_T126_PUBLIC_CHILD";
 
-struct Scratch(PathBuf);
+/// An owned fixture folder: its path, and the shared helper's tree that
+/// removes it when the fixture drops.
+struct Scratch(PathBuf, #[allow(dead_code)] TempTree);
 
 impl Scratch {
     fn new(label: &str) -> Self {
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let root = std::env::temp_dir().join(format!(
-            "ratmac-t126-{label}-{}-{stamp}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::create_dir_all(&root).expect("create owned fixture directory");
-        Self(root)
-    }
-}
-
-impl Drop for Scratch {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
+        let tree = TempTree::new(&format!("t126-{label}")).expect("create owned fixture directory");
+        Self(tree.path().to_path_buf(), tree)
     }
 }
 
@@ -2161,6 +2147,10 @@ fn taken_name_child(home: &Path) {
         "SVEV-011: the request was handed the planted folder"
     );
     assert_fresh("SVEV-011", tree.path(), &temp, &prefix, &before);
+    assert!(
+        counter_of(tree.path(), &prefix) > next,
+        "SVEV-011: the request never tried the planted name"
+    );
     assert_eq!(
         tagged_tree(&planted),
         planted_bytes,

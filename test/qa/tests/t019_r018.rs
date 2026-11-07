@@ -1,32 +1,24 @@
 use ratmac::{Scheduler, StepOutcome, StepRequest};
+use ratmac_qa::support::TempTree;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 type StatusAndBlocker = (String, Option<String>);
 
 struct Project {
+    _tree: TempTree,
     root: PathBuf,
 }
 
-impl Drop for Project {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
-    }
-}
-
 fn setup_project() -> Project {
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system clock is after the Unix epoch")
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!("ratmac-t019-{}-{stamp}", std::process::id()));
+    let tree = TempTree::new("t019").expect("create isolated guard-failure project");
+    let root = tree.path().to_path_buf();
     let engine = root.join(".ratmac");
     fs::create_dir_all(&engine).expect("create isolated guard-failure project");
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../fixtures/t019-guard-failure-status/ratmac.toml");
     fs::copy(fixture, engine.join("ratmac.toml")).expect("copy guard-failure fixture");
-    Project { root }
+    Project { _tree: tree, root }
 }
 
 fn read_status_and_blocker(project: &Project) -> StatusAndBlocker {

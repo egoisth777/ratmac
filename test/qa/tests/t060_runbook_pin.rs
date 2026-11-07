@@ -19,28 +19,18 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-struct Fixture {
-    root: PathBuf,
-}
+use ratmac_qa::support::TempTree;
 
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
-    }
+struct Fixture {
+    _tree: TempTree,
+    root: PathBuf,
 }
 
 impl Fixture {
     /// A temp project with a valid two-state runbook, not yet started.
     fn new(label: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "ratmac-t059-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&root);
+        let tree = TempTree::new(&format!("t059-{label}")).expect("create fixture tree");
+        let root = tree.path().to_path_buf();
         fs::create_dir_all(root.join(".ratmac")).expect("create Engine tree");
         fs::create_dir_all(root.join("src")).expect("create source tree");
         fs::write(root.join("src/lib.rs"), "pub fn work() {}\n").expect("write source");
@@ -53,7 +43,7 @@ impl Fixture {
              [[transitions]]\nfrom = \"intake\"\nto = \"build\"\n",
         )
         .expect("write machine class");
-        Fixture { root }
+        Fixture { _tree: tree, root }
     }
 
     fn rtm(&self, args: &[&str]) -> Output {

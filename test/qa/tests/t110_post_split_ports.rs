@@ -21,6 +21,7 @@ use std::process::{Command, Output};
 
 use ratmac_qa::baseline::{self, Pair};
 use ratmac_qa::lane_runs;
+use ratmac_qa::support::TempTree;
 
 /// The seven post-split crates `RLR-003` names: four ported by this ticket,
 /// three that read green today and needed only the re-sweep.
@@ -115,31 +116,19 @@ fn sweep_tool(root: &Path, args: &[&str]) -> Output {
 
 /// A throwaway root with its own sweep tool, declaration, and crates.
 struct Scratch {
+    _tree: TempTree,
     root: PathBuf,
-}
-
-impl Drop for Scratch {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
-    }
 }
 
 impl Scratch {
     fn new(label: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "ratmac-t110-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&root);
+        let tree = TempTree::new(&format!("t110-{label}")).expect("create the scratch root");
+        let root = tree.path().to_path_buf();
         fs::create_dir_all(root.join("tools")).expect("create fixture tools");
         fs::copy(sweep_source(), root.join("tools/sweep_lanes.py"))
             .expect("install the shipped sweep script");
         fs::create_dir_all(root.join(".ratmac")).expect("create the declaration directory");
-        Self { root }
+        Self { _tree: tree, root }
     }
 
     fn declare(&self, lanes: &str, roster: &[&str]) {

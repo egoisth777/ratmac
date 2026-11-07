@@ -17,6 +17,7 @@ use std::process::{Command, Output};
 use ratmac::doctor::{self, Severity};
 use ratmac::machine::MachineClass;
 use ratmac::receipt::sha256_text;
+use ratmac_qa::support::TempTree;
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -250,16 +251,6 @@ from = "damage"
 to = "done"
 "##;
 
-/// One throwaway directory removed on drop, so the runbook wiring fixture
-/// never outlives the read that built it.
-struct Throwaway(PathBuf);
-
-impl Drop for Throwaway {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
-
 fn wiring_git(root: &Path, args: &[&str]) -> Output {
     // t-133's accepted contract: "bytes equal to the tracked runbook after
     // wiring" - a bare `git` in this non-repository scratch directory
@@ -287,16 +278,11 @@ fn shipped_runbook() -> String {
         BASE_RUNBOOK_SHA256,
         "the embedded base copy is the recorded merge-base runbook"
     );
-    let work = Throwaway(std::env::temp_dir().join(format!(
-        "ratmac-t092-wiring-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("clock after epoch")
-            .as_nanos()
-    )));
-    fs::create_dir_all(work.0.join(".ratmac")).expect("create the wiring fixture");
-    fs::write(work.0.join(".ratmac/ratmac.toml"), BASE_RUNBOOK)
+    // One owned throwaway tree removed on drop, so the runbook wiring fixture
+    // never outlives the read that built it.
+    let work = TempTree::new("t092-wiring").expect("create the wiring tree");
+    fs::create_dir_all(work.join(".ratmac")).expect("create the wiring fixture");
+    fs::write(work.join(".ratmac/ratmac.toml"), BASE_RUNBOOK)
         .expect("write a clean copy of the base runbook bytes");
     // t-133's contract: the three tracked boundary diffs, applied in ticket
     // order - t-130's, then t-131's, then t-133's - over the base bytes.
@@ -308,7 +294,7 @@ fn shipped_runbook() -> String {
         let bytes = fs::read(repo_root().join(".ratmac").join(diff)).unwrap_or_else(|error| {
             panic!("read the tracked boundary diff .ratmac/{diff}: {error}")
         });
-        fs::write(work.0.join(".ratmac").join(diff), bytes)
+        fs::write(work.join(".ratmac").join(diff), bytes)
             .expect("install the boundary diff beside the base runbook");
     }
     for diff in [
@@ -316,11 +302,11 @@ fn shipped_runbook() -> String {
         ".ratmac/review-proofs.diff",
         ".ratmac/issue-binding.diff",
     ] {
-        wiring_git(&work.0, &["apply", "--check", diff]);
-        wiring_git(&work.0, &["apply", diff]);
+        wiring_git(work.path(), &["apply", "--check", diff]);
+        wiring_git(work.path(), &["apply", diff]);
     }
-    let wired = fs::read_to_string(work.0.join(".ratmac/ratmac.toml"))
-        .expect("read the wired runbook bytes");
+    let wired =
+        fs::read_to_string(work.join(".ratmac/ratmac.toml")).expect("read the wired runbook bytes");
     // t-133's accepted contract: the wired bytes equal the tracked runbook
     // after wiring - pinned beside the write so a host's `core.autocrlf`
     // cannot silently rewrite them.
@@ -342,27 +328,16 @@ const RED: &str = "test result: FAILED. 0 passed; 1 failed\n";
 /// A temporary repository seeded with the artifacts each stage's guards read,
 /// carrying the shipped runbook itself.
 struct Cycle {
+    /// The owned scratch tree; dropping it removes the fixture.
+    _tree: TempTree,
     root: PathBuf,
-}
-
-impl Drop for Cycle {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
-    }
 }
 
 impl Cycle {
     /// The fixture carries the exact shipped Machine Class bytes.
     fn create(label: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "ratmac-t092-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&root);
+        let tree = TempTree::new(&format!("t092-{label}")).expect("create fixture tree");
+        let root = tree.path().to_path_buf();
         for dir in [
             ".arca/goal",
             ".arca/issue/i-100-demo",
@@ -375,7 +350,7 @@ impl Cycle {
         ] {
             fs::create_dir_all(root.join(dir)).expect("create fixture tree");
         }
-        let cycle = Self { root };
+        let cycle = Self { _tree: tree, root };
         cycle.write(".ratmac/ratmac.toml", &shipped_runbook());
         // t-133's accepted contract: the fixture copies
         // `tools/verify_issue_binding.py` beside the runbook exactly as it

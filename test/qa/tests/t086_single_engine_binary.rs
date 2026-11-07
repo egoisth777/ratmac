@@ -7,6 +7,7 @@
 
 use ratmac_qa::baseline::built_executable;
 use ratmac_qa::engine_bin;
+use ratmac_qa::support::TempTree;
 use ratmac_qa::targets::{self, Kind};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -27,17 +28,8 @@ fn repo_root() -> PathBuf {
 }
 
 /// A throwaway directory for a planted tree.
-fn sandbox(label: &str) -> PathBuf {
-    let stamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("clock after epoch")
-        .as_nanos();
-    let path = std::env::temp_dir().join(format!(
-        "ratmac-t086-{label}-{stamp}-{}",
-        std::process::id()
-    ));
-    fs::create_dir_all(&path).expect("create sandbox");
-    path
+fn sandbox(label: &str) -> TempTree {
+    TempTree::new(&format!("t086-{label}")).expect("create sandbox")
 }
 
 /// Write a file and every directory above it.
@@ -256,7 +248,6 @@ fn a_planted_duplicate_target_fails_by_name() {
         "DEBV-004: removing the duplicate must pass again:\n{}",
         repaired.collisions.join("\n")
     );
-    fs::remove_dir_all(&base).ok();
 }
 
 /// Whether `haystack` contains `needle`.
@@ -277,29 +268,18 @@ fn sha256(bytes: &[u8]) -> String {
 /// A started Run parked in `build`, driven by whichever command the lane
 /// hands it, so the two builds can be compared by behavior.
 struct HoldFixture {
+    /// The owned scratch tree; dropping it removes the fixture.
+    _tree: TempTree,
     root: PathBuf,
     run_id: String,
     /// The command every step of this fixture launches.
     engine: PathBuf,
 }
 
-impl Drop for HoldFixture {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
-    }
-}
-
 impl HoldFixture {
     fn new(label: &str, engine: &Path) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "ratmac-t086-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&root);
+        let tree = TempTree::new(&format!("t086-{label}")).expect("create fixture tree");
+        let root = tree.path().to_path_buf();
         for dir in [".arca/ticket", ".arca/residual", BLOCKER, ".ratmac", "src"] {
             fs::create_dir_all(root.join(dir)).expect("create fixture tree");
         }
@@ -345,6 +325,7 @@ impl HoldFixture {
         .expect("write residual");
 
         let mut fixture = HoldFixture {
+            _tree: tree,
             root,
             run_id: String::new(),
             engine: engine.to_path_buf(),

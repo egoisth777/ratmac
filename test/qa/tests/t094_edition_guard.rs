@@ -10,6 +10,7 @@
 //! stops a sprint from reaching rest without one. The guard is a read-only
 //! version-control command, so the Engine still knows nothing about tags.
 
+use ratmac_qa::support::TempTree;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -31,27 +32,22 @@ to = "rest"
 "#;
 
 struct Fixture {
+    /// The owned scratch tree; dropping it removes the fixture.
+    _tree: TempTree,
     root: PathBuf,
 }
 
 impl Fixture {
     fn create(label: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "ratmac-t094-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&root);
+        let tree = TempTree::new(&format!("t094-{label}")).expect("create fixture tree");
+        let root = tree.path().to_path_buf();
         for dir in [".arca/goal", ".ratmac", "src"] {
             fs::create_dir_all(root.join(dir)).expect("create fixture tree");
         }
         fs::write(root.join(".arca/goal/spec.md"), "# Fixture goal\n").expect("write fixture goal");
         fs::write(root.join("src/lib.rs"), "pub fn fixture() {}\n").expect("write fixture source");
         fs::write(root.join(".ratmac/ratmac.toml"), RUNBOOK).expect("write fixture runbook");
-        let fixture = Self { root };
+        let fixture = Self { _tree: tree, root };
         fixture.git(&["init", "--quiet"]);
         fixture.git(&["config", "user.email", "fixture@example.invalid"]);
         fixture.git(&["config", "user.name", "Fixture"]);
@@ -131,12 +127,6 @@ impl Fixture {
 
     fn transition_log(&self) -> String {
         fs::read_to_string(self.root.join(".ratmac/log.md")).unwrap_or_default()
-    }
-}
-
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
     }
 }
 

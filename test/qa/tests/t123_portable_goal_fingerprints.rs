@@ -24,6 +24,7 @@
 //! proves them on any platform; the engine fixtures here run on Windows.
 
 use ratmac::contract::{gate_records, ContractDefect};
+use ratmac_qa::support::TempTree;
 use sha2::{Digest, Sha256};
 use std::ffi::OsString;
 use std::fs;
@@ -49,13 +50,6 @@ const ARCHIVED_STAMP: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 /// Every engine invocation is bounded: the child is polled and killed at the
 /// deadline, so a stuck engine fails the test instead of hanging it.
 const RTM_DEADLINE: Duration = Duration::from_secs(120);
-
-fn nanos() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("clock after epoch")
-        .as_nanos()
-}
 
 /// One bounded engine invocation's observable bytes and exit code.
 struct Proc {
@@ -253,23 +247,14 @@ fn reasons(defects: &[ContractDefect]) -> String {
 /// freezing the goal; fixtures build their own goal trees beneath
 /// `.arca/goal`.
 struct Fixture {
+    _tree: TempTree,
     root: PathBuf,
-}
-
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
-    }
 }
 
 impl Fixture {
     fn new(label: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "ratmac-t123-{label}-{}-{}",
-            std::process::id(),
-            nanos()
-        ));
-        let _ = fs::remove_dir_all(&root);
+        let tree = TempTree::new(&format!("t123-{label}")).expect("create the scratch tree");
+        let root = tree.path().to_path_buf();
         fs::create_dir_all(root.join(".arca/goal")).expect("create the goal root");
         fs::create_dir_all(root.join(".ratmac")).expect("create the Engine root");
         let class = "[roots]\n\
@@ -292,7 +277,7 @@ impl Fixture {
                      from = \"gaps\"\n\
                      to = \"tickets\"\n";
         fs::write(root.join(".ratmac/ratmac.toml"), class).expect("write the machine class");
-        Fixture { root }
+        Fixture { _tree: tree, root }
     }
 
     fn goal_path(&self, name: &str) -> PathBuf {
@@ -736,23 +721,14 @@ fn webv_002() {
 /// `citation`, one archived stamp for an older legacy freeze, and a synthetic
 /// Run whose evidence froze `frozen`.
 struct Records {
+    _tree: TempTree,
     root: PathBuf,
-}
-
-impl Drop for Records {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
-    }
 }
 
 impl Records {
     fn new(label: &str, frozen: &str, citation: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "ratmac-t123-{label}-{}-{}",
-            std::process::id(),
-            nanos()
-        ));
-        let _ = fs::remove_dir_all(&root);
+        let tree = TempTree::new(&format!("t123-{label}")).expect("create the scratch tree");
+        let root = tree.path().to_path_buf();
         for dir in [
             ".arca/goal",
             ".arca/issue/i-100-demo",
@@ -870,7 +846,7 @@ impl Records {
              to = \"build\"\n",
         )
         .expect("write the machine class");
-        Records { root }
+        Records { _tree: tree, root }
     }
 
     fn gate(&self) -> Result<(), Vec<ContractDefect>> {

@@ -12,6 +12,7 @@
 //! child's stderr with a deterministic bound, an explicit truncation marker,
 //! and fixed wording when the child says nothing.
 
+use ratmac_qa::support::TempTree;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -22,26 +23,14 @@ const TRUNCATION_MARKER: &str = "…truncated";
 const NO_DIAGNOSTIC: &str = "no diagnostic emitted";
 
 struct Fixture {
+    _tree: TempTree,
     root: PathBuf,
-}
-
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
-    }
 }
 
 /// A project whose only transition is guarded by the probe in `mode`.
 fn fixture(label: &str, mode: &str, extra: Option<&str>) -> Fixture {
-    let root = std::env::temp_dir().join(format!(
-        "ratmac-t041-{label}-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("clock after epoch")
-            .as_nanos()
-    ));
-    let _ = fs::remove_dir_all(&root);
+    let tree = TempTree::new(&format!("t041-{label}")).expect("create fixture project");
+    let root = tree.path().to_path_buf();
     fs::create_dir_all(root.join(".ratmac")).expect("create fixture project");
 
     let probe = env!("CARGO_BIN_EXE_guard-probe").replace('\\', "\\\\");
@@ -62,7 +51,7 @@ fn fixture(label: &str, mode: &str, extra: Option<&str>) -> Fixture {
          to = \"done\"\n"
     );
     fs::write(root.join(".ratmac/ratmac.toml"), class).expect("write machine class");
-    Fixture { root }
+    Fixture { _tree: tree, root }
 }
 
 fn rtm(fixture: &Fixture, args: &[&str]) -> Output {

@@ -6,9 +6,8 @@
 //! nothing human-authored.
 
 use ratmac::Scheduler;
+use ratmac_qa::support::TempTree;
 use std::fs;
-use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 const RATMAC: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -20,13 +19,8 @@ const GOAL_SENTINEL: &[u8] = include_bytes!(concat!(
     "/../fixtures/t014-flat-arca/.arca/goal/sentinel.txt"
 ));
 
-fn temporary_project() -> PathBuf {
-    let unique = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system clock must be after the Unix epoch")
-        .as_nanos();
-    let project = std::env::temp_dir().join(format!("ratmac-t014-{unique}"));
-    fs::create_dir(&project).expect("temporary project must be creatable");
+fn temporary_project() -> TempTree {
+    let project = TempTree::new("t014").expect("temporary project must be creatable");
     fs::create_dir_all(project.join(".arca/goal")).expect("human goal directory must be creatable");
     fs::create_dir_all(project.join(".ratmac")).expect("Engine directory must be creatable");
     fs::write(project.join(".arca/goal/sentinel.txt"), GOAL_SENTINEL)
@@ -38,7 +32,8 @@ fn temporary_project() -> PathBuf {
 
 #[test]
 fn scheduler_files_are_under_ratmac() {
-    let project = temporary_project();
+    let tree = temporary_project();
+    let project = tree.path().to_path_buf();
     let engine = project.join(".ratmac");
     let ratmac = engine.join("ratmac.toml");
     let sentinel = project.join(".arca/goal/sentinel.txt");
@@ -101,6 +96,4 @@ fn scheduler_files_are_under_ratmac() {
                 .starts_with(project.join(".arca/goal")),
         "scheduler-owned artifacts must not be nested below .arca/goal"
     );
-
-    let _ = fs::remove_dir_all(project);
 }

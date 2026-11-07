@@ -7,6 +7,7 @@
 //! runtime selection; a separate non-Git checkout exercises the local fallback.
 
 use ratmac_qa::json::Json;
+use ratmac_qa::support::TempTree;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -53,6 +54,7 @@ to = "done"
 type TreeSnapshot = BTreeMap<String, Option<Vec<u8>>>;
 
 struct GitFixture {
+    _tree: TempTree,
     sandbox: PathBuf,
     primary: PathBuf,
     linked: PathBuf,
@@ -61,7 +63,8 @@ struct GitFixture {
 
 impl GitFixture {
     fn new() -> Self {
-        let sandbox = fresh_sandbox("git");
+        let tree = fresh_sandbox("git");
+        let sandbox = tree.path().to_path_buf();
         let primary = sandbox.join("primary");
         fs::create_dir_all(&primary).expect("create primary fixture checkout");
         write_machine_class(&primary);
@@ -95,6 +98,7 @@ impl GitFixture {
         let run = only_run(&primary.join(".ratmac"));
 
         Self {
+            _tree: tree,
             sandbox,
             primary,
             linked,
@@ -110,11 +114,11 @@ impl Drop for GitFixture {
             .arg(&self.linked)
             .current_dir(&self.primary)
             .output();
-        let _ = fs::remove_dir_all(&self.sandbox);
     }
 }
 
 struct NonGitFixture {
+    _tree: TempTree,
     sandbox: PathBuf,
     root: PathBuf,
     run: String,
@@ -122,7 +126,8 @@ struct NonGitFixture {
 
 impl NonGitFixture {
     fn new() -> Self {
-        let sandbox = fresh_sandbox("no-git");
+        let tree = fresh_sandbox("no-git");
+        let sandbox = tree.path().to_path_buf();
         let root = sandbox.join("checkout");
         fs::create_dir_all(&root).expect("create non-Git fixture checkout");
         assert!(
@@ -141,28 +146,17 @@ impl NonGitFixture {
         );
         let run = only_run(&root.join(".ratmac"));
 
-        Self { sandbox, root, run }
+        Self {
+            _tree: tree,
+            sandbox,
+            root,
+            run,
+        }
     }
 }
 
-impl Drop for NonGitFixture {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.sandbox);
-    }
-}
-
-fn fresh_sandbox(label: &str) -> PathBuf {
-    let sandbox = std::env::temp_dir().join(format!(
-        "ratmac-t078-{label}-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("clock is after the Unix epoch")
-            .as_nanos()
-    ));
-    let _ = fs::remove_dir_all(&sandbox);
-    fs::create_dir_all(&sandbox).expect("create fixture sandbox");
-    sandbox
+fn fresh_sandbox(label: &str) -> TempTree {
+    TempTree::new(&format!("t078-{label}")).expect("create fixture sandbox")
 }
 
 fn write_machine_class(root: &Path) {

@@ -11,6 +11,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use ratmac_qa::support::TempTree;
+
 /// The spelling this cutover retires wherever a caller can read it.
 const PRE_CUTOVER: &str = "phase";
 
@@ -23,34 +25,20 @@ const RUNBOOK: &str = "[roots]\n\
      [[transitions]]\nfrom = \"intake\"\nto = \"build\"\n";
 
 struct Fixture {
-    base: PathBuf,
+    _base: TempTree,
     root: PathBuf,
-}
-
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.base);
-    }
 }
 
 impl Fixture {
     fn new(label: &str) -> Self {
-        let base = std::env::temp_dir().join(format!(
-            "ratmac-t083-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&base);
+        let base = TempTree::new(&format!("t083-{label}")).expect("create fixture base");
         let root = base.join("project");
         for dir in [".arca/ticket", ".arca/goal", ".ratmac"] {
             fs::create_dir_all(root.join(dir)).expect("create fixture tree");
         }
         fs::write(root.join(".ratmac/ratmac.toml"), RUNBOOK).expect("write the runbook");
         fs::write(root.join(".arca/goal/spec.md"), "# Fixture goal\n").expect("write the goal");
-        Fixture { base, root }
+        Fixture { _base: base, root }
     }
 
     fn rtm(&self, args: &[&str]) -> Output {

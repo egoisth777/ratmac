@@ -24,6 +24,7 @@ use ratmac::cli;
 use ratmac::doctor::{self, Severity};
 use ratmac::machine::MachineClass;
 use ratmac_qa::json::Json;
+use ratmac_qa::support::TempTree;
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -31,25 +32,15 @@ fn repo_root() -> PathBuf {
 
 /// A throwaway directory holding runbooks to diagnose.
 struct Bench {
+    _tree: TempTree,
     root: PathBuf,
-}
-
-impl Drop for Bench {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
-    }
 }
 
 impl Bench {
     fn new(label: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "ratmac-t057-{label}-{}-{:?}",
-            std::process::id(),
-            std::thread::current().id()
-        ));
-        let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(&root).expect("create bench");
-        Self { root }
+        let tree = TempTree::new(&format!("t057-{label}")).expect("create bench");
+        let root = tree.path().to_path_buf();
+        Self { _tree: tree, root }
     }
 
     /// A runbook file at `<bench>/<name>.toml`.

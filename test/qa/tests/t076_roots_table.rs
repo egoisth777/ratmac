@@ -9,6 +9,7 @@
 //! Run.
 
 use ratmac_qa::json::Json;
+use ratmac_qa::support::TempTree;
 use ratmac_qa::tempgit::TempRepo;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -379,7 +380,6 @@ fn roots_table_validates_named_paths_with_distinct_diagnostics() {
 /// Copy a source tree into a fresh temporary directory so a mutation can be
 /// made against real Engine source without touching the repository.
 fn copy_source_tree(source: &Path, destination: &Path) {
-    fs::create_dir_all(destination).expect("create mutated source directory");
     for (path, bytes) in indexed_source_files(source) {
         let target = destination.join(
             path.strip_prefix(source)
@@ -390,19 +390,12 @@ fn copy_source_tree(source: &Path, destination: &Path) {
     }
 }
 
-fn mutated_source(label: &str, mutate: impl Fn(&Path)) -> PathBuf {
-    let root = std::env::temp_dir().join(format!(
-        "ratmac-nrrv003-{label}-{}-{:?}",
-        std::process::id(),
-        std::thread::current().id()
-    ));
-    if root.exists() {
-        fs::remove_dir_all(&root).expect("clear mutated source directory");
-    }
+fn mutated_source(label: &str, mutate: impl Fn(&Path)) -> TempTree {
+    let root = TempTree::new(&format!("nrrv003-{label}")).expect("create mutated source directory");
     let source =
         fs::canonicalize(repo_root().join("src")).expect("canonicalize Engine source directory");
-    copy_source_tree(&source, &root);
-    mutate(&root);
+    copy_source_tree(&source, root.path());
+    mutate(root.path());
     root
 }
 
@@ -425,14 +418,14 @@ fn source_scan_pins_the_one_named_legacy_exception() {
         text.push_str("\nconst SNEAKED_BACK: &str = \".arca/ticket\";\n");
         fs::write(&path, text).expect("write the second literal");
     });
-    let defect = scan_legacy_workflow_exception(&second_literal)
+    let defect = scan_legacy_workflow_exception(second_literal.path())
         .expect_err("a second literal must fail the scan");
     assert_eq!(
         defect.clause(),
         "exactly one literal",
         "a second literal must be reported as the count clause: {defect:?}"
     );
-    fs::remove_dir_all(&second_literal).expect("clear the second-literal tree");
+    drop(second_literal);
 
     let renamed = mutated_source("renamed", |root| {
         let path = root.join(LEGACY_WORKFLOW_EXCEPTION_PATH);
@@ -441,14 +434,14 @@ fn source_scan_pins_the_one_named_legacy_exception() {
         assert_ne!(renamed, text, "the rename must change the declaration");
         fs::write(&path, renamed).expect("write the renamed declaration");
     });
-    let defect =
-        scan_legacy_workflow_exception(&renamed).expect_err("a renamed declaration must fail");
+    let defect = scan_legacy_workflow_exception(renamed.path())
+        .expect_err("a renamed declaration must fail");
     assert_eq!(
         defect.clause(),
         "the named declaration",
         "a rename must be reported as the declaration clause: {defect:?}"
     );
-    fs::remove_dir_all(&renamed).expect("clear the renamed tree");
+    drop(renamed);
 
     let ownerless = mutated_source("ownerless", |root| {
         let path = root.join(LEGACY_WORKFLOW_EXCEPTION_PATH);
@@ -465,12 +458,12 @@ fn source_scan_pins_the_one_named_legacy_exception() {
         fs::write(&path, format!("{}\n", stripped.join("\n")))
             .expect("write the ownerless declaration");
     });
-    let defect =
-        scan_legacy_workflow_exception(&ownerless).expect_err("a lost owner clause must fail");
+    let defect = scan_legacy_workflow_exception(ownerless.path())
+        .expect_err("a lost owner clause must fail");
     assert_eq!(
         defect.clause(),
         "the owner clause",
         "a deleted owner clause must be reported as the owner clause: {defect:?}"
     );
-    fs::remove_dir_all(&ownerless).expect("clear the ownerless tree");
+    drop(ownerless);
 }

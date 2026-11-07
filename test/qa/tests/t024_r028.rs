@@ -1,7 +1,7 @@
 use std::fs;
-use std::path::PathBuf;
 
 use ratmac::{machine::MachineClass, Scheduler};
+use ratmac_qa::support::TempTree;
 
 const RATMAC: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -12,11 +12,8 @@ const STATE: &str = include_str!(concat!(
     "/../fixtures/r028-state-prompt/.ratmac/run.toml"
 ));
 
-fn fixture_project() -> PathBuf {
-    let root = std::env::temp_dir().join(format!("ratmac-r028-{}", std::process::id()));
-    if root.exists() {
-        fs::remove_dir_all(&root).expect("remove stale R-028 fixture project");
-    }
+fn fixture_project() -> TempTree {
+    let root = TempTree::new("r028").expect("create R-028 fixture project");
     fs::create_dir_all(root.join(".ratmac")).expect("create R-028 fixture project");
     fs::write(root.join(".ratmac/ratmac.toml"), RATMAC).expect("write R-028 class");
     // FDC-004: the State File resides in the addressed run's directory.
@@ -27,7 +24,8 @@ fn fixture_project() -> PathBuf {
 
 #[test]
 fn state_prompt_renders_inline_prose_then_generated_guards() {
-    let project = fixture_project();
+    let tree = fixture_project();
+    let project = tree.path().to_path_buf();
     let scheduler = Scheduler::open_run(&project, "run-001").expect("open R-028 fixture project");
     let status = scheduler.status().expect("read current status");
     let prompt = status.state_prompt();
@@ -59,8 +57,6 @@ fn state_prompt_renders_inline_prose_then_generated_guards() {
     assert!(rendered.contains("ready: true"));
     assert!(rendered.contains("rustc"));
     assert_eq!(prompt.to_string(), rendered);
-
-    fs::remove_dir_all(project).expect("clean up R-028 fixture project");
 }
 
 #[test]

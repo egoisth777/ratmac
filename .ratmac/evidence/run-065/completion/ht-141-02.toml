@@ -1,0 +1,10 @@
+ticket-id = "t-141"
+check-id = "HT-141-02"
+kind = "hidden-lane"
+command = "cargo test --offline --manifest-path test-hidden/t-141/Cargo.toml"
+working-dir = "."
+exit-status = 0
+output-sha256 = "67e7b0034ef5ba9831702be011cf3b1f7b3b671444dfae42e727c75c52885600"
+tree-roots = ["src","profiles","test","test-hidden","tools","Cargo.toml","Cargo.lock","AGENTS.md",".gitignore",".ratmac/ratmac.toml",".ratmac/turn.toml",".ratmac/lanes.toml"]
+tree-sha256 = "1584ad894fbf4f192a35f6fd7ee25f232f12dad266766d9238a85e2788e9c0fa"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s\n     Running unittests src\\lib.rs (test-hidden\\t-141\\target\\debug\\deps\\ratmac_t141_hidden-373a7946ad04fc56.exe)\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n     Running tests\\hidden.rs (test-hidden\\t-141\\target\\debug\\deps\\hidden-a01e76a92dbc6f7e.exe)\n\nrunning 14 tests\ntest group_case_2 ... ok\ntest group_case_1 ... ok\ntest group_case_5 ... ok\ntest group_case_4 ... ok\ntest group_case_3 ... ok\ntest group_case_6 ... ok\ntest group_case_7 ... ok\ntest group_case_8 ... ok\ntest ht_141_04_leftovers_at_the_next_names_are_stepped_past_and_keep_their_bytes ... ok\ntest ht_141_03_folders_from_one_tick_live_until_only_their_own_owner_drops_them ... ok\ntest ht_141_02_edge_labels_stamps_and_a_case_variant_leftover_still_get_unshared_new_folders ... ok\ntest ht_141_06_included_and_dependency_copies_in_one_tick_never_share_a_folder ... ok\ntest ht_141_05_requests_add_one_folder_each_and_leave_the_temp_folder_empty ... ok\ntest ht_141_01_a_group_checking_only_its_own_folders_passes_alone_and_in_parallel ... ok\n\ntest result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s\n\n   Doc-tests ratmac_t141_hidden\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n"
