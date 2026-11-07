@@ -1,9 +1,8 @@
 //! PT-026-01 / PT-026-02: print-first status and successful-step output.
 
 use ratmac::cli::run_from;
+use ratmac_qa::support::TempTree;
 use std::fs;
-use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 const STATUS_RATMAC: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -30,13 +29,8 @@ const STEP_LOG: &str = include_str!(concat!(
     "/../fixtures/r030-step-print/.ratmac/log.md"
 ));
 
-fn temporary_project(ratmac: &str, state: &str, log: &str) -> PathBuf {
-    let unique = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system clock must be after the Unix epoch")
-        .as_nanos();
-    let project = std::env::temp_dir().join(format!("ratmac-t026-{unique}"));
-    fs::create_dir(&project).expect("temporary project must be creatable");
+fn temporary_project(ratmac: &str, state: &str, log: &str) -> TempTree {
+    let project = TempTree::new("t026").expect("temporary project must be creatable");
     fs::create_dir(project.join(".ratmac")).expect("project .ratmac directory must be creatable");
     fs::create_dir(project.join("artifacts")).expect("artifact directory must be creatable");
     fs::write(project.join(".ratmac/ratmac.toml"), ratmac)
@@ -54,7 +48,8 @@ fn temporary_project(ratmac: &str, state: &str, log: &str) -> PathBuf {
 
 #[test]
 fn status_prints_current_state_prompt() {
-    let project = temporary_project(STATUS_RATMAC, STATUS_STATE, STATUS_LOG);
+    let tree = temporary_project(STATUS_RATMAC, STATUS_STATE, STATUS_LOG);
+    let project = tree.path().to_path_buf();
     let engine = project.join(".ratmac");
     let before = [
         fs::read(engine.join("ratmac.toml")).unwrap(),
@@ -97,13 +92,12 @@ fn status_prints_current_state_prompt() {
         before[1]
     );
     assert_eq!(fs::read(engine.join("log.md")).unwrap(), before[2]);
-
-    let _ = fs::remove_dir_all(project);
 }
 
 #[test]
 fn successful_step_prints_prompt_without_spawning() {
-    let project = temporary_project(STEP_RATMAC, STEP_STATE, STEP_LOG);
+    let tree = temporary_project(STEP_RATMAC, STEP_STATE, STEP_LOG);
+    let project = tree.path().to_path_buf();
     let engine = project.join(".ratmac");
     let mut stdout = Vec::new();
     let args = vec![
@@ -135,6 +129,4 @@ fn successful_step_prints_prompt_without_spawning() {
         !project.join("spawn-sentinel").exists(),
         "successful step must not create a process marker"
     );
-
-    let _ = fs::remove_dir_all(project);
 }

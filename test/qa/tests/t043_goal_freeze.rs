@@ -10,32 +10,21 @@
 //! boundary, not at Run start; after the freeze a change under
 //! `.arca/goal/` is refused as goal drift naming both revisions.
 
+use ratmac_qa::support::TempTree;
 use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Output};
 
 struct Fixture {
+    _tree: TempTree,
     root: PathBuf,
-}
-
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
-    }
 }
 
 impl Fixture {
     /// A project whose `intake -> gaps` transition closes intake integration.
     fn new(label: &str, gaps_guards: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "ratmac-t043-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&root);
+        let tree = TempTree::new(&format!("t043-{label}")).expect("create fixture project");
+        let root = tree.path().to_path_buf();
         fs::create_dir_all(root.join(".arca/goal")).expect("create fixture project");
         fs::create_dir_all(root.join(".ratmac")).expect("create Engine directory");
         let class = format!(
@@ -61,7 +50,7 @@ impl Fixture {
              to = \"tickets\"\n"
         );
         fs::write(root.join(".ratmac/ratmac.toml"), class).expect("write machine class");
-        let fixture = Fixture { root };
+        let fixture = Fixture { _tree: tree, root };
         fixture.write_goal("spec.md", "# Spec\n\nrequirement one\n");
         fixture.write_goal("test-list.md", "# Test list\n\ncheck one\n");
         fixture

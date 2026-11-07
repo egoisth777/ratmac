@@ -17,18 +17,14 @@ use ratmac::contract::{gate_intake, gate_records, unproven_mechanization, Contra
 use ratmac::declaration::{CompletionDeclaration, DeclarationFormat};
 use ratmac::machine::{GuardKind, MachineClass};
 use ratmac::receipt::sha256_text;
+use ratmac_qa::support::TempTree;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 struct Tree {
+    _tree: TempTree,
     root: PathBuf,
-}
-
-impl Drop for Tree {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
-    }
 }
 
 const FROZEN: &str = "1111111111111111111111111111111111111111111111111111111111111111";
@@ -39,15 +35,8 @@ const RUN: &str = "run-001";
 impl Tree {
     /// A correct batch: one integrated issue, one residual, one ticket.
     fn new(label: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "ratmac-t048-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&root);
+        let owned = TempTree::new(&format!("t048-{label}")).expect("create fixture tree");
+        let root = owned.path().to_path_buf();
         for dir in [
             ".arca/goal",
             ".arca/issue/i-100-demo",
@@ -57,7 +46,7 @@ impl Tree {
         ] {
             fs::create_dir_all(root.join(dir)).expect("create fixture tree");
         }
-        let tree = Tree { root };
+        let tree = Tree { _tree: owned, root };
         tree.write_goal();
         tree.write_issue("i-100-demo", "integrated", "DEMO-001");
         tree.write_residual("res-100", "DEMO-001", "missing", FROZEN, &[]);
@@ -1000,14 +989,8 @@ fn the_record_gate_passes_on_this_repository_as_it_stands() {
             .expect("read this repository's goal revision")
             .expect("this repository has a goal to freeze"),
     };
-    let engine = std::env::temp_dir().join(format!(
-        "ratmac-t048-selfcheck-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("clock after epoch")
-            .as_nanos()
-    ));
+    let scratch = TempTree::new("t048-selfcheck").expect("create synthetic engine");
+    let engine = scratch.path().to_path_buf();
     let run_dir = engine.join("runs/run-000");
     fs::create_dir_all(&run_dir).expect("create synthetic run");
     fs::write(
@@ -1016,7 +999,7 @@ fn the_record_gate_passes_on_this_repository_as_it_stands() {
     )
     .expect("write synthetic freeze");
     let verdict = gate_records(&root, &engine, "run-000");
-    let _ = fs::remove_dir_all(&engine);
+    drop(scratch);
     let text = match &verdict {
         Ok(()) => String::new(),
         Err(defects) => reasons(defects),
@@ -1416,15 +1399,9 @@ fn the_patch_removal_allowance_admits_only_the_exact_cutover_transition() {
     ];
 
     for (index, case) in cases.into_iter().enumerate() {
-        let root = std::env::temp_dir().join(format!(
-            "ratmac-t048-removal-{index}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&root);
+        let scratch =
+            TempTree::new(&format!("t048-removal-{index}")).expect("create the case tree");
+        let root = scratch.path().to_path_buf();
         let ticket_rel = format!(".arca/ticket/archive/{}.md", case.carrier);
         for dir in [
             ".arca/ticket/archive",
@@ -1547,6 +1524,5 @@ fn the_patch_removal_allowance_admits_only_the_exact_cutover_transition() {
                 case.label
             );
         }
-        let _ = fs::remove_dir_all(&root);
     }
 }

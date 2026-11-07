@@ -15,6 +15,7 @@
 //! this fixture's ticket and residual - must come through every hold
 //! byte-identical.
 
+use ratmac_qa::support::TempTree;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -24,6 +25,7 @@ use std::time::{Duration, Instant};
 const BLOCKER: &str = ".arca/issue/i-777-blocker";
 
 struct Fixture {
+    tree: TempTree,
     root: PathBuf,
     /// FDC-004: the started run's id, read off the plural roster.
     run_id: String,
@@ -31,8 +33,8 @@ struct Fixture {
 
 impl Drop for Fixture {
     fn drop(&mut self) {
-        let _ = restore_writable(&self.root);
-        let _ = fs::remove_dir_all(&self.root);
+        // Make the tree removable again; the owned tree then removes itself.
+        let _ = restore_writable(self.tree.path());
     }
 }
 
@@ -40,15 +42,8 @@ impl Fixture {
     /// A started Run sitting in `build`, with one executing ticket, one
     /// unproven residual, and one complete blocker issue.
     fn new(label: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "ratmac-t050-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&root);
+        let tree = TempTree::new(&format!("t050-{label}")).expect("create fixture tree");
+        let root = tree.path().to_path_buf();
         for dir in [".arca/ticket", ".arca/residual", BLOCKER, ".ratmac", "src"] {
             fs::create_dir_all(root.join(dir)).expect("create fixture tree");
         }
@@ -95,6 +90,7 @@ impl Fixture {
         .expect("write residual");
 
         let mut fixture = Fixture {
+            tree,
             root,
             run_id: String::new(),
         };
@@ -447,16 +443,16 @@ fn unresolvable_blocker_refuses() {
 #[test]
 fn blocker_reference_must_stay_beneath_project_root() {
     let fixture = Fixture::new("confined-blocker");
-    let outside_name = format!(
-        "{}-outside",
-        fixture
-            .root
-            .file_name()
-            .expect("fixture root has a basename")
-            .to_string_lossy()
-    );
-    let outside = fixture.root.with_file_name(&outside_name);
-    fs::create_dir_all(&outside).expect("create external issue");
+    // The external issue sits in its own owned folder beside the project:
+    // both are made directly under the system temporary folder, so
+    // `../<name>` from the project root reaches it.
+    let outside_tree = TempTree::new("t050-confined-outside").expect("create external issue");
+    let outside = outside_tree.path().to_path_buf();
+    let outside_name = outside
+        .file_name()
+        .expect("external issue folder has a basename")
+        .to_string_lossy()
+        .into_owned();
     for name in [
         "index.md",
         "spec.md",
@@ -488,7 +484,7 @@ fn blocker_reference_must_stay_beneath_project_root() {
         "a reference outside every declared root is rejected: {refusal}"
     );
 
-    let _ = fs::remove_dir_all(&outside);
+    drop(outside_tree);
     assert_eq!(fixture.state(), "build", "the Run did not route");
     assert_ne!(fixture.status(), "blocked", "the Run was not paused");
     assert_eq!(

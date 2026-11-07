@@ -14,6 +14,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use ratmac_qa::support::TempTree;
+
 /// The parent can repeatedly spawn `worker` children while parked at
 /// `delegate`. A worker's only transition is guarded by a file whose presence
 /// is deliberately different between the caller's checkout and each child
@@ -53,21 +55,14 @@ to = "done"
 "#;
 
 struct GitFixture {
-    sandbox: PathBuf,
+    sandbox: TempTree,
     primary: PathBuf,
 }
 
 impl GitFixture {
     fn new(label: &str) -> Self {
-        let sandbox = std::env::temp_dir().join(format!(
-            "ratmac-t074-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock must be after the Unix epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&sandbox);
+        let sandbox =
+            TempTree::new(&format!("t074-{label}")).expect("create temporary fixture sandbox");
 
         let primary = sandbox.join("primary");
         fs::create_dir_all(primary.join(".ratmac")).expect("create primary Engine directory");
@@ -120,12 +115,6 @@ impl GitFixture {
             combined(&step)
         );
         parent
-    }
-}
-
-impl Drop for GitFixture {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.sandbox);
     }
 }
 

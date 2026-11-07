@@ -1,11 +1,11 @@
 //! PT-036-01 / HT-036-01..06: clean-cutover lock policy and compatibility behavior.
 
+use ratmac_qa::support::TempTree;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::Arc;
 use std::thread;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 const CLASS: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -13,24 +13,16 @@ const CLASS: &str = include_str!(concat!(
 ));
 
 struct Project {
+    _tree: TempTree,
     root: PathBuf,
 }
 
-impl Drop for Project {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
-    }
-}
-
 fn project() -> Project {
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system clock is after the Unix epoch")
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!("ratmac-t036-{}-{stamp}", std::process::id()));
+    let tree = TempTree::new("t036").expect("create isolated project");
+    let root = tree.path().to_path_buf();
     fs::create_dir_all(root.join(".ratmac")).expect("create isolated .ratmac directory");
     fs::write(root.join(".ratmac/ratmac.toml"), CLASS).expect("write Machine Class fixture");
-    Project { root }
+    Project { _tree: tree, root }
 }
 
 fn rtm(project: &Path, args: &[&str]) -> Output {

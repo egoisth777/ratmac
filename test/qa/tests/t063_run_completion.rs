@@ -10,6 +10,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use ratmac_qa::support::TempTree;
+
 /// One State, no transitions: structurally terminal from the first byte.
 const TERMINAL_ONLY_RUNBOOK: &str = r#"
 [states.done]
@@ -67,6 +69,7 @@ to = "done"
 "#;
 
 struct Fixture {
+    _tree: TempTree,
     root: PathBuf,
     run_id: String,
 }
@@ -74,15 +77,8 @@ struct Fixture {
 impl Fixture {
     /// Create the project tree without starting: PT-063-01 observes start itself.
     fn create(label: &str, runbook: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "ratmac-t063-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&root);
+        let tree = TempTree::new(&format!("t063-{label}")).expect("create fixture tree");
+        let root = tree.path().to_path_buf();
         fs::create_dir_all(root.join(".arca/goal")).expect("create fixture goal tree");
         fs::create_dir_all(root.join(".ratmac")).expect("create fixture Engine tree");
         fs::create_dir_all(root.join("src")).expect("create fixture source tree");
@@ -90,6 +86,7 @@ impl Fixture {
         fs::write(root.join(".ratmac/ratmac.toml"), runbook).expect("write fixture machine class");
         fs::write(root.join("src/lib.rs"), "pub fn fixture() {}\n").expect("write fixture source");
         Self {
+            _tree: tree,
             root,
             run_id: String::new(),
         }
@@ -159,12 +156,6 @@ impl Fixture {
 
     fn run_snapshot(&self) -> BTreeMap<String, Option<Vec<u8>>> {
         tree_snapshot(&self.run_dir())
-    }
-}
-
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
     }
 }
 

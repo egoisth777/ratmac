@@ -20,6 +20,7 @@
 //! shares no code with the t-091 suite or the private lanes.
 
 use ratmac::contract::{gate_records_at, work_items_at, ContractDefect, WorkItem, WorkItemState};
+use ratmac_qa::support::TempTree;
 use std::fs;
 use std::path::PathBuf;
 
@@ -27,13 +28,9 @@ use std::path::PathBuf;
 /// partial gap with an archived and a current citation, and one proven
 /// historical gap. Removed on drop, so the check leaves nothing behind.
 struct Tree {
+    /// The owned scratch tree; dropping it removes the fixture.
+    _tree: TempTree,
     root: PathBuf,
-}
-
-impl Drop for Tree {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
-    }
 }
 
 /// The frozen goal revision this fixture's live records cite. A literal of
@@ -45,15 +42,8 @@ const RUN: &str = "run-771";
 
 impl Tree {
     fn create(label: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "ratmac-t113-reopened-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&root);
+        let owned = TempTree::new(&format!("t113-reopened-{label}")).expect("create fixture tree");
+        let root = owned.path().to_path_buf();
         for dir in [
             ".arca/goal",
             ".arca/issue",
@@ -64,7 +54,7 @@ impl Tree {
             fs::create_dir_all(root.join(dir)).expect("create fixture tree");
         }
         fs::create_dir_all(root.join(format!(".ratmac/runs/{RUN}"))).expect("create run directory");
-        let tree = Tree { root };
+        let tree = Tree { _tree: owned, root };
         tree.write_goal();
         tree.write_runbook();
         tree.write_evidence();

@@ -1,0 +1,10 @@
+planned-test-id = "SVEV-010"
+ticket-id = "t-141"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t126_shared_private_test_support -- --exact svev_010"
+working-dir = "."
+test-file = "test/qa/tests/t126_shared_private_test_support.rs"
+test-name = "svev_010"
+exit-status = 101
+output-sha256 = "9a0b694a1b305cccad8fca8bd3871def069ce4ce56f59dcb6b11171563b481c1"
+output = "   Compiling ratmac-qa v0.1.0 (E:\\hive\\packs\\repos\\skills\\ratmac-t-141\\test\\qa)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.02s\n     Running tests\\t126_shared_private_test_support.rs (target\\debug\\deps\\t126_shared_private_test_support-29668d2a9087e468.exe)\n\nrunning 1 test\ntest svev_010 ... FAILED\n\nfailures:\n\n---- svev_010 stdout ----\n\nthread 'svev_010' (78540) panicked at test\\qa\\tests\\t126_shared_private_test_support.rs:2065:42:\nSVEV-010: request 1 for a folder with the clock pinned to 141 failed: the shared helper's clock cannot be pinned yet (SVE-004 red stub)\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    svev_010\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t126_shared_private_test_support`\n"

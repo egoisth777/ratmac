@@ -1,18 +1,10 @@
 use ratmac::{Scheduler, StepOutcome, StepRequest};
-use std::env;
+use ratmac_qa::support::TempTree;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::thread;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-
-struct TempProject(PathBuf);
-
-impl Drop for TempProject {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
+use std::time::{Duration, Instant};
 
 /// A live cross-process Run-lock holder. Its marker is published by
 /// `lock-barrier` only after the kernel claim is acquired.
@@ -93,12 +85,8 @@ fn fixture_root(name: &str) -> PathBuf {
         .join(name)
 }
 
-fn isolated_project(fixture: &str) -> (TempProject, PathBuf, PathBuf) {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system clock must be after the Unix epoch")
-        .as_nanos();
-    let root = env::temp_dir().join(format!("ratmac-pt-022-{}-{}", std::process::id(), nonce));
+fn isolated_project(fixture: &str) -> (TempTree, PathBuf, PathBuf) {
+    let root = TempTree::new("pt-022").expect("create isolated project");
     let engine = root.join(".ratmac");
     fs::create_dir_all(&engine).expect("create isolated .ratmac directory");
     let source = fixture_root(fixture);
@@ -117,23 +105,11 @@ fn isolated_project(fixture: &str) -> (TempProject, PathBuf, PathBuf) {
         root.join("required").join("output.txt"),
     )
     .expect("copy passing guard artifact");
-    (
-        TempProject(root),
-        run_dir.join("run.toml"),
-        engine.join("log.md"),
-    )
+    (root, run_dir.join("run.toml"), engine.join("log.md"))
 }
 
-fn start_project() -> TempProject {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system clock must be after the Unix epoch")
-        .as_nanos();
-    let root = env::temp_dir().join(format!(
-        "ratmac-pt-022-start-{}-{}",
-        std::process::id(),
-        nonce
-    ));
+fn start_project() -> TempTree {
+    let root = TempTree::new("pt-022-start").expect("create start fixture project");
     let engine = root.join(".ratmac");
     fs::create_dir_all(&engine).expect("create start fixture directory");
     fs::copy(
@@ -141,7 +117,7 @@ fn start_project() -> TempProject {
         engine.join("ratmac.toml"),
     )
     .expect("copy start class fixture");
-    TempProject(root)
+    root
 }
 
 fn successful_step(project_root: &Path) {
@@ -194,7 +170,7 @@ fn successful_step_appends_one_transition_record() {
     let (project, state_path, log_path) = isolated_project("r026-transition-log");
     let log_before = fs::read(&log_path).expect("read log before successful step");
 
-    successful_step(&project.0);
+    successful_step(project.path());
 
     let log_after = fs::read(&log_path).expect("read log after successful step");
     let record = appended_record(&log_before, &log_after);
@@ -222,7 +198,7 @@ fn transition_log_is_append_only() {
     let (project, state_path, log_path) = isolated_project("r026-transition-log-existing");
     let log_before = fs::read(&log_path).expect("read pre-populated log before step");
 
-    successful_step(&project.0);
+    successful_step(project.path());
 
     let log_after = fs::read(&log_path).expect("read pre-populated log after step");
     let record = appended_record(&log_before, &log_after);
@@ -242,12 +218,12 @@ fn transition_log_is_append_only() {
 #[test]
 fn refused_step_does_not_append_transition_record() {
     let (project, state_path, log_path) = isolated_project("r026-transition-log");
-    fs::remove_file(project.0.join("required/output.txt"))
+    fs::remove_file(project.join("required/output.txt"))
         .expect("remove required artifact to force guard refusal");
     let state_before = fs::read(&state_path).expect("read state before refusal");
     let log_before = fs::read(&log_path).expect("read log before refusal");
 
-    refused_step(&project.0);
+    refused_step(project.path());
 
     assert_eq!(
         state_before,
@@ -262,12 +238,12 @@ fn refused_step_does_not_append_transition_record() {
 #[test]
 fn log_open_failure_leaves_state_unchanged() {
     let (project, state_path, _log_path) = isolated_project("r026-transition-log");
-    let log_path = project.0.join(".ratmac/log.md");
+    let log_path = project.join(".ratmac/log.md");
     fs::remove_file(&log_path).expect("remove log file to induce open failure");
     fs::create_dir(&log_path).expect("replace log file with directory");
     let state_before = fs::read(&state_path).expect("read state before log failure");
     let mut scheduler =
-        Scheduler::open_run(&project.0, "run-001").expect("open transition-log fixture");
+        Scheduler::open_run(project.path(), "run-001").expect("open transition-log fixture");
 
     let result = scheduler.step(StepRequest::new("agent claims completion"));
 
@@ -281,9 +257,9 @@ fn log_open_failure_leaves_state_unchanged() {
 #[test]
 fn start_log_open_failure_leaves_no_state_and_lock() {
     let project = start_project();
-    let engine = project.0.join(".ratmac");
+    let engine = project.join(".ratmac");
     fs::create_dir(engine.join("log.md")).expect("make log path an open failure");
-    let mut scheduler = Scheduler::open(&project.0).expect("open start fixture");
+    let mut scheduler = Scheduler::open(project.path()).expect("open start fixture");
 
     assert!(scheduler.start().is_err());
     // FDC-004: a failed start leaves neither a flat State File nor a run-owned one.
@@ -304,7 +280,7 @@ fn missing_transition_log_is_hard_error_without_state_change() {
     fs::remove_file(&log_path).expect("remove transition log");
     let state_before = fs::read(&state_path).expect("read state before missing-log step");
     let mut scheduler =
-        Scheduler::open_run(&project.0, "run-001").expect("open transition-log fixture");
+        Scheduler::open_run(project.path(), "run-001").expect("open transition-log fixture");
 
     assert!(scheduler
         .step(StepRequest::new("agent claims completion"))
@@ -322,7 +298,7 @@ fn non_newline_log_gets_separator_before_record() {
     fs::write(&log_path, b"existing record without newline").expect("write non-newline log prefix");
     let log_before = fs::read(&log_path).expect("read log prefix");
 
-    successful_step(&project.0);
+    successful_step(project.path());
 
     let log_after = fs::read(&log_path).expect("read log after transition");
     assert!(log_after.starts_with(&log_before));
@@ -332,11 +308,11 @@ fn non_newline_log_gets_separator_before_record() {
 #[test]
 fn state_mutators_honor_run_lock_while_status_is_read_only() {
     let (project, state_path, _log_path) = isolated_project("r026-transition-log");
-    let engine_root = project.0.join(".ratmac");
+    let engine_root = project.join(".ratmac");
     let scheduler =
-        Scheduler::open_run(&project.0, "run-001").expect("open transition-log fixture");
+        Scheduler::open_run(project.path(), "run-001").expect("open transition-log fixture");
     let lock = ratmac::lock::run_path(&engine_root, "run-001");
-    let mut held = LiveRunLock::acquire(&project.0, &engine_root, "run-001");
+    let mut held = LiveRunLock::acquire(project.path(), &engine_root, "run-001");
     assert!(
         lock.is_file(),
         "the post-acquisition marker must correspond to the canonical Run-lock path"
@@ -389,20 +365,11 @@ fn state_mutators_honor_run_lock_while_status_is_read_only() {
 
 #[test]
 fn status_on_missing_engine_does_not_create_metadata() {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system clock must be after the Unix epoch")
-        .as_nanos();
-    let project = env::temp_dir().join(format!(
-        "ratmac-pt-022-status-missing-{}-{}",
-        std::process::id(),
-        nonce
-    ));
-    fs::create_dir_all(&project).expect("create project without .ratmac");
+    let tree = TempTree::new("pt-022-status-missing").expect("create project without .ratmac");
+    let project = tree.path().to_path_buf();
     // TRP-005: a project with no runbook refuses where the runbook is read;
     // R-026 still holds - the refusal creates no metadata.
     let error = Scheduler::open(&project).expect_err("a project without metadata has no machine");
     assert!(error.to_string().contains("ratmac.toml"));
     assert!(!project.join(".ratmac").exists());
-    fs::remove_dir_all(project).expect("clean missing-metadata project");
 }

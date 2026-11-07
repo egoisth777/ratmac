@@ -18,34 +18,23 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use ratmac::pin::{Evidence, Identity};
+use ratmac_qa::support::TempTree;
 use sha2::{Digest, Sha256};
 
 /// Cargo writes these while building; everything else must stay byte-identical.
 const DECLARED_BUILD_OUTPUT: [&str; 2] = ["target", "Cargo.lock"];
 
 struct Boot {
+    _tree: TempTree,
     root: PathBuf,
-}
-
-impl Drop for Boot {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
-    }
 }
 
 impl Boot {
     /// A throwaway project root that carries the real `tools/rtm.ps1`, a
     /// Runbook, and a buildable `rtm` binary target.
     fn new(label: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "ratmac-t053-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&root);
+        let tree = TempTree::new(&format!("t053-{label}")).expect("create fixture tree");
+        let root = tree.path().to_path_buf();
         for dir in [".ratmac", "src", "tools"] {
             fs::create_dir_all(root.join(dir)).expect("create fixture tree");
         }
@@ -63,7 +52,7 @@ impl Boot {
         )
         .expect("write runbook");
         fs::copy(bootstrap_source(), root.join("tools/rtm.ps1")).expect("install the bootstrap");
-        Boot { root }
+        Boot { _tree: tree, root }
     }
 
     /// Put a real executable where the bootstrap resolves it, without building.

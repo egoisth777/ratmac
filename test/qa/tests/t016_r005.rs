@@ -6,25 +6,21 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use ratmac::{Scheduler, StepOutcome, StepRequest};
+use ratmac_qa::support::TempTree;
 
-fn isolated_project(label: &str) -> PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system clock is before unix epoch")
-        .as_nanos();
-    std::env::temp_dir().join(format!("ratmac-{label}-{}-{nonce}", std::process::id()))
+fn isolated_project(label: &str) -> TempTree {
+    TempTree::new(label).expect("create isolated project root")
 }
 
 fn copy_fixture(fixture: &Path, project: &Path) {
-    fs::create_dir_all(project).expect("create isolated project root");
     for entry in fs::read_dir(fixture).expect("read guard fixture") {
         let entry = entry.expect("read fixture entry");
         let source = entry.path();
         let destination = project.join(entry.file_name());
         if source.is_dir() {
+            fs::create_dir_all(&destination).expect("create isolated project folder");
             copy_fixture(&source, &destination);
         } else {
             fs::copy(source, destination).expect("copy fixture input");
@@ -40,7 +36,8 @@ fn fixture_root(name: &str) -> PathBuf {
 
 #[test]
 fn step_request_refuses_when_guard_fails() {
-    let project = isolated_project("t016-failing");
+    let tree = isolated_project("t016-failing");
+    let project = tree.path().to_path_buf();
     copy_fixture(&fixture_root("t016-failing-guard"), &project);
     let mut scheduler = Scheduler::open(&project).expect("open isolated Scheduler");
     scheduler
@@ -61,12 +58,12 @@ fn step_request_refuses_when_guard_fails() {
         after.state, before.state,
         "refused request cannot advance State"
     );
-    let _ = fs::remove_dir_all(project);
 }
 
 #[test]
 fn step_request_advances_when_guards_pass() {
-    let project = isolated_project("t016-passing");
+    let tree = isolated_project("t016-passing");
+    let project = tree.path().to_path_buf();
     copy_fixture(&fixture_root("t016-passing-guards"), &project);
     let mut scheduler = Scheduler::open(&project).expect("open isolated Scheduler");
     scheduler
@@ -85,5 +82,4 @@ fn step_request_advances_when_guards_pass() {
         after.state, "review",
         "passing guards advance to next State"
     );
-    let _ = fs::remove_dir_all(project);
 }

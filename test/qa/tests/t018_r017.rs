@@ -1,17 +1,8 @@
 use ratmac::{Scheduler, StepOutcome, StepRequest};
+use ratmac_qa::support::TempTree;
 
-use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
-
-struct TempProject(PathBuf);
-
-impl Drop for TempProject {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
 
 fn fixture_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -20,12 +11,8 @@ fn fixture_root() -> PathBuf {
         .join("t018-failed-guard")
 }
 
-fn isolated_project() -> (TempProject, PathBuf, PathBuf) {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system clock must be after the Unix epoch")
-        .as_nanos();
-    let root = env::temp_dir().join(format!("ratmac-pt-018-{}-{}", std::process::id(), nonce));
+fn isolated_project() -> (TempTree, PathBuf, PathBuf) {
+    let root = TempTree::new("pt-018").expect("create isolated project");
     let engine = root.join(".ratmac");
     fs::create_dir_all(&engine).expect("create isolated .ratmac directory");
     for name in ["ratmac.toml", "log.md"] {
@@ -40,11 +27,7 @@ fn isolated_project() -> (TempProject, PathBuf, PathBuf) {
         run_dir.join("run.toml"),
     )
     .expect("copy failed-guard fixture file");
-    (
-        TempProject(root),
-        run_dir.join("run.toml"),
-        engine.join("log.md"),
-    )
+    (root, run_dir.join("run.toml"), engine.join("log.md"))
 }
 
 fn state_and_status(state_bytes: &[u8]) -> (String, String) {
@@ -98,7 +81,7 @@ fn failed_guard_refuses_and_stays() {
     let log_before = fs::read(&log_path).expect("read log before refusal");
     let position_before = state_and_status(&state_before);
 
-    run_failed_step(&project.0);
+    run_failed_step(project.path());
 
     let state_after = fs::read(&state_path).expect("read state after refusal");
     let log_after = fs::read(&log_path).expect("read log after refusal");
@@ -119,7 +102,7 @@ fn failed_guard_writes_no_counter_or_extra_log() {
     let state_before = fs::read(&state_path).expect("read state before refusal");
     let log_before = fs::read(&log_path).expect("read log before refusal");
 
-    run_failed_step(&project.0);
+    run_failed_step(project.path());
     assert_no_retry_counter(state_path.parent().expect("state has parent directory"));
 
     let state_after = fs::read(&state_path).expect("read state after refusal");

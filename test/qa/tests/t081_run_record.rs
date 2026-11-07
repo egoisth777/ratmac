@@ -13,6 +13,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use ratmac_qa::support::TempTree;
+
 const RUNBOOK: &str = r#"[roots]
 ticket = ".arca/ticket"
 
@@ -47,31 +49,19 @@ const REQUIRED_FIELDS: [&str; 7] = [
 ];
 
 struct Fixture {
+    _tree: TempTree,
     root: PathBuf,
-}
-
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
-    }
 }
 
 impl Fixture {
     fn new(label: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "ratmac-t081-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&root);
+        let tree = TempTree::new(&format!("t081-{label}")).expect("create fixture root");
+        let root = tree.path().to_path_buf();
         for dir in [".arca/ticket", ".ratmac"] {
             fs::create_dir_all(root.join(dir)).expect("create fixture tree");
         }
         fs::write(root.join(".ratmac/ratmac.toml"), RUNBOOK).expect("write machine class");
-        Fixture { root }
+        Fixture { _tree: tree, root }
     }
 
     fn rtm(&self, args: &[&str]) -> Output {

@@ -10,6 +10,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use ratmac_qa::support::TempTree;
+
 const STRAIGHT_RUNBOOK: &str = r#"
 [states.start]
 prompt = "Start."
@@ -112,21 +114,15 @@ input = "rework"
 "#;
 
 struct Fixture {
+    _tree: TempTree,
     root: PathBuf,
     run_id: String,
 }
 
 impl Fixture {
     fn new(label: &str, runbook: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "ratmac-t062-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&root);
+        let tree = TempTree::new(&format!("t062-{label}")).expect("create fixture tree");
+        let root = tree.path().to_path_buf();
         fs::create_dir_all(root.join(".arca/goal")).expect("create fixture goal tree");
         fs::create_dir_all(root.join(".ratmac")).expect("create fixture Engine tree");
         fs::create_dir_all(root.join("src")).expect("create fixture source tree");
@@ -156,6 +152,7 @@ impl Fixture {
         assert_eq!(roster.len(), 1, "one fixture start must mint one Run");
 
         Self {
+            _tree: tree,
             root,
             run_id: roster.remove(0),
         }
@@ -230,12 +227,6 @@ impl Fixture {
 
     fn run_snapshot(&self) -> BTreeMap<String, Option<Vec<u8>>> {
         tree_snapshot(&self.run_dir())
-    }
-}
-
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
     }
 }
 

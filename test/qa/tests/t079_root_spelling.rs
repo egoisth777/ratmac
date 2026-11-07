@@ -15,6 +15,7 @@
 //! under test.
 
 use ratmac_qa::json::Json;
+use ratmac_qa::support::TempTree;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -32,27 +33,14 @@ to = "done"
 "#;
 
 struct Sandbox {
+    _tree: TempTree,
     root: PathBuf,
 }
 
-impl Drop for Sandbox {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
-    }
-}
-
 fn fresh_sandbox(label: &str) -> Sandbox {
-    let root = std::env::temp_dir().join(format!(
-        "ratmac-t079-{label}-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("clock is after the epoch")
-            .as_nanos()
-    ));
-    let _ = fs::remove_dir_all(&root);
-    fs::create_dir_all(&root).expect("create sandbox");
-    Sandbox { root }
+    let tree = TempTree::new(&format!("t079-{label}")).expect("create sandbox");
+    let root = tree.path().to_path_buf();
+    Sandbox { _tree: tree, root }
 }
 
 fn write_machine_class(root: &Path) {

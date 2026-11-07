@@ -1,0 +1,10 @@
+ticket-id = "t-141"
+check-id = "SVEV-011"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test t126_shared_private_test_support -- --exact svev_010 svev_011 svev_012"
+working-dir = "."
+exit-status = 0
+output-sha256 = "021a25bbe56aff06e4e687bce725fbe1e9574e8eab7cf00ac5cf3c23e8d32ea7"
+tree-roots = ["src","profiles","test","test-hidden","tools","Cargo.toml","Cargo.lock","AGENTS.md",".gitignore",".ratmac/ratmac.toml",".ratmac/turn.toml",".ratmac/lanes.toml"]
+tree-sha256 = "1584ad894fbf4f192a35f6fd7ee25f232f12dad266766d9238a85e2788e9c0fa"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.27s\n     Running tests\\t126_shared_private_test_support.rs (target\\debug\\deps\\t126_shared_private_test_support-29668d2a9087e468.exe)\n\nrunning 3 tests\ntest svev_010 ... ok\ntest svev_011 ... ok\ntest svev_012 ... ok\n\ntest result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.30s\n\n"

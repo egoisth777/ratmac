@@ -7,6 +7,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use ratmac_qa::support::TempTree;
+
 /// A composed machine whose parent `delegate` State both spawns the reviewer
 /// and branches on the reviewer's transition input, behind the join.
 const REVIEWER_RUNBOOK: &str = r#"
@@ -58,20 +60,14 @@ input = "rework"
 "#;
 
 struct Fixture {
+    _tree: TempTree,
     root: PathBuf,
 }
 
 impl Fixture {
     fn create(label: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "ratmac-t069-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&root);
+        let tree = TempTree::new(&format!("t069-{label}")).expect("create fixture root");
+        let root = tree.path().to_path_buf();
         fs::create_dir_all(root.join(".arca/goal")).expect("create fixture goal tree");
         fs::create_dir_all(root.join(".ratmac")).expect("create fixture Engine tree");
         fs::create_dir_all(root.join("src")).expect("create fixture source tree");
@@ -79,7 +75,7 @@ impl Fixture {
         fs::write(root.join(".ratmac/ratmac.toml"), REVIEWER_RUNBOOK)
             .expect("write fixture machine class");
         fs::write(root.join("src/lib.rs"), "pub fn fixture() {}\n").expect("write fixture source");
-        Self { root }
+        Self { _tree: tree, root }
     }
 
     fn rtm(&self, args: &[&str]) -> Output {
@@ -111,12 +107,6 @@ impl Fixture {
 
     fn state_text(&self, id: &str) -> String {
         fs::read_to_string(self.run_dir(id).join("run.toml")).expect("the State File is readable")
-    }
-}
-
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
     }
 }
 

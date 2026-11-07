@@ -8,6 +8,7 @@
 
 use ratmac::cli;
 use ratmac_qa::policy::{audit_caller_policy, surface_from_file, PolicySurface};
+use ratmac_qa::support::TempTree;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -130,7 +131,8 @@ fn engine_gains_no_caller_state() {
     // 3. Behavior carries no caller identity: a second start on the same
     //    project behaves the same for any caller — it succeeds (FDC-006
     //    lifted the cap) and leaves the existing run byte-identical.
-    let project = fixture_project("t044-policy");
+    let tree = fixture_project("t044-policy");
+    let project = tree.path().to_path_buf();
     let first = run_rtm(&project, &["start"]);
     assert!(first.status.success(), "first start succeeds");
     // FDC-004: the State File resides in the minted run's directory.
@@ -146,7 +148,6 @@ fn engine_gains_no_caller_state() {
         fs::read(&state_path).expect("state after the sibling start"),
         "the sibling start mutates nothing that already exists"
     );
-    let _ = fs::remove_dir_all(&project);
 }
 
 fn walk_rust_sources(directory: &Path) -> Vec<PathBuf> {
@@ -165,9 +166,8 @@ fn walk_rust_sources(directory: &Path) -> Vec<PathBuf> {
     found
 }
 
-fn fixture_project(label: &str) -> PathBuf {
-    let root = std::env::temp_dir().join(format!("ratmac-{label}-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&root);
+fn fixture_project(label: &str) -> TempTree {
+    let root = TempTree::new(label).expect("create fixture project");
     fs::create_dir_all(root.join(".ratmac")).expect("create fixture project");
     let class =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../fixtures/r007-start-policy/ratmac.toml");
@@ -209,7 +209,8 @@ fn started_run_id(project: &Path) -> String {
 /// whose Exit Guard fails still refuses, reports, and leaves state unchanged.
 #[test]
 fn step_refusal_behavior_is_unchanged() {
-    let project = fixture_project("t044-regression");
+    let tree = fixture_project("t044-regression");
+    let project = tree.path().to_path_buf();
     assert!(
         run_rtm(&project, &["start"]).status.success(),
         "start succeeds"
@@ -236,7 +237,6 @@ fn step_refusal_behavior_is_unchanged() {
         fs::read(&state_path).expect("state after refusal"),
         "a refused step mutates no state"
     );
-    let _ = fs::remove_dir_all(&project);
 }
 
 /// HT-043-02 (Input/Routing): every help route prints exactly one usage text

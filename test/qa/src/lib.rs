@@ -40,7 +40,6 @@ pub mod turn;
 #[cfg(test)]
 mod tests {
     use ratmac::graph::{MachineGraph, MachineState, State, Transition};
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     enum TestLifecycleStatus {
@@ -231,11 +230,10 @@ mod tests {
         let source_class = fixture.join(".ratmac/ratmac.toml");
         let source_bytes = fs::read(&source_class).expect("canonical ratmac fixture should exist");
 
-        let project = std::env::temp_dir().join(format!("ratmac-pt-004-01-{}", std::process::id()));
-        if project.exists() {
-            fs::remove_dir_all(&project).expect("stale PT-004-01 directory should be removable");
-        }
-        fs::create_dir_all(project.join(".ratmac")).expect("temporary project should be creatable");
+        let tree = crate::support::TempTree::new("pt-004-01")
+            .expect("temporary project should be creatable");
+        let project = tree.path();
+        fs::create_dir(project.join(".ratmac")).expect("temporary project should be creatable");
         let class_path = project.join(".ratmac/ratmac.toml");
         fs::write(&class_path, &source_bytes).expect("fixture class should be copied verbatim");
 
@@ -246,7 +244,7 @@ mod tests {
             "fixture setup must preserve authored bytes"
         );
 
-        let _class = MachineClass::load_from_project_root(&project)
+        let _class = MachineClass::load_from_project_root(project)
             .expect("scheduler should consume .ratmac/ratmac.toml as reviewed input");
 
         let after_entries = sorted_entries(&project.join(".ratmac"));
@@ -259,8 +257,6 @@ mod tests {
             after_entries, before_entries,
             "loading must not generate class files"
         );
-
-        fs::remove_dir_all(project).expect("PT-004 temporary project should be cleaned up");
     }
     fn t009_fixture_class_path() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -272,17 +268,12 @@ mod tests {
             .join("ratmac.toml")
     }
 
-    fn t009_copy_fixture() -> (PathBuf, PathBuf) {
+    fn t009_copy_fixture() -> (crate::support::TempTree, PathBuf) {
         let fixture_class = t009_fixture_class_path();
         assert!(fixture_class.is_file(), "PT-009-01 fixture is missing");
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system clock must be after Unix epoch")
-            .as_nanos();
-        let project =
-            std::env::temp_dir().join(format!("ratmac-pt-009-{}-{}", std::process::id(), nonce));
+        let project = crate::support::TempTree::new("pt-009").expect("create isolated fixture");
         let engine = project.join(".ratmac");
-        fs::create_dir_all(&engine).expect("create isolated .ratmac fixture");
+        fs::create_dir(&engine).expect("create isolated .ratmac fixture");
         let class_path = engine.join("ratmac.toml");
         fs::copy(fixture_class, &class_path).expect("copy ratmac.toml fixture");
         (project, class_path)
@@ -292,7 +283,7 @@ mod tests {
     fn test_start_reads_class_without_modifying_ratmac() {
         let (project, class_path) = t009_copy_fixture();
         let before = fs::read(&class_path).expect("read ratmac.toml before start");
-        ratmac::Scheduler::open(&project)
+        ratmac::Scheduler::open(project.path())
             .expect("open class-read-only fixture")
             .start()
             .expect("start must load the canonical class");
@@ -313,7 +304,6 @@ mod tests {
                 "runtime key {key} must stay outside class"
             );
         }
-        fs::remove_dir_all(project).expect("clean PT-009 temporary project");
     }
 }
 
@@ -331,13 +321,14 @@ mod t006 {
             .join("../fixtures/entry-prerequisites/missing-input-revision")
     }
 
-    fn present_input_revision_fixture() -> PathBuf {
-        let root = std::env::temp_dir().join("ratmac-t006-present-input");
-        let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(&root).expect("create present input fixture");
-        let path = root.join("input_revision");
-        fs::write(&path, b"input revision").expect("write present input revision");
-        path
+    /// A folder holding an `input_revision` file, kept for as long as the
+    /// returned tree lives.
+    fn present_input_revision_fixture() -> crate::support::TempTree {
+        let root = crate::support::TempTree::new("t006-present-input")
+            .expect("create present input fixture");
+        fs::write(root.join("input_revision"), b"input revision")
+            .expect("write present input revision");
+        root
     }
 
     #[test]
@@ -378,7 +369,8 @@ mod t006 {
             "blocked must not become a machine-graph node"
         );
 
-        let present = present_input_revision_fixture();
+        let present_root = present_input_revision_fixture();
+        let present = present_root.join("input_revision");
         // Complete entry input leaves every ordinary lifecycle value alone. This
         // deliberately does not exercise Exit Guard refusal; that behavior belongs
         // to the later guard tickets.
@@ -401,16 +393,13 @@ mod t006 {
             assert_eq!(state.state(), &State::new("plan"));
             assert_eq!(scheduler.machine().states().count(), 2);
         }
-        fs::remove_dir_all(present.parent().expect("present fixture has a parent"))
-            .expect("remove present input fixture");
     }
 }
 
 #[cfg(test)]
 mod t007_state_file {
     use std::fs;
-    use std::path::{Path, PathBuf};
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::path::Path;
 
     use ratmac::model::{RunState, Status};
     use ratmac::scheduler::Scheduler;
@@ -418,33 +407,21 @@ mod t007_state_file {
     const VALID_STATE: &str = include_str!("../../fixtures/state/valid-state.toml");
     const STATUS_FIXTURE: &str = "../fixtures/state/status-with-pending-guards";
 
-    struct IsolatedProject(PathBuf);
+    struct IsolatedProject(crate::support::TempTree);
 
     impl IsolatedProject {
         fn new() -> Self {
-            let nonce = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("system clock is before unix epoch")
-                .as_nanos();
-            let root = std::env::temp_dir().join(format!("ratmac-t007-{nonce}"));
-            fs::create_dir_all(&root).expect("create isolated project root");
-            Self(root)
+            Self(crate::support::TempTree::new("t007").expect("create isolated project root"))
         }
 
         fn root(&self) -> &Path {
-            &self.0
+            self.0.path()
         }
 
         fn state_bytes(&self) -> Vec<u8> {
             // FDC-004: the State File resides in the addressed run's directory.
             fs::read(self.0.join(".ratmac/runs/run-001/run.toml"))
                 .expect("read Scheduler-owned state")
-        }
-    }
-
-    impl Drop for IsolatedProject {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
         }
     }
 
@@ -609,20 +586,14 @@ mod t008_state_writer_tests {
     use std::fs;
     use std::hash::{Hash, Hasher};
     use std::path::{Path, PathBuf};
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     const RATMAC: &str = r#"[states.p4]
     prompt = "Produce the P4 output."
     "#;
 
-    fn temp_project(label: &str) -> PathBuf {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system clock is before the Unix epoch")
-            .as_nanos();
-        let root =
-            std::env::temp_dir().join(format!("ratmac-{label}-{}-{nonce}", std::process::id()));
-        fs::create_dir_all(root.join(".ratmac")).expect("create isolated project");
+    fn temp_project(label: &str) -> crate::support::TempTree {
+        let root = crate::support::TempTree::new(label).expect("create isolated project");
+        fs::create_dir(root.join(".ratmac")).expect("create isolated project");
         root
     }
 
@@ -654,7 +625,7 @@ mod t008_state_writer_tests {
         let sentinel = fixture_bytes();
 
         let read_project = temp_project("state-read");
-        let read_state = setup_project(&read_project, &sentinel);
+        let read_state = setup_project(read_project.path(), &sentinel);
         let before_read = fs::read(&read_state).expect("read sentinel before status");
         let before_hash = bytes_hash(&before_read);
         assert_eq!(
@@ -665,7 +636,7 @@ mod t008_state_writer_tests {
         // The Scheduler exposes status as a read-only operation. This test intentionally
         // uses no StateStore/raw writer; that writer must remain private to Scheduler code.
         let scheduler =
-            Scheduler::open_run(&read_project, "run-001").expect("open isolated Scheduler");
+            Scheduler::open_run(read_project.path(), "run-001").expect("open isolated Scheduler");
         scheduler.status().expect("read Scheduler status");
 
         let after_status = fs::read(&read_state).expect("read sentinel after status");
@@ -674,14 +645,14 @@ mod t008_state_writer_tests {
             after_status, before_read,
             "read-only Scheduler::status must not rewrite run.toml"
         );
-        fs::remove_dir_all(&read_project).expect("remove isolated read project");
+        drop(read_project);
 
         let write_project = temp_project("state-write");
-        let write_state = setup_project(&write_project, &sentinel);
+        let write_state = setup_project(write_project.path(), &sentinel);
         let before_write = fs::read(&write_state).expect("read sentinel before Scheduler mutation");
         let before_write_hash = bytes_hash(&before_write);
         let mut scheduler =
-            Scheduler::open_run(&write_project, "run-001").expect("open isolated Scheduler");
+            Scheduler::open_run(write_project.path(), "run-001").expect("open isolated Scheduler");
         let state = scheduler.load_state().expect("load complete State File");
         scheduler
             .record_missing_prerequisite(state, "sentinel-prerequisite")
@@ -693,7 +664,6 @@ mod t008_state_writer_tests {
             after_write, before_write,
             "only the Scheduler state-changing operation may change run.toml"
         );
-        fs::remove_dir_all(&write_project).expect("remove isolated write project");
 
         // v1 caller identity is policy, not authentication: this test proves the filesystem
         // boundary and does not claim that rtm can authenticate Main-Agent versus subagent.
@@ -704,18 +674,12 @@ mod t008_state_writer_tests {
 mod t010 {
     use ratmac::Scheduler;
     use std::fs;
-    use std::path::{Path, PathBuf};
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::path::Path;
 
-    fn setup_project() -> PathBuf {
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system clock is after the Unix epoch")
-            .as_nanos();
-        let root =
-            std::env::temp_dir().join(format!("ratmac-pt010-{}-{stamp}", std::process::id()));
+    fn setup_project() -> crate::support::TempTree {
+        let root = crate::support::TempTree::new("pt010").expect("create isolated PT-010 project");
         let engine = root.join(".ratmac");
-        fs::create_dir_all(&engine).expect("create isolated PT-010 project");
+        fs::create_dir(&engine).expect("create isolated PT-010 project");
         let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../fixtures/run/empty-project/.ratmac/ratmac.toml");
         fs::copy(fixture, engine.join("ratmac.toml")).expect("copy PT-010 class fixture");
@@ -728,7 +692,7 @@ mod t010 {
         let engine = project.join(".ratmac");
         let class_path = engine.join("ratmac.toml");
         let before = fs::read(&class_path).expect("read class before start");
-        let run = Scheduler::open(&project)
+        let run = Scheduler::open(project.path())
             .expect("open project")
             .start()
             .expect("start must instantiate a Run");
@@ -767,7 +731,6 @@ mod t010 {
             fs::read(&class_path).expect("read class after start"),
             "start must not modify ratmac.toml"
         );
-        fs::remove_dir_all(project).expect("remove isolated PT-010 project");
     }
 }
 
@@ -784,7 +747,6 @@ mod t005 {
     use ratmac::{Scheduler, StepOutcome, StepRequest};
     use std::fs;
     use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     const UNKNOWN_KEY_FIXTURE: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -915,24 +877,24 @@ to = "missing"
         assert!(MachineClass::from_toml(whitespace_state).is_err());
     }
 
-    fn revalidation_project() -> PathBuf {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let root = std::env::temp_dir().join(format!("arca-t005-review-{nonce}"));
+    /// A project at `project` inside a folder this test alone owns, so a file
+    /// beside the project (`../name`) is outside its root yet never shared;
+    /// both stay for as long as the returned tree lives.
+    fn revalidation_project() -> (crate::support::TempTree, PathBuf) {
+        let tree = crate::support::TempTree::new("t005-review").unwrap();
+        let root = tree.join("project");
         fs::create_dir_all(root.join(".ratmac")).unwrap();
         fs::write(
             root.join(".ratmac/ratmac.toml"),
             "[states.prepare]\nprompt = \"Prepare\"\n",
         )
         .unwrap();
-        root
+        (tree, root)
     }
 
     #[test]
     fn test_open_scheduler_revalidates_class_before_status_and_step() {
-        let root = revalidation_project();
+        let (_tree, root) = revalidation_project();
         let mut scheduler = Scheduler::open(&root).unwrap();
         scheduler.start().unwrap();
         fs::write(
@@ -942,12 +904,11 @@ to = "missing"
         .unwrap();
         assert!(scheduler.status().is_err());
         assert!(scheduler.step(StepRequest::new("claim")).is_err());
-        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
     fn test_guard_paths_cannot_escape_project_root() {
-        let root = revalidation_project();
+        let (_tree, root) = revalidation_project();
         let outside = root.parent().unwrap().join("arca-t005-outside.txt");
         fs::write(&outside, "SECRET").unwrap();
         // FDC-002: `prepare` needs an ordinary outgoing edge, or start would
@@ -970,7 +931,7 @@ to = "missing"
         // FDC-005 pins the runbook at start, so the absolute-path probe
         // authors its guard before start in a project of its own instead of
         // rewriting the first project's runbook mid-run.
-        let absolute_root = revalidation_project();
+        let (_absolute_tree, absolute_root) = revalidation_project();
         let absolute_path = format!("{outside:?}");
         fs::write(
             absolute_root.join(".ratmac/ratmac.toml"),
@@ -987,13 +948,10 @@ to = "missing"
         };
         assert!(failures[0].observed().contains("escapes"));
         assert!(!failures[0].observed().contains("SECRET"));
-        let _ = fs::remove_file(outside);
-        let _ = fs::remove_dir_all(root);
-        let _ = fs::remove_dir_all(absolute_root);
     }
     #[test]
     fn test_status_with_active_state_but_missing_class_is_hard_error() {
-        let root = revalidation_project();
+        let (_tree, root) = revalidation_project();
         fs::remove_file(root.join(".ratmac/ratmac.toml")).unwrap();
         fs::create_dir_all(root.join(".ratmac/runs/run-001")).unwrap();
         fs::write(
@@ -1005,14 +963,12 @@ to = "missing"
         // instead of yielding an empty machine that fails later.
         let error = Scheduler::open(&root).expect_err("status must reject a missing class");
         assert!(error.to_string().contains("ratmac.toml"));
-        let _ = fs::remove_dir_all(root);
     }
     #[test]
     fn test_start_with_missing_class_is_actionable_error() {
-        let root = revalidation_project();
+        let (_tree, root) = revalidation_project();
         fs::remove_file(root.join(".ratmac/ratmac.toml")).unwrap();
         let error = Scheduler::open(&root).expect_err("start must reject missing ratmac");
         assert!(error.to_string().to_ascii_lowercase().contains("ratmac"));
-        let _ = fs::remove_dir_all(root);
     }
 }

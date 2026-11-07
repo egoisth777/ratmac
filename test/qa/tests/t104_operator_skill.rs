@@ -50,6 +50,7 @@
 //!   never-touch markers are pinned against `SKILL.md` itself, so empty or
 //!   marker-free content fails before the drive begins.
 
+use ratmac_qa::support::TempTree;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -95,33 +96,20 @@ const LOOP_MARKERS: [(&str, &str); 9] = [
 ];
 
 struct Fixture {
-    base: PathBuf,
+    /// The owned scratch tree; dropping it removes the fixture.
+    _base: TempTree,
     root: PathBuf,
-}
-
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.base);
-    }
 }
 
 impl Fixture {
     /// A throwaway project whose `.ratmac` and `skills` parents already
     /// exist, so both the scaffold and the skill write at a legal path.
     fn new(label: &str) -> Self {
-        let base = std::env::temp_dir().join(format!(
-            "ratmac-t104-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&base);
+        let base = TempTree::new(&format!("t104-{label}")).expect("create fixture tree");
         let root = base.join("project");
         fs::create_dir_all(root.join(".ratmac")).expect("create the Engine root");
         fs::create_dir_all(root.join("skills")).expect("create the skill parent");
-        Fixture { base, root }
+        Fixture { _base: base, root }
     }
 
     fn rtm(&self, args: &[&str]) -> Output {

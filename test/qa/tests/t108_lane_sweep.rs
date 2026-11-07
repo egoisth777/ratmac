@@ -260,28 +260,16 @@ fn real_sweep_report() -> String {
 /// A throwaway lanes root carrying the shipped sweep script, its declared
 /// data, and small crates whose lanes pass or refuse on purpose.
 struct Lanes {
+    _tree: TempTree,
     root: PathBuf,
-}
-
-impl Drop for Lanes {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
-    }
 }
 
 impl Lanes {
     /// `crates` pairs a crate id with whether its single lane passes; a
     /// refusing lane names itself so the report's red detail carries ids.
     fn new(label: &str, roster: &[&str], crates: &[(&str, bool)]) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "ratmac-t108-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&root);
+        let tree = TempTree::new(&format!("t108-{label}")).expect("create the lanes root");
+        let root = tree.path().to_path_buf();
         fs::create_dir_all(root.join("tools")).expect("create fixture tools");
         fs::copy(sweep_source(), root.join("tools/sweep_lanes.py"))
             .expect("install the shipped sweep script");
@@ -319,7 +307,7 @@ impl Lanes {
             fs::write(crate_root.join("src/lib.rs"), lane).expect("write fixture lane");
         }
 
-        Lanes { root }
+        Lanes { _tree: tree, root }
     }
 
     /// Drive the fixture's own installed copy of the shipped script: a
@@ -446,14 +434,7 @@ fn the_sweep_reports_one_verdict_per_crate_and_names_a_missing_crate() {
     // The twin: this repository's lanes root with one rostered crate removed
     // and the build output skipped - the folder no longer holds what the
     // roster declares, and the sweep must say so instead of skipping it.
-    let parent = std::env::temp_dir().join(format!(
-        "ratmac-t108-twin-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("clock after epoch")
-            .as_nanos()
-    ));
+    let parent = TempTree::new("t108-twin").expect("create the twin tree");
     let twin = parent.join("repo");
     copy_lanes_source(
         &root.join("test-hidden"),
@@ -515,7 +496,6 @@ fn the_sweep_reports_one_verdict_per_crate_and_names_a_missing_crate() {
         let twin_ids: Vec<&str> = twin_rows.iter().map(|(id, _, _)| id.as_str()).collect();
         assert_eq!(twin_ids, roster.as_slice(), "the twin rows keep id order");
     }
-    let _ = fs::remove_dir_all(&parent);
 }
 
 // --- LNRV-002 -----------------------------------------------------------------
@@ -802,14 +782,8 @@ fn the_close_guard_refuses_only_a_red_unexpired_verdict() {
         "the tracked runbook carries the wired sweep guard exactly once: {runbook}"
     );
 
-    let apply_root = std::env::temp_dir().join(format!(
-        "ratmac-t108-apply-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("clock after epoch")
-            .as_nanos()
-    ));
+    let apply_tree = TempTree::new("t108-apply").expect("create the apply tree");
+    let apply_root = apply_tree.path().to_path_buf();
     fs::create_dir_all(apply_root.join(".ratmac")).expect("create apply fixture");
     fs::write(apply_root.join(".ratmac/ratmac.toml"), &runbook).expect("copy the runbook");
     // Git cannot open Windows verbatim (`\\?\`) paths from the canonicalized
@@ -1020,8 +994,6 @@ fn the_close_guard_refuses_only_a_red_unexpired_verdict() {
         doctored_step.contains("step refused") && doctored_step.contains("the summary says"),
         "the close refuses on a doctored report: {doctored_step}"
     );
-
-    let _ = fs::remove_dir_all(&apply_root);
 }
 
 // --- LNRV-005 -----------------------------------------------------------------

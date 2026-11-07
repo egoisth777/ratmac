@@ -1,10 +1,10 @@
 //! PT-037-01: complete RAT-008 acceptance proof for the ratmac/rtm cutover.
 
 use ratmac_qa::rebrand;
+use ratmac_qa::support::TempTree;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 const LEGACY_PRODUCT: &str = concat!("arca", "-scheduler");
 const LEGACY_COMMAND: &str = concat!("sc", "hd");
@@ -28,12 +28,8 @@ fn run(root: &Path, args: &[&str]) -> Output {
         .expect("rtm executable must run")
 }
 
-fn temporary_project(root: &Path) -> PathBuf {
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system clock is after the Unix epoch")
-        .as_nanos();
-    let project = std::env::temp_dir().join(format!("ratmac-t037-{}-{stamp}", std::process::id()));
+fn temporary_project(root: &Path) -> TempTree {
+    let project = TempTree::new("t037").expect("create isolated project");
     fs::create_dir_all(project.join(".ratmac")).expect("create isolated .ratmac directory");
     fs::copy(
         root.join("test/qa/fixtures/rebrand-smoke/.ratmac/ratmac.toml"),
@@ -115,7 +111,8 @@ fn full_rebrand_acceptance() {
     active_reference_audit(&rebrand::repo_root());
     metadata_and_paths(&root);
 
-    let project = temporary_project(&root);
+    let tree = temporary_project(&root);
+    let project = tree.path().to_path_buf();
     let engine = project.join(".ratmac");
     let help = run(&project, &["--help"]);
     assert!(help.status.success(), "rtm --help failed: {help:?}");
@@ -194,5 +191,4 @@ fn full_rebrand_acceptance() {
     let invalid = run(&project, &["unknown"]);
     assert!(!invalid.status.success());
     assert!(String::from_utf8_lossy(&invalid.stderr).starts_with("rtm: "));
-    let _ = fs::remove_dir_all(project);
 }

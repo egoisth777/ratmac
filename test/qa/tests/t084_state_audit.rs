@@ -10,35 +10,26 @@
 use ratmac_qa::rebrand::{
     self, Rule, ALLOWLIST, LEGACY_COMMAND, LEGACY_PRODUCT, PRE_CUTOVER_POSITION,
 };
+use ratmac_qa::support::TempTree;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 /// A throwaway copy of the tracked tree, so the negative probes never touch
 /// the repository they are auditing.
 struct Copy {
-    base: PathBuf,
+    /// The owned scratch tree; dropping it removes the copy.
+    _base: TempTree,
     root: PathBuf,
-}
-
-impl Drop for Copy {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.base);
-    }
 }
 
 impl Copy {
     /// Copy every audited file, preserving relative paths.
     fn of(source: &Path, label: &str) -> Self {
-        let base = std::env::temp_dir().join(format!(
-            "ratmac-t084-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&base);
-        let root = base.join("tree");
+        let base = TempTree::new(&format!("t084-{label}")).expect("create copy tree");
+        // The copy sits at the owned tree itself, not a `tree` folder below
+        // it: the deepest tracked path leaves no room under Windows' 260-char
+        // path limit for the owned tree's longer name plus that extra level.
+        let root = base.path().to_path_buf();
         for entry in ratmac_qa::audit_files::select(source, &[])
             .expect("select copy inputs")
             .entries
@@ -55,7 +46,7 @@ impl Copy {
             fs::write(&destination, &entry.bytes)
                 .expect("copy selected bytes without following links");
         }
-        let copy = Copy { base, root };
+        let copy = Copy { _base: base, root };
         copy.git(&["init"]);
         copy.stage();
         copy

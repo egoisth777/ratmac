@@ -15,6 +15,8 @@ use std::sync::mpsc::{self, Receiver};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use ratmac_qa::support::TempTree;
+
 const MARKER_ARRIVAL_TIMEOUT: Duration = Duration::from_secs(5);
 const BARRIER_RELEASE_TIMEOUT: Duration = Duration::from_secs(8);
 const CHILD_COMPLETION_TIMEOUT: Duration = Duration::from_secs(5);
@@ -104,26 +106,22 @@ impl Drop for FileBarrier {
 }
 
 struct Fixture {
-    sandbox: PathBuf,
+    _sandbox: TempTree,
     root: PathBuf,
 }
 
 impl Fixture {
     fn new(label: &str) -> Self {
-        let sandbox = std::env::temp_dir().join(format!(
-            "ratmac-t073-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock must be after the Unix epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&sandbox);
+        let sandbox =
+            TempTree::new(&format!("t073-{label}")).expect("create ENSV-006 fixture sandbox");
         let root = sandbox.join("checkout");
         fs::create_dir_all(root.join(".ratmac")).expect("create ENSV-006 fixture Engine root");
         fs::write(root.join(".ratmac/ratmac.toml"), barrier_runbook())
             .expect("write ENSV-006 fixture Machine Class");
-        Self { sandbox, root }
+        Self {
+            _sandbox: sandbox,
+            root,
+        }
     }
 
     fn rtm(&self, args: &[&str]) -> Output {
@@ -190,12 +188,6 @@ impl Fixture {
             .stderr(Stdio::piped())
             .spawn()
             .expect("spawn live root-lock holder for ENSV-006")
-    }
-}
-
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.sandbox);
     }
 }
 

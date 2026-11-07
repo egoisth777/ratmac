@@ -8,32 +8,22 @@
 //! moves nothing else.
 
 use ratmac::contract::{work_items, WorkItemState};
+use ratmac_qa::support::TempTree;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 /// A tree with a declared ticket root: two items that took the archive move,
 /// one item still being worked, and one that is proven but not yet archived.
 struct Tree {
+    /// The owned scratch tree; dropping it removes the fixture.
+    _tree: TempTree,
     root: PathBuf,
-}
-
-impl Drop for Tree {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
-    }
 }
 
 impl Tree {
     fn create(label: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "ratmac-t091-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&root);
+        let owned = TempTree::new(&format!("t091-{label}")).expect("create fixture tree");
+        let root = owned.path().to_path_buf();
         for dir in [
             ".arca/goal",
             ".arca/residual",
@@ -42,7 +32,7 @@ impl Tree {
         ] {
             fs::create_dir_all(root.join(dir)).expect("create fixture tree");
         }
-        let tree = Tree { root };
+        let tree = Tree { _tree: owned, root };
         tree.write_runbook();
         tree
     }

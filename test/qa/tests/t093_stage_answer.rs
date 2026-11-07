@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use std::process::{Command, Output};
 
 use ratmac::machine::MachineClass;
+use ratmac_qa::support::TempTree;
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -38,26 +39,15 @@ const FALLBACK_LABEL: &str = "no-live-Run fallback";
 /// A temporary repository carrying the shipped runbook, enough for a Run of
 /// the cycle to start and be addressed.
 struct Sprint {
+    /// The owned scratch tree; dropping it removes the fixture.
+    _tree: TempTree,
     root: PathBuf,
-}
-
-impl Drop for Sprint {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
-    }
 }
 
 impl Sprint {
     fn create(label: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "ratmac-t093-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&root);
+        let tree = TempTree::new(&format!("t093-{label}")).expect("create fixture tree");
+        let root = tree.path().to_path_buf();
         for dir in [
             ".arca/goal",
             ".arca/issue/i-100-demo",
@@ -68,7 +58,7 @@ impl Sprint {
         ] {
             fs::create_dir_all(root.join(dir)).expect("create fixture tree");
         }
-        let sprint = Self { root };
+        let sprint = Self { _tree: tree, root };
         sprint.write(".ratmac/ratmac.toml", &shipped_runbook());
         sprint.write("src/lib.rs", "pub fn work() {}\n");
         sprint.write(

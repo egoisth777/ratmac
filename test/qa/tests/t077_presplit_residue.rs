@@ -12,6 +12,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use ratmac_qa::support::TempTree;
+
 const TICKET: &str = "t-900";
 const BLOCKER: &str = ".arca/issue/i-900-blocker";
 const LIFECYCLE_RUNBOOK: &str = r#"
@@ -93,23 +95,16 @@ const ISSUE_FILES: [&str; 5] = [
 type TreeSnapshot = BTreeMap<String, Option<Vec<u8>>>;
 
 struct Fixture {
+    _tree: TempTree,
     root: PathBuf,
 }
 
 impl Fixture {
     fn new(label: &str, runbook: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "ratmac-t077-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock is after the Unix epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(&root).expect("create temporary fixture root");
+        let tree = TempTree::new(&format!("t077-{label}")).expect("create temporary fixture root");
+        let root = tree.path().to_path_buf();
 
-        let fixture = Self { root };
+        let fixture = Self { _tree: tree, root };
         fixture.write("src/lib.rs", "pub fn fixture_marker() {}\n");
         fixture.write(".ratmac/ratmac.toml", runbook);
         fixture
@@ -205,14 +200,9 @@ impl Fixture {
     }
 }
 
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
-    }
-}
-
 struct LinkedFixture {
     primary: Fixture,
+    _linked_tree: TempTree,
     linked: PathBuf,
 }
 
@@ -229,14 +219,13 @@ impl LinkedFixture {
         git_success(&primary.root, &["add", "--all"]);
         git_success(&primary.root, &["commit", "-m", "fixture base"]);
 
-        let linked = primary.root.with_file_name(format!(
-            "{}-linked",
-            primary
-                .root
-                .file_name()
-                .expect("fixture root has a file name")
-                .to_string_lossy()
-        ));
+        // Git adopts an existing empty directory as the new worktree, so the
+        // linked checkout is the owned tree itself. Git names its admin folder
+        // after this one, so a short fixed label keeps both under the Windows
+        // path limit; the tree's own name already makes it unique.
+        let linked_tree =
+            TempTree::new("t077-linked").expect("create linked fixture worktree root");
+        let linked = linked_tree.path().to_path_buf();
         let output = Command::new("git")
             .args(["worktree", "add", "-b", "t077-linked"])
             .arg(&linked)
@@ -248,7 +237,11 @@ impl LinkedFixture {
             "create linked fixture worktree: {}",
             combined(&output)
         );
-        Self { primary, linked }
+        Self {
+            primary,
+            _linked_tree: linked_tree,
+            linked,
+        }
     }
 
     fn rtm_at(&self, root: &Path, args: &[&str]) -> Output {
@@ -296,7 +289,6 @@ impl Drop for LinkedFixture {
             .arg(&self.linked)
             .current_dir(&self.primary.root)
             .output();
-        let _ = fs::remove_dir_all(&self.linked);
     }
 }
 

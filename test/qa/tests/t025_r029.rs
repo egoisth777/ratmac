@@ -2,6 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use ratmac::Scheduler;
+use ratmac_qa::support::TempTree;
 
 fn fixture_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../fixtures/r029-state-scope")
@@ -24,10 +25,8 @@ fn copy_fixture(project: &Path) {
 
 #[test]
 fn state_prompt_excludes_other_states_and_graph() {
-    let project = std::env::temp_dir().join(format!("ratmac-t025-r029-{}", std::process::id()));
-    if project.exists() {
-        fs::remove_dir_all(&project).expect("stale state-scope directory should be removable");
-    }
+    let tree = TempTree::new("t025-r029").expect("temporary project should be creatable");
+    let project = tree.path().to_path_buf();
     copy_fixture(&project);
 
     let scheduler =
@@ -59,6 +58,4 @@ fn state_prompt_excludes_other_states_and_graph() {
             "prompt must not disclose graph marker {graph_marker}"
         );
     }
-
-    fs::remove_dir_all(project).expect("state-scope temporary project should be cleaned up");
 }

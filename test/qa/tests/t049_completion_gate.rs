@@ -14,18 +14,14 @@
 use ratmac::completion::{declared_checks, gate_completion, CompletionDefect};
 use ratmac::declaration::{CompletionDeclaration, DeclarationFormat};
 use ratmac::receipt::sha256_text;
+use ratmac_qa::support::TempTree;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 struct Fixture {
+    _tree: TempTree,
     root: PathBuf,
-}
-
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
-    }
 }
 
 const TICKET: &str = "t-900";
@@ -47,20 +43,13 @@ fn mapping() -> CompletionDeclaration {
 
 impl Fixture {
     fn new(label: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "ratmac-t049-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&root);
+        let tree = TempTree::new(&format!("t049-{label}")).expect("create fixture tree");
+        let root = tree.path().to_path_buf();
         for dir in [".arca/ticket", ".ratmac/evidence/run-001/completion", "src"] {
             fs::create_dir_all(root.join(dir)).expect("create fixture tree");
         }
         fs::write(root.join("src/lib.rs"), "pub fn work() {}\n").expect("write source");
-        let fixture = Fixture { root };
+        let fixture = Fixture { _tree: tree, root };
         fixture.write_ticket(&["cargo --version"]);
         fixture
     }

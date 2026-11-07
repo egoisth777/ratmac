@@ -8,6 +8,8 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Output};
 
+use ratmac_qa::support::TempTree;
+
 /// A composed machine: one declared child class, one spawning State, one
 /// join-guarded State. The declarations are dormant this increment.
 const COMPOSED_RUNBOOK: &str = r#"
@@ -63,27 +65,21 @@ blocked-route = true
 "#;
 
 struct Fixture {
+    _tree: TempTree,
     root: PathBuf,
 }
 
 impl Fixture {
     fn create(label: &str, runbook: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "ratmac-t064-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&root);
+        let tree = TempTree::new(&format!("t064-{label}")).expect("create fixture tree");
+        let root = tree.path().to_path_buf();
         fs::create_dir_all(root.join(".arca/goal")).expect("create fixture goal tree");
         fs::create_dir_all(root.join(".ratmac")).expect("create fixture Engine tree");
         fs::create_dir_all(root.join("src")).expect("create fixture source tree");
         fs::write(root.join(".arca/goal/spec.md"), "# Fixture goal\n").expect("write fixture goal");
         fs::write(root.join(".ratmac/ratmac.toml"), runbook).expect("write fixture machine class");
         fs::write(root.join("src/lib.rs"), "pub fn fixture() {}\n").expect("write fixture source");
-        Self { root }
+        Self { _tree: tree, root }
     }
 
     fn rtm(&self, args: &[&str]) -> Output {
@@ -98,12 +94,6 @@ impl Fixture {
     fn write_runbook(&self, runbook: &str) {
         fs::write(self.root.join(".ratmac/ratmac.toml"), runbook)
             .expect("rewrite fixture machine class");
-    }
-}
-
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
     }
 }
 

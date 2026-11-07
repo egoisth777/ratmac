@@ -16,6 +16,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use ratmac_qa::support::TempTree;
+
 const RUNBOOK: &str = "[states.intake]\nprompt = \"Integrate the issues.\"\n\n\
     [states.build]\nprompt = \"Build the ticket.\"\n\n\
     [[transitions]]\nfrom = \"intake\"\nto = \"build\"\n";
@@ -24,18 +26,8 @@ fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-fn fresh_sandbox(label: &str) -> PathBuf {
-    let sandbox = std::env::temp_dir().join(format!(
-        "ratmac-t071-{label}-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("clock must be after the Unix epoch")
-            .as_nanos()
-    ));
-    let _ = fs::remove_dir_all(&sandbox);
-    fs::create_dir_all(&sandbox).expect("create temporary fixture sandbox");
-    sandbox
+fn fresh_sandbox(label: &str) -> TempTree {
+    TempTree::new(&format!("t071-{label}")).expect("create temporary fixture sandbox")
 }
 
 fn write_machine_class(root: &Path) {
@@ -50,14 +42,8 @@ fn seed_human_arca(root: &Path) {
 }
 
 struct Fixture {
-    sandbox: PathBuf,
+    sandbox: TempTree,
     root: PathBuf,
-}
-
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.sandbox);
-    }
 }
 
 impl Fixture {
@@ -257,7 +243,7 @@ fn assert_not_ignored_by_git(root: &Path, path: &str) {
 }
 
 struct GitFixture {
-    sandbox: PathBuf,
+    sandbox: TempTree,
     primary: PathBuf,
     linked: Option<PathBuf>,
 }
@@ -271,7 +257,6 @@ impl Drop for GitFixture {
                 .current_dir(&self.primary)
                 .output();
         }
-        let _ = fs::remove_dir_all(&self.sandbox);
     }
 }
 
@@ -520,7 +505,7 @@ fn bare_repository_worktrees_share_a_non_bare_engine_root() {
     let first_text = first.to_string_lossy().into_owned();
     let second_text = second.to_string_lossy().into_owned();
 
-    git_success(&fixture.sandbox, &["init", "--bare", &bare_text]);
+    git_success(fixture.sandbox.path(), &["init", "--bare", &bare_text]);
     git_success(&fixture.root, &["init"]);
     git_success(&fixture.root, &["config", "core.autocrlf", "false"]);
     git_success(

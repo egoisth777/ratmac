@@ -12,6 +12,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use ratmac_qa::support::TempTree;
+
 /// One top-level parent with a declared reviewer child.  The child has a real
 /// transition to its terminal State so the linked worktree can step it before
 /// the primary checkout evaluates the parent's `join` guard.
@@ -54,22 +56,15 @@ to = "done"
 "#;
 
 struct GitFixture {
-    sandbox: PathBuf,
+    sandbox: TempTree,
     primary: PathBuf,
     linked: Option<PathBuf>,
 }
 
 impl GitFixture {
     fn new(label: &str) -> Self {
-        let sandbox = std::env::temp_dir().join(format!(
-            "ratmac-t072-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock must be after the Unix epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&sandbox);
+        let sandbox =
+            TempTree::new(&format!("t072-{label}")).expect("create temporary fixture sandbox");
 
         let primary = sandbox.join("primary");
         fs::create_dir_all(primary.join(".ratmac")).expect("create primary Engine tree");
@@ -117,7 +112,6 @@ impl Drop for GitFixture {
                 .current_dir(&self.primary)
                 .output();
         }
-        let _ = fs::remove_dir_all(&self.sandbox);
     }
 }
 

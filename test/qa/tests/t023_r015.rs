@@ -1,14 +1,14 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Barrier};
 use std::thread;
 
 use ratmac::{Scheduler, StepOutcome, StepRequest};
+use ratmac_qa::support::TempTree;
 
-fn fixture_root() -> PathBuf {
+fn fixture_root() -> TempTree {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../fixtures/r015-concurrent-run");
-    let root = std::env::temp_dir().join(format!("ratmac-r015-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&root);
+    let root = TempTree::new("r015").expect("create isolated project root");
     fs::create_dir_all(root.join(".ratmac")).expect("create isolated project root");
     for name in ["ratmac.toml", "log.md"] {
         fs::copy(
@@ -27,7 +27,8 @@ fn fixture_root() -> PathBuf {
 
 #[test]
 fn concurrent_steps_are_arbitrated_by_lockfile() {
-    let root = fixture_root();
+    let tree = fixture_root();
+    let root = tree.path().to_path_buf();
     // ENS-005: same-Run motion serializes on its addressed lock, not root.
     let engine_root = root.join(".ratmac");
     let lock_path = ratmac::lock::run_path(&engine_root, "run-001");
@@ -85,5 +86,4 @@ fn concurrent_steps_are_arbitrated_by_lockfile() {
     );
     let log = fs::read_to_string(root.join(".ratmac/log.md")).expect("log remains readable");
     assert_eq!(log.lines().filter(|line| !line.is_empty()).count(), 1);
-    let _ = fs::remove_dir_all(root);
 }

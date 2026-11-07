@@ -20,6 +20,7 @@
 
 use ratmac::completion::{check_slug, tree_digest};
 use ratmac::receipt::sha256_text;
+use ratmac_qa::support::TempTree;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -39,33 +40,22 @@ const DATA_CHECKS: &[(&str, &str)] = &[
 ];
 
 struct Fixture {
+    /// The owned scratch tree; dropping it removes the fixture.
+    _tree: TempTree,
     root: PathBuf,
-}
-
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
-    }
 }
 
 impl Fixture {
     /// A throwaway project root outside this repository, carrying the
     /// directories one case needs plus the source tree receipts describe.
     fn create(label: &str, dirs: &[&str]) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "ratmac-t112-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&root);
+        let tree = TempTree::new(&format!("t112-{label}")).expect("create fixture tree");
+        let root = tree.path().to_path_buf();
         for dir in dirs {
             fs::create_dir_all(root.join(dir)).expect("create fixture tree");
         }
         fs::write(root.join("src/lib.rs"), "pub fn fixture() {}\n").expect("write fixture source");
-        Self { root }
+        Self { _tree: tree, root }
     }
 
     fn write_runbook(&self, runbook: &str) {

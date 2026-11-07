@@ -16,6 +16,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use ratmac_qa::support::TempTree;
+
 /// The t-064 composed machine: one declared child class, one spawning State
 /// (`delegate`), one join-guarded out-edge. `plan` is the initial State.
 const COMPOSED_RUNBOOK: &str = r#"
@@ -50,20 +52,14 @@ to = "done"
 "#;
 
 struct Fixture {
+    _tree: TempTree,
     root: PathBuf,
 }
 
 impl Fixture {
     fn create(label: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "ratmac-t065-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&root);
+        let tree = TempTree::new(&format!("t065-{label}")).expect("create fixture tree");
+        let root = tree.path().to_path_buf();
         fs::create_dir_all(root.join(".arca/goal")).expect("create fixture goal tree");
         fs::create_dir_all(root.join(".ratmac")).expect("create fixture Engine tree");
         fs::create_dir_all(root.join("src")).expect("create fixture source tree");
@@ -71,7 +67,7 @@ impl Fixture {
         fs::write(root.join(".ratmac/ratmac.toml"), COMPOSED_RUNBOOK)
             .expect("write fixture machine class");
         fs::write(root.join("src/lib.rs"), "pub fn fixture() {}\n").expect("write fixture source");
-        Self { root }
+        Self { _tree: tree, root }
     }
 
     fn rtm(&self, args: &[&str]) -> Output {
@@ -127,12 +123,6 @@ impl Fixture {
 
     fn record_path(&self, id: &str) -> PathBuf {
         self.runs_dir().join(id).join("run.toml")
-    }
-}
-
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
     }
 }
 

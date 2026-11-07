@@ -18,12 +18,15 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Output};
 
+use ratmac_qa::support::TempTree;
+
 fn stale_lock_token(guard: &str) -> String {
     // This PID is deliberately outside the practical process-id range on the
     // supported test hosts, so the token models an owner that has exited.
     format!("ratmac-lock-v1\npid=2000000000\nguard={guard}\nnonce=0\n")
 }
 struct Fixture {
+    _tree: TempTree,
     root: PathBuf,
     /// FDC-004: the started run's id, read off the plural roster.
     run_id: String,
@@ -31,8 +34,9 @@ struct Fixture {
 
 impl Drop for Fixture {
     fn drop(&mut self) {
+        // Read-only Engine files would otherwise stop the owned tree's
+        // removal on hosts that refuse to delete them.
         restore_writable(&self.root);
-        let _ = fs::remove_dir_all(&self.root);
     }
 }
 
@@ -62,15 +66,8 @@ impl Fixture {
     /// A started Run sitting in `build`: an ordinary active Run that a human
     /// may decide is broken.
     fn new(label: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "ratmac-t051-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&root);
+        let tree = TempTree::new(&format!("t051-{label}")).expect("create fixture tree");
+        let root = tree.path().to_path_buf();
         fs::create_dir_all(root.join(".arca")).expect("create workflow tree");
         fs::create_dir_all(root.join(".ratmac")).expect("create Engine tree");
         fs::create_dir_all(root.join("src")).expect("create source tree");
@@ -86,6 +83,7 @@ impl Fixture {
         .expect("write machine class");
 
         let mut fixture = Fixture {
+            _tree: tree,
             root,
             run_id: String::new(),
         };

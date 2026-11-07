@@ -24,6 +24,7 @@ use std::path::{Path, PathBuf};
 
 use ratmac::machine::{GuardKind, MachineClass};
 use ratmac::{cli, Scheduler, StepRequest};
+use ratmac_qa::support::TempTree;
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -31,25 +32,16 @@ fn repo_root() -> PathBuf {
 
 /// A throwaway project root holding a runbook and nothing else.
 struct Project {
+    _tree: TempTree,
     root: PathBuf,
-}
-
-impl Drop for Project {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
-    }
 }
 
 impl Project {
     fn new(label: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "ratmac-t056-{label}-{}-{:?}",
-            std::process::id(),
-            std::thread::current().id()
-        ));
-        let _ = fs::remove_dir_all(&root);
+        let tree = TempTree::new(&format!("t056-{label}")).expect("create project tree");
+        let root = tree.path().to_path_buf();
         fs::create_dir_all(root.join(".ratmac")).expect("create project");
-        Self { root }
+        Self { _tree: tree, root }
     }
 
     fn with_runbook(label: &str, source: &str) -> Self {

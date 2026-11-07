@@ -9,6 +9,7 @@
 //! spawned child is killed and reaped on every exit path.
 
 use ratmac_qa::support;
+use ratmac_qa::support::TempTree;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -87,20 +88,15 @@ const OP_LOG_VAR: &str = "RATMAC_TEST_OPERATION_LOG";
 const PAUSE_MILLIS: &str = "120000";
 
 struct Fixture {
+    /// The owned scratch tree; dropping it removes the fixture.
+    _tree: TempTree,
     root: PathBuf,
 }
 
 impl Fixture {
     fn create(label: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "ratmac-t122-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&root);
+        let tree = TempTree::new(&format!("t122-{label}")).expect("create fixture tree");
+        let root = tree.path().to_path_buf();
         fs::create_dir_all(root.join(".arca/goal")).expect("create fixture goal tree");
         fs::create_dir_all(root.join(".ratmac")).expect("create fixture Engine tree");
         fs::create_dir_all(root.join("src")).expect("create fixture source tree");
@@ -114,7 +110,7 @@ impl Fixture {
             "# i-777\n\n```yaml\nstatus: \"pending\"\n```\n",
         )
         .expect("write fixture blocker");
-        Self { root }
+        Self { _tree: tree, root }
     }
 
     fn rtm(&self, args: &[&str]) -> Output {
@@ -261,12 +257,6 @@ impl Fixture {
     }
 }
 
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
-    }
-}
-
 fn combined(output: &Output) -> String {
     format!(
         "{}{}",
@@ -362,20 +352,13 @@ fn wait_for_file(path: &Path, seconds: u64, what: &str) {
     }
 }
 
-/// An owned marker/release pair for one paused invocation.
-fn marker_pair(label: &str) -> (PathBuf, PathBuf) {
-    let base = std::env::temp_dir().join(format!(
-        "ratmac-t122-{label}-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("clock after epoch")
-            .as_nanos()
-    ));
-    (
-        base.with_extension("marker"),
-        base.with_extension("release"),
-    )
+/// An owned marker/release pair for one paused invocation, inside a scratch
+/// tree the caller keeps alive for as long as the pair is in use.
+fn marker_pair(label: &str) -> (TempTree, PathBuf, PathBuf) {
+    let tree = TempTree::new(&format!("t122-{label}")).expect("create marker tree");
+    let marker = tree.join("pair.marker");
+    let release = tree.join("pair.release");
+    (tree, marker, release)
 }
 
 /// A live parent in `delegate` with one ledger-recorded child: the parent's
@@ -598,7 +581,7 @@ fn wrsv_001_01() {
     // B1: the entry is durable and the predecessor still live.
     let fixture = Fixture::create("01-b1");
     let (parent, predecessor) = recorded_child(&fixture, "t-102");
-    let (marker, release) = marker_pair("01-b1");
+    let (_pair, marker, release) = marker_pair("01-b1");
     let ledger_before = fixture.ledger_text(&parent);
     let mut paused = fixture.spawn_paused_respawn("after-record", &marker, &release, &predecessor);
     wait_for_file(
@@ -877,7 +860,7 @@ fn wrsv_001_01() {
     // B2: the predecessor retired and the successor not yet admitted.
     let b2 = Fixture::create("01-b2");
     let (b2_parent, b2_predecessor) = recorded_child(&b2, "t-102");
-    let (b2_marker, b2_release) = marker_pair("01-b2");
+    let (_b2_pair, b2_marker, b2_release) = marker_pair("01-b2");
     let mut b2_paused =
         b2.spawn_paused_respawn("after-retire", &b2_marker, &b2_release, &b2_predecessor);
     wait_for_file(
@@ -1264,7 +1247,7 @@ fn wrsv_001_03() {
     // the repeated command finishes that successor, never a duplicate.
     let killed = Fixture::create("03-kill-b1");
     let (killed_parent, killed_child) = recorded_child(&killed, "t-102");
-    let (marker, release) = marker_pair("03-kill-b1");
+    let (_pair, marker, release) = marker_pair("03-kill-b1");
     let mut paused = killed.spawn_paused_respawn("after-record", &marker, &release, &killed_child);
     wait_for_file(
         &marker,
@@ -1309,7 +1292,7 @@ fn wrsv_001_03() {
     // today, and the repeat then admits the recorded successor.
     let human = Fixture::create("03-human");
     let (human_parent, human_child) = recorded_child(&human, "t-102");
-    let (human_marker, human_release) = marker_pair("03-human");
+    let (_human_pair, human_marker, human_release) = marker_pair("03-human");
     let mut human_paused =
         human.spawn_paused_respawn("after-record", &human_marker, &human_release, &human_child);
     wait_for_file(
@@ -1354,7 +1337,7 @@ fn wrsv_001_03() {
     // the decision; the loser refuses wait-expired and writes nothing.
     let race = Fixture::create("03-race");
     let (race_parent, race_child) = recorded_child(&race, "t-102");
-    let (race_marker, race_release) = marker_pair("03-race");
+    let (_race_pair, race_marker, race_release) = marker_pair("03-race");
     let mut winner =
         race.spawn_paused_respawn("after-record", &race_marker, &race_release, &race_child);
     wait_for_file(
@@ -1433,7 +1416,7 @@ fn wrsv_001_03() {
     // already-terminal refusal, writing nothing beyond the winner's result.
     let early = Fixture::create("03-early-release");
     let (early_parent, early_child) = recorded_child(&early, "t-102");
-    let (early_marker, early_release) = marker_pair("03-early-release");
+    let (_early_pair, early_marker, early_release) = marker_pair("03-early-release");
     let mut early_winner =
         early.spawn_paused_respawn("after-record", &early_marker, &early_release, &early_child);
     wait_for_file(

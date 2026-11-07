@@ -12,6 +12,8 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Output};
 
+use ratmac_qa::support::TempTree;
+
 /// A runbook that exercises every renamed table path at once: a top-level
 /// `states` table, a spawn declaration under a State, and a child class whose
 /// own machine lives under `[classes.<name>.states]`.
@@ -48,31 +50,19 @@ required = true
 "#;
 
 struct Fixture {
+    _tree: TempTree,
     root: PathBuf,
-}
-
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
-    }
 }
 
 impl Fixture {
     fn new(label: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "ratmac-t080-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&root);
+        let tree = TempTree::new(&format!("t080-{label}")).expect("create fixture root");
+        let root = tree.path().to_path_buf();
         for dir in [".arca/ticket", ".ratmac"] {
             fs::create_dir_all(root.join(dir)).expect("create fixture tree");
         }
         fs::write(root.join(".ratmac/ratmac.toml"), RUNBOOK).expect("write machine class");
-        Fixture { root }
+        Fixture { _tree: tree, root }
     }
 
     fn rtm(&self, args: &[&str]) -> Output {

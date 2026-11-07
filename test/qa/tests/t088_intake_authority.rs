@@ -9,36 +9,26 @@
 //! the ask and both places that were searched.
 
 use ratmac::contract::gate_intake;
+use ratmac_qa::support::TempTree;
 use std::fs;
 use std::path::PathBuf;
 
 struct Tree {
+    /// The owned scratch tree; dropping it removes the fixture.
+    _tree: TempTree,
     root: PathBuf,
-}
-
-impl Drop for Tree {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
-    }
 }
 
 impl Tree {
     /// A tree whose goal carries one requirement row and whose working
     /// authority carries one requirement-ID heading.
     fn new(label: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "ratmac-t088-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&root);
+        let owned = TempTree::new(&format!("t088-{label}")).expect("create fixture tree");
+        let root = owned.path().to_path_buf();
         for dir in [".arca/goal", ".arca/authority", ".arca/issue", ".ratmac"] {
             fs::create_dir_all(root.join(dir)).expect("create fixture tree");
         }
-        let tree = Tree { root };
+        let tree = Tree { _tree: owned, root };
         tree.write_goal();
         tree.write_authority();
         tree.write_runbook();

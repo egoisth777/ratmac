@@ -1,38 +1,23 @@
 use ratmac::cli;
+use ratmac_qa::support::TempTree;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 struct Project {
+    _tree: TempTree,
     root: PathBuf,
 }
 
-impl Drop for Project {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
-    }
-}
-
 fn setup_project() -> Project {
-    // A process-wide counter keeps parallel tests apart even when the clock
-    // hands two threads the same nanosecond stamp.
-    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let unique = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system clock is after the Unix epoch")
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!(
-        "ratmac-t029-{}-{unique}-{stamp}",
-        std::process::id()
-    ));
+    let tree = TempTree::new("t029").expect("create isolated help project");
+    let root = tree.path().to_path_buf();
     let engine = root.join(".ratmac");
     fs::create_dir_all(&engine).expect("create isolated help project");
     let fixture =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../fixtures/r007-start-policy/ratmac.toml");
     fs::copy(fixture, engine.join("ratmac.toml")).expect("copy start-policy fixture");
-    Project { root }
+    Project { _tree: tree, root }
 }
 
 fn run_rtm(project: &Project, args: &[&str]) -> Output {

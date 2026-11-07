@@ -1,20 +1,16 @@
 use std::error::Error;
 use std::fs;
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use ratmac::Scheduler;
+use ratmac_qa::support::TempTree;
 
 fn fixture_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../fixtures/r012-toml-comments")
 }
 
-fn copy_fixture_to_temp() -> PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock is after the Unix epoch")
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!("ratmac-t027-{nonce}"));
+fn copy_fixture_to_temp() -> TempTree {
+    let root = TempTree::new("t027").expect("create isolated project");
     let engine = root.join(".ratmac");
     fs::create_dir_all(&engine).expect("create isolated .ratmac directory");
     for file in ["ratmac.toml", "log.md"] {
@@ -34,7 +30,8 @@ fn copy_fixture_to_temp() -> PathBuf {
 
 #[test]
 fn ratmac_comments_are_absent_from_state_prompt() -> Result<(), Box<dyn Error>> {
-    let root = copy_fixture_to_temp();
+    let tree = copy_fixture_to_temp();
+    let root = tree.path().to_path_buf();
     let scheduler = Scheduler::open_run(&root, "run-001")?;
     let status = scheduler.status()?;
     let prompt = status.state_prompt();
@@ -63,7 +60,5 @@ fn ratmac_comments_are_absent_from_state_prompt() -> Result<(), Box<dyn Error>> 
         );
     }
     assert!(!rendered.contains("Review the artifact."));
-
-    fs::remove_dir_all(root)?;
     Ok(())
 }

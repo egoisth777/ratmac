@@ -37,6 +37,22 @@ impl TempTree {
     /// The directory is made with `create_dir`, never `create_dir_all`, so an
     /// existing path is never adopted: a collision retries with a new name.
     pub fn new(label: &str) -> io::Result<Self> {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_nanos())
+            .unwrap_or_default();
+        Self::with_stamp(label, stamp)
+    }
+
+    /// Create a fresh, exclusively owned directory as [`TempTree::new`] does,
+    /// with `stamp` standing in for the clock in every name this request
+    /// tries (SVE-004), so a check can force two requests into one tick.
+    ///
+    /// Every name tried is `ratmac-<label>-<process id>-<stamp>-<counter>`
+    /// under the system temporary directory, the counter process-wide and
+    /// taken anew on every try, so two requests in one tick never share a
+    /// name and a taken name moves on instead of being adopted or emptied.
+    pub fn with_stamp(label: &str, stamp: u128) -> io::Result<Self> {
         let base = std::env::temp_dir();
         let label: String = label
             .chars()
@@ -49,10 +65,6 @@ impl TempTree {
             })
             .collect();
         loop {
-            let stamp = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|elapsed| elapsed.as_nanos())
-                .unwrap_or_default();
             let path = base.join(format!(
                 "ratmac-{label}-{}-{stamp}-{}",
                 std::process::id(),

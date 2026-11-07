@@ -1297,23 +1297,18 @@ impl Pair {
         runbook: &str,
         extra: &[(&str, &str)],
     ) -> Self {
-        let stamp = format!(
-            "{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        );
+        let tree = |side: &str| {
+            crate::support::TempTree::new(&format!("{label}-{side}"))
+                .unwrap_or_else(|error| panic!("create the {side} project folder: {error}"))
+                // Kept after the pair: the runs' records inside the projects
+                // are read after the test process exits (test-hidden/t-140).
+                .persist()
+        };
         // Both trees end in the same directory name on purpose: the name of
         // the project a caller is in shows up in reports, and a difference
         // there would read as a behavior difference.
-        let freeze_root = std::env::temp_dir()
-            .join(format!("ratmac-{label}-freeze-{stamp}"))
-            .join("project");
-        let today_root = std::env::temp_dir()
-            .join(format!("ratmac-{label}-today-{stamp}"))
-            .join("project");
+        let freeze_root = tree("freeze").join("project");
+        let today_root = tree("today").join("project");
         for (root, today) in [(&freeze_root, false), (&today_root, true)] {
             write_project(root, runbook, extra, today);
         }
@@ -1459,7 +1454,6 @@ fn fresh_policy_set_aside(path: &str, body: Option<&str>) -> bool {
 
 /// Write one project, in the freeze's words or today's.
 fn write_project(root: &Path, runbook: &str, extra: &[(&str, &str)], today: bool) {
-    let _ = fs::remove_dir_all(root);
     for directory in [
         ".arca/ticket",
         ".arca/residual",

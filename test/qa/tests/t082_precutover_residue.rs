@@ -8,6 +8,7 @@
 //! touched: no migration, no Run, no evidence file, no changed byte.
 
 use ratmac::doctor::{self, Severity};
+use ratmac_qa::support::TempTree;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -74,28 +75,14 @@ const PRE_CUTOVER_CODES: [(&str, &str); 37] = [
 const NEW_CODE: &str = "RB111";
 
 struct Fixture {
-    base: PathBuf,
+    _base: TempTree,
     root: PathBuf,
-}
-
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.base);
-    }
 }
 
 impl Fixture {
     /// A checkout-shaped project carrying the given runbook.
     fn new(label: &str, runbook: &str) -> Self {
-        let base = std::env::temp_dir().join(format!(
-            "ratmac-t082-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&base);
+        let base = TempTree::new(&format!("t082-{label}")).expect("create fixture base");
         let root = base.join("project");
         for dir in [".arca/ticket", ".arca/goal", ".ratmac"] {
             fs::create_dir_all(root.join(dir)).expect("create fixture tree");
@@ -108,7 +95,7 @@ impl Fixture {
              # Ticket: t-900\n",
         )
         .expect("write the ticket");
-        Fixture { base, root }
+        Fixture { _base: base, root }
     }
 
     fn rtm(&self, args: &[&str]) -> Output {

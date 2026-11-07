@@ -1,26 +1,22 @@
 //! Public proof that the engine is project-agnostic for arbitrary Machine Classes.
 
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::path::Path;
 
 use ratmac::{Scheduler, StepOutcome, StepRequest};
+use ratmac_qa::support::TempTree;
 
-fn isolated_project() -> PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system clock is before unix epoch")
-        .as_nanos();
-    std::env::temp_dir().join(format!("ratmac-t028-{}-{nonce}", std::process::id()))
+fn isolated_project() -> TempTree {
+    TempTree::new("t028").expect("create isolated project")
 }
 
 fn copy_fixture(source: &Path, destination: &Path) {
-    fs::create_dir_all(destination).expect("create isolated project");
     for entry in fs::read_dir(source).expect("read neutral class fixture") {
         let entry = entry.expect("read fixture entry");
         let from = entry.path();
         let to = destination.join(entry.file_name());
         if from.is_dir() {
+            fs::create_dir_all(&to).expect("create isolated project folder");
             copy_fixture(&from, &to);
         } else {
             fs::copy(from, to).expect("copy fixture input");
@@ -30,7 +26,8 @@ fn copy_fixture(source: &Path, destination: &Path) {
 
 #[test]
 fn non_wishwillow_machine_class_runs_identically() {
-    let project = isolated_project();
+    let tree = isolated_project();
+    let project = tree.path().to_path_buf();
     let fixture =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../fixtures/r016-non-wishwillow-class");
     copy_fixture(&fixture, &project);
@@ -87,5 +84,4 @@ fn non_wishwillow_machine_class_runs_identically() {
     assert!(log.contains("compose"));
     assert!(log.contains("publish"));
     assert!(!log.to_ascii_lowercase().contains("wishwillow"));
-    let _ = fs::remove_dir_all(project);
 }
