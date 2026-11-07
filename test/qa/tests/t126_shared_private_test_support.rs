@@ -3,6 +3,7 @@
 use ratmac_qa::baseline::{self, scenario};
 use ratmac_qa::json::Json;
 use ratmac_qa::lane_runs;
+use ratmac_qa::support::{self, TempTree};
 use ratmac_qa::tempgit::TempRepo;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
@@ -10,8 +11,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::{mpsc, Arc, Barrier};
+use std::thread;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 static NEXT: AtomicU64 = AtomicU64::new(0);
 const CHILD_MODE: &str = "RATMAC_T126_PUBLIC_CHILD";
@@ -2016,4 +2018,566 @@ fn past_quote(chars: &[char], at: usize) -> usize {
         (Some(_), Some('\'')) => at + 3,
         _ => at + 1,
     }
+}
+
+// --- SVEV-010 to SVEV-012: one helper hands out every scratch folder ---------
+
+/// The clock value the SVE-004 checks pin: one no real request carries, so
+/// requests that carry it share one tick by construction.
+const PINNED_STAMP: u128 = 141;
+
+/// How long one request for a scratch folder may take. A helper whose names
+/// rest on the clock alone retries a taken name forever and never returns.
+const DEADLINE: Duration = Duration::from_secs(30);
+
+/// Set only in an isolated SVE-004 child: the folder its parent made and
+/// handed it as its system temporary folder.
+const SCRATCH_HOME: &str = "RATMAC_T126_SCRATCH_HOME";
+
+/// SVEV-010 / SVE-004: two requests in one clock tick. With the shared
+/// helper's clock pinned, two threads that a barrier releases together each
+/// ask for a folder for one label; each receives a different folder that
+/// exists, is empty, and was not there before the requests, all within one
+/// deadline. A helper that drops the counter from its names hands the second
+/// request the first one's name forever and fails at the deadline.
+#[test]
+fn svev_010() {
+    const LABEL: &str = "svev-010";
+    let temp = std::env::temp_dir();
+    let prefix = pinned_prefix(LABEL);
+    let before = entries_named(&temp, &prefix);
+    let gate = Arc::new(Barrier::new(2));
+    let (sender, receiver) = mpsc::channel();
+    for request in 0..2 {
+        let gate = Arc::clone(&gate);
+        let sender = sender.clone();
+        thread::spawn(move || {
+            gate.wait();
+            let _ = sender.send((request, TempTree::with_stamp(LABEL, PINNED_STAMP)));
+        });
+    }
+    drop(sender);
+    let deadline = Instant::now() + DEADLINE;
+    let mut trees = Vec::new();
+    while trees.len() < 2 {
+        match receiver.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok((request, Ok(tree))) => trees.push((request, tree)),
+            Ok((request, Err(error))) => panic!(
+                "SVEV-010: request {request} for a folder with the clock pinned to \
+                 {PINNED_STAMP} failed: {error}"
+            ),
+            Err(mpsc::RecvTimeoutError::Timeout) => panic!(
+                "SVEV-010: {} of two requests in one pinned tick returned within {DEADLINE:?}; \
+                 the other keeps retrying a taken name",
+                trees.len()
+            ),
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                panic!("SVEV-010: a request panicked before it returned a folder")
+            }
+        }
+    }
+    assert_ne!(
+        trees[0].1.path(),
+        trees[1].1.path(),
+        "SVEV-010: two requests in one pinned tick were handed the same folder"
+    );
+    for (request, tree) in &trees {
+        assert_fresh(
+            &format!("SVEV-010 request {request}"),
+            tree.path(),
+            &temp,
+            &prefix,
+            &before,
+        );
+    }
+}
+
+/// SVEV-011 / SVE-004: a taken name moves on. In an isolated child whose
+/// system temporary folder is a new folder this test owns, a pinned control
+/// request shows the counter's next value, and a folder holding a sentinel
+/// file is planted at exactly the name the helper tries first. The request
+/// returns a different, empty folder, and the planted folder keeps every
+/// byte. A helper that adopts, empties, or deletes the planted folder, or
+/// panics on the taken name, fails.
+#[test]
+fn svev_011() {
+    match std::env::var_os(SCRATCH_HOME) {
+        Some(home) => taken_name_child(Path::new(&home)),
+        None => in_scratch_home("svev_011"),
+    }
+}
+
+/// Run the case `name` again as an isolated child whose system temporary
+/// folder (`TMP`, `TEMP`, `TMPDIR`) is a new, empty folder this process owns
+/// and removes, so nothing the child plants reaches the real one.
+fn in_scratch_home(name: &str) {
+    let home = TempTree::new("t126-scratch-home")
+        .unwrap_or_else(|error| panic!("{name}: make the child's temporary folder: {error}"));
+    let path = home.path().as_os_str();
+    let envs = [
+        ("TMP", path),
+        ("TEMP", path),
+        ("TMPDIR", path),
+        (SCRATCH_HOME, path),
+    ];
+    if let Err(output) = support::isolated_test(name, &envs) {
+        panic!("{name}: the isolated child failed:\n{output}");
+    }
+}
+
+/// The SVEV-011 body, inside the isolated child.
+fn taken_name_child(home: &Path) {
+    assert_eq!(
+        support::isolated_test("svev_011", &[]),
+        Ok(true),
+        "SVEV-011: this child must be the isolated case its parent started"
+    );
+    let temp = std::env::temp_dir();
+    assert_eq!(
+        fs::canonicalize(&temp).ok(),
+        fs::canonicalize(home).ok(),
+        "SVEV-011 control: the child's system temporary folder {} is not the folder {} its \
+         parent made",
+        temp.display(),
+        home.display()
+    );
+    let control = pinned_request("SVEV-011 control", "svev-011-control");
+    let next = counter_of(control.path(), &pinned_prefix("svev-011-control")) + 1;
+    let prefix = pinned_prefix("svev-011");
+    let planted = home.join(format!("{prefix}{next}"));
+    fs::create_dir(&planted)
+        .unwrap_or_else(|error| panic!("SVEV-011: plant {}: {error}", planted.display()));
+    fs::write(
+        planted.join("sentinel.txt"),
+        b"planted at the first name the helper tries\n",
+    )
+    .unwrap_or_else(|error| panic!("SVEV-011: plant the sentinel file: {error}"));
+    let planted_bytes = tagged_tree(&planted);
+    let before = entries_named(home, &prefix);
+    let tree = pinned_request("SVEV-011", "svev-011");
+    assert_ne!(
+        tree.path(),
+        planted.as_path(),
+        "SVEV-011: the request was handed the planted folder"
+    );
+    assert_fresh("SVEV-011", tree.path(), &temp, &prefix, &before);
+    assert_eq!(
+        tagged_tree(&planted),
+        planted_bytes,
+        "SVEV-011: the request changed the planted folder at its first name"
+    );
+    drop(tree);
+    assert_eq!(
+        tagged_tree(&planted),
+        planted_bytes,
+        "SVEV-011: dropping the request's owner changed the planted folder"
+    );
+    drop(control);
+}
+
+/// The start of every name the shared helper tries for `label` in this
+/// process with the clock pinned - `ratmac-<label>-<process id>-<stamp>-` -
+/// which its counter completes.
+fn pinned_prefix(label: &str) -> String {
+    format!("ratmac-{label}-{}-{PINNED_STAMP}-", std::process::id())
+}
+
+/// The names of the entries of `folder` that start with `prefix`.
+fn entries_named(folder: &Path, prefix: &str) -> BTreeSet<String> {
+    fs::read_dir(folder)
+        .unwrap_or_else(|error| panic!("list {}: {error}", folder.display()))
+        .map(|entry| {
+            entry
+                .unwrap_or_else(|error| panic!("list {}: {error}", folder.display()))
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .filter(|name| name.starts_with(prefix))
+        .collect()
+}
+
+/// One request for a `label` folder with the clock pinned, on its own thread,
+/// failing once `DEADLINE` passes, or if the request fails or panics.
+fn pinned_request(check: &str, label: &'static str) -> TempTree {
+    let (sender, receiver) = mpsc::channel();
+    thread::spawn(move || {
+        let _ = sender.send(TempTree::with_stamp(label, PINNED_STAMP));
+    });
+    match receiver.recv_timeout(DEADLINE) {
+        Ok(Ok(tree)) => tree,
+        Ok(Err(error)) => panic!(
+            "{check}: a request for a {label:?} folder with the clock pinned to {PINNED_STAMP} \
+             failed: {error}"
+        ),
+        Err(mpsc::RecvTimeoutError::Timeout) => panic!(
+            "{check}: a request for a {label:?} folder returned nothing within {DEADLINE:?}; \
+             the helper keeps retrying a taken name"
+        ),
+        Err(mpsc::RecvTimeoutError::Disconnected) => {
+            panic!("{check}: a request for a {label:?} folder panicked")
+        }
+    }
+}
+
+/// The counter that completes `path`'s name after `prefix`.
+fn counter_of(path: &Path, prefix: &str) -> u64 {
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    name.strip_prefix(prefix)
+        .and_then(|counter| counter.parse().ok())
+        .unwrap_or_else(|| {
+            panic!("{name} does not follow the helper's pinned naming {prefix}<counter>")
+        })
+}
+
+/// Every node under `folder`, tagged by kind with its bytes.
+fn tagged_tree(folder: &Path) -> BTreeMap<String, Vec<u8>> {
+    support::capture(folder, support::CaptureOptions::default())
+        .unwrap_or_else(|error| panic!("capture {}: {error}", folder.display()))
+        .tagged()
+}
+
+/// `path` is a folder this request made: directly inside `temp`, named
+/// `prefix` and a counter, absent from `before`, and empty.
+fn assert_fresh(check: &str, path: &Path, temp: &Path, prefix: &str, before: &BTreeSet<String>) {
+    assert_eq!(
+        path.parent(),
+        Some(temp),
+        "{check}: {} is not directly inside the system temporary folder",
+        path.display()
+    );
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    assert!(
+        name.starts_with(prefix),
+        "{check}: {name} does not carry the pinned stamp in the helper's naming \
+         {prefix}<counter>"
+    );
+    assert!(
+        !before.contains(&name),
+        "{check}: {name} was already there before the request; the helper adopted it"
+    );
+    let entries = fs::read_dir(path)
+        .unwrap_or_else(|error| panic!("{check}: list {}: {error}", path.display()))
+        .count();
+    assert_eq!(entries, 0, "{check}: {} is not empty", path.display());
+}
+
+/// Where a folder under the system temporary folder may still be made
+/// without the shared helper, by file and item (a type covers each of its
+/// methods), and why. The freeze build folder (`fn build`, SVE-008) needs no
+/// entry: it is made inside its caller's lane folder, never directly under
+/// the system temporary folder.
+const SCRATCH_EXCEPTIONS: [(&str, &str, &str); 2] = [
+    (
+        "test/qa/src/support.rs",
+        "TempTree",
+        "the shared helper itself",
+    ),
+    (
+        "test-hidden/t-126/src/lib.rs",
+        "Sandbox",
+        "the shared-support oracle lane's own allocator, which puts a counter in each name \
+         and stops on a taken name instead of retrying",
+    ),
+];
+
+/// SVEV-012 / SVE-004: no test makes its own scratch folder. A source
+/// inventory over `test/qa/src`, `test/qa/tests`, and every non-expired
+/// roster lane finds no path made under the system temporary folder outside
+/// the named exceptions; reading that folder's path is allowed. Every
+/// `target/` folder and the frozen before-source corpus are not sources. The
+/// matcher first proves itself on known shapes, and every exception must
+/// still match a site, so a blind matcher cannot pass.
+#[test]
+fn svev_012() {
+    scratch_controls();
+    let root = repo_root();
+    let (mut sources, roster) = build_message_inventory(&root);
+    let expired = expired_lanes(&root);
+    sources.retain(|path, _| !expired.iter().any(|lane| path.starts_with(lane.as_str())));
+    let mut sites = Vec::new();
+    let mut files = BTreeSet::new();
+    let mut set_aside = Vec::new();
+    let mut matched = [false; SCRATCH_EXCEPTIONS.len()];
+    for (path, text) in &sources {
+        let lines: Vec<&str> = text.lines().collect();
+        for (line, item) in scratch_sites(text) {
+            let shown = format!(
+                "  {path}:{line}: {item}: {}",
+                clip(lines.get(line - 1).copied().unwrap_or_default())
+            );
+            let exception = SCRATCH_EXCEPTIONS.iter().position(|(file, owner, _)| {
+                path == file
+                    && (item == *owner
+                        || item
+                            .strip_prefix(owner)
+                            .is_some_and(|rest| rest.starts_with("::")))
+            });
+            match exception {
+                Some(index) => {
+                    matched[index] = true;
+                    set_aside.push(format!("{shown} ({})", SCRATCH_EXCEPTIONS[index].2));
+                }
+                None => {
+                    files.insert(path.as_str());
+                    sites.push(shown);
+                }
+            }
+        }
+    }
+    let stale: Vec<String> = SCRATCH_EXCEPTIONS
+        .iter()
+        .zip(matched)
+        .filter(|(_, matched)| !matched)
+        .map(|((file, owner, _), _)| format!("{file}: {owner}"))
+        .collect();
+    assert!(
+        stale.is_empty(),
+        "SVEV-012: every named exception must still match a site, or the matcher has gone \
+         blind; matched nothing: {stale:?}"
+    );
+    assert!(
+        sites.is_empty(),
+        "SVEV-012: every folder under the system temporary folder must come from the shared \
+         helper (`TempTree` in test/qa/src/support.rs); the inventory of {} sources \
+         (test/qa/src, test/qa/tests, and {} non-expired roster lanes; expired, not read: \
+         {expired:?}) found {} sites in {} files:\n{}\nset aside by named exceptions:\n{}",
+        sources.len(),
+        roster - expired.len(),
+        sites.len(),
+        files.len(),
+        sites.join("\n"),
+        set_aside.join("\n")
+    );
+}
+
+/// The scratch matcher on known shapes first: each control is a source text
+/// and exactly the sites it must yield, by line and item.
+fn scratch_controls() {
+    let controls: &[(&str, &[(usize, &str)])] = &[
+        // Joined at once, on one line or split across two.
+        (
+            "fn a() {\n    let root = std::env::temp_dir().join(format!(\"x-{}\", 1));\n}\n",
+            &[(2, "a")],
+        ),
+        (
+            "impl Pair {\n    fn new() {\n        let r = std::env::temp_dir()\n            .join(\"p\");\n    }\n}\n",
+            &[(3, "Pair::new")],
+        ),
+        // Bound by `let`, then joined in the same block.
+        (
+            "fn b() {\n    let mut base: PathBuf = env::temp_dir();\n    let p = base.join(\"x\");\n}\n",
+            &[(2, "b")],
+        ),
+        // A trait impl names its type; an `impl` argument does not rename a function.
+        (
+            "impl Drop for Tree {\n    fn drop(&mut self) {\n        let p = temp_dir().join(\"x\");\n    }\n}\n",
+            &[(3, "Tree::drop")],
+        ),
+        (
+            "fn c(x: impl AsRef<Path>) {\n    let p = std::env::temp_dir().join(x);\n}\n",
+            &[(2, "c")],
+        ),
+        // Reading the path is allowed.
+        (
+            "fn d() {\n    let temp = std::env::temp_dir();\n    assert!(outside(&temp));\n    \
+             support::command(\"taskkill\", std::env::temp_dir());\n    \
+             let _ = fs::read_dir(std::env::temp_dir());\n    \
+             let _ = std::env::temp_dir().canonicalize();\n}\n",
+            &[],
+        ),
+        // A binding ends with its block; a field of the same name is not it.
+        (
+            "fn e() {\n    let base = std::env::temp_dir();\n}\n\
+             fn f(base: &Path) {\n    let p = base.join(\"x\");\n    let q = self.base.join(\"y\");\n}\n",
+            &[],
+        ),
+        // Comments and strings never count.
+        (
+            "// std::env::temp_dir().join(\"x\")\nlet s = \"temp_dir().join(\";\n/* temp_dir().join(1) */\n",
+            &[],
+        ),
+    ];
+    for (source, expected) in controls {
+        let expected: Vec<(usize, String)> = expected
+            .iter()
+            .map(|(line, item)| (*line, (*item).to_owned()))
+            .collect();
+        assert_eq!(
+            scratch_sites(source),
+            expected,
+            "SVEV-012 control: the scratch matcher misread this source:\n{source}"
+        );
+    }
+}
+
+/// The roster lanes an expiry marker (`EXPIRED.toml`) sets aside, as
+/// `/`-separated folder prefixes such as `test-hidden/t-078/`.
+fn expired_lanes(root: &Path) -> Vec<String> {
+    let declaration = root.join(".ratmac").join("lanes.toml");
+    let lanes: toml::Value = fs::read_to_string(&declaration)
+        .unwrap_or_else(|error| panic!("SVEV-012: read {}: {error}", declaration.display()))
+        .parse()
+        .unwrap_or_else(|error| panic!("SVEV-012: parse {}: {error}", declaration.display()));
+    let roots = lanes.get("roots");
+    let folder = roots
+        .and_then(|roots| roots.get("lanes"))
+        .and_then(toml::Value::as_str)
+        .expect("SVEV-012: .ratmac/lanes.toml names the lane folder (roots.lanes)");
+    roots
+        .and_then(|roots| roots.get("roster"))
+        .and_then(toml::Value::as_array)
+        .expect("SVEV-012: .ratmac/lanes.toml declares the lane roster (roots.roster)")
+        .iter()
+        .filter_map(toml::Value::as_str)
+        .filter(|id| root.join(folder).join(id).join("EXPIRED.toml").is_file())
+        .map(|id| format!("{folder}/{id}/"))
+        .collect()
+}
+
+/// The places one Rust source makes a path under the system temporary
+/// folder, by 1-based line and enclosing item (`Type::method`, `function`):
+/// `temp_dir()` joined at once, or bound by `let` to a name the same block
+/// later joins onto. Reading the folder's path - comparing it, listing it,
+/// starting a process there - is not a site; comments and strings never are.
+fn scratch_sites(source: &str) -> Vec<(usize, String)> {
+    let tokens = rust_tokens(source);
+    let mark = |index: usize, character: char| matches!(tokens.get(index), Some((_, Token::Mark(found))) if *found == character);
+    let word = |index: usize, text: &str| matches!(tokens.get(index), Some((_, Token::Word(found))) if found == text);
+    let mut sites = Vec::new();
+    // Open items, each with the brace depth its body opened at.
+    let mut items: Vec<(usize, String)> = Vec::new();
+    let mut pending: Option<String> = None;
+    let mut depth = 0usize;
+    let mut nesting = 0usize;
+    // Live `let` bindings of the folder: name, depth, line, item, joined yet.
+    let mut bound: Vec<(String, usize, usize, String, bool)> = Vec::new();
+    for (at, (line, token)) in tokens.iter().enumerate() {
+        match token {
+            Token::Word(keyword) if matches!(keyword.as_str(), "fn" | "mod" | "trait") => {
+                if let Some((_, Token::Word(name))) = tokens.get(at + 1) {
+                    pending = Some(name.clone());
+                }
+            }
+            Token::Word(keyword) if keyword == "impl" => {
+                if nesting == 0 && pending.is_none() {
+                    pending = Some(impl_name(&tokens[at + 1..]));
+                }
+            }
+            Token::Mark('(' | '[') => nesting += 1,
+            Token::Mark(')' | ']') => nesting = nesting.saturating_sub(1),
+            Token::Mark(';') if nesting == 0 => pending = None,
+            Token::Mark('{') => {
+                depth += 1;
+                if let Some(name) = pending.take() {
+                    items.push((depth, name));
+                }
+            }
+            Token::Mark('}') => {
+                if items.last().is_some_and(|(open, _)| *open == depth) {
+                    items.pop();
+                }
+                bound.retain(|binding| binding.1 < depth);
+                depth = depth.saturating_sub(1);
+            }
+            Token::Word(name) if name == "temp_dir" && mark(at + 1, '(') && mark(at + 2, ')') => {
+                let item = item_name(&items);
+                if mark(at + 3, '.') && word(at + 4, "join") {
+                    sites.push((*line, item));
+                } else if mark(at + 3, ';') {
+                    if let Some(name) = let_binding(&tokens, at) {
+                        bound.push((name, depth, *line, item, false));
+                    }
+                }
+            }
+            Token::Word(name)
+                if mark(at + 1, '.') && word(at + 2, "join") && !(at > 0 && mark(at - 1, '.')) =>
+            {
+                if let Some(binding) = bound.iter_mut().rev().find(|binding| &binding.0 == name) {
+                    if !binding.4 {
+                        binding.4 = true;
+                        sites.push((binding.2, binding.3.clone()));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    sites.sort();
+    sites
+}
+
+/// The open items as one name, outermost first (`Type::method`).
+fn item_name(items: &[(usize, String)]) -> String {
+    if items.is_empty() {
+        return "(top level)".to_owned();
+    }
+    items
+        .iter()
+        .map(|(_, name)| name.as_str())
+        .collect::<Vec<_>>()
+        .join("::")
+}
+
+/// The type an `impl` block is for: its last name outside angle brackets
+/// before the block or a `where` clause opens (`impl Drop for Tree` is `Tree`).
+fn impl_name(after: &[(usize, Token)]) -> String {
+    let mut angle = 0usize;
+    let mut name = String::from("impl");
+    for (_, token) in after {
+        match token {
+            Token::Mark('<') => angle += 1,
+            Token::Mark('>') => angle = angle.saturating_sub(1),
+            Token::Mark('{') => break,
+            Token::Word(word) if word == "where" => break,
+            Token::Word(word) if angle == 0 && word != "for" => name = word.clone(),
+            _ => {}
+        }
+    }
+    name
+}
+
+/// The name a `let` statement binds when its whole value is the `temp_dir()`
+/// call at `at` (`let base = std::env::temp_dir();`, `mut` and a type
+/// included).
+fn let_binding(tokens: &[(usize, Token)], at: usize) -> Option<String> {
+    let token = |index: usize| tokens.get(index).map(|(_, token)| token);
+    // Back over the call's path (`std::env::`, `env::`) to where it starts.
+    let mut start = at;
+    while start >= 3
+        && token(start - 1) == Some(&Token::Mark(':'))
+        && token(start - 2) == Some(&Token::Mark(':'))
+        && matches!(token(start - 3), Some(Token::Word(_)))
+    {
+        start -= 3;
+    }
+    if start < 2 || token(start - 1) != Some(&Token::Mark('=')) {
+        return None;
+    }
+    if matches!(token(start - 2), Some(Token::Mark('=' | '!' | '<' | '>'))) {
+        return None;
+    }
+    let mut cursor = start - 1;
+    while cursor > 0 {
+        cursor -= 1;
+        match token(cursor) {
+            Some(Token::Word(keyword)) if keyword == "let" => {
+                return tokens[cursor + 1..start - 1]
+                    .iter()
+                    .find_map(|(_, token)| match token {
+                        Token::Word(name) if name != "mut" => Some(name.clone()),
+                        _ => None,
+                    });
+            }
+            Some(Token::Mark(';' | '{' | '}')) => return None,
+            _ => {}
+        }
+    }
+    None
 }

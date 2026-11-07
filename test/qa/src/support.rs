@@ -71,6 +71,19 @@ impl TempTree {
         }
     }
 
+    /// Create a fresh, exclusively owned directory as [`TempTree::new`] does,
+    /// with `stamp` standing in for the clock in every name this request
+    /// tries (SVE-004), so a check can force two requests into one tick.
+    ///
+    /// Red-phase stub (t-141): the clock cannot be pinned yet.
+    pub fn with_stamp(label: &str, stamp: u128) -> io::Result<Self> {
+        let _ = (label, stamp);
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "the shared helper's clock cannot be pinned yet (SVE-004 red stub)",
+        ))
+    }
+
     /// The owned directory.
     pub fn path(&self) -> &Path {
         &self.path
