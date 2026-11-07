@@ -1,0 +1,10 @@
+planned-test-id = "SVEV-014"
+ticket-id = "t-142"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t125_checkpoint_only_restoration -- --exact svev_014"
+working-dir = "."
+test-file = "test/qa/tests/t125_checkpoint_only_restoration.rs"
+test-name = "svev_014"
+exit-status = 101
+output-sha256 = "ce76083c3f2b14e49693bf188829130b885f9453c022d22aab72367b7530b711"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s\n     Running tests\\t125_checkpoint_only_restoration.rs (target\\debug\\deps\\t125_checkpoint_only_restoration-609f1f199a84e334.exe)\n\nrunning 1 test\ntest svev_014 ... FAILED\n\nfailures:\n\n---- svev_014 stdout ----\n\nthread 'svev_014' (52588) panicked at test\\qa\\tests\\t125_checkpoint_only_restoration.rs:1398:9:\nassertion `left == right` failed: SVEV-014 turn tool after-validate: before the paused command starts, t125's await_marker must report the planted \"\" as not yet published\n  left: Ok(\"\")\n right: Err(NotYetPublished(Some([])))\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    svev_014\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 8.83s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t125_checkpoint_only_restoration`\n"

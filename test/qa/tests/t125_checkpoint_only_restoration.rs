@@ -15,13 +15,16 @@
 //! restore that must succeed with t-124's exact success bytes, then drives
 //! the refusal twins with before/after snapshots proving nothing was written.
 
+use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Output};
 use std::time::{Duration, Instant, SystemTime};
 
 use ratmac_qa::snapshot::sha256_file;
-use ratmac_qa::support::{capture, command, CaptureOptions, Snapshot, TempTree};
+use ratmac_qa::support::{
+    capture, command, CaptureOptions, MarkerLine, MarkerWait, Snapshot, TempTree,
+};
 use ratmac_qa::turn::{Turn, ITEM_RECORDS, RERUN_MARKER, TRUNK};
 use sha2::{Digest, Sha256};
 
@@ -86,16 +89,26 @@ fn paused_restore(global: &Path, turn: &Turn, marker: &Path, release: &Path) -> 
     invocation.spawn().expect("spawn the paused restore")
 }
 
-/// Wait until the pause seam publishes its whole-line marker.
-fn await_marker(marker: &Path) {
-    let deadline = Instant::now() + Duration::from_secs(30);
+/// Wait up to `limit` for the pause seam's marker and return what it holds.
+///
+/// Red-phase body (t-142): today's existence-only wait, then one read - it
+/// ignores `expected` and returns at once on a planted empty file.
+fn await_marker(
+    marker: &Path,
+    expected: MarkerLine<'_>,
+    limit: Duration,
+) -> Result<String, MarkerWait> {
+    let _ = expected;
+    let deadline = Instant::now() + limit;
     while !marker.exists() {
-        assert!(
-            Instant::now() < deadline,
-            "t125: the pause marker {} never appeared",
-            marker.display()
-        );
+        if Instant::now() >= deadline {
+            return Err(MarkerWait::NotYetPublished(None));
+        }
         std::thread::sleep(Duration::from_millis(25));
+    }
+    match fs::read(marker) {
+        Ok(bytes) => Ok(String::from_utf8_lossy(&bytes).into_owned()),
+        Err(_) => Err(MarkerWait::NotYetPublished(None)),
     }
 }
 
@@ -1054,10 +1067,14 @@ fn wcpv_017() {
     let marker = isolation.join("wcpv017.marker");
     let release = isolation.join("wcpv017.release");
     let child = paused_restore(&global, &paused, &marker, &release);
-    await_marker(&marker);
+    let line = await_marker(
+        &marker,
+        MarkerLine::Exact("after-validate\n"),
+        Duration::from_secs(30),
+    )
+    .expect("t125 WCPV-017: the pause seam publishes its marker");
     assert_eq!(
-        fs::read(&marker).expect("read the pause marker"),
-        b"after-validate\n".as_slice(),
+        line, "after-validate\n",
         "t125 WCPV-017: the pause marker carries its whole boundary line"
     );
     let landlog = paused.root.join("landlog.md");
@@ -1128,10 +1145,14 @@ fn wcpv_018() {
     let marker = isolation.join("wcpv018.marker");
     let release = isolation.join("wcpv018.release");
     let mut child = paused_restore(&global, &turn, &marker, &release);
-    await_marker(&marker);
+    let line = await_marker(
+        &marker,
+        MarkerLine::Exact("after-validate\n"),
+        Duration::from_secs(30),
+    )
+    .expect("t125 WCPV-018: the pause seam publishes its marker");
     assert_eq!(
-        fs::read(&marker).expect("read the pause marker"),
-        b"after-validate\n".as_slice(),
+        line, "after-validate\n",
         "t125 WCPV-018: the pause marker carries its whole boundary line"
     );
     assert_eq!(
@@ -1208,4 +1229,940 @@ fn wcpv_018() {
     assert_eq!(changed_paths(&before, &tree(&turn)), Vec::<String>::new());
     assert_eq!(git_state(&global, &turn), state_before);
     assert_eq!(configs(&global, &turn), config_before);
+}
+
+// --- SVEV-014: in-place pause markers through the whole-line wait ------------
+
+/// The longest a case's waiter waits for the line its started command
+/// publishes.
+const MARKER_LONG: Duration = Duration::from_secs(60);
+/// The short wait made before the paused command starts: nothing publishes
+/// then, so the planted bytes are all the waiter can see.
+const MARKER_SHORT: Duration = Duration::from_millis(300);
+/// Every pause seam's own timeout, far beyond any case's release.
+const SEAM_TIMEOUT_MILLIS: &str = "60000";
+
+/// A paused command's release file, written on normal cleanup and on
+/// unwinding alike, so a failing case never strands a paused command.
+struct Release {
+    path: PathBuf,
+    written: bool,
+}
+
+impl Release {
+    fn new(path: PathBuf) -> Self {
+        Self {
+            path,
+            written: false,
+        }
+    }
+
+    fn now(&mut self) {
+        if !self.written {
+            fs::write(&self.path, b"release\n").expect("SVEV-014: write the release file");
+            self.written = true;
+        }
+    }
+}
+
+impl Drop for Release {
+    fn drop(&mut self) {
+        if !self.written {
+            let _ = fs::write(&self.path, b"release\n");
+        }
+    }
+}
+
+/// A started paused command; dropped unfinished, it is killed and reaped
+/// before any tree it works in is removed.
+struct Started(Option<Child>);
+
+impl Started {
+    fn finish(mut self, case: &str) -> Output {
+        self.0
+            .take()
+            .expect("SVEV-014: the started command is still owned")
+            .wait_with_output()
+            .unwrap_or_else(|error| {
+                panic!("SVEV-014 {case}: collect the released command: {error}")
+            })
+    }
+}
+
+impl Drop for Started {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.0.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+/// The Engine under test (`rtm-qa`, fault injection on) in `directory`:
+/// scrubbed, Git isolated to `global`, and only the case's settings added.
+fn engine(
+    directory: &Path,
+    global: &Path,
+    args: &[&str],
+    vars: &[(&str, &OsStr)],
+) -> std::process::Command {
+    let mut invocation = command(ratmac_qa::engine_bin!(), directory);
+    invocation
+        .args(args)
+        .env("GIT_CONFIG_GLOBAL", global)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    for (key, value) in vars {
+        invocation.env(key, value);
+    }
+    invocation
+}
+
+/// One Engine command that must succeed while a case is set up.
+fn engine_ok(case: &str, directory: &Path, global: &Path, args: &[&str]) {
+    let output = engine(directory, global, args, &[])
+        .output()
+        .expect("SVEV-014: invoke rtm");
+    assert!(
+        output.status.success(),
+        "SVEV-014 {case}: rtm {args:?} must succeed while setting up: {}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// The one Run a fresh Engine root holds.
+fn only_run(root: &Path) -> String {
+    let runs: Vec<String> = fs::read_dir(root.join(".ratmac/runs"))
+        .expect("SVEV-014: list the Run roster")
+        .map(|entry| entry.expect("SVEV-014: read a roster entry"))
+        .filter(|entry| entry.path().is_dir())
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(
+        runs.len(),
+        1,
+        "SVEV-014: a fresh Engine root holds one Run: {runs:?}"
+    );
+    runs[0].clone()
+}
+
+/// Every spelling of `path` a command may print, longest first.
+fn root_spellings(path: &Path) -> Vec<String> {
+    let mut texts = vec![path.display().to_string()];
+    if let Ok(canonical) = fs::canonicalize(path) {
+        let text = canonical.display().to_string();
+        if let Some(rest) = text.strip_prefix(r"\\?\") {
+            texts.push(rest.to_owned());
+        }
+        texts.push(text);
+    }
+    let mut forms: Vec<String> = Vec::new();
+    for text in texts {
+        for form in [text.replace('\\', "/"), text] {
+            if !forms.contains(&form) {
+                forms.push(form);
+            }
+        }
+    }
+    forms.sort_by_key(|form| std::cmp::Reverse(form.len()));
+    forms
+}
+
+/// A released command's verdict - exit code, stdout, and stderr - with each
+/// fixture root shown as `<root>` and each `also` pair replaced.
+fn verdict(output: &Output, roots: &[&Path], also: &[(&str, &str)]) -> String {
+    let mut text = format!(
+        "exit: {:?}\nstdout:\n{}\nstderr:\n{}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    for root in roots {
+        for form in root_spellings(root) {
+            text = text.replace(&form, "<root>");
+        }
+    }
+    for (from, to) in also {
+        text = text.replace(from, to);
+    }
+    text
+}
+
+/// Plant `planted` at the marker path, when given, and prove t125's waiter
+/// reports it as not yet published before the paused command starts.
+fn plant_before_start(case: &str, marker: &Path, expected: MarkerLine<'_>, planted: Option<&[u8]>) {
+    if let Some(bytes) = planted {
+        fs::write(marker, bytes).expect("SVEV-014: plant the marker bytes");
+        assert_eq!(
+            await_marker(marker, expected, MARKER_SHORT),
+            Err(MarkerWait::NotYetPublished(Some(bytes.to_vec()))),
+            "SVEV-014 {case}: before the paused command starts, t125's await_marker must \
+             report the planted {:?} as not yet published",
+            String::from_utf8_lossy(bytes)
+        );
+    }
+}
+
+/// Wait for the started command's whole line and check it is the case's.
+fn whole_line(case: &str, marker: &Path, expected: MarkerLine<'_>) {
+    let line = await_marker(marker, expected, MARKER_LONG).unwrap_or_else(|wait| {
+        panic!("SVEV-014 {case}: the paused command's whole line never arrived: {wait}")
+    });
+    let whole = line.ends_with('\n') && line.matches('\n').count() == 1;
+    let accepted = match expected {
+        MarkerLine::Exact(text) => line == text,
+        MarkerLine::Prefix(prefix) => line.starts_with(prefix),
+    };
+    assert!(
+        whole && accepted,
+        "SVEV-014 {case}: the waiter acts only on the expected whole line, got {line:?}"
+    );
+}
+
+/// One paused Engine command: plant (when asked) and check the short wait,
+/// start the command with the case's settings, act on its whole line,
+/// release it, and return its verdict with every fixture root replaced.
+#[allow(clippy::too_many_arguments)]
+fn paused_engine(
+    case: &str,
+    directory: &Path,
+    global: &Path,
+    args: &[&str],
+    vars: &[(&str, &OsStr)],
+    marker: &Path,
+    mut release: Release,
+    expected: MarkerLine<'_>,
+    planted: Option<&[u8]>,
+    roots: &[&Path],
+) -> String {
+    plant_before_start(case, marker, expected, planted);
+    let started = Started(Some(
+        engine(directory, global, args, vars)
+            .spawn()
+            .unwrap_or_else(|error| panic!("SVEV-014 {case}: start the paused command: {error}")),
+    ));
+    whole_line(case, marker, expected);
+    release.now();
+    let output = started.finish(case);
+    assert!(
+        output.status.success(),
+        "SVEV-014 {case}: the released command succeeds: {}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    verdict(&output, roots, &[])
+}
+
+/// The blocker the hold case names: one complete issue folder.
+const HOLD_BLOCKER: &str = ".arca/issue/i-777-blocker";
+
+/// A started Run sitting in `build` with one executing ticket, one unproven
+/// residual, and one complete blocker issue (the t050 fixture's shape).
+fn hold_fixture(case: &str, root: &Path, global: &Path) -> String {
+    for dir in [
+        ".arca/ticket",
+        ".arca/residual",
+        HOLD_BLOCKER,
+        ".ratmac",
+        "src",
+    ] {
+        fs::create_dir_all(root.join(dir)).expect("SVEV-014: create the hold fixture");
+    }
+    fs::write(root.join("src/lib.rs"), "pub fn work() {}\n").expect("SVEV-014: write source");
+    for name in [
+        "index.md",
+        "spec.md",
+        "design.md",
+        "test-plan.md",
+        "ubi-lang.md",
+    ] {
+        fs::write(
+            root.join(HOLD_BLOCKER).join(name),
+            format!("# {name}\n\n```yaml\nstatus: \"pending\"\n```\n"),
+        )
+        .expect("SVEV-014: write the blocker issue");
+    }
+    fs::write(
+        root.join(".ratmac/ratmac.toml"),
+        "[roots]\n\
+         ticket = \".arca/ticket\"\n\
+         issue = \".arca/issue\"\n\
+         residual = \".arca/residual\"\n\n\
+         [states.intake]\nprompt = \"Integrate the issues.\"\n\n\
+         [states.build]\nprompt = \"Build the ticket.\"\n\n\
+         [states.build-review]\nprompt = \"Review the ticket.\"\n\n\
+         [[transitions]]\nfrom = \"intake\"\nto = \"build\"\n\n\
+         [[transitions]]\nfrom = \"build\"\nto = \"intake\"\nblocked-route = true\n\n\
+         [[transitions]]\nfrom = \"build\"\nto = \"build-review\"\n",
+    )
+    .expect("SVEV-014: write the machine class");
+    fs::write(
+        root.join(".arca/ticket/t-900.md"),
+        "---\nticket-id: t-900\nresidual-ids:\n  - \"res-900\"\n\
+         planned-test-refs:\n  - \"PT-900-01\"\nstatus: \"executing\"\n---\n\n\
+         # Ticket: t-900\n\n## Merge Gate\n\n- Quality: `cargo --version` passes.\n",
+    )
+    .expect("SVEV-014: write the ticket");
+    fs::write(
+        root.join(".arca/residual/res-900.md"),
+        "# Residual Record\n\n```yaml\nresidual-id: \"res-900\"\n\
+         goal-requirement-ref: \"DEMO-001\"\nstatus: \"missing\"\n```\n",
+    )
+    .expect("SVEV-014: write the residual");
+    engine_ok(case, root, global, &["start"]);
+    let run = only_run(root);
+    engine_ok(case, root, global, &["step", "--run", &run]);
+    run
+}
+
+/// The t-136 start runbook: a committed root the lock-hold case starts in.
+const LOCK_RUNBOOK: &str =
+    "\n[roots]\nwork = \"work\"\n\n[states.plan]\nprompt = \"Plan the cycle.\"\n\n\
+     [states.review]\nprompt = \"Review the cycle.\"\n\n[states.done]\nprompt = \"Done.\"\n\n\
+     [[transitions]]\nfrom = \"plan\"\nto = \"review\"\n\n\
+     [[transitions]]\nfrom = \"review\"\nto = \"done\"\n";
+
+/// A fresh isolated Git repository (the t-136 shape), its runbook and work
+/// leaf committed when `committed`.
+fn git_fixture(global: &Path, label: &str, committed: bool) -> TempTree {
+    let tree = TempTree::new(&format!("t125-{label}")).expect("SVEV-014: own a Git fixture");
+    for args in [
+        &["init", "-q"][..],
+        &["symbolic-ref", "HEAD", "refs/heads/main"][..],
+        &["config", "user.email", "qa@ratmac.test"][..],
+        &["config", "user.name", "ratmac qa"][..],
+        &["config", "core.autocrlf", "false"][..],
+        &["config", "commit.gpgsign", "false"][..],
+    ] {
+        git_ok(global, tree.path(), args);
+    }
+    if committed {
+        fs::create_dir_all(tree.join(".ratmac")).expect("SVEV-014: create the Engine tree");
+        fs::create_dir_all(tree.join("work")).expect("SVEV-014: create the work root");
+        fs::write(tree.join(".ratmac/ratmac.toml"), LOCK_RUNBOOK)
+            .expect("SVEV-014: write the runbook");
+        fs::write(tree.join("work/item.md"), "Contributor-owned bytes.\n")
+            .expect("SVEV-014: write the work leaf");
+        git_ok(global, tree.path(), &["add", "--all"]);
+        git_ok(
+            global,
+            tree.path(),
+            &["commit", "-q", "-m", "t-125 SVEV-014 fixture base"],
+        );
+    }
+    tree
+}
+
+/// The t-134 parent machine: `nest` runs the declared child program.
+const NESTED_PARENT: &str =
+    "\nprogram = \"alpha\"\n\n[states.plan]\nprompt = \"Plan the parent work.\"\n\n\
+     [states.nest]\nprompt = \"Run the declared nested child program.\"\n\
+     guards = [{ kind = \"nested_run\", program = \"beta\", root = \"../child\" }]\n\n\
+     [states.done]\nprompt = \"The parent work is done.\"\n\n\
+     [[transitions]]\nfrom = \"plan\"\nto = \"nest\"\n\n\
+     [[transitions]]\nfrom = \"nest\"\nto = \"done\"\n";
+
+/// The t-134 child whose Run is terminal the moment the endpoint admits it.
+const NESTED_CHILD: &str =
+    "\nprogram = \"beta\"\n\n[states.final]\nprompt = \"The child work is already complete.\"\n";
+
+/// One t-134 fixture project under `sandbox`.
+fn nested_project(sandbox: &TempTree, name: &str, runbook: &str) -> PathBuf {
+    let dir = sandbox.join(name);
+    for sub in [".ratmac", ".arca/goal", "src", "work"] {
+        fs::create_dir_all(dir.join(sub)).expect("SVEV-014: create the project tree");
+    }
+    fs::write(dir.join(".arca/goal/spec.md"), "# Fixture goal\n").expect("SVEV-014: write goal");
+    fs::write(dir.join(".ratmac/ratmac.toml"), runbook).expect("SVEV-014: write runbook");
+    fs::write(dir.join("src/lib.rs"), "pub fn fixture() {}\n").expect("SVEV-014: write source");
+    dir
+}
+
+/// A parent Run sitting in `nest` beside its terminal child project.
+fn nested_fixture(case: &str, global: &Path) -> (TempTree, PathBuf, String) {
+    let sandbox = TempTree::new("t125-svev014-nested").expect("SVEV-014: own the sandbox");
+    let parent = nested_project(&sandbox, "parent", NESTED_PARENT);
+    nested_project(&sandbox, "child", NESTED_CHILD);
+    engine_ok(case, &parent, global, &["start"]);
+    let run = only_run(&parent);
+    engine_ok(case, &parent, global, &["step", "--run", &run]);
+    (sandbox, parent, run)
+}
+
+/// The turn tool's restore paused at `after-validate` (checkpoint first).
+fn turn_case(planted: Option<&[u8]>) -> String {
+    const CASE: &str = "turn tool after-validate";
+    let (isolation, global) = isolation("svev014-turn");
+    let turn = Turn::new("svev014-turn");
+    declare_trace_marker_ignored(&global, &turn);
+    green_commit(&global, &turn, "# fixture one\n", SAFETY_SUBJECT);
+    let checkpoint = turn.head_of(TRUNK);
+    checkpoint_success(
+        &global,
+        &turn,
+        &checkpoint,
+        &["README.md"],
+        "the SVEV-014 turn case",
+    );
+    fs::write(turn.root.join("README.md"), "# pause damage\n").expect("SVEV-014: damage");
+    let marker = isolation.join("svev014.marker");
+    let mut release = Release::new(isolation.join("svev014.release"));
+    let expected = MarkerLine::Exact("after-validate\n");
+    plant_before_start(CASE, &marker, expected, planted);
+    let started = Started(Some(paused_restore(&global, &turn, &marker, &release.path)));
+    whole_line(CASE, &marker, expected);
+    release.now();
+    let output = started.finish(CASE);
+    assert!(
+        output.status.success(),
+        "SVEV-014 {CASE}: the released restore succeeds: {}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    verdict(
+        &output,
+        &[&turn.root, isolation.path()],
+        &[(checkpoint.as_str(), "<checkpoint>")],
+    )
+}
+
+/// `rtm hold` paused at the in-place `before-state-write` barrier.
+fn hold_case(planted: Option<&[u8]>) -> String {
+    const CASE: &str = "hold barrier before-state-write";
+    let (isolation, global) = isolation("svev014-hold");
+    let fixture = TempTree::new("t125-svev014-hold").expect("SVEV-014: own the hold fixture");
+    let run = hold_fixture(CASE, fixture.path(), &global);
+    let marker = isolation.join("hold.marker");
+    let release = Release::new(isolation.join("hold.release"));
+    let release_path = release.path.clone();
+    let confirm = format!("hold {run}");
+    paused_engine(
+        CASE,
+        fixture.path(),
+        &global,
+        &[
+            "hold",
+            "--run",
+            &run,
+            "--blocker",
+            HOLD_BLOCKER,
+            "--confirm",
+            &confirm,
+        ],
+        &[
+            ("RATMAC_TEST_HOLD_BARRIER", OsStr::new("before-state-write")),
+            ("RATMAC_TEST_HOLD_BARRIER_MARKER", marker.as_os_str()),
+            ("RATMAC_TEST_HOLD_BARRIER_RELEASE", release_path.as_os_str()),
+            (
+                "RATMAC_TEST_HOLD_BARRIER_TIMEOUT_MILLIS",
+                OsStr::new(SEAM_TIMEOUT_MILLIS),
+            ),
+        ],
+        &marker,
+        release,
+        MarkerLine::Exact("holding before before-state-write\n"),
+        planted,
+        &[fixture.path(), isolation.path()],
+    )
+}
+
+/// `rtm start` holding the root lock.
+fn lock_case(planted: Option<&[u8]>) -> String {
+    const CASE: &str = "lock hold root";
+    let (isolation, global) = isolation("svev014-lock");
+    let repo = git_fixture(&global, "svev014-lock", true);
+    let partial = format!(
+        "holding root lock {}",
+        slashed(
+            &fs::canonicalize(repo.path())
+                .expect("SVEV-014: canonicalize the lock fixture")
+                .join(".ratmac/locks/root.lock")
+        )
+    );
+    let planted = planted.map(|bytes| {
+        if bytes.is_empty() {
+            bytes
+        } else {
+            partial.as_bytes()
+        }
+    });
+    let marker = isolation.join("lock.marker");
+    let release = Release::new(isolation.join("lock.release"));
+    let release_path = release.path.clone();
+    paused_engine(
+        CASE,
+        repo.path(),
+        &global,
+        &["start"],
+        &[
+            ("RATMAC_TEST_LOCK_HOLD", OsStr::new("root")),
+            ("RATMAC_TEST_LOCK_MARKER", marker.as_os_str()),
+            ("RATMAC_TEST_LOCK_RELEASE", release_path.as_os_str()),
+            (
+                "RATMAC_TEST_LOCK_HOLD_TIMEOUT_MILLIS",
+                OsStr::new(SEAM_TIMEOUT_MILLIS),
+            ),
+        ],
+        &marker,
+        release,
+        MarkerLine::Prefix("holding root lock "),
+        planted,
+        &[repo.path(), isolation.path()],
+    )
+}
+
+/// `rtm init` paused at the policy step `verify`.
+fn policy_case(planted: Option<&[u8]>) -> String {
+    const CASE: &str = "policy pause verify";
+    let (isolation, global) = isolation("svev014-policy");
+    let repo = git_fixture(&global, "svev014-policy", false);
+    let marker = isolation.join("policy.marker");
+    let release = Release::new(isolation.join("policy.release"));
+    let release_path = release.path.clone();
+    paused_engine(
+        CASE,
+        repo.path(),
+        &global,
+        &["init"],
+        &[
+            ("RATMAC_TEST_POLICY_PAUSE", OsStr::new("verify")),
+            ("RATMAC_TEST_POLICY_PAUSE_MARKER", marker.as_os_str()),
+            ("RATMAC_TEST_POLICY_PAUSE_RELEASE", release_path.as_os_str()),
+            (
+                "RATMAC_TEST_POLICY_PAUSE_TIMEOUT_MILLIS",
+                OsStr::new(SEAM_TIMEOUT_MILLIS),
+            ),
+        ],
+        &marker,
+        release,
+        MarkerLine::Exact("verify\n"),
+        planted,
+        &[repo.path(), isolation.path()],
+    )
+}
+
+/// The parent `rtm step` paused after recording its nested entry.
+fn nested_case(planted: Option<&[u8]>) -> String {
+    const CASE: &str = "nested pause after-record";
+    let (isolation, global) = isolation("svev014-nested");
+    let (sandbox, parent, run) = nested_fixture(CASE, &global);
+    let marker = isolation.join("record.marker");
+    let release = Release::new(isolation.join("record.release"));
+    let release_path = release.path.clone();
+    paused_engine(
+        CASE,
+        &parent,
+        &global,
+        &["step", "--run", &run],
+        &[
+            ("RATMAC_TEST_NESTED_PAUSE", OsStr::new("after-record")),
+            ("RATMAC_TEST_NESTED_PAUSE_MARKER", marker.as_os_str()),
+            ("RATMAC_TEST_NESTED_PAUSE_RELEASE", release_path.as_os_str()),
+            (
+                "RATMAC_TEST_NESTED_PAUSE_TIMEOUT_MILLIS",
+                OsStr::new(SEAM_TIMEOUT_MILLIS),
+            ),
+        ],
+        &marker,
+        release,
+        MarkerLine::Exact("after-record\n"),
+        planted,
+        &[sandbox.path(), isolation.path()],
+    )
+}
+
+/// The child endpoint paused right after admitting the child Run.
+fn endpoint_case(planted: Option<&[u8]>) -> String {
+    const CASE: &str = "endpoint pause after-admit";
+    let (isolation, global) = isolation("svev014-endpoint");
+    let (sandbox, parent, run) = nested_fixture(CASE, &global);
+    let marker = isolation.join("admit.marker");
+    let release = Release::new(isolation.join("admit.release"));
+    let release_path = release.path.clone();
+    paused_engine(
+        CASE,
+        &parent,
+        &global,
+        &["step", "--run", &run],
+        &[
+            ("RATMAC_TEST_ENDPOINT_PAUSE", OsStr::new("after-admit")),
+            ("RATMAC_TEST_ENDPOINT_PAUSE_MARKER", marker.as_os_str()),
+            (
+                "RATMAC_TEST_ENDPOINT_PAUSE_RELEASE",
+                release_path.as_os_str(),
+            ),
+            (
+                "RATMAC_TEST_ENDPOINT_PAUSE_TIMEOUT_MILLIS",
+                OsStr::new(SEAM_TIMEOUT_MILLIS),
+            ),
+        ],
+        &marker,
+        release,
+        MarkerLine::Exact("after-admit\n"),
+        planted,
+        &[sandbox.path(), isolation.path()],
+    )
+}
+
+/// The host verifier t-132 pins; the recover case's keys and its one
+/// decision signature are made with it.
+const KEYGEN: &str = "C:/WINDOWS/System32/OpenSSH/ssh-keygen.exe";
+
+/// The enrolled bench of the recover case: `lead` approves, two reviews.
+const RECOVER_REVIEWERS: [&str; 3] = ["a", "b", "lead"];
+
+fn sha256_text(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    format!("{:x}", hasher.finalize())
+}
+
+/// The one spelling paths carry in the recover case's arguments.
+fn slashed(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
+/// Unsigned 64-bit big-endian length, then the bytes (the t-129 framing).
+fn framed(body: &mut Vec<u8>, field: &[u8]) {
+    body.extend_from_slice(&(field.len() as u64).to_be_bytes());
+    body.extend_from_slice(field);
+}
+
+/// One host `ssh-keygen` call that must succeed.
+fn keygen(dir: &Path, args: &[&str]) {
+    assert!(
+        Path::new(KEYGEN).is_file(),
+        "SVEV-014: the host verifier {KEYGEN} must exist"
+    );
+    let output = command(KEYGEN, dir)
+        .args(args)
+        .output()
+        .unwrap_or_else(|error| panic!("SVEV-014: run ssh-keygen {args:?}: {error}"));
+    assert!(
+        output.status.success(),
+        "SVEV-014: ssh-keygen {args:?}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// One `rtm` command line run in-process through the library entry, so the
+/// installed recovery trust participates: exit code, stdout, message.
+fn in_process(root: &Path, args: &[String]) -> (i32, String, String) {
+    let mut full = vec!["rtm".to_owned()];
+    full.extend(args.iter().cloned());
+    let mut stdout = Vec::new();
+    let (code, message) = match ratmac::cli::run_from(full, root, &mut stdout) {
+        Ok(code) => (code, String::new()),
+        Err(error) => (error.exit_code(), error.to_string()),
+    };
+    (code, String::from_utf8_lossy(&stdout).into_owned(), message)
+}
+
+/// One in-process command that must succeed while the recover case is set up.
+fn in_process_ok(root: &Path, args: &[&str]) -> String {
+    let owned: Vec<String> = args.iter().map(|arg| (*arg).to_owned()).collect();
+    let (code, stdout, message) = in_process(root, &owned);
+    assert_eq!(
+        code, 0,
+        "SVEV-014 recover pause: rtm {args:?} must succeed while setting up: {stdout}{message}"
+    );
+    stdout
+}
+
+/// The recovery entry runs in this process, so its Git descendants need the
+/// same empty global configuration as the child-process cases. The hook
+/// lane above serializes this case; restore both settings while unwinding.
+struct InProcessGit(Vec<(&'static str, Option<std::ffi::OsString>)>);
+
+impl InProcessGit {
+    fn new(global: &Path) -> Self {
+        let saved = ["GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM"]
+            .into_iter()
+            .map(|key| (key, std::env::var_os(key)))
+            .collect();
+        std::env::set_var("GIT_CONFIG_GLOBAL", global);
+        std::env::set_var("GIT_CONFIG_NOSYSTEM", "1");
+        Self(saved)
+    }
+}
+
+impl Drop for InProcessGit {
+    fn drop(&mut self) {
+        for (key, value) in &self.0 {
+            match value {
+                Some(value) => std::env::set_var(key, value),
+                None => std::env::remove_var(key),
+            }
+        }
+    }
+}
+
+/// The t-132 machine body: intake -> build -> done with blocked self-routes.
+const RECOVER_BODY: &str = "[roots]\nissue = \"work\"\nticket = \"tickets\"\n\n\
+     [states.intake]\nprompt = \"Intake the request.\"\n\n\
+     [states.build]\nprompt = \"Build the change.\"\n\n\
+     [states.done]\nprompt = \"Ship the change.\"\n\n\
+     [[transitions]]\nfrom = \"intake\"\nto = \"build\"\n\n\
+     [[transitions]]\nfrom = \"build\"\nto = \"done\"\n\n\
+     [[transitions]]\nfrom = \"intake\"\nto = \"intake\"\nblocked-route = true\n\n\
+     [[transitions]]\nfrom = \"build\"\nto = \"build\"\nblocked-route = true\n";
+
+/// `rtm recover` paused before its amendment rename: the t-132 governed
+/// fixture (enrollment installed through the t-129 trust seam), a drifted
+/// rule, and one decision signed by the Approver. The Engine runs
+/// in-process, so the case holds the process's hook lane.
+fn recover_case(planted: Option<&[u8]>) -> String {
+    const CASE: &str = "recover pause before-rename";
+    let _lane = ratmac_qa::support::hook_lane();
+    let (isolation, global) = isolation("svev014-recover");
+    let _git = InProcessGit::new(&global);
+    let keys = TempTree::new("t125-svev014-keys").expect("SVEV-014: own the key tree");
+    let mut reviewers: Vec<(String, String)> = Vec::new();
+    for name in RECOVER_REVIEWERS {
+        let path = keys.join(name);
+        keygen(
+            keys.path(),
+            &[
+                "-t",
+                "ed25519",
+                "-f",
+                &path.to_string_lossy(),
+                "-N",
+                "",
+                "-C",
+                name,
+            ],
+        );
+        let public = fs::read_to_string(keys.join(format!("{name}.pub")))
+            .expect("SVEV-014: read the public key");
+        reviewers.push((name.to_owned(), public.trim().to_owned()));
+    }
+    let mut signers = String::new();
+    for (label, public) in &reviewers {
+        let parts: Vec<&str> = public.split_whitespace().collect();
+        signers.push_str(&format!("{label} {} {}\n", parts[0], parts[1]));
+    }
+    keys.write("allowed_signers", &signers);
+    let signers_path = keys.join("allowed_signers");
+    let mut policy = b"ratmac-policy-v1".to_vec();
+    policy.push(0);
+    framed(&mut policy, b"lead");
+    framed(&mut policy, b"2");
+    framed(&mut policy, b"false");
+    for (label, public) in &reviewers {
+        framed(&mut policy, label.as_bytes());
+        framed(&mut policy, public.as_bytes());
+    }
+    let policy_digest = sha256_text(&policy);
+    let verifier_digest = sha256_text(&fs::read(KEYGEN).expect("SVEV-014: read the verifier"));
+    let signers_digest = sha256_text(signers.as_bytes());
+
+    let repo = git_fixture(&global, "svev014-recover", false);
+    repo.write("work/content.txt", "Contributor bytes.\n");
+    repo.write(
+        "work/blocker.txt",
+        "Opaque blocker; its content is not a gate.\n",
+    );
+    repo.write(
+        "tickets/t-100.md",
+        "---\nticket-id: \"t-100\"\nstatus: \"approved\"\n---\n",
+    );
+    repo.write("goal/spec.md", "# Goal\n\nThe frozen goal baseline.\n");
+    repo.write(".ratmac/ratmac.toml", RECOVER_BODY);
+    git_ok(&global, repo.path(), &["add", "--all"]);
+    git_ok(
+        &global,
+        repo.path(),
+        &["commit", "-q", "-m", "fixture baseline"],
+    );
+    let root = repo.path().to_path_buf();
+    let scope = slashed(&fs::canonicalize(&root).expect("SVEV-014: canonicalize the fixture"));
+    let mut manifest = format!(
+        "project-scope = \"{scope}\"\npolicy-digest = \"{policy_digest}\"\napprover = \"lead\"\n\
+         minimum-reviews = 2\napprover-may-review = false\nverifier-path = \"{KEYGEN}\"\n\
+         verifier-digest = \"{verifier_digest}\"\nsigners-path = \"{}\"\n\
+         signers-digest = \"{signers_digest}\"\n[builder]\nactor = {:?}\nkeys = []\n",
+        slashed(&signers_path),
+        if cfg!(windows) {
+            format!(
+                "{}\\{}",
+                std::env::var("USERDOMAIN").unwrap_or_default(),
+                std::env::var("USERNAME").unwrap_or_default()
+            )
+        } else {
+            std::env::var("USER").unwrap_or_else(|_| "builder".to_owned())
+        }
+    );
+    let mut review = format!(
+        "\n[review]\nmanifest = \"{}\"\npolicy-digest = \"{policy_digest}\"\n\
+         verifier-digest = \"{verifier_digest}\"\nsigners-digest = \"{signers_digest}\"\n\
+         minimum-reviews = 2\napprover = \"lead\"\napprover-may-review = false\nwork = [\"work\"]\n",
+        slashed(&keys.join("enrollment-manifest.toml"))
+    );
+    for (label, public) in &reviewers {
+        manifest.push_str(&format!(
+            "\n[[reviewers]]\nlabel = \"{label}\"\nkey = \"{public}\"\n"
+        ));
+        review.push_str(&format!(
+            "\n[[review.reviewers]]\nlabel = \"{label}\"\nkey = \"{public}\"\n"
+        ));
+    }
+    keys.write("enrollment-manifest.toml", manifest.as_bytes());
+    let _trust = ratmac::review::test::install(
+        &root.join(".ratmac"),
+        ratmac::review::test::TestTrust {
+            manifest_bytes: manifest.into_bytes(),
+            signers_path,
+            verifier_path: PathBuf::from(KEYGEN),
+            verifier_sha256: verifier_digest,
+        },
+    );
+    let governed = format!("{RECOVER_BODY}{review}");
+    repo.write(".ratmac/ratmac.toml", &governed);
+    git_ok(&global, repo.path(), &["add", "--all"]);
+    git_ok(
+        &global,
+        repo.path(),
+        &["commit", "-q", "-m", "governed fixture baseline"],
+    );
+    in_process_ok(&root, &["start"]);
+    let run = only_run(&root);
+    // The aged-record rule correction: the runbook drifts by one comment.
+    repo.write(
+        ".ratmac/ratmac.toml",
+        format!("{governed}# corrected by the archived-record fix: the aged rule was wrong.\n"),
+    );
+    let intent = keys.join("recover-intent.bin");
+    in_process_ok(
+        &root,
+        &[
+            "intent",
+            "--run",
+            &run,
+            "--recover",
+            "--out",
+            &slashed(&intent),
+        ],
+    );
+    keygen(
+        keys.path(),
+        &[
+            "-Y",
+            "sign",
+            "-f",
+            &keys.join("lead").to_string_lossy(),
+            "-n",
+            "ratmac-recover-v1",
+            &intent.to_string_lossy(),
+        ],
+    );
+    let decision = slashed(&keys.join("recover-intent.bin.sig"));
+
+    let marker = isolation.join("recover.marker");
+    let expected = MarkerLine::Exact("before-rename\n");
+    plant_before_start(CASE, &marker, expected, planted);
+    let release_path = isolation.join("recover.release");
+    std::env::set_var("RATMAC_TEST_RECOVER_PAUSE", "before-rename");
+    std::env::set_var("RATMAC_TEST_RECOVER_PAUSE_MARKER", &marker);
+    std::env::set_var("RATMAC_TEST_RECOVER_PAUSE_RELEASE", &release_path);
+    std::env::set_var(
+        "RATMAC_TEST_RECOVER_PAUSE_TIMEOUT_MILLIS",
+        SEAM_TIMEOUT_MILLIS,
+    );
+    let args: Vec<String> = [
+        "recover",
+        "--run",
+        &run,
+        "--decision",
+        &decision,
+        "--confirm",
+    ]
+    .iter()
+    .map(|arg| (*arg).to_owned())
+    .chain([format!("recover {run}")])
+    .collect();
+    let (code, stdout, message) = std::thread::scope(|scope| {
+        let mut release = Release::new(release_path.clone());
+        let worker = scope.spawn(|| in_process(&root, &args));
+        whole_line(CASE, &marker, expected);
+        release.now();
+        worker
+            .join()
+            .unwrap_or_else(|_| panic!("SVEV-014 {CASE}: the in-process recover panicked"))
+    });
+    for key in [
+        "RATMAC_TEST_RECOVER_PAUSE",
+        "RATMAC_TEST_RECOVER_PAUSE_MARKER",
+        "RATMAC_TEST_RECOVER_PAUSE_RELEASE",
+        "RATMAC_TEST_RECOVER_PAUSE_TIMEOUT_MILLIS",
+    ] {
+        std::env::remove_var(key);
+    }
+    assert_eq!(
+        code, 0,
+        "SVEV-014 {CASE}: the released recovery succeeds: {stdout}{message}"
+    );
+    let mut text = format!("exit: {code}\nstdout:\n{stdout}\nmessage:\n{message}");
+    for tree in [root.as_path(), keys.path(), isolation.path()] {
+        for form in root_spellings(tree) {
+            text = text.replace(&form, "<root>");
+        }
+    }
+    text
+}
+
+/// SVEV-014 / SVE-005: for the turn tool's `after-validate` pause and each
+/// Engine pause point that writes its marker in place, an empty file and, in
+/// a second run, the boundary text without its newline are planted at the
+/// marker path before the paused command starts. Called with a short limit
+/// before the start, t125's waiter reports not yet published; once the
+/// command starts, the waiter acts only after the whole line arrives, and
+/// the case's released verdict matches a run with nothing planted. Rename
+/// publishers are not cases here (HT-142-06 covers them).
+#[test]
+fn svev_014() {
+    type Case = fn(Option<&[u8]>) -> String;
+    let cases: [(&str, &[u8], Case); 7] = [
+        (
+            "turn tool after-validate",
+            &b"after-validate"[..],
+            turn_case,
+        ),
+        (
+            "hold barrier before-state-write",
+            &b"holding before before-state-write"[..],
+            hold_case,
+        ),
+        ("lock hold root", &b"holding root lock"[..], lock_case),
+        ("policy pause verify", &b"verify"[..], policy_case),
+        (
+            "nested pause after-record",
+            &b"after-record"[..],
+            nested_case,
+        ),
+        (
+            "endpoint pause after-admit",
+            &b"after-admit"[..],
+            endpoint_case,
+        ),
+        (
+            "recover pause before-rename",
+            &b"before-rename"[..],
+            recover_case,
+        ),
+    ];
+    for (case, partial, run) in cases {
+        let control = run(None);
+        for planted in [&b""[..], partial] {
+            assert_eq!(
+                run(Some(planted)),
+                control,
+                "SVEV-014 {case}: with {:?} planted before the start, the released verdict \
+                 must match the run with nothing planted",
+                String::from_utf8_lossy(planted)
+            );
+        }
+    }
 }

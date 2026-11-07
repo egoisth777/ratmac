@@ -2571,3 +2571,2367 @@ fn let_binding(tokens: &[(usize, Token)], at: usize) -> Option<String> {
     }
     None
 }
+
+// --- SVEV-013: one shared whole-line pause-marker wait -----------------------
+
+/// One SVEV-013 step: the bytes staged at the marker path (`None` is no
+/// file), the wait's limit, and the result the shared wait must give.
+type StagedMarker = (
+    Option<&'static [u8]>,
+    Duration,
+    Result<String, support::MarkerWait>,
+);
+
+/// SVEV-013 / SVE-005: the shared whole-line wait reports a missing marker,
+/// an empty one, and boundary text without its closing newline as not yet
+/// published, and returns the whole line once it is there. Each state is
+/// written before the call and held fixed for the whole call, so no result
+/// depends on the limit or on timing; the wait only reads, so the folder
+/// afterwards holds exactly the marker as it was staged. A zero limit still
+/// reads once, so it gives the same results for the partial and whole line.
+#[test]
+fn svev_013() {
+    const LIMIT: Duration = Duration::from_millis(200);
+    let tree = TempTree::new("t126-svev013").expect("SVEV-013: own the marker folder");
+    let marker = tree.join("pause.marker");
+    let expected = support::MarkerLine::Exact("after-validate\n");
+    let states: [StagedMarker; 6] = [
+        (None, LIMIT, Err(support::MarkerWait::NotYetPublished(None))),
+        (
+            Some(&b""[..]),
+            LIMIT,
+            Err(support::MarkerWait::NotYetPublished(Some(Vec::new()))),
+        ),
+        (
+            Some(&b"after-validate"[..]),
+            LIMIT,
+            Err(support::MarkerWait::NotYetPublished(Some(
+                b"after-validate".to_vec(),
+            ))),
+        ),
+        // A zero limit still reads once (t086, t127, and t130 rely on it).
+        (
+            Some(&b"after-validate"[..]),
+            Duration::ZERO,
+            Err(support::MarkerWait::NotYetPublished(Some(
+                b"after-validate".to_vec(),
+            ))),
+        ),
+        // The valid positive case: the whole line is returned with its `\n`.
+        (
+            Some(&b"after-validate\n"[..]),
+            LIMIT,
+            Ok("after-validate\n".to_owned()),
+        ),
+        (
+            Some(&b"after-validate\n"[..]),
+            Duration::ZERO,
+            Ok("after-validate\n".to_owned()),
+        ),
+    ];
+    for (planted, limit, wanted) in states {
+        if let Some(bytes) = planted {
+            fs::write(&marker, bytes).expect("SVEV-013: stage the marker state");
+        }
+        let shown = planted.map(String::from_utf8_lossy);
+        assert_eq!(
+            support::await_marker_line(&marker, expected, limit),
+            wanted,
+            "SVEV-013: the shared wait misjudged the staged marker state {shown:?} at limit {limit:?}"
+        );
+        let mut entries = Vec::new();
+        for entry in fs::read_dir(tree.path()).expect("SVEV-013: list the marker folder") {
+            let entry = entry.expect("SVEV-013: read a marker folder entry");
+            let bytes = fs::read(entry.path()).expect("SVEV-013: read a marker folder file");
+            entries.push((entry.file_name().to_string_lossy().into_owned(), bytes));
+        }
+        let held: Vec<(String, Vec<u8>)> = planted
+            .map(|bytes| vec![("pause.marker".to_owned(), bytes.to_vec())])
+            .unwrap_or_default();
+        assert_eq!(
+            entries, held,
+            "SVEV-013: the wait only reads; the folder holds exactly the staged marker {shown:?}"
+        );
+    }
+}
+
+// --- SVEV-015: every pause-marker waiter uses the shared whole-line wait ----
+
+/// File, enclosing item (including a particular polling closure), and the
+/// reason its filesystem polling is not a pause-marker wait. A row covers
+/// that item and its nested closures, never its callers. Every row must
+/// still match a finding, as with `SCRATCH_EXCEPTIONS`.
+const NON_MARKER_WAITS: &[(&str, &str, &str)] = &[
+    (
+        "test-hidden/t-073/tests/hidden.rs",
+        "wait_for_files",
+        "QA barrier markers contain pid=<n> without a newline; the other paths are Windows \
+         claim/handshake files and release sentinels, not RATMAC_TEST_*_MARKER paths",
+    ),
+    (
+        "test-hidden/t-073/tests/hidden.rs",
+        "wait_for_any_file",
+        "Windows claim files, not pause markers",
+    ),
+    (
+        "test-hidden/t-073/src/bin/abandon_racer.rs",
+        "wait_for_release",
+        "the racer's release sentinel, not its pause marker",
+    ),
+    (
+        "test-hidden/t-073/src/bin/hold_racer.rs",
+        "wait_for_release",
+        "the racer's release sentinel, not its pause marker",
+    ),
+    (
+        "test-hidden/t-134/src/lib.rs",
+        "wait_for_child_run",
+        "Run admission records (invocation.toml and run.toml), not pause markers",
+    ),
+    (
+        "test-hidden/t-136/tests/hidden.rs",
+        "wait_for_child_run",
+        "Run admission records (invocation.toml and run.toml), not pause markers",
+    ),
+    (
+        "test/qa/tests/t134_safe_nested_invocations.rs",
+        "wait_for_run",
+        "a child's admitted Run Record, not a pause marker",
+    ),
+    (
+        "test-hidden/t-136/tests/hidden.rs",
+        "park_external_holder::wait_until#1",
+        "the external window-holder's marker is a command argument, not a RATMAC_TEST setting",
+    ),
+    (
+        "test-hidden/t-136/tests/hidden.rs",
+        "ht_136_05_output_filesystem::wait_until#1",
+        "the external window-holder's marker is a command argument, not a RATMAC_TEST setting",
+    ),
+    (
+        "test-hidden/t-136/tests/hidden.rs",
+        "ht_136_01_regression::wait_until#1",
+        "the runbook guard's external holder reports its guard marker, not a RATMAC_TEST setting",
+    ),
+    (
+        "test-hidden/t-136/tests/hidden.rs",
+        "ht_136_04_durability_recovery::wait_until#1",
+        "a killed child's Run lock pathname disappears after process exit; it is not a pause marker",
+    ),
+    (
+        "test-hidden/t-136/tests/hidden.rs",
+        "ht_136_04_durability_recovery::wait_until#2",
+        "a killed writer's gitignore.policy.stage disappears after process exit; it is not a pause marker",
+    ),
+    (
+        "test-hidden/t-132/tests/hidden.rs",
+        "ht_132_05_output_filesystem::read[recover-intent-l05.bin]",
+        "the rendered recovery-intent bytes, not a pause marker; the crate-wide .keys field \
+         also constructs marker paths, so its other derived paths need an exact named exception",
+    ),
+    (
+        "test-hidden/t-132/tests/hidden.rs",
+        "ht_132_06_cross_feature::read[recover-intent-l06.bin]",
+        "the rendered recovery-intent bytes, not a pause marker; the crate-wide .keys field \
+         also constructs marker paths, so its other derived paths need an exact named exception",
+    ),
+    (
+        "test-hidden/t-136/tests/hidden.rs",
+        "ht_136_02_input_routing::park_external_holder#1",
+        "the claim-retry external window-holder takes its marker as a command argument, not a setting",
+    ),
+    (
+        "test-hidden/t-136/tests/hidden.rs",
+        "ht_136_02_input_routing::park_external_holder#2",
+        "the indexed-first external window-holder takes its marker as a command argument, not a setting",
+    ),
+    (
+        "test-hidden/t-136/tests/hidden.rs",
+        "ht_136_02_input_routing::park_external_holder#3",
+        "the successor's external window-holder takes its marker as a command argument, not a setting",
+    ),
+];
+
+/// A crate that sets a pause-marker key but never waits needs an explicit,
+/// still-matching explanation. There are no such crates in this inventory.
+const MARKER_NO_WAITS: &[(&str, &str)] = &[];
+
+/// File, `item::callee#N` call, and the reason a shared-wait call (or a
+/// call of a wrapper that hands its path to the shared wait) waits on a
+/// file no RATMAC_TEST_*_MARKER setting names. Every other such call must
+/// have its path recognised as a marker, so a raw wait on the same path
+/// beside it cannot go unseen. A row covers exactly one call and must
+/// still match one.
+const UNKEYED_SHARED_WAITS: &[(&str, &str, &str)] = &[
+    (
+        "test/qa/tests/t126_shared_private_test_support.rs",
+        "svev_013::await_marker_line#1",
+        "SVEV-013 stages each marker state itself in an owned folder; no setting names the file",
+    ),
+    (
+        T142,
+        "ht_142_02_input_routing::await_marker_line#1",
+        HT_142_02_OWN,
+    ),
+    (
+        T142,
+        "ht_142_02_input_routing::await_marker_line#2",
+        HT_142_02_OWN,
+    ),
+    (
+        T142,
+        "ht_142_02_input_routing::await_marker_line#3",
+        HT_142_02_OWN,
+    ),
+    (
+        T142,
+        "ht_142_02_input_routing::await_marker_line#4",
+        HT_142_02_OWN,
+    ),
+    (
+        T142,
+        "ht_142_02_input_routing::not_published#1",
+        HT_142_02_OWN,
+    ),
+    (
+        T142,
+        "ht_142_03_lifecycle_model::await_marker_line#1",
+        HT_142_03_OWN,
+    ),
+    (
+        T142,
+        "ht_142_03_lifecycle_model::await_marker_line#2",
+        HT_142_03_OWN,
+    ),
+    (
+        T142,
+        "ht_142_03_lifecycle_model::not_published#1",
+        HT_142_03_OWN,
+    ),
+    (
+        T142,
+        "ht_142_03_lifecycle_model::not_published#2",
+        HT_142_03_OWN,
+    ),
+    (
+        T142,
+        "ht_142_03_lifecycle_model::live_stopped#1",
+        HT_142_03_OWN,
+    ),
+    (
+        T142,
+        "ht_142_04_durability_recovery::await_marker_line#1",
+        HT_142_04_OWN,
+    ),
+    (
+        T142,
+        "ht_142_04_durability_recovery::not_published#1",
+        HT_142_04_OWN,
+    ),
+    (
+        T142,
+        "ht_142_04_durability_recovery::not_published#2",
+        HT_142_04_OWN,
+    ),
+    (
+        T142,
+        "ht_142_04_durability_recovery::not_published#3",
+        HT_142_04_OWN,
+    ),
+    (
+        T142,
+        "ht_142_04_durability_recovery::live_stopped#1",
+        HT_142_04_OWN,
+    ),
+    (
+        T142,
+        "ht_142_05_output_filesystem::await_marker_line#1",
+        HT_142_05_OWN,
+    ),
+    (
+        T142,
+        "ht_142_05_output_filesystem::not_published#1",
+        HT_142_05_OWN,
+    ),
+    (
+        T142,
+        "ht_142_05_output_filesystem::not_published#2",
+        HT_142_05_OWN,
+    ),
+    (
+        T142,
+        "ht_142_05_output_filesystem::not_published#3",
+        HT_142_05_OWN,
+    ),
+];
+
+const T142: &str = "test-hidden/t-142/tests/hidden.rs";
+const HT_142_02_OWN: &str = "HT-142-02 writes this marker itself to route each input through the \
+     shared wait; no setting names it";
+const HT_142_03_OWN: &str =
+    "HT-142-03's own writer threads publish this marker; no setting names it";
+const HT_142_04_OWN: &str = "HT-142-04 stages this stopped marker, or its live stopped writers, \
+     itself; no setting names it";
+const HT_142_05_OWN: &str = "HT-142-05 rewrites this marker in place itself, or names a missing \
+     path; no setting names it";
+
+/// Every scope unit that sets a RATMAC_TEST_*_MARKER key. The scanned set
+/// must match exactly, so a lane the inventory silently skips (or a new
+/// key-setting crate nobody reviewed here) fails instead of passing blind.
+const MARKER_KEY_CRATES: &[&str] = &[
+    "test-hidden/t-073",
+    "test-hidden/t-080",
+    "test-hidden/t-081",
+    "test-hidden/t-086",
+    "test-hidden/t-087",
+    "test-hidden/t-122",
+    "test-hidden/t-124",
+    "test-hidden/t-125",
+    "test-hidden/t-127",
+    "test-hidden/t-128",
+    "test-hidden/t-129",
+    "test-hidden/t-130",
+    "test-hidden/t-131",
+    "test-hidden/t-132",
+    "test-hidden/t-134",
+    "test-hidden/t-136",
+    "test-hidden/t-142",
+    "test/qa/tests/t050_blocked_route.rs",
+    "test/qa/tests/t086_single_engine_binary.rs",
+    "test/qa/tests/t122_successor_ownership.rs",
+    "test/qa/tests/t125_checkpoint_only_restoration.rs",
+    "test/qa/tests/t127_edition_proof_preflight.rs",
+    "test/qa/tests/t128_deterministic_trace_channel.rs",
+    "test/qa/tests/t130_cycle_pause_routes.rs",
+    "test/qa/tests/t134_safe_nested_invocations.rs",
+    "test/qa/tests/t136_lock_contention.rs",
+];
+
+/// SVEV-015 / SVE-005: every wait on, or read of, a path supplied as a
+/// RATMAC_TEST_*_MARKER setting uses the shared whole-line wait. A single
+/// post-exit existence check is allowed. The roster, expiry markers, frozen
+/// before-source exclusion, and target-folder exclusion are the same ones
+/// used by SVEV-012. Synthetic controls run before reading the repository;
+/// named exceptions and the per-key-setting-crate shared-call floor keep
+/// this inventory from passing by going blind.
+#[test]
+fn svev_015() {
+    // Every named exception keeps its file, its item, and a plain reason.
+    let blank: Vec<String> = NON_MARKER_WAITS
+        .iter()
+        .filter(|(file, owner, reason)| {
+            [file, owner, reason]
+                .iter()
+                .any(|text| text.trim().is_empty())
+        })
+        .map(|(file, owner, _)| format!("{file}: {owner}"))
+        .chain(
+            MARKER_NO_WAITS
+                .iter()
+                .filter(|(unit, reason)| unit.trim().is_empty() || reason.trim().is_empty())
+                .map(|(unit, _)| format!("{unit}: no marker wait")),
+        )
+        .chain(
+            UNKEYED_SHARED_WAITS
+                .iter()
+                .filter(|(file, call, reason)| {
+                    [file, call, reason]
+                        .iter()
+                        .any(|text| text.trim().is_empty())
+                })
+                .map(|(file, call, _)| format!("{file}: {call}")),
+        )
+        .collect();
+    assert!(
+        blank.is_empty(),
+        "SVEV-015: every named exception needs its file, its item, and a plain reason; blank: {blank:?}"
+    );
+    marker_controls();
+    let root = repo_root();
+    let (mut sources, roster) = build_message_inventory(&root);
+    let expired = expired_lanes(&root);
+    sources.retain(|path, _| !expired.iter().any(|lane| path.starts_with(lane.as_str())));
+    let mut crates: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
+    for (path, text) in sources {
+        let unit = if path.starts_with("test/qa/tests/") {
+            path.clone()
+        } else if path.starts_with("test/qa/src/") {
+            "test/qa/src".to_owned()
+        } else {
+            // The inventory paths already came from the declared roster;
+            // all files below a lane folder belong to the same scope unit.
+            path.split('/').take(2).collect::<Vec<_>>().join("/")
+        };
+        crates.entry(unit).or_default().insert(path, text);
+    }
+    let source_count: usize = crates.values().map(BTreeMap::len).sum();
+    let mut sites = BTreeSet::new();
+    let mut set_aside = Vec::new();
+    let mut matched = vec![false; NON_MARKER_WAITS.len()];
+    let mut no_wait_matched = vec![false; MARKER_NO_WAITS.len()];
+    let mut unkeyed_matched = vec![false; UNKEYED_SHARED_WAITS.len()];
+    let mut keyed = BTreeSet::new();
+    for (unit, sources) in &crates {
+        let inventory = marker_inventory(sources);
+        if inventory.first_key.is_some() {
+            keyed.insert(unit.as_str());
+        }
+        for (path, line, item) in inventory.sites {
+            let exception = NON_MARKER_WAITS.iter().position(|(file, owner, _)| {
+                path == *file
+                    && (item == *owner
+                        || item
+                            .strip_prefix(owner)
+                            .is_some_and(|rest| rest.starts_with("::")))
+            });
+            let source_line = sources[&path].lines().nth(line - 1).unwrap_or_default();
+            let shown = format!("  {path}:{line}: {item}: {}", clip(source_line));
+            if let Some(index) = exception {
+                matched[index] = true;
+                set_aside.push(format!("{shown} ({})", NON_MARKER_WAITS[index].2));
+            } else {
+                sites.insert((path, line, item, shown));
+            }
+        }
+        for (path, line, call) in inventory.unkeyed {
+            let source_line = sources[&path].lines().nth(line - 1).unwrap_or_default();
+            let shown = format!(
+                "  {path}:{line}: {call}: {} (shared wait on a path no marker setting is seen to name)",
+                clip(source_line)
+            );
+            let exception = UNKEYED_SHARED_WAITS
+                .iter()
+                .position(|(file, owner, _)| path == *file && call == *owner);
+            if let Some(index) = exception {
+                unkeyed_matched[index] = true;
+                set_aside.push(format!("{shown} ({})", UNKEYED_SHARED_WAITS[index].2));
+            } else {
+                sites.insert((path, line, call, shown));
+            }
+        }
+        if let Some((path, line, item)) = inventory.first_key {
+            if inventory.shared_calls == 0 {
+                if let Some(index) = MARKER_NO_WAITS.iter().position(|(name, _)| name == unit) {
+                    no_wait_matched[index] = true;
+                    set_aside.push(format!(
+                        "  {unit}: no marker wait ({})",
+                        MARKER_NO_WAITS[index].1
+                    ));
+                } else {
+                    sites.insert((path, line, item, format!(
+                        "  {unit}: sets a pause-marker key but never calls support::await_marker_line"
+                    )));
+                }
+            }
+        }
+    }
+    let stale: Vec<String> = NON_MARKER_WAITS
+        .iter()
+        .zip(matched)
+        .filter(|(_, matched)| !matched)
+        .map(|((file, owner, _), _)| format!("{file}: {owner}"))
+        .chain(
+            MARKER_NO_WAITS
+                .iter()
+                .zip(no_wait_matched)
+                .filter(|(_, matched)| !matched)
+                .map(|((unit, _), _)| format!("{unit}: no marker wait")),
+        )
+        .chain(
+            UNKEYED_SHARED_WAITS
+                .iter()
+                .zip(unkeyed_matched)
+                .filter(|(_, matched)| !matched)
+                .map(|((file, call, _), _)| format!("{file}: {call}")),
+        )
+        .collect();
+    let pinned: BTreeSet<&str> = MARKER_KEY_CRATES.iter().copied().collect();
+    let unscanned: Vec<&str> = pinned.difference(&keyed).copied().collect();
+    let unpinned: Vec<&str> = keyed.difference(&pinned).copied().collect();
+    let files: BTreeSet<&str> = sites.iter().map(|(path, _, _, _)| path.as_str()).collect();
+    let shown: Vec<&str> = sites
+        .iter()
+        .map(|(_, _, _, shown)| shown.as_str())
+        .collect();
+    assert!(
+        sites.is_empty() && stale.is_empty() && unscanned.is_empty() && unpinned.is_empty(),
+        "SVEV-015: every pause-marker wait/read must use support::await_marker_line; \
+         the inventory of {source_count} sources (test/qa/src, test/qa/tests, and {} \
+         non-expired roster lanes; expired, not scanned: {expired:?}) found {} sites in {} files:\n{}\n\
+         stale named exceptions (the matcher must still see every one): {stale:?}\n\
+         pinned key-setting crates the scan did not see: {unscanned:?}\n\
+         key-setting crates missing from MARKER_KEY_CRATES: {unpinned:?}\n\
+         set aside by named exceptions:\n{}",
+        roster - expired.len(), sites.len(), files.len(), shown.join("\n"), set_aside.join("\n")
+    );
+}
+
+/// Identifiers in a marker expression. A data field is crate-wide; a local
+/// variable stays in its enclosing item. Method/function names and path
+/// qualifiers are never marker names (`raw(marker)`, `marker.as_os_str()`,
+/// `markers.join("x")`, and `&hold.marker` are distinct useful shapes).
+#[derive(Default)]
+struct MarkerNames {
+    words: BTreeSet<String>,
+    fields: BTreeSet<String>,
+}
+
+struct MarkerItem {
+    name: String,
+    short: String,
+    declaration: usize,
+    body: (usize, usize),
+    params: Vec<Option<String>>,
+    names: BTreeSet<String>,
+    /// Path expressions the function returns (its tail and each `return`).
+    returns: Vec<(MarkerChain, MarkerNames)>,
+    has_probe: bool,
+    has_pause: bool,
+    shared_call: bool,
+    polling: bool,
+}
+
+struct MarkerCall {
+    at: usize,
+    name: String,
+    owner: Option<usize>,
+    args: Vec<(usize, usize)>,
+    ordinal: usize,
+    in_poll: bool,
+}
+
+/// A function's `fn` token and its parameter names, in order.
+type MarkerSignature = (usize, Vec<Option<String>>);
+
+/// One call or tuple of two or more arguments: its owner, then the token
+/// spans of its first and second arguments.
+type MarkerSetting = (usize, (usize, usize), (usize, usize));
+
+/// `let NAME = <path chain>;` inside a function.
+struct MarkerLet {
+    owner: usize,
+    name: String,
+    chain: MarkerChain,
+    names: MarkerNames,
+}
+
+/// Any `let PATTERN = EXPR;` inside a function, for the shapes a path chain
+/// does not cover: names bound by tuple position (`let (marker, release) =
+/// fx.hold_paths(..);`, `let marker = fx.hold_paths(..).0;`) to the call
+/// whose result they take apart, and the environment-variable names the
+/// expression mentions (`let marker = role_path("RATMAC_PRIVATE_..");`).
+struct MarkerBind {
+    owner: usize,
+    /// Bound names; a tuple pattern or a `.N` suffix gives each a position.
+    names: Vec<(Option<usize>, String)>,
+    /// The call whose result is bound, past `?`, `.unwrap()`, `.expect(..)`.
+    callee: Option<String>,
+    texts: Vec<String>,
+}
+
+/// One field of a struct literal inside a function (`Held { marker, .. }`,
+/// `Self { marker: path.clone() }`) and the names its value mentions.
+struct MarkerInit {
+    owner: usize,
+    field: String,
+    names: MarkerNames,
+}
+
+/// The shape of a path-valued expression: `&`/`*` prefixes, a root (a name
+/// or field path, `PathBuf::from(..)`/`Path::new(..)` around a chain, or a
+/// call), then only path-keeping methods. `identity` is false once `join`
+/// moves below the root; `call` names a root call.
+struct MarkerChain {
+    identity: bool,
+    call: Option<String>,
+}
+
+struct MarkerProbe {
+    at: usize,
+    owner: Option<usize>,
+    names: MarkerNames,
+    read: bool,
+    in_poll: bool,
+}
+
+struct MarkerSource {
+    path: String,
+    tokens: Vec<(usize, Token)>,
+    pairs: Vec<Option<usize>>,
+    owners: Vec<Option<usize>>,
+    items: Vec<MarkerItem>,
+    calls: Vec<MarkerCall>,
+    probes: Vec<MarkerProbe>,
+    lets: Vec<MarkerLet>,
+    binds: Vec<MarkerBind>,
+    inits: Vec<MarkerInit>,
+}
+
+#[derive(Default)]
+struct MarkerInventory {
+    sites: BTreeSet<(String, usize, String)>,
+    /// Coverage floor: shared-wait calls (or, through a wrapper parameter,
+    /// the wrapper's callers) whose path the recogniser cannot tie to a
+    /// RATMAC_TEST_*_MARKER setting. A raw wait beside one would go unseen.
+    unkeyed: BTreeSet<(String, usize, String)>,
+    first_key: Option<(String, usize, String)>,
+    shared_calls: usize,
+}
+
+fn marker_mark(tokens: &[(usize, Token)], at: usize, want: char) -> bool {
+    matches!(tokens.get(at), Some((_, Token::Mark(found))) if *found == want)
+}
+
+fn marker_word(tokens: &[(usize, Token)], at: usize) -> Option<&str> {
+    match tokens.get(at) {
+        Some((_, Token::Word(word))) => Some(word),
+        _ => None,
+    }
+}
+
+fn marker_key(text: &str) -> bool {
+    text.strip_prefix("RATMAC_TEST_")
+        .and_then(|text| text.strip_suffix("_MARKER"))
+        .is_some_and(|middle| {
+            !middle.is_empty()
+                && middle
+                    .bytes()
+                    .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_')
+        })
+}
+
+/// A `format!` literal with a marker key's shape: `RATMAC_TEST_`, then key
+/// characters or `{..}` placeholders, then `_MARKER`.
+fn marker_key_shape(text: &str) -> bool {
+    let Some(middle) = text
+        .strip_prefix("RATMAC_TEST_")
+        .and_then(|text| text.strip_suffix("_MARKER"))
+    else {
+        return false;
+    };
+    let mut placeholder = false;
+    let shaped = middle.chars().all(|character| match character {
+        '{' if !placeholder => {
+            placeholder = true;
+            true
+        }
+        '}' if placeholder => {
+            placeholder = false;
+            true
+        }
+        _ if placeholder => !character.is_whitespace(),
+        _ => character.is_ascii_uppercase() || character.is_ascii_digit() || character == '_',
+    });
+    !middle.is_empty() && shaped && !placeholder
+}
+
+/// A `format!` literal `{name}_MARKER` (or `{name}_PART_MARKER`) whose
+/// placeholder is a selector: a value known to start with `RATMAC_TEST_`.
+fn marker_selector_shape(text: &str, selector: &dyn Fn(&str) -> bool) -> bool {
+    let Some((name, rest)) = text.strip_prefix('{').and_then(|text| text.split_once('}')) else {
+        return false;
+    };
+    rest.strip_suffix("_MARKER").is_some_and(|middle| {
+        (middle.is_empty() || middle.starts_with('_'))
+            && middle
+                .bytes()
+                .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_')
+    }) && selector(name)
+}
+
+/// An environment-variable name: upper-case words joined by `_`.
+fn marker_env_name(text: &str) -> bool {
+    text.starts_with(|character: char| character.is_ascii_uppercase())
+        && text.contains('_')
+        && text
+            .bytes()
+            .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_')
+}
+
+/// Whether the first argument `start..end` of a call or tuple is a
+/// pause-marker key: a key literal, a `const` holding one, a relayed name
+/// the receiving process re-sets as a key, or a `format!` literal with a
+/// key's shape (`RATMAC_TEST_{kind}_MARKER`, `{selector}_MARKER`), each
+/// optionally followed by `.to_owned()`-style conversions.
+fn marker_key_argument(
+    tokens: &[(usize, Token)],
+    start: usize,
+    end: usize,
+    keys: &BTreeSet<String>,
+    relays: &BTreeSet<String>,
+    selector: &dyn Fn(&str) -> bool,
+) -> bool {
+    let mut at = start;
+    while at < end && marker_mark(tokens, at, '&') {
+        at += 1;
+    }
+    let key = match tokens.get(at) {
+        Some((_, Token::Text(text))) => marker_key(text) || relays.contains(text),
+        // `format!("RATMAC_TEST_{kind}_MARKER", ..)` keeps the key's shape.
+        Some((_, Token::Word(name)))
+            if name == "format"
+                && marker_mark(tokens, at + 1, '!')
+                && marker_mark(tokens, at + 2, '(') =>
+        {
+            let shaped = matches!(tokens.get(at + 3), Some((_, Token::Text(text)))
+                if marker_key_shape(text) || marker_selector_shape(text, selector));
+            let mut depth = 0usize;
+            at += 2;
+            while at < end {
+                match tokens[at].1 {
+                    Token::Mark('(' | '[' | '{') => depth += 1,
+                    Token::Mark(')' | ']' | '}') => {
+                        depth = depth.saturating_sub(1);
+                        if depth == 0 {
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+                at += 1;
+            }
+            shaped && at < end
+        }
+        Some((_, Token::Word(name))) => keys.contains(name),
+        _ => false,
+    };
+    if !key {
+        return false;
+    }
+    at += 1;
+    while at < end {
+        if marker_mark(tokens, at, '.')
+            && matches!(
+                marker_word(tokens, at + 1),
+                Some("to_owned" | "to_string" | "into" | "as_str" | "as_ref")
+            )
+            && marker_mark(tokens, at + 2, '(')
+            && marker_mark(tokens, at + 3, ')')
+        {
+            at += 4;
+        } else {
+            return false;
+        }
+    }
+    true
+}
+
+fn marker_names(tokens: &[(usize, Token)], start: usize, end: usize) -> MarkerNames {
+    let mut names = MarkerNames::default();
+    for at in start..end {
+        let Some(word) = marker_word(tokens, at) else {
+            continue;
+        };
+        if word
+            .as_bytes()
+            .first()
+            .is_none_or(|byte| byte.is_ascii_digit())
+            || matches!(word, "as" | "mut" | "ref" | "move" | "true" | "false")
+            || marker_mark(tokens, at + 1, '(')
+            || marker_mark(tokens, at + 1, ':')
+            || (at > start && marker_mark(tokens, at - 1, ':'))
+        {
+            continue;
+        }
+        if at > start && marker_mark(tokens, at - 1, '.') {
+            names.fields.insert(word.to_owned());
+        } else if !(marker_mark(tokens, at + 1, '.')
+            && marker_word(tokens, at + 2).is_some()
+            && !marker_mark(tokens, at + 3, '('))
+        {
+            names.words.insert(word.to_owned());
+        }
+    }
+    names
+}
+
+fn marker_pairs(tokens: &[(usize, Token)]) -> Vec<Option<usize>> {
+    let mut pairs = vec![None; tokens.len()];
+    let mut stack = Vec::new();
+    for (at, (_, token)) in tokens.iter().enumerate() {
+        match token {
+            Token::Mark('(' | '[' | '{') => stack.push(at),
+            Token::Mark(')' | ']' | '}') => {
+                if let Some(open) = stack.pop() {
+                    pairs[open] = Some(at);
+                    pairs[at] = Some(open);
+                }
+            }
+            _ => {}
+        }
+    }
+    pairs
+}
+
+fn marker_chain(
+    tokens: &[(usize, Token)],
+    pairs: &[Option<usize>],
+    start: usize,
+    end: usize,
+) -> Option<MarkerChain> {
+    let mut at = start;
+    while at < end
+        && (marker_mark(tokens, at, '&')
+            || marker_mark(tokens, at, '*')
+            || marker_word(tokens, at) == Some("mut"))
+    {
+        at += 1;
+    }
+    let root = marker_word(tokens, at)?;
+    let mut chain = MarkerChain {
+        identity: true,
+        call: None,
+    };
+    if matches!(root, "PathBuf" | "Path")
+        && marker_mark(tokens, at + 1, ':')
+        && marker_mark(tokens, at + 2, ':')
+        && matches!(marker_word(tokens, at + 3), Some("from" | "new"))
+        && marker_mark(tokens, at + 4, '(')
+    {
+        let close = pairs[at + 4].filter(|&close| close < end)?;
+        chain = marker_chain(tokens, pairs, at + 5, close)?;
+        at = close + 1;
+    } else if marker_mark(tokens, at + 1, '(') {
+        let close = pairs[at + 1].filter(|&close| close < end)?;
+        chain = MarkerChain {
+            identity: false,
+            call: Some(root.to_owned()),
+        };
+        at = close + 1;
+    } else {
+        at += 1;
+        while marker_mark(tokens, at, '.')
+            && marker_word(tokens, at + 1).is_some()
+            && !marker_mark(tokens, at + 2, '(')
+        {
+            at += 2;
+        }
+    }
+    while at < end {
+        if marker_mark(tokens, at, '?') {
+            at += 1;
+            continue;
+        }
+        if !(marker_mark(tokens, at, '.') && marker_mark(tokens, at + 2, '(')) {
+            return None;
+        }
+        let close = pairs[at + 2].filter(|&close| close < end)?;
+        match marker_word(tokens, at + 1)? {
+            "clone" | "to_owned" | "to_path_buf" | "as_path" | "as_ref" | "as_os_str"
+            | "borrow" | "into" | "unwrap" | "expect" => {}
+            "join" => chain.identity = false,
+            _ => return None,
+        }
+        at = close + 1;
+    }
+    Some(chain)
+}
+
+/// Top-level comma-separated arguments of one call or tuple. Nested calls,
+/// blocks, and arrays remain one argument, including closure bodies.
+fn marker_args(
+    tokens: &[(usize, Token)],
+    pairs: &[Option<usize>],
+    open: usize,
+) -> Vec<(usize, usize)> {
+    let Some(close) = pairs[open] else {
+        return Vec::new();
+    };
+    let mut args = Vec::new();
+    let mut start = open + 1;
+    let mut at = start;
+    while at < close {
+        if marker_mark(tokens, at, ',') {
+            args.push((start, at));
+            start = at + 1;
+        } else if matches!(tokens[at].1, Token::Mark('(' | '[' | '{')) {
+            if let Some(end) = pairs[at] {
+                at = end;
+            }
+        }
+        at += 1;
+    }
+    if start < close {
+        args.push((start, close));
+    }
+    args
+}
+
+fn marker_receiver(tokens: &[(usize, Token)], pairs: &[Option<usize>], end: usize) -> usize {
+    let mut at = end;
+    while at > 0 {
+        let previous = at - 1;
+        match &tokens[previous].1 {
+            Token::Mark(')' | ']') => {
+                at = pairs[previous].unwrap_or(previous);
+            }
+            Token::Mark(';' | ',' | '=' | '{' | '}' | '|' | '<' | '>') => break,
+            Token::Word(word)
+                if matches!(word.as_str(), "if" | "while" | "return" | "let" | "else") =>
+            {
+                break
+            }
+            _ => at -= 1,
+        }
+    }
+    at
+}
+
+fn marker_source(path: &str, source: &str) -> MarkerSource {
+    let tokens = rust_tokens(source);
+    let pairs = marker_pairs(&tokens);
+    let mut owners = vec![None; tokens.len()];
+    let mut items = Vec::new();
+    let mut stack = Vec::new();
+    let mut pending: Option<(String, Option<MarkerSignature>)> = None;
+    let mut depth = 0usize;
+    let mut nesting = 0usize;
+    for at in 0..tokens.len() {
+        match &tokens[at].1 {
+            Token::Word(keyword) if keyword == "fn" => {
+                if let Some(name) = marker_word(&tokens, at + 1) {
+                    if let Some(open) =
+                        (at + 2..tokens.len()).find(|&cursor| marker_mark(&tokens, cursor, '('))
+                    {
+                        let params = marker_args(&tokens, &pairs, open)
+                            .into_iter()
+                            .map(|(start, end)| {
+                                (start..end)
+                                    .filter_map(|cursor| marker_word(&tokens, cursor))
+                                    .find(|word| !matches!(*word, "mut" | "ref"))
+                                    .map(str::to_owned)
+                            })
+                            .collect();
+                        pending = Some((name.to_owned(), Some((at, params))));
+                    }
+                }
+            }
+            Token::Word(keyword) if matches!(keyword.as_str(), "mod" | "trait") => {
+                if let Some(name) = marker_word(&tokens, at + 1) {
+                    pending = Some((name.to_owned(), None));
+                }
+            }
+            Token::Word(keyword) if keyword == "impl" && nesting == 0 && pending.is_none() => {
+                pending = Some((impl_name(&tokens[at + 1..]), None));
+            }
+            Token::Mark('(' | '[') => nesting += 1,
+            Token::Mark(')' | ']') => nesting = nesting.saturating_sub(1),
+            Token::Mark(';') if nesting == 0 => pending = None,
+            Token::Mark('{') => {
+                depth += 1;
+                if let Some((name, function)) = pending.take() {
+                    stack.push((depth, name.clone()));
+                    if let Some((declaration, params)) = function {
+                        let index = items.len();
+                        let end = pairs[at].unwrap_or(at);
+                        owners[at..=end].fill(Some(index));
+                        items.push(MarkerItem {
+                            name: item_name(&stack),
+                            short: name,
+                            declaration,
+                            body: (at, end),
+                            params,
+                            names: BTreeSet::new(),
+                            returns: Vec::new(),
+                            has_probe: false,
+                            has_pause: false,
+                            shared_call: false,
+                            polling: false,
+                        });
+                    }
+                }
+            }
+            Token::Mark('}') => {
+                if stack.last().is_some_and(|(open, _)| *open == depth) {
+                    stack.pop();
+                }
+                depth = depth.saturating_sub(1);
+            }
+            _ => {}
+        }
+    }
+    let mut in_poll = vec![false; tokens.len()];
+    // A while condition belongs to its polling block too. A `for` loop in a
+    // function polls when its body pauses or breaks out (`for _ in 0..n {
+    // if marker.exists() { break } sleep }`); plain iteration over
+    // post-exit checks is not a wait.
+    for at in 0..tokens.len() {
+        let Some(keyword @ ("loop" | "while" | "for")) = marker_word(&tokens, at) else {
+            continue;
+        };
+        let mut open = at + 1;
+        let mut header_in = false;
+        while open < tokens.len() && !marker_mark(&tokens, open, '{') {
+            header_in |= marker_word(&tokens, open) == Some("in");
+            if matches!(tokens[open].1, Token::Mark('(' | '[')) {
+                open = pairs[open].unwrap_or(open);
+            }
+            open += 1;
+        }
+        let Some(end) = pairs.get(open).copied().flatten() else {
+            continue;
+        };
+        let pauses = || {
+            (open..end).any(|cursor| {
+                marker_word(&tokens, cursor) == Some("break")
+                    || (matches!(marker_word(&tokens, cursor), Some("sleep" | "yield_now"))
+                        && marker_mark(&tokens, cursor + 1, '('))
+            })
+        };
+        if keyword != "for" || (owners[at].is_some() && header_in && pauses()) {
+            in_poll[at..=end].fill(true);
+        }
+    }
+    let mut calls = Vec::new();
+    let mut ordinals: BTreeMap<(Option<usize>, String), usize> = BTreeMap::new();
+    for at in 0..tokens.len() {
+        if !marker_mark(&tokens, at, '(') {
+            continue;
+        }
+        let args = marker_args(&tokens, &pairs, at);
+        for &(start, end) in &args {
+            let start = if marker_word(&tokens, start) == Some("move") {
+                start + 1
+            } else {
+                start
+            };
+            if start < end && marker_mark(&tokens, start, '|') {
+                in_poll[start..end].fill(true);
+            }
+        }
+        let Some(callee) = at.checked_sub(1) else {
+            continue;
+        };
+        let Some(name) = marker_word(&tokens, callee) else {
+            continue;
+        };
+        if callee > 0 && marker_word(&tokens, callee - 1) == Some("fn") {
+            continue;
+        }
+        let owner = owners[callee];
+        let ordinal = ordinals.entry((owner, name.to_owned())).or_default();
+        *ordinal += 1;
+        calls.push(MarkerCall {
+            at: callee,
+            name: name.to_owned(),
+            owner,
+            args,
+            ordinal: *ordinal,
+            in_poll: false,
+        });
+    }
+    // Closures bound to locals are not call arguments. Count those too;
+    // `||` used as a boolean operator does not start after `=` or `move`.
+    for at in 1..tokens.len() {
+        if !marker_mark(&tokens, at, '|')
+            || !(marker_mark(&tokens, at - 1, '=') || marker_word(&tokens, at - 1) == Some("move"))
+        {
+            continue;
+        }
+        let Some(close) = (at + 1..tokens.len()).find(|&end| marker_mark(&tokens, end, '|')) else {
+            continue;
+        };
+        let body = close + 1;
+        let mut end = body;
+        if marker_mark(&tokens, body, '{') {
+            end = pairs[body].map(|end| end + 1).unwrap_or(body);
+        } else {
+            while end < tokens.len() && !matches!(tokens[end].1, Token::Mark(';' | ',' | ')')) {
+                if matches!(tokens[end].1, Token::Mark('(' | '[' | '{')) {
+                    end = pairs[end].unwrap_or(end);
+                }
+                end += 1;
+            }
+        }
+        in_poll[at..end].fill(true);
+    }
+    for call in &mut calls {
+        call.in_poll = in_poll[call.at];
+    }
+    // `let NAME = <path chain>;` bindings, for marker aliases.
+    let mut lets = Vec::new();
+    for (at, owner) in owners.iter().enumerate() {
+        if marker_word(&tokens, at) != Some("let") {
+            continue;
+        }
+        let Some(owner) = *owner else { continue };
+        let mut cursor = at + 1;
+        if marker_word(&tokens, cursor) == Some("mut") {
+            cursor += 1;
+        }
+        let Some(name) = marker_word(&tokens, cursor) else {
+            continue;
+        };
+        cursor += 1;
+        if marker_mark(&tokens, cursor, ':') {
+            while cursor < tokens.len()
+                && !marker_mark(&tokens, cursor, '=')
+                && !marker_mark(&tokens, cursor, ';')
+            {
+                if matches!(tokens[cursor].1, Token::Mark('(' | '[')) {
+                    cursor = pairs[cursor].unwrap_or(cursor);
+                }
+                cursor += 1;
+            }
+        }
+        if !marker_mark(&tokens, cursor, '=') || marker_mark(&tokens, cursor + 1, '=') {
+            continue;
+        }
+        let start = cursor + 1;
+        let mut end = start;
+        while end < tokens.len() && !marker_mark(&tokens, end, ';') {
+            if matches!(tokens[end].1, Token::Mark('(' | '[' | '{')) {
+                end = pairs[end].unwrap_or(end);
+            }
+            end += 1;
+        }
+        if let Some(chain) = marker_chain(&tokens, &pairs, start, end) {
+            lets.push(MarkerLet {
+                owner,
+                name: name.to_owned(),
+                chain,
+                names: marker_names(&tokens, start, end),
+            });
+        }
+    }
+    // Every `let` in a function, whatever its pattern (see `MarkerBind`).
+    let mut binds = Vec::new();
+    for (at, owner) in owners.iter().enumerate() {
+        if marker_word(&tokens, at) != Some("let") {
+            continue;
+        }
+        let Some(owner) = *owner else { continue };
+        let mut cursor = at + 1;
+        let mut names = Vec::new();
+        if marker_mark(&tokens, cursor, '(') {
+            let Some(close) = pairs[cursor] else { continue };
+            for (position, (start, end)) in
+                marker_args(&tokens, &pairs, cursor).into_iter().enumerate()
+            {
+                let words: Vec<&str> = (start..end)
+                    .filter_map(|cursor| marker_word(&tokens, cursor))
+                    .filter(|word| !matches!(*word, "mut" | "ref"))
+                    .collect();
+                if let [name] = words[..] {
+                    if name != "_"
+                        && (start..end).all(|cursor| marker_word(&tokens, cursor).is_some())
+                    {
+                        names.push((Some(position), name.to_owned()));
+                    }
+                }
+            }
+            cursor = close + 1;
+        } else {
+            if marker_word(&tokens, cursor) == Some("mut") {
+                cursor += 1;
+            }
+            let Some(name) = marker_word(&tokens, cursor) else {
+                continue;
+            };
+            names.push((None, name.to_owned()));
+            cursor += 1;
+        }
+        if marker_mark(&tokens, cursor, ':') {
+            while cursor < tokens.len()
+                && !marker_mark(&tokens, cursor, '=')
+                && !marker_mark(&tokens, cursor, ';')
+            {
+                if matches!(tokens[cursor].1, Token::Mark('(' | '[')) {
+                    cursor = pairs[cursor].unwrap_or(cursor);
+                }
+                cursor += 1;
+            }
+        }
+        if !marker_mark(&tokens, cursor, '=') || marker_mark(&tokens, cursor + 1, '=') {
+            continue;
+        }
+        let start = cursor + 1;
+        let mut end = start;
+        while end < tokens.len() && !marker_mark(&tokens, end, ';') {
+            if matches!(tokens[end].1, Token::Mark('(' | '[' | '{')) {
+                end = pairs[end].unwrap_or(end);
+            }
+            end += 1;
+        }
+        let texts = tokens[start..end]
+            .iter()
+            .filter_map(|(_, token)| match token {
+                Token::Text(text) if marker_env_name(text) => Some(text.clone()),
+                _ => None,
+            })
+            .collect();
+        // `helper(..).0` binds one position of the helper's result.
+        let mut tail = end;
+        if names.len() == 1
+            && names[0].0.is_none()
+            && tail >= start + 2
+            && marker_mark(&tokens, tail - 2, '.')
+        {
+            if let Some(position) =
+                marker_word(&tokens, tail - 1).and_then(|word| word.parse::<usize>().ok())
+            {
+                names[0].0 = Some(position);
+                tail -= 2;
+            }
+        }
+        let call_open = |tail: usize| {
+            tail.checked_sub(1)
+                .filter(|&close| close > start && marker_mark(&tokens, close, ')'))
+                .and_then(|close| pairs[close])
+                .filter(|&open| open > start)
+        };
+        loop {
+            if tail > start + 1 && marker_mark(&tokens, tail - 1, '?') {
+                tail -= 1;
+                continue;
+            }
+            match call_open(tail) {
+                Some(open)
+                    if open >= start + 2
+                        && matches!(marker_word(&tokens, open - 1), Some("unwrap" | "expect"))
+                        && marker_mark(&tokens, open - 2, '.') =>
+                {
+                    tail = open - 2;
+                }
+                _ => break,
+            }
+        }
+        let callee = call_open(tail)
+            .and_then(|open| marker_word(&tokens, open - 1))
+            .map(str::to_owned);
+        binds.push(MarkerBind {
+            owner,
+            names,
+            callee,
+            texts,
+        });
+    }
+    // Struct literal fields: `Name {` or `Self {` inside a function, not a
+    // function's own body and not a type (`-> Held {`). A block after an
+    // upper-case name (`if n == LIMIT { .. }`) fails the field shape.
+    let mut inits = Vec::new();
+    for (open, owner) in owners.iter().enumerate().skip(1) {
+        if !marker_mark(&tokens, open, '{') {
+            continue;
+        }
+        let Some(owner) = *owner else { continue };
+        if items[owner].body.0 == open
+            || !marker_word(&tokens, open - 1).is_some_and(|name| {
+                name.starts_with(|character: char| character.is_ascii_uppercase())
+            })
+        {
+            continue;
+        }
+        let mut first = open - 1;
+        while first >= 3
+            && marker_mark(&tokens, first - 1, ':')
+            && marker_mark(&tokens, first - 2, ':')
+            && marker_word(&tokens, first - 3).is_some()
+        {
+            first -= 3;
+        }
+        if first.checked_sub(1).is_some_and(|before| {
+            (marker_mark(&tokens, before, '>')
+                && before > 0
+                && marker_mark(&tokens, before - 1, '-'))
+                || matches!(
+                    marker_word(&tokens, before),
+                    Some(
+                        "struct"
+                            | "enum"
+                            | "union"
+                            | "impl"
+                            | "for"
+                            | "trait"
+                            | "mod"
+                            | "fn"
+                            | "dyn"
+                            | "where"
+                            | "match"
+                            | "if"
+                            | "while"
+                            | "in"
+                    )
+                )
+        }) {
+            continue;
+        }
+        let mut fields = Vec::new();
+        let shaped = marker_args(&tokens, &pairs, open)
+            .into_iter()
+            .all(|(start, end)| {
+                if marker_mark(&tokens, start, '.') {
+                    return true;
+                }
+                let Some(field) = marker_word(&tokens, start) else {
+                    return false;
+                };
+                let value = if end == start + 1 {
+                    start
+                } else if marker_mark(&tokens, start + 1, ':')
+                    && !marker_mark(&tokens, start + 2, ':')
+                    && start + 2 < end
+                {
+                    start + 2
+                } else {
+                    return false;
+                };
+                fields.push((field.to_owned(), marker_names(&tokens, value, end)));
+                true
+            });
+        if shaped {
+            inits.extend(fields.into_iter().map(|(field, names)| MarkerInit {
+                owner,
+                field,
+                names,
+            }));
+        }
+    }
+    // Each function's returned path expressions: its tail and each `return`.
+    for (index, item) in items.iter_mut().enumerate() {
+        let (open, close) = item.body;
+        let mut tail = open + 1;
+        let mut at = open + 1;
+        while at < close {
+            match tokens[at].1 {
+                Token::Mark(';') => tail = at + 1,
+                Token::Mark('{') => {
+                    at = pairs[at].unwrap_or(at);
+                    tail = at + 1;
+                }
+                Token::Mark('(' | '[') => at = pairs[at].unwrap_or(at),
+                _ => {}
+            }
+            at += 1;
+        }
+        let mut ranges = vec![(tail, close)];
+        for (at, owner) in owners.iter().enumerate().take(close).skip(open + 1) {
+            if *owner != Some(index) || marker_word(&tokens, at) != Some("return") {
+                continue;
+            }
+            let mut end = at + 1;
+            while end < close && !matches!(tokens[end].1, Token::Mark(';' | '}' | ')' | ']' | ','))
+            {
+                if matches!(tokens[end].1, Token::Mark('(' | '[' | '{')) {
+                    end = pairs[end].unwrap_or(end);
+                }
+                end += 1;
+            }
+            ranges.push((at + 1, end));
+        }
+        item.returns = ranges
+            .into_iter()
+            .filter(|&(start, end)| start < end)
+            .filter_map(|(start, end)| {
+                marker_chain(&tokens, &pairs, start, end)
+                    .map(|chain| (chain, marker_names(&tokens, start, end)))
+            })
+            .collect();
+    }
+    let mut probes = Vec::new();
+    for call in &calls {
+        let at = call.at;
+        let namespace = at
+            .checked_sub(3)
+            .and_then(|index| marker_word(&tokens, index));
+        let qualified =
+            at >= 2 && marker_mark(&tokens, at - 1, ':') && marker_mark(&tokens, at - 2, ':');
+        let method = at > 0 && marker_mark(&tokens, at - 1, '.');
+        let read = (qualified
+            && namespace == Some("fs")
+            && matches!(
+                call.name.as_str(),
+                "read" | "read_to_string" | "metadata" | "symlink_metadata"
+            ))
+            || (qualified && namespace == Some("File") && call.name == "open")
+            // `OpenOptions::new().read(true).open(path)`, `File::options()..`
+            || (method && call.name == "open")
+            || (call.name == "read_to_string" && !method);
+        let check = matches!(
+            call.name.as_str(),
+            "exists" | "is_file" | "try_exists" | "metadata" | "symlink_metadata"
+        );
+        let presence = check && method;
+        // `Path::exists(&marker)` checks its first argument.
+        let qualified_check = check && qualified && matches!(namespace, Some("Path" | "PathBuf"));
+        if read || presence || qualified_check {
+            let names = if presence {
+                marker_names(&tokens, marker_receiver(&tokens, &pairs, at - 1), at - 1)
+            } else if let Some(&(start, end)) = call.args.first() {
+                marker_names(&tokens, start, end)
+            } else {
+                MarkerNames::default()
+            };
+            probes.push(MarkerProbe {
+                at,
+                owner: call.owner,
+                names,
+                read,
+                in_poll: in_poll[at],
+            });
+            if let Some(owner) = call.owner {
+                items[owner].has_probe = true;
+            }
+        }
+        if let Some(owner) = call.owner {
+            if matches!(call.name.as_str(), "sleep" | "yield_now") {
+                items[owner].has_pause = true;
+                items[owner].polling = true;
+            }
+            if call.name == "await_marker_line" {
+                items[owner].shared_call = true;
+            }
+        }
+    }
+    MarkerSource {
+        path: path.to_owned(),
+        tokens,
+        pairs,
+        owners,
+        items,
+        calls,
+        probes,
+        lets,
+        binds,
+        inits,
+    }
+}
+
+fn marker_shared(source: &MarkerSource, item: &MarkerItem) -> bool {
+    source.path == "test/qa/src/support.rs" && item.short == "await_marker_line"
+}
+
+fn marker_delegator(item: &MarkerItem) -> bool {
+    item.shared_call && !item.has_pause && !item.has_probe
+}
+
+fn marker_mentions(
+    names: &MarkerNames,
+    local: &BTreeSet<String>,
+    fields: &BTreeSet<String>,
+) -> bool {
+    names.words.iter().any(|name| local.contains(name))
+        || names.fields.iter().any(|field| fields.contains(field))
+}
+
+/// One crate's token inventory. Keys seed local names and crate-wide data
+/// fields. Marker parameters propagate backwards through local callers to
+/// a fixpoint. Polling propagates through local callees too (yield_now is a
+/// pause just as sleep is); an opaque wait*/await* filesystem poller is a
+/// finding even when its caller's marker expression hides the local name.
+///
+/// Known limits: the recogniser is token-level, one scope unit at a time.
+/// It does not follow a marker into a collection (`vec![marker]` then
+/// `for m in &all`), through struct or `Some` patterns (`let Held { marker:
+/// m, .. }`, `if let Some(m)`), into a closure parameter, or as a field into
+/// a one-shot read helper; nor a key spelled another way (`concat!`, an
+/// indexed key array), a path read back with `env::var(KEY)`, a poll of the
+/// marker's folder (`fs::read_dir`), a pause-free recursion, or a helper
+/// defined in another scope unit. A one-shot existence check always counts
+/// as post-exit. A shared wait on a path the recogniser misses is still
+/// reported, by the coverage floor.
+fn marker_inventory(sources: &BTreeMap<String, String>) -> MarkerInventory {
+    let mut parsed: Vec<MarkerSource> = sources
+        .iter()
+        .map(|(path, text)| marker_source(path, text))
+        .collect();
+    let mut inventory = MarkerInventory::default();
+    let mut keys = BTreeSet::new();
+    for source in &parsed {
+        for at in 0..source.tokens.len() {
+            if !matches!(marker_word(&source.tokens, at), Some("const" | "static")) {
+                continue;
+            }
+            let skip = usize::from(marker_word(&source.tokens, at + 1) == Some("mut"));
+            let Some(name) = marker_word(&source.tokens, at + 1 + skip) else {
+                continue;
+            };
+            let end = (at + 2..source.tokens.len())
+                .find(|&end| marker_mark(&source.tokens, end, ';'))
+                .unwrap_or(source.tokens.len());
+            if source.tokens[at + 2..end]
+                .iter()
+                .any(|(_, token)| matches!(token, Token::Text(text) if marker_key(text)))
+            {
+                keys.insert(name.to_owned());
+            }
+        }
+    }
+    // Every call or tuple with two or more arguments inside a function: its
+    // owner, its first argument, and its second. Only a key expression in
+    // the first top-level argument is a setting; a diagnostic containing
+    // the key, or a one-argument read of an environment variable by its
+    // publisher, is not.
+    let settings: Vec<Vec<MarkerSetting>> = parsed
+        .iter()
+        .map(|source| {
+            (0..source.tokens.len())
+                .filter(|&open| marker_mark(&source.tokens, open, '('))
+                .filter_map(|open| {
+                    let owner = source.owners[open]?;
+                    let args = marker_args(&source.tokens, &source.pairs, open);
+                    (args.len() >= 2).then(|| (owner, args[0], args[1]))
+                })
+                .collect()
+        })
+        .collect();
+    let mut fields = BTreeSet::new();
+    // Names a receiving process reads and re-sets as a key, `(function,
+    // parameter)` selectors known to start with `RATMAC_TEST_`, and
+    // `(helper, N)` result positions known to hold a marker.
+    let mut relays: BTreeSet<String> = BTreeSet::new();
+    let mut selectors: BTreeSet<(String, String)> = BTreeSet::new();
+    let mut positions: BTreeSet<(String, usize)> = BTreeSet::new();
+    // Keys seed marker names. A parameter used by a key-setting wrapper
+    // makes every matching argument at each crate-local caller a marker
+    // expression. Repeating this is necessary for wrappers around wrappers
+    // and cross-file calls. The same fixed point carries marker names
+    // through `let` aliases, through the result of a helper that sets a key
+    // on a path it returns, through a helper's result position, through a
+    // struct field filled from a marker, through a relayed environment
+    // name, and through a selector a `format!` key is built from.
+    let mut returning: BTreeSet<String> = BTreeSet::new();
+    loop {
+        let mut changed = false;
+        for (source, settings) in parsed.iter_mut().zip(&settings) {
+            for &(owner, (start, end), (value_start, value_end)) in settings {
+                let key = {
+                    let short = source.items[owner].short.as_str();
+                    marker_key_argument(&source.tokens, start, end, &keys, &relays, &|name| {
+                        selectors
+                            .iter()
+                            .any(|(item, parameter)| item == short && parameter == name)
+                    })
+                };
+                if !key {
+                    continue;
+                }
+                inventory.first_key.get_or_insert_with(|| {
+                    (
+                        source.path.clone(),
+                        source.tokens[start].0,
+                        source.items[owner].name.clone(),
+                    )
+                });
+                let names = marker_names(&source.tokens, value_start, value_end);
+                for word in names.words {
+                    changed |= source.items[owner].names.insert(word);
+                }
+                for field in names.fields {
+                    changed |= fields.insert(field);
+                }
+            }
+        }
+        let mut additions = Vec::new();
+        let mut found = Vec::new();
+        for source in &parsed {
+            for call in &source.calls {
+                let Some(owner) = call.owner else { continue };
+                let caller = source.items[owner].short.as_str();
+                for target in &parsed {
+                    for item in target.items.iter().filter(|item| item.short == call.name) {
+                        let offset = usize::from(
+                            item.params.first().and_then(Option::as_deref) == Some("self")
+                                && call.at > 0
+                                && marker_mark(&source.tokens, call.at - 1, '.'),
+                        );
+                        for (index, parameter) in item.params.iter().enumerate().skip(offset) {
+                            let Some(parameter) = parameter else { continue };
+                            let Some(&(start, end)) = call.args.get(index - offset) else {
+                                continue;
+                            };
+                            if item.names.contains(parameter) {
+                                additions.push((
+                                    source.path.clone(),
+                                    owner,
+                                    marker_names(&source.tokens, start, end),
+                                ));
+                            }
+                            // A selector arrives as a `RATMAC_TEST_` literal
+                            // or as one of the caller's own selectors.
+                            let selector = source.tokens[start..end].iter().any(|(_, token)| {
+                                matches!(token, Token::Text(text) if text.starts_with("RATMAC_TEST_"))
+                            }) || (start..end)
+                                .filter_map(|cursor| marker_word(&source.tokens, cursor))
+                                .any(|word| {
+                                    selectors
+                                        .iter()
+                                        .any(|(item, name)| item == caller && name == word)
+                                });
+                            if selector {
+                                found.push((item.short.clone(), parameter.clone()));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        for selector in found {
+            changed |= selectors.insert(selector);
+        }
+        for (path, owner, names) in additions {
+            let source = parsed
+                .iter_mut()
+                .find(|source| source.path == path)
+                .unwrap();
+            let before = source.items[owner].names.len() + fields.len();
+            source.items[owner].names.extend(names.words);
+            fields.extend(names.fields);
+            changed |= before != source.items[owner].names.len() + fields.len();
+        }
+        for source in &mut parsed {
+            let MarkerSource { lets, items, .. } = source;
+            for binding in lets.iter() {
+                let item = &mut items[binding.owner];
+                let forward = match &binding.chain.call {
+                    Some(call) => returning.contains(call),
+                    None => marker_mentions(&binding.names, &item.names, &fields),
+                };
+                if forward {
+                    changed |= item.names.insert(binding.name.clone());
+                }
+                // The same file under another name marks its source too.
+                if binding.chain.identity
+                    && binding.chain.call.is_none()
+                    && item.names.contains(&binding.name)
+                {
+                    for word in &binding.names.words {
+                        changed |= item.names.insert(word.clone());
+                    }
+                    for field in &binding.names.fields {
+                        changed |= fields.insert(field.clone());
+                    }
+                }
+            }
+        }
+        let newly: Vec<String> = parsed
+            .iter()
+            .flat_map(|source| source.items.iter())
+            .filter(|item| {
+                !returning.contains(&item.short)
+                    && item.returns.iter().any(|(chain, names)| match &chain.call {
+                        Some(call) => returning.contains(call),
+                        None => marker_mentions(names, &item.names, &fields),
+                    })
+            })
+            .map(|item| item.short.clone())
+            .collect();
+        for name in newly {
+            changed |= returning.insert(name);
+        }
+        // A helper's result taken apart by position: once one call binds a
+        // marker at position N, position N is a marker at every call.
+        let learned: Vec<(String, usize)> = parsed
+            .iter()
+            .flat_map(|source| {
+                source.binds.iter().flat_map(move |bind| {
+                    bind.names.iter().filter_map(move |(position, name)| {
+                        let callee = bind.callee.as_ref()?;
+                        let position = (*position)?;
+                        source.items[bind.owner]
+                            .names
+                            .contains(name)
+                            .then(|| (callee.clone(), position))
+                    })
+                })
+            })
+            .collect();
+        for entry in learned {
+            changed |= positions.insert(entry);
+        }
+        for source in &mut parsed {
+            let MarkerSource { binds, items, .. } = source;
+            for bind in binds.iter() {
+                let Some(callee) = &bind.callee else { continue };
+                for (position, name) in &bind.names {
+                    if position.is_some_and(|position| {
+                        positions
+                            .iter()
+                            .any(|(helper, at)| helper == callee && *at == position)
+                    }) {
+                        changed |= items[bind.owner].names.insert(name.clone());
+                    }
+                }
+            }
+        }
+        // A marker bound from a value that mentions an environment-variable
+        // name (`role_path("RATMAC_PRIVATE_..")`) was relayed under that
+        // name, so setting that name passes a marker too.
+        for source in &parsed {
+            for bind in &source.binds {
+                if bind.names.iter().any(|(position, name)| {
+                    position.is_none() && source.items[bind.owner].names.contains(name)
+                }) {
+                    for text in bind.texts.iter().filter(|text| !marker_key(text)) {
+                        changed |= relays.insert(text.clone());
+                    }
+                }
+            }
+        }
+        // A struct field filled from a local marker is a marker field
+        // crate-wide (`Self { marker, .. }`, later `held.marker`).
+        for source in &parsed {
+            for init in &source.inits {
+                if init
+                    .names
+                    .words
+                    .iter()
+                    .any(|word| source.items[init.owner].names.contains(word))
+                {
+                    changed |= fields.insert(init.field.clone());
+                }
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    loop {
+        let polling: BTreeSet<String> = parsed
+            .iter()
+            .flat_map(|source| {
+                source
+                    .items
+                    .iter()
+                    .filter(|item| item.polling && !marker_shared(source, item))
+                    .map(|item| item.short.clone())
+            })
+            .collect();
+        let mut changed = false;
+        for source in &mut parsed {
+            for call in &source.calls {
+                if polling.contains(&call.name) {
+                    if let Some(owner) = call.owner {
+                        if !source.items[owner].polling {
+                            source.items[owner].polling = true;
+                            changed = true;
+                        }
+                    }
+                }
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    let polling: BTreeSet<String> = parsed
+        .iter()
+        .flat_map(|source| {
+            source
+                .items
+                .iter()
+                .filter(|item| {
+                    item.polling && !marker_shared(source, item) && !marker_delegator(item)
+                })
+                .map(|item| item.short.clone())
+        })
+        .collect();
+    let fs_polling: BTreeSet<String> = parsed
+        .iter()
+        .flat_map(|source| {
+            source
+                .items
+                .iter()
+                .filter(|item| {
+                    item.polling
+                        && item.has_probe
+                        && !marker_shared(source, item)
+                        && !marker_delegator(item)
+                })
+                .map(|item| item.short.clone())
+        })
+        .collect();
+    let empty = BTreeSet::new();
+    // Read-through helpers: a same-crate function whose path parameter (or
+    // its `let` alias) reaches a read [0], a check inside a polling block
+    // [1], or a lone check [2], to a fixed point over same-crate calls. The
+    // shared wait is never such a helper. A call passing a marker to a read
+    // or polling parameter, or to a checking one from inside a polling block,
+    // is a site. Only a local marker name counts at such a call: a
+    // crate-wide field also names containers (t-132's `.keys` folder holds
+    // signing keys and intents beside its markers), so passing one is not
+    // followed into a helper; direct reads and checks of fields still are.
+    let mut by_name: BTreeMap<&str, Vec<(usize, usize)>> = BTreeMap::new();
+    for (index, source) in parsed.iter().enumerate() {
+        for (item_index, item) in source.items.iter().enumerate() {
+            if !marker_shared(source, item) {
+                by_name
+                    .entry(item.short.as_str())
+                    .or_default()
+                    .push((index, item_index));
+            }
+        }
+    }
+    let aliases: Vec<Vec<Vec<BTreeSet<String>>>> = parsed
+        .iter()
+        .map(|source| {
+            source
+                .items
+                .iter()
+                .enumerate()
+                .map(|(item_index, item)| {
+                    let lets: Vec<&MarkerLet> = source
+                        .lets
+                        .iter()
+                        .filter(|binding| {
+                            binding.owner == item_index && binding.chain.call.is_none()
+                        })
+                        .collect();
+                    item.params
+                        .iter()
+                        .map(|param| {
+                            let mut names: BTreeSet<String> = param.iter().cloned().collect();
+                            loop {
+                                let before = names.len();
+                                for binding in &lets {
+                                    if binding.names.words.iter().any(|word| names.contains(word)) {
+                                        names.insert(binding.name.clone());
+                                    }
+                                }
+                                if names.len() == before {
+                                    break names;
+                                }
+                            }
+                        })
+                        .collect()
+                })
+                .collect()
+        })
+        .collect();
+    let offset_of = |source: &MarkerSource, call: &MarkerCall, item: &MarkerItem| {
+        usize::from(
+            item.params.first().and_then(Option::as_deref) == Some("self")
+                && call.at > 0
+                && marker_mark(&source.tokens, call.at - 1, '.'),
+        )
+    };
+    let mut reach: Vec<Vec<[BTreeSet<usize>; 3]>> = parsed
+        .iter()
+        .map(|source| vec![Default::default(); source.items.len()])
+        .collect();
+    for (index, source) in parsed.iter().enumerate() {
+        for probe in &source.probes {
+            let Some(owner) = probe.owner else { continue };
+            if marker_shared(source, &source.items[owner]) {
+                continue;
+            }
+            let kind = if probe.read {
+                0
+            } else if probe.in_poll {
+                1
+            } else {
+                2
+            };
+            for (param, names) in aliases[index][owner].iter().enumerate() {
+                if probe.names.words.iter().any(|word| names.contains(word)) {
+                    reach[index][owner][kind].insert(param);
+                }
+            }
+        }
+    }
+    loop {
+        let mut additions = Vec::new();
+        for (index, source) in parsed.iter().enumerate() {
+            for call in &source.calls {
+                let Some(owner) = call.owner else { continue };
+                if marker_shared(source, &source.items[owner]) {
+                    continue;
+                }
+                for &(target, item_index) in by_name.get(call.name.as_str()).into_iter().flatten() {
+                    let offset = offset_of(source, call, &parsed[target].items[item_index]);
+                    for (kind, params) in reach[target][item_index].iter().enumerate() {
+                        let kind = if kind == 2 && call.in_poll { 1 } else { kind };
+                        for &param in params {
+                            let Some(&(start, end)) =
+                                param.checked_sub(offset).and_then(|arg| call.args.get(arg))
+                            else {
+                                continue;
+                            };
+                            let words = marker_names(&source.tokens, start, end).words;
+                            for (own, names) in aliases[index][owner].iter().enumerate() {
+                                if words.iter().any(|word| names.contains(word)) {
+                                    additions.push((index, owner, kind, own));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let mut changed = false;
+        for (index, owner, kind, param) in additions {
+            changed |= reach[index][owner][kind].insert(param);
+        }
+        if !changed {
+            break;
+        }
+    }
+    for source in &parsed {
+        let item_at = |owner: Option<usize>| {
+            owner
+                .map(|owner| source.items[owner].name.clone())
+                .unwrap_or_else(|| "(top level)".to_owned())
+        };
+        let closure_item =
+            |call: &MarkerCall| format!("{}::{}#{}", item_at(call.owner), call.name, call.ordinal);
+        let closure_poll = |call: &MarkerCall| {
+            (call.name.starts_with("wait") || call.name.starts_with("await"))
+                && polling.contains(&call.name)
+                && call.args.iter().any(|&(start, end)| {
+                    source
+                        .probes
+                        .iter()
+                        .any(|probe| probe.in_poll && start <= probe.at && probe.at < end)
+                })
+        };
+        for call in &source.calls {
+            if call.name == "await_marker_line" {
+                inventory.shared_calls += 1;
+            }
+            let Some(owner) = call.owner else { continue };
+            if marker_shared(source, &source.items[owner]) {
+                continue;
+            }
+            let has_closure_probe = inventory.first_key.is_some() && closure_poll(call);
+            let local = &source.items[owner].names;
+            let through_helper = by_name.get(call.name.as_str()).into_iter().flatten().any(
+                |&(target, item_index)| {
+                    let offset = offset_of(source, call, &parsed[target].items[item_index]);
+                    reach[target][item_index]
+                        .iter()
+                        .enumerate()
+                        .any(|(kind, params)| {
+                            (kind < 2 || call.in_poll)
+                                && params.iter().any(|&param| {
+                                    param
+                                        .checked_sub(offset)
+                                        .and_then(|arg| call.args.get(arg))
+                                        .is_some_and(|&(start, end)| {
+                                            marker_names(&source.tokens, start, end)
+                                                .words
+                                                .iter()
+                                                .any(|word| local.contains(word))
+                                        })
+                                })
+                        })
+                },
+            );
+            if has_closure_probe
+                || through_helper
+                || (fs_polling.contains(&call.name)
+                    && call.args.iter().any(|&(start, end)| {
+                        marker_mentions(&marker_names(&source.tokens, start, end), local, &fields)
+                    }))
+            {
+                inventory.sites.insert((
+                    source.path.clone(),
+                    source.tokens[call.at].0,
+                    closure_item(call),
+                ));
+            }
+        }
+        for probe in &source.probes {
+            if probe
+                .owner
+                .is_some_and(|owner| marker_shared(source, &source.items[owner]))
+            {
+                continue;
+            }
+            let local = probe
+                .owner
+                .map(|owner| &source.items[owner].names)
+                .unwrap_or(&empty);
+            if (probe.read || probe.in_poll) && marker_mentions(&probe.names, local, &fields) {
+                let closure = source
+                    .calls
+                    .iter()
+                    .filter(|call| call.owner == probe.owner && closure_poll(call))
+                    .find(|call| {
+                        call.args
+                            .iter()
+                            .any(|&(start, end)| start <= probe.at && probe.at < end)
+                    });
+                let item = if let Some(closure) = closure {
+                    closure_item(closure)
+                } else if probe.read {
+                    // A literal derived path gives a narrow, stable name
+                    // when a marker container also holds non-marker files.
+                    let call = source
+                        .calls
+                        .iter()
+                        .find(|call| call.at == probe.at)
+                        .unwrap();
+                    let literal = call.args.first().and_then(|&(start, end)| {
+                        source.tokens[start..end]
+                            .iter()
+                            .find_map(|(_, token)| match token {
+                                Token::Text(text) => Some(text),
+                                _ => None,
+                            })
+                    });
+                    literal
+                        .map(|text| format!("{}::{}[{text}]", item_at(probe.owner), call.name))
+                        .unwrap_or_else(|| item_at(probe.owner))
+                } else {
+                    item_at(probe.owner)
+                };
+                inventory
+                    .sites
+                    .insert((source.path.clone(), source.tokens[probe.at].0, item));
+            }
+        }
+        if inventory.first_key.is_some() {
+            for item in &source.items {
+                if (item.short.starts_with("wait") || item.short.starts_with("await"))
+                    && item.polling
+                    && item.has_probe
+                    && !marker_shared(source, item)
+                    && !marker_delegator(item)
+                {
+                    inventory.sites.insert((
+                        source.path.clone(),
+                        source.tokens[item.declaration].0,
+                        item.name.clone(),
+                    ));
+                }
+            }
+        }
+    }
+    // Coverage floor: the path of every shared-wait call must be a marker the
+    // recogniser above sees - directly, or through a wrapper parameter at
+    // each of the wrapper's callers (reported at the caller that passes an
+    // unrecognised path, so one wrapper row cannot hide a new caller).
+    let mut queue: Vec<(usize, usize, usize)> = Vec::new();
+    for (index, source) in parsed.iter().enumerate() {
+        for (number, call) in source.calls.iter().enumerate() {
+            if call.name == "await_marker_line"
+                && call
+                    .owner
+                    .is_some_and(|owner| !marker_shared(source, &source.items[owner]))
+            {
+                queue.push((index, number, 0));
+            }
+        }
+    }
+    let mut visited = BTreeSet::new();
+    while let Some((index, number, argument)) = queue.pop() {
+        if !visited.insert((index, number, argument)) {
+            continue;
+        }
+        let source = &parsed[index];
+        let call = &source.calls[number];
+        let Some(owner) = call.owner else { continue };
+        let item = &source.items[owner];
+        let unkeyed = (
+            source.path.clone(),
+            source.tokens[call.at].0,
+            format!("{}::{}#{}", item.name, call.name, call.ordinal),
+        );
+        let Some(&(start, end)) = call.args.get(argument) else {
+            inventory.unkeyed.insert(unkeyed);
+            continue;
+        };
+        let names = marker_names(&source.tokens, start, end);
+        if marker_mentions(&names, &item.names, &fields) {
+            continue;
+        }
+        let params: Vec<usize> = aliases[index][owner]
+            .iter()
+            .enumerate()
+            .filter(|(_, aliases)| names.words.iter().any(|word| aliases.contains(word)))
+            .map(|(param, _)| param)
+            .collect();
+        if params.is_empty() {
+            inventory.unkeyed.insert(unkeyed);
+            continue;
+        }
+        for (caller_index, caller) in parsed.iter().enumerate() {
+            for (caller_number, wrapper_call) in caller.calls.iter().enumerate() {
+                if wrapper_call.name != item.short || wrapper_call.owner.is_none() {
+                    continue;
+                }
+                let offset = offset_of(caller, wrapper_call, item);
+                for &param in &params {
+                    if let Some(position) = param.checked_sub(offset) {
+                        queue.push((caller_index, caller_number, position));
+                    }
+                }
+            }
+        }
+    }
+    inventory
+}
+
+/// Each source is synthetic code, not a runtime fixture: the exact sites
+/// must match before the real inventory can make any claim. Strings and
+/// comments are opaque; source locations are 1-based line plus item.
+fn marker_controls() {
+    // (f) Four indirect settings, each beside its shared wait: a struct
+    // field filled from a marker, a path helper's result reused by
+    // position, a name relayed to a process that re-sets it as a key, and
+    // `format!("{selector}_MARKER")` with a `RATMAC_TEST_` selector.
+    const STRUCT_FIELD: &str = "fn paused() -> Held {\nlet marker = dir.join(\"m\");\ncmd.env(\"RATMAC_TEST_PAUSE_MARKER\", &marker);\nHeld { child: Some(child), marker, release }\n}\nfn a(held: &Held) {\nawait_marker_line(&held.marker, expected, limit);\nwhile !held.marker.exists() {}\n}\n";
+    const POSITION: &str = "fn paths(&self) -> (PathBuf, PathBuf) {\n(self.dir.join(\"m\"), self.dir.join(\"r\"))\n}\nfn arm(&self) {\nlet (marker, release) = self.paths();\ncmd.env(\"RATMAC_TEST_LOCK_MARKER\", &marker);\n}\nfn a(fx: &Fx) {\nlet marker = fx.paths().0;\nawait_marker_line(&marker, expected, limit);\nwhile !marker.exists() {}\n}\n";
+    const RELAY: &str = "fn child() {\nlet marker = role_path(\"RATMAC_PRIVATE_MARKER\");\nstd::env::set_var(\"RATMAC_TEST_PAUSE_MARKER\", &marker);\n}\nfn a() {\ncmd.env(\"RATMAC_PRIVATE_MARKER\", &relayed);\nawait_marker_line(&relayed, expected, limit);\nwhile !relayed.exists() {}\n}\n";
+    const SELECTOR: &str = "fn arm(command: &mut Command, selector: &str, marker: &Path) {\ncommand.env(format!(\"{selector}_MARKER\"), marker);\n}\nfn a() {\narm(&mut command, \"RATMAC_TEST_TURN_PAUSE\", &marker);\nawait_marker_line(&marker, expected, limit);\nwhile !marker.exists() {}\n}\n";
+    let controls: &[(&str, &[(usize, &str)])] = &[
+        (
+            "fn a() {\ncmd.env(\"RATMAC_TEST_PAUSE_MARKER\", &marker);\nwhile !marker.exists() {}\n}\n",
+            &[(3, "a")],
+        ),
+        (
+            "fn a() {\ncmd.env(\"RATMAC_TEST_PAUSE_MARKER\", &marker);\nawait_marker_line(&marker, expected, limit);\nlet bytes = fs::read(&marker);\n}\n",
+            &[(4, "a")],
+        ),
+        (
+            "fn a() {\nlet envs = [(\"RATMAC_TEST_PAUSE_MARKER\".to_owned(), raw(marker))];\nloop { if marker.is_file() { break; } thread::sleep(limit); }\n}\n",
+            &[(3, "a")],
+        ),
+        (
+            "const PAUSE_MARKER_VAR: &str = \"RATMAC_TEST_PAUSE_MARKER\";\nfn a() {\ncmd.env(PAUSE_MARKER_VAR, &m);\nfs::read_to_string(&m);\n}\n",
+            &[(4, "a")],
+        ),
+        (
+            "fn set(path: &Path) { cmd.env(\"RATMAC_TEST_PAUSE_MARKER\", raw(path)); }\nfn wrap(marker: &Path) { set(marker); }\nfn a() {\nwrap(&local);\nFile::open(&local);\n}\n",
+            &[(5, "a")],
+        ),
+        (
+            "fn await_own(marker: &Path) { support::await_marker_line(marker, expected, limit) }\nfn a() { cmd.env(\"RATMAC_TEST_PAUSE_MARKER\", &marker); await_own(&marker); }\n",
+            &[],
+        ),
+        (
+            "fn a() { cmd.env(\"RATMAC_TEST_PAUSE_MARKER\", &marker); child.wait(); assert!(!marker.exists()); }\n",
+            &[],
+        ),
+        (
+            "// cmd.env(\"RATMAC_TEST_PAUSE_MARKER\", &marker); while marker.exists() {}\nfn a() { let text = r#\"cmd.env(\"RATMAC_TEST_PAUSE_MARKER\", &marker); fs::read(marker)\"#; }\n/* fs::read(marker); */\n",
+            &[],
+        ),
+        (
+            "fn wait_file(path: &Path) { loop { if path.is_file() { break; } thread::yield_now(); } }\nfn a() { cmd.env(\"RATMAC_TEST_PAUSE_MARKER\", &marker); wait_file(&marker); }\n",
+            &[(1, "wait_file"), (2, "a::wait_file#1")],
+        ),
+        (
+            "fn wait_until(predicate: impl FnMut() -> bool) { loop { if predicate() { break; } thread::yield_now(); } }\nfn wait_file(path: &Path) { wait_until(|| path.exists()); }\nfn a() { cmd.env(\"RATMAC_TEST_PAUSE_MARKER\", &marker); wait_file(&marker); }\n",
+            &[(2, "wait_file"), (2, "wait_file::wait_until#1"), (3, "a::wait_file#1")],
+        ),
+        (
+            "fn a() { cmd.env(\"RATMAC_TEST_PAUSE_MARKER\", &hold.marker); }\nfn b() { loop { if other.marker.try_exists() {} } }\nfn c() { while other.release.exists() {} }\n",
+            &[(2, "b")],
+        ),
+        (
+            "fn a() { cmd.env(\"RATMAC_TEST_PAUSE_MARKER\", &marker); }\nfn b() { while marker.exists() {} }\n",
+            &[],
+        ),
+        (
+            "fn wait_file(path: &Path) { loop { fs::metadata(path); thread::sleep(limit); } }\nfn a() { cmd.env(\"RATMAC_TEST_PAUSE_MARKER\", &marker); wait_file(traced.hold_paths(\"hold\").0); }\n",
+            &[(1, "wait_file")],
+        ),
+        // A generic polling function's filesystem closure is a named site
+        // even when its marker parameter never enters a RATMAC_TEST setting.
+        (
+            "fn wait_until(predicate: impl FnMut() -> bool) { loop { if predicate() { break; } thread::sleep(limit); } }\nfn setting() { cmd.env(\"RATMAC_TEST_PAUSE_MARKER\", &marker); }\nfn park_external_holder(marker: &Path) { wait_until(|| marker.is_file()); }\n",
+            &[(3, "park_external_holder::wait_until#1")],
+        ),
+        (
+            "fn a() { cmd.env(\"RATMAC_TEST_PAUSE_MARKER\", marker_path.as_os_str());\nlet callback = move || { marker_path.metadata(); };\n}\n",
+            &[(2, "a")],
+        ),
+        // (a) A bounded `for` poll waits like `loop` and `while`; a `for`
+        // over post-exit checks that never pauses or breaks is not a wait.
+        (
+            "fn a() {\ncmd.env(\"RATMAC_TEST_PAUSE_MARKER\", &marker);\nfor _ in 0..50 { if marker.exists() { break; } thread::sleep(limit); }\n}\n",
+            &[(3, "a")],
+        ),
+        (
+            "fn a() { cmd.env(\"RATMAC_TEST_PAUSE_MARKER\", &marker); child.wait(); for what in [\"x\"] { assert!(!marker.exists(), \"{what}\"); } }\n",
+            &[],
+        ),
+        // (b) Marker names carry through `let` aliases to a fixed point: the
+        // same file (`&`, `clone`, `PathBuf::from`, `to_path_buf`, `as_path`)
+        // both ways, a path below it (`join`) only forwards.
+        (
+            "fn a() {\ncmd.env(\"RATMAC_TEST_PAUSE_MARKER\", &marker);\nlet seen = marker.clone();\nwhile !seen.exists() { thread::sleep(limit); }\n}\n",
+            &[(4, "a")],
+        ),
+        (
+            "fn a() {\ncmd.env(\"RATMAC_TEST_PAUSE_MARKER\", marker.as_os_str());\nlet first = &marker;\nlet second = PathBuf::from(first).to_path_buf();\nlet bytes = fs::read(second.as_path());\n}\n",
+            &[(5, "a")],
+        ),
+        (
+            "fn a() {\nlet marker = root.join(\"pause.marker\");\ncmd.env(\"RATMAC_TEST_PAUSE_MARKER\", &marker);\nlet nested = marker.join(\"\");\nwhile !root.exists() {}\nwhile !nested.is_file() {}\n}\n",
+            &[(6, "a")],
+        ),
+        (
+            "fn arm(cmd: &mut Command, marker: &Path) { let owned = marker.to_path_buf(); cmd.env(\"RATMAC_TEST_PAUSE_MARKER\", &owned); }\nfn a() {\narm(&mut cmd, &m);\nlet bytes = fs::read_to_string(&m);\n}\n",
+            &[(4, "a")],
+        ),
+        // (c) A same-crate helper whose path parameter reaches a read, or a
+        // check inside a poll, makes the call that passes the marker the
+        // site; a lone post-exit check through a helper stays allowed.
+        (
+            "fn slurp(path: &Path) -> Vec<u8> { fs::read(path).unwrap_or_default() }\nfn a() {\ncmd.env(\"RATMAC_TEST_PAUSE_MARKER\", &marker);\nloop { if slurp(&marker).ends_with(b\"\\n\") { break; } thread::sleep(limit); }\n}\n",
+            &[(4, "a::slurp#1")],
+        ),
+        (
+            "fn slurp(path: &Path) -> Vec<u8> { fs::read(path).unwrap_or_default() }\nfn a() {\ncmd.env(\"RATMAC_TEST_PAUSE_MARKER\", &marker);\nchild.wait();\nlet bytes = slurp(&marker);\n}\n",
+            &[(5, "a::slurp#1")],
+        ),
+        (
+            "fn slurp(path: &Path) -> Vec<u8> { fs::read(path).unwrap_or_default() }\nfn wait_line(marker: &Path) -> Vec<u8> { loop { let bytes = slurp(marker); if bytes.ends_with(b\"\\n\") { return bytes; } thread::sleep(limit); } }\nfn a() {\ncmd.env(\"RATMAC_TEST_PAUSE_MARKER\", &marker);\nwait_line(&marker);\n}\n",
+            &[(5, "a::wait_line#1")],
+        ),
+        (
+            "fn present(path: &Path) -> bool { path.is_file() }\nfn a() {\ncmd.env(\"RATMAC_TEST_PAUSE_MARKER\", &marker);\nwhile !present(&marker) { thread::sleep(limit); }\nchild.wait();\nassert!(present(&marker));\n}\n",
+            &[(4, "a::present#1")],
+        ),
+        // (d) Every std access form of the marker path.
+        (
+            "fn a() {\ncmd.env(\"RATMAC_TEST_PAUSE_MARKER\", &marker);\nlet file = OpenOptions::new().read(true).open(&marker);\n}\n",
+            &[(3, "a")],
+        ),
+        (
+            "fn a() {\ncmd.env(\"RATMAC_TEST_PAUSE_MARKER\", &marker);\nlet file = std::fs::File::open(&marker);\nlet meta = fs::metadata(&marker);\n}\n",
+            &[(3, "a"), (4, "a")],
+        ),
+        (
+            "fn a() {\ncmd.env(\"RATMAC_TEST_PAUSE_MARKER\", &marker);\nwhile !Path::exists(&marker) { thread::sleep(limit); }\n}\n",
+            &[(3, "a")],
+        ),
+        (
+            "fn a() {\ncmd.env(\"RATMAC_TEST_PAUSE_MARKER\", &marker);\nlet link = fs::symlink_metadata(&marker);\nloop { if marker.symlink_metadata().is_ok() { break; } }\n}\n",
+            &[(3, "a"), (4, "a")],
+        ),
+        // (e) Keys held in a `static` or built by `format!` with the key's
+        // literal shape, and a helper that sets the key on its own local
+        // and returns that path.
+        (
+            "static PAUSE_KEY: &str = \"RATMAC_TEST_PAUSE_MARKER\";\nfn a() {\ncmd.env(PAUSE_KEY, &marker);\nwhile !marker.exists() {}\n}\n",
+            &[(4, "a")],
+        ),
+        (
+            "fn a() {\ncmd.env(format!(\"RATMAC_TEST_{}_MARKER\", kind), &marker);\nwhile !marker.exists() {}\n}\n",
+            &[(3, "a")],
+        ),
+        (
+            "fn arm(cmd: &mut Command, dir: &Path) -> PathBuf {\nlet marker = dir.join(\"pause.marker\");\ncmd.env(\"RATMAC_TEST_PAUSE_MARKER\", &marker);\nmarker\n}\nfn a() {\nlet seen = arm(&mut cmd, &dir);\nwhile !seen.exists() {}\n}\n",
+            &[(8, "a")],
+        ),
+        (STRUCT_FIELD, &[(8, "a")]),
+        (POSITION, &[(11, "a")]),
+        (RELAY, &[(8, "a")]),
+        (SELECTOR, &[(7, "a")]),
+    ];
+    let mut misread = Vec::new();
+    for (source, expected) in controls {
+        let sources = BTreeMap::from([("control.rs".to_owned(), (*source).to_owned())]);
+        let actual: Vec<(usize, String)> = marker_inventory(&sources)
+            .sites
+            .into_iter()
+            .map(|(_, line, item)| (line, item))
+            .collect();
+        let expected: Vec<(usize, String)> = expected
+            .iter()
+            .map(|(line, item)| (*line, (*item).to_owned()))
+            .collect();
+        if actual != expected {
+            misread.push(format!(
+                "{source}  expected {expected:?}\n  found    {actual:?}"
+            ));
+        }
+    }
+    // Coverage floor: every shared-wait call's path is a recognised marker,
+    // directly or through a wrapper parameter at each caller; otherwise the
+    // call (or that caller) is reported. The four indirect shapes are
+    // recognised, so a raw wait beside their shared waits cannot hide.
+    let floor: &[(&str, &[(usize, &str)])] = &[
+        (STRUCT_FIELD, &[]),
+        (POSITION, &[]),
+        (RELAY, &[]),
+        (SELECTOR, &[]),
+        (
+            "fn a() {\nawait_marker_line(&scratch, expected, limit);\n}\n",
+            &[(2, "a::await_marker_line#1")],
+        ),
+        (
+            "fn w(path: &Path) {\nawait_marker_line(path, expected, limit);\n}\nfn a() {\ncmd.env(\"RATMAC_TEST_PAUSE_MARKER\", &marker);\nw(&marker);\nw(&other);\n}\n",
+            &[(7, "a::w#2")],
+        ),
+    ];
+    for (source, expected) in floor {
+        let sources = BTreeMap::from([("control.rs".to_owned(), (*source).to_owned())]);
+        let actual: Vec<(usize, String)> = marker_inventory(&sources)
+            .unkeyed
+            .into_iter()
+            .map(|(_, line, call)| (line, call))
+            .collect();
+        let expected: Vec<(usize, String)> = expected
+            .iter()
+            .map(|(line, call)| (*line, (*call).to_owned()))
+            .collect();
+        if actual != expected {
+            misread.push(format!(
+                "{source}  expected unrecognised {expected:?}\n  found    {actual:?}"
+            ));
+        }
+    }
+    assert!(
+        misread.is_empty(),
+        "SVEV-015 control: the marker matcher misread {} of {} sources:\n{}",
+        misread.len(),
+        controls.len() + floor.len(),
+        misread.join("\n")
+    );
+    // Source scope is the crate, not the file: parameter propagation must
+    // cross from a lane's src/lib.rs helper into its tests/hidden.rs caller.
+    let sources = BTreeMap::from([
+        (
+            "src/lib.rs".to_owned(),
+            "fn settings(marker: &Path) { hold_env(\"RATMAC_TEST_LOCK_MARKER\", marker); }"
+                .to_owned(),
+        ),
+        (
+            "tests/hidden.rs".to_owned(),
+            "fn a() {\nsettings(&my_marker);\nlet _ = fs::read(&my_marker);\n}".to_owned(),
+        ),
+    ]);
+    assert_eq!(
+        marker_inventory(&sources).sites,
+        BTreeSet::from([("tests/hidden.rs".to_owned(), 3, "a".to_owned())]),
+        "SVEV-015 control: marker parameters propagate across files in one crate"
+    );
+    // Only the shared implementation is exempt from its own filesystem
+    // reads (and a call through it is no read-through helper), not another
+    // locally named copy in a lane.
+    let source = "fn await_marker_line(path: &Path) { loop { fs::read(path); thread::sleep(limit); } }\nfn setting() { cmd.env(\"RATMAC_TEST_PAUSE_MARKER\", &marker); await_marker_line(&marker); }";
+    assert!(
+        marker_inventory(&BTreeMap::from([(
+            "test/qa/src/support.rs".to_owned(),
+            source.to_owned()
+        )]))
+        .sites
+        .is_empty(),
+        "SVEV-015 control: the shared wait itself is not a bypass"
+    );
+    assert!(
+        !marker_inventory(&BTreeMap::from([(
+            "test-hidden/t-999/src/lib.rs".to_owned(),
+            source.to_owned()
+        )]))
+        .sites
+        .is_empty(),
+        "SVEV-015 control: a lane-local copy of the shared wait is a bypass"
+    );
+    let inventory = marker_inventory(&BTreeMap::from([("control.rs".to_owned(),
+        "fn a() { env_set(\"RATMAC_TEST_PAUSE_MARKER\", &marker); support::await_marker_line(&marker, expected, limit); }".to_owned())]));
+    assert!(
+        inventory.first_key.is_some() && inventory.shared_calls == 1,
+        "SVEV-015 control: a setting plus a shared call satisfies the crate floor"
+    );
+    let inventory = marker_inventory(&BTreeMap::from([("control.rs".to_owned(),
+        "fn await_marker_line() {}\nfn a() { let text = r#\"env_set(\"RATMAC_TEST_PAUSE_MARKER\", &marker); await_marker_line(marker);\"#; }\n// await_marker_line(marker);".to_owned())]));
+    assert!(
+        inventory.first_key.is_none() && inventory.shared_calls == 0,
+        "SVEV-015 control: declarations, comments, and strings do not satisfy the crate floor"
+    );
+}

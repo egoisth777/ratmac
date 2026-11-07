@@ -11,13 +11,14 @@
 
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
+use std::fmt;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 // --- owned temporary trees ---------------------------------------------------
 
@@ -117,6 +118,62 @@ impl Drop for TempTree {
             let _ = fs::remove_dir_all(&self.path);
         }
     }
+}
+
+// --- pause-marker lines ------------------------------------------------------
+
+/// The whole line a pause-marker wait accepts (SVE-005).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MarkerLine<'a> {
+    /// Exactly this line, including its one closing `\n`.
+    Exact(&'a str),
+    /// Any whole line that starts with this text (no `\n`); `""` accepts any
+    /// whole line.
+    Prefix(&'a str),
+}
+
+/// Why a pause-marker wait returned without the expected line.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MarkerWait {
+    /// No whole line by the limit: the last bytes read, `None` when no read
+    /// ever succeeded (the marker was missing or never readable).
+    NotYetPublished(Option<Vec<u8>>),
+    /// A whole line (or more) that is not the expected one.
+    OtherText(Vec<u8>),
+}
+
+impl fmt::Display for MarkerWait {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NotYetPublished(None) => {
+                formatter.write_str("marker not yet published (no read succeeded)")
+            }
+            Self::NotYetPublished(Some(bytes)) => write!(
+                formatter,
+                "marker not yet published (last read {:?})",
+                String::from_utf8_lossy(bytes)
+            ),
+            Self::OtherText(bytes) => write!(
+                formatter,
+                "marker holds another line: {:?}",
+                String::from_utf8_lossy(bytes)
+            ),
+        }
+    }
+}
+
+/// Wait up to `limit` for the pause marker at `path` to hold exactly one
+/// whole line (text closed by `\n`) that `expected` accepts, and return that
+/// line with its `\n`.
+///
+/// Red-phase stub (t-142): the shared whole-line wait does not exist yet.
+pub fn await_marker_line(
+    path: &Path,
+    expected: MarkerLine<'_>,
+    limit: Duration,
+) -> Result<String, MarkerWait> {
+    let _ = (path, expected, limit);
+    panic!("the shared whole-line wait does not exist yet (SVE-005 red stub)")
 }
 
 // --- scrubbed child processes ------------------------------------------------
