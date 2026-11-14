@@ -33,13 +33,19 @@
 //!   before any build attempt, so "did not produce an Engine" must not
 //!   appear. Rewording the build-failure refusal later means re-reading this
 //!   test, not just re-running it.
+//!
+//! SVEV-005 `svev_005` (t-144 / SVE-002, stable channel): under an inherited
+//! output redirect a stable build uses its build checkout's own `target`.
 
+use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use ratmac_qa::edition::{self, LEDGER_PATH};
+use ratmac_qa::support::TempTree;
 use ratmac_qa::tempgit::TempRepo;
+use sha2::{Digest, Sha256};
 
 /// The whole 40-hex hash commit A's own stale row cites: well-formed, so a
 /// script that wrongly judges it refuses at the disagreement, never at the
@@ -114,11 +120,23 @@ fn past_edition() -> (TempRepo, String, String) {
 
 /// `pwsh -NoProfile -File tools/rtm.ps1 -Channel stable` from `root`.
 fn bootstrap_stable(root: &Path) -> Output {
-    Command::new("pwsh")
+    bootstrap_stable_env(root, &[], &[])
+}
+
+/// `pwsh -NoProfile -File tools/rtm.ps1 -Channel stable` from `root`, with each
+/// variable in `remove` cleared and then each one in `set` given.
+fn bootstrap_stable_env(root: &Path, set: &[(&str, &OsStr)], remove: &[&str]) -> Output {
+    let mut command = Command::new("pwsh");
+    command
         .args(["-NoProfile", "-File", "tools/rtm.ps1", "-Channel", "stable"])
-        .current_dir(root)
-        .output()
-        .expect("invoke the stable bootstrap")
+        .current_dir(root);
+    for name in remove {
+        command.env_remove(name);
+    }
+    for (name, value) in set {
+        command.env(name, value);
+    }
+    command.output().expect("invoke the stable bootstrap")
 }
 
 fn text(output: &Output) -> String {
@@ -313,6 +331,190 @@ fn stable_resolves_from_the_invoking_checkout_and_builds_the_tagged_tree() {
         assert!(
             !refusal.contains("did not produce an Engine"),
             "the refusal fires at the tree check, before any build attempt:\n{refusal}"
+        );
+    }
+}
+
+// --- SVE-002: a stable build uses its build checkout's own target ------------
+
+/// The variables that move Cargo's output folders. The redirected check clears
+/// all four and then sets only what it names.
+const REDIRECTS: [&str; 4] = [
+    "CARGO_TARGET_DIR",
+    "CARGO_BUILD_TARGET_DIR",
+    "CARGO_BUILD_TARGET",
+    "CARGO_BUILD_BUILD_DIR",
+];
+
+/// The stable build checkout the bootstrap links beside a fixture root for an
+/// edition (ELR-002), removed when the check that made it ends, passing or not.
+struct BuildCheckout(PathBuf);
+
+impl BuildCheckout {
+    fn beside(root: &Path, edition: &str) -> Self {
+        let leaf = root
+            .file_name()
+            .expect("the fixture root has a name")
+            .to_string_lossy()
+            .into_owned();
+        Self(
+            root.parent()
+                .expect("the fixture root has a parent")
+                .join(format!("{leaf}-stable-{edition}")),
+        )
+    }
+}
+
+impl Drop for BuildCheckout {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+/// The text after `prefix` on each report line that starts with it.
+fn report_lines<'a>(report: &'a str, prefix: &str) -> Vec<&'a str> {
+    report
+        .lines()
+        .filter_map(|line| line.strip_prefix(prefix))
+        .map(str::trim)
+        .collect()
+}
+
+/// `path` as it resolves on disk, with `/` separators and no verbatim prefix,
+/// and without case on Windows, where paths compare without it.
+fn resolved(path: &Path) -> String {
+    let canonical = path
+        .canonicalize()
+        .unwrap_or_else(|error| panic!("resolve {}: {error}", path.display()));
+    let text = canonical.to_string_lossy().replace('\\', "/");
+    let text = text.strip_prefix("//?/").unwrap_or(&text);
+    if cfg!(windows) {
+        text.to_lowercase()
+    } else {
+        text.to_owned()
+    }
+}
+
+/// Whether `path` lies below `folder`, both as they resolve on disk.
+fn inside(path: &Path, folder: &Path) -> bool {
+    resolved(path).starts_with(&format!("{}/", resolved(folder).trim_end_matches('/')))
+}
+
+fn sha256_file(path: &Path) -> String {
+    let bytes = fs::read(path).expect("read the reported engine");
+    format!("{:x}", Sha256::digest(&bytes))
+}
+
+/// The linked build checkout standing at `commit`.
+fn build_checkout_at(repo: &TempRepo, commit: &str) -> PathBuf {
+    let others = linked_worktrees(repo);
+    others
+        .iter()
+        .find(|(_, head)| head == commit)
+        .map(|(path, _)| path.clone())
+        .unwrap_or_else(|| {
+            panic!("a build checkout stands at the tagged commit {commit}; registered: {others:?}")
+        })
+}
+
+/// SVEV-005 (SVE-002), stable channel: with `CARGO_TARGET_DIR` inherited and
+/// naming an empty folder outside the fixture, `-Channel stable` builds into
+/// the build checkout's own `target`, reports Cargo's executable there, and
+/// leaves the redirect folder empty; with a relative `CARGO_BUILD_BUILD_DIR`
+/// inherited as well, a second stable run passes the clean-tree check.
+#[test]
+fn svev_005() {
+    // The inherited output redirect alone.
+    {
+        let (repo, a, _b) = past_edition();
+        let _checkout = BuildCheckout::beside(repo.root(), "edition-001");
+        let redirect = TempTree::new("t102-svev005-redirect").expect("create the redirect folder");
+        let run = bootstrap_stable_env(
+            repo.root(),
+            &[("CARGO_TARGET_DIR", redirect.path().as_os_str())],
+            &REDIRECTS,
+        );
+        let report = text(&run);
+        assert!(
+            run.status.success(),
+            "SVEV-005 (stable): under an inherited CARGO_TARGET_DIR the stable bootstrap builds \
+             the tagged tree into its build checkout's own target and succeeds:\n{report}"
+        );
+        let worktree = build_checkout_at(&repo, &a);
+        let engines = report_lines(&report, "Engine: ");
+        assert_eq!(
+            engines.len(),
+            1,
+            "SVEV-005 (stable): one Engine: line:\n{report}"
+        );
+        let engine = PathBuf::from(engines[0]);
+        assert!(
+            engine.is_file() && inside(&engine, &worktree.join("target")),
+            "SVEV-005 (stable): the Engine is the executable Cargo reported in the build \
+             checkout's own target {}:\n{report}",
+            worktree.join("target").display()
+        );
+        assert_eq!(
+            report_lines(&report, "sha256: "),
+            [sha256_file(&engine).as_str()],
+            "SVEV-005 (stable): sha256: is that file's hash:\n{report}"
+        );
+        let stamp = Command::new(&engine)
+            .output()
+            .expect("run the reported engine");
+        let provenance = text(&stamp);
+        assert!(
+            provenance.contains("channel=stable")
+                && provenance.contains(&format!("source-commit={a}")),
+            "SVEV-005 (stable): the reported engine carries the stable stamps:\n{provenance}"
+        );
+        let left: Vec<PathBuf> = fs::read_dir(redirect.path())
+            .expect("read the redirect folder")
+            .map(|entry| entry.expect("read a redirect entry").path())
+            .collect();
+        assert!(
+            left.is_empty(),
+            "SVEV-005 (stable): the redirect folder stays empty: {left:?}"
+        );
+        assert!(
+            !repo.root().join("target").exists(),
+            "SVEV-005 (stable): the invoking tree stays unwritten"
+        );
+    }
+
+    // A relative build folder inherited as well.
+    {
+        let (repo, a, _b) = past_edition();
+        let _checkout = BuildCheckout::beside(repo.root(), "edition-001");
+        let redirect =
+            TempTree::new("t102-svev005-build-folder").expect("create the redirect folder");
+        let set = [
+            ("CARGO_TARGET_DIR", redirect.path().as_os_str()),
+            ("CARGO_BUILD_BUILD_DIR", OsStr::new("inter")),
+        ];
+        let first = bootstrap_stable_env(repo.root(), &set, &REDIRECTS);
+        let first_report = text(&first);
+        assert!(
+            first.status.success(),
+            "SVEV-005 (stable): with a relative CARGO_BUILD_BUILD_DIR inherited as well the \
+             first stable run succeeds:\n{first_report}"
+        );
+        let second = bootstrap_stable_env(repo.root(), &set, &REDIRECTS);
+        let second_report = text(&second);
+        assert!(
+            second.status.success() && !second_report.contains("differs from the tagged commit"),
+            "SVEV-005 (stable): a second stable run passes the clean-tree check:\n{second_report}"
+        );
+        assert_eq!(
+            report_lines(&second_report, "Engine: "),
+            report_lines(&first_report, "Engine: "),
+            "SVEV-005 (stable): the second run reports the same Engine:\n{second_report}"
+        );
+        let worktree = build_checkout_at(&repo, &a);
+        assert!(
+            !worktree.join("inter").exists(),
+            "SVEV-005 (stable): the inherited relative build folder never lands in the build \
+             checkout"
         );
     }
 }

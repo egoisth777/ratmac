@@ -8,11 +8,14 @@
 //! HT-053-04 `doctor_survives_corrupt_state_and_held_lock`
 //! HT-053-05 `bootstrap_writes_only_declared_build_output`
 //! HT-053-06 `bootstrap_refusal_quotes_recorded_identity_fields`
+//! SVEV-004 `svev_004`, SVEV-005 `svev_005` (project root), SVEV-006 `svev_006`
+//! (t-144 / SVE-002: the Engine is the executable Cargo reported)
 //!
 //! A fresh session must be able to orient and start without ad-hoc installs:
 //! one documented command resolves or builds the Engine offline and refuses on
 //! pin mismatch, and the doctor diagnoses the project while writing nothing.
 
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -64,12 +67,31 @@ impl Boot {
         binary
     }
 
+    /// The bootstrap with the fixture's own `target` named to Cargo and the
+    /// other output redirects cleared (SVE-002: the doctor suite's
+    /// planted-binary tests set `CARGO_TARGET_DIR` to the fixture's own
+    /// `target` and clear `CARGO_BUILD_TARGET` for the bootstrap they start,
+    /// so no inherited redirect or Cargo configuration file moves their
+    /// output; `CARGO_BUILD_BUILD_DIR` is cleared for the same reason).
     fn bootstrap(&self) -> Output {
-        Command::new("pwsh")
+        let own = self.root.join("target");
+        self.bootstrap_env(&[("CARGO_TARGET_DIR", own.as_os_str())], &REDIRECTS)
+    }
+
+    /// `pwsh -NoProfile -File tools/rtm.ps1` from the root, with each variable
+    /// in `remove` cleared and then each one in `set` given.
+    fn bootstrap_env(&self, set: &[(&str, &OsStr)], remove: &[&str]) -> Output {
+        let mut command = Command::new("pwsh");
+        command
             .args(["-NoProfile", "-File", "tools/rtm.ps1"])
-            .current_dir(&self.root)
-            .output()
-            .expect("invoke the bootstrap")
+            .current_dir(&self.root);
+        for name in remove {
+            command.env_remove(name);
+        }
+        for (name, value) in set {
+            command.env(name, value);
+        }
+        command.output().expect("invoke the bootstrap")
     }
 
     fn rtm(&self, args: &[&str]) -> Output {
@@ -591,5 +613,426 @@ fn bootstrap_writes_only_declared_build_output() {
         sha256_file(&built),
         hash,
         "the second run rebuilt nothing it did not have to"
+    );
+}
+
+// --- SVE-002: the Engine is the executable Cargo reported -------------------
+
+/// The variables that move Cargo's output folders. Every bootstrap this suite
+/// starts clears all four and then sets only what its check names, so no
+/// inherited redirect decides a verdict.
+const REDIRECTS: [&str; 4] = [
+    "CARGO_TARGET_DIR",
+    "CARGO_BUILD_TARGET_DIR",
+    "CARGO_BUILD_TARGET",
+    "CARGO_BUILD_BUILD_DIR",
+];
+
+/// The refusal a failed build keeps.
+const BUILD_FAILED: &str = "the project-local build did not produce an Engine";
+
+/// The text after `prefix` on each report line that starts with it.
+fn report_lines<'a>(report: &'a str, prefix: &str) -> Vec<&'a str> {
+    report
+        .lines()
+        .filter_map(|line| line.strip_prefix(prefix))
+        .map(str::trim)
+        .collect()
+}
+
+/// Text with `/` separators and no verbatim prefix, and without case on
+/// Windows, where paths compare without it.
+fn spelled(text: &str) -> String {
+    let text = text.replace('\\', "/");
+    let text = text.strip_prefix("//?/").unwrap_or(&text);
+    if cfg!(windows) {
+        text.to_lowercase()
+    } else {
+        text.to_owned()
+    }
+}
+
+/// `path` as it resolves on disk, spelled for comparison.
+fn resolved(path: &Path) -> String {
+    let canonical = path
+        .canonicalize()
+        .unwrap_or_else(|error| panic!("resolve {}: {error}", path.display()));
+    spelled(&canonical.to_string_lossy())
+}
+
+/// Whether `path` lies below `folder`, both as they resolve on disk.
+fn inside(path: &Path, folder: &Path) -> bool {
+    resolved(path).starts_with(&format!("{}/", resolved(folder).trim_end_matches('/')))
+}
+
+/// Record an Engine pin where the bootstrap reads it when this ticket lands,
+/// `.ratmac/evidence.toml`, through the Engine's own pin record.
+fn record_pin(root: &Path, engine: &Path, sha256: &str) {
+    let mut evidence = Evidence::load(&root.join(".ratmac"));
+    evidence.set_engine(Identity {
+        resolved: engine.to_string_lossy().into_owned(),
+        sha256: sha256.to_owned(),
+        ..Identity::default()
+    });
+    evidence
+        .write(&root.join(".ratmac"))
+        .expect("record the Engine pin");
+}
+
+/// Change the fixture's `rtm` source so it no longer compiles.
+fn break_source(root: &Path) {
+    fs::write(
+        root.join("src/main.rs"),
+        "fn main() { this_does_not_compile }\n",
+    )
+    .expect("break the fixture source");
+}
+
+/// A `.cargo/config.toml` in the fixture whose `build.target-dir` is `folder`.
+fn configure_target_dir(root: &Path, folder: &str) {
+    fs::create_dir_all(root.join(".cargo")).expect("create the Cargo configuration folder");
+    fs::write(
+        root.join(".cargo/config.toml"),
+        format!("[build]\ntarget-dir = \"{folder}\"\n"),
+    )
+    .expect("write the Cargo configuration");
+}
+
+/// A stand-in `cargo` in `bin`. It answers `cargo metadata` with `folder` as
+/// both output folders, and the build with success and no artifact record at
+/// all, so Cargo reports no `rtm` executable.
+fn stand_in_cargo(bin: &Path, folder: &Path, root: &Path) {
+    let slashed = |path: &Path| path.to_string_lossy().replace('\\', "/");
+    let metadata = format!(
+        "{{\"version\":1,\"packages\":[],\"workspace_members\":[],\
+         \"target_directory\":\"{folder}\",\"build_directory\":\"{folder}\",\
+         \"workspace_root\":\"{root}\"}}",
+        folder = slashed(folder),
+        root = slashed(root),
+    );
+    let finished = "{\"reason\":\"build-finished\",\"success\":true}";
+    // Labels, not parenthesised blocks: a `)` in an echoed line would end one.
+    #[cfg(windows)]
+    {
+        fs::write(
+            bin.join("cargo.cmd"),
+            format!(
+                "@echo off\r\nif \"%~1\"==\"metadata\" goto metadata\r\necho {finished}\r\n\
+                 exit /b 0\r\n:metadata\r\necho {metadata}\r\nexit /b 0\r\n"
+            ),
+        )
+        .expect("write the stand-in cargo");
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let script = bin.join("cargo");
+        fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\nif [ \"$1\" = metadata ]; then\n  printf '%s\\n' '{metadata}'\n  exit 0\nfi\n\
+                 printf '%s\\n' '{finished}'\nexit 0\n"
+            ),
+        )
+        .expect("write the stand-in cargo");
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755))
+            .expect("make the stand-in cargo executable");
+    }
+}
+
+/// A child's `PATH`: `first`, then this process's own.
+fn child_path(first: &Path) -> OsString {
+    let inherited = std::env::var_os("PATH").unwrap_or_default();
+    std::env::join_paths(
+        std::iter::once(first.to_path_buf()).chain(std::env::split_paths(&inherited)),
+    )
+    .expect("join the child PATH")
+}
+
+/// SVEV-004 (SVE-002): the fixture's output moved in turn by
+/// `CARGO_TARGET_DIR` to a folder outside the fixture, by a `build.target-dir`
+/// setting in its `.cargo/config.toml` naming a folder outside it, and by one
+/// naming a folder inside it other than `target`. Each first run exits 0, its
+/// `Engine:` line names the executable Cargo reported in that folder,
+/// `sha256:` is that file's hash, and with a pin recorded for it the pin reads
+/// `Pin: matches`. With the source then broken, the folder inside the fixture
+/// is reused with the same lines; with a folder outside, the second run builds
+/// first and refuses as a failed build.
+#[test]
+fn svev_004() {
+    for case in ["environment", "config-outside", "config-inside"] {
+        let boot = Boot::new(&format!("svev004-{case}"));
+        let outside = TempTree::new(&format!("t053-svev004-{case}-output"))
+            .expect("create the folder outside the fixture");
+        let mut set: Vec<(&str, &OsStr)> = Vec::new();
+        let folder = match case {
+            "environment" => {
+                set.push(("CARGO_TARGET_DIR", outside.path().as_os_str()));
+                outside.path().to_path_buf()
+            }
+            "config-outside" => {
+                let named = outside.path().to_string_lossy().replace('\\', "/");
+                configure_target_dir(&boot.root, &named);
+                outside.path().to_path_buf()
+            }
+            _ => {
+                configure_target_dir(&boot.root, "out");
+                boot.root.join("out")
+            }
+        };
+
+        let first = boot.bootstrap_env(&set, &REDIRECTS);
+        let report = text(&first);
+        assert!(
+            first.status.success(),
+            "SVEV-004 ({case}): the first run exits 0 with the executable Cargo reported in \
+             {}: {report}",
+            folder.display()
+        );
+        let engines = report_lines(&report, "Engine: ");
+        assert_eq!(
+            engines.len(),
+            1,
+            "SVEV-004 ({case}): one Engine: line: {report}"
+        );
+        let engine = PathBuf::from(engines[0]);
+        assert!(
+            engine.is_file() && engine.file_name() == Some(OsStr::new(engine_file_name())),
+            "SVEV-004 ({case}): the Engine: line names an rtm executable: {report}"
+        );
+        assert!(
+            inside(&engine, &folder),
+            "SVEV-004 ({case}): the Engine is the file Cargo reported in {}, never one at \
+             another path: {report}",
+            folder.display()
+        );
+        let hash = sha256_file(&engine);
+        assert_eq!(
+            report_lines(&report, "sha256: "),
+            [hash.as_str()],
+            "SVEV-004 ({case}): sha256: is that file's hash: {report}"
+        );
+
+        record_pin(&boot.root, &engine, &hash);
+        let pinned = boot.bootstrap_env(&set, &REDIRECTS);
+        let pinned_report = text(&pinned);
+        assert!(
+            pinned.status.success(),
+            "SVEV-004 ({case}): with the pin recorded for that file the run exits 0: \
+             {pinned_report}"
+        );
+        assert_eq!(
+            (
+                report_lines(&pinned_report, "Engine: "),
+                report_lines(&pinned_report, "sha256: "),
+            ),
+            (engines.clone(), vec![hash.as_str()]),
+            "SVEV-004 ({case}): the pinned run reports the same Engine: {pinned_report}"
+        );
+        assert!(
+            pinned_report.contains("Pin: matches"),
+            "SVEV-004 ({case}): the pin reads `Pin: matches`: {pinned_report}"
+        );
+
+        break_source(&boot.root);
+        let second = boot.bootstrap_env(&set, &REDIRECTS);
+        let second_report = text(&second);
+        if case == "config-inside" {
+            assert!(
+                second.status.success(),
+                "SVEV-004 ({case}): with the folder inside the fixture a second run reuses \
+                 the Engine even with the source broken: {second_report}"
+            );
+            assert_eq!(
+                (
+                    report_lines(&second_report, "Engine: "),
+                    report_lines(&second_report, "sha256: "),
+                ),
+                (engines.clone(), vec![hash.as_str()]),
+                "SVEV-004 ({case}): the reuse reports the same Engine: and sha256: lines: \
+                 {second_report}"
+            );
+        } else {
+            assert_eq!(
+                second.status.code(),
+                Some(1),
+                "SVEV-004 ({case}): with the folder outside the fixture the second run \
+                 builds first and refuses: {second_report}"
+            );
+            assert!(
+                second_report.contains(BUILD_FAILED),
+                "SVEV-004 ({case}): the refusal is the failed build's: {second_report}"
+            );
+            assert!(
+                report_lines(&second_report, "Engine: ").is_empty(),
+                "SVEV-004 ({case}): a refusal prints no Engine: line: {second_report}"
+            );
+        }
+    }
+}
+
+/// SVEV-005 (SVE-002), project root: with `CARGO_TARGET_DIR` naming an empty
+/// folder outside the fixture and stand-in binaries of different bytes at the
+/// fixture's `target/release` and `target/debug`, the bootstrap builds and
+/// reports the fresh binary's path and hash, never a stand-in's, and the
+/// stand-ins stay byte-identical; pinning a stand-in's hash refuses with "the
+/// resolved Engine is not the pinned Engine".
+#[test]
+fn svev_005() {
+    let boot = Boot::new("svev005");
+    let output = TempTree::new("t053-svev005-output").expect("create the redirect folder");
+    let stand_ins: Vec<(PathBuf, &[u8])> = [
+        ("target/release", b"stand-in release\n".as_slice()),
+        ("target/debug", b"stand-in debug\n".as_slice()),
+    ]
+    .into_iter()
+    .map(|(folder, bytes)| {
+        let folder = boot.root.join(folder);
+        fs::create_dir_all(&folder).expect("create the stand-in folder");
+        let stand_in = folder.join(engine_file_name());
+        fs::write(&stand_in, bytes).expect("plant a stand-in");
+        (stand_in, bytes)
+    })
+    .collect();
+    let stand_in_hashes: Vec<String> = stand_ins
+        .iter()
+        .map(|(stand_in, _)| sha256_file(stand_in))
+        .collect();
+    let set = [("CARGO_TARGET_DIR", output.path().as_os_str())];
+
+    // Valid control: the first run exits 0 with a real build.
+    let built = boot.bootstrap_env(&set, &REDIRECTS);
+    let report = text(&built);
+    assert!(
+        built.status.success(),
+        "SVEV-005: the bootstrap builds and exits 0: {report}"
+    );
+    let engines = report_lines(&report, "Engine: ");
+    assert_eq!(engines.len(), 1, "SVEV-005: one Engine: line: {report}");
+    let engine = PathBuf::from(engines[0]);
+    assert!(
+        engine.is_file() && inside(&engine, output.path()),
+        "SVEV-005: the Engine is the fresh binary Cargo built in the redirect folder {}, \
+         never a stand-in under the fixture's target: {report}",
+        output.path().display()
+    );
+    let hash = sha256_file(&engine);
+    assert_eq!(
+        report_lines(&report, "sha256: "),
+        [hash.as_str()],
+        "SVEV-005: sha256: is the fresh binary's hash: {report}"
+    );
+    assert!(
+        !stand_in_hashes.contains(&hash),
+        "SVEV-005: the reported hash is no stand-in's: {report}"
+    );
+    for (stand_in, bytes) in &stand_ins {
+        assert_eq!(
+            fs::read(stand_in).expect("read a stand-in"),
+            *bytes,
+            "SVEV-005: the stand-in {} stays byte-identical",
+            stand_in.display()
+        );
+    }
+
+    // A pin naming the release stand-in's hash refuses.
+    record_pin(&boot.root, &stand_ins[0].0, &stand_in_hashes[0]);
+    let refused = boot.bootstrap_env(&set, &REDIRECTS);
+    let refusal = text(&refused);
+    assert_eq!(
+        refused.status.code(),
+        Some(1),
+        "SVEV-005: a pin naming a stand-in's hash refuses: {refusal}"
+    );
+    assert!(
+        refusal.contains("the resolved Engine is not the pinned Engine"),
+        "SVEV-005: the refusal is the pin mismatch: {refusal}"
+    );
+    assert!(
+        report_lines(&String::from_utf8_lossy(&refused.stdout), "Engine: ").is_empty(),
+        "SVEV-005: the refusal reports no Engine: {refusal}"
+    );
+    for (stand_in, bytes) in &stand_ins {
+        assert_eq!(
+            fs::read(stand_in).expect("read a stand-in"),
+            *bytes,
+            "SVEV-005: the stand-in {} stays byte-identical",
+            stand_in.display()
+        );
+    }
+}
+
+/// SVEV-006 (SVE-002): a stand-in `cargo` first on the child's `PATH` succeeds
+/// but reports no `rtm` executable and resolves an empty output folder, and a
+/// stand-in binary sits at the fixture's `target/debug`. The bootstrap exits 1
+/// with a `bootstrap refused:` line naming what it searched and the repair,
+/// prints no `Engine:` line, and never names the stand-in.
+#[test]
+fn svev_006() {
+    let boot = Boot::new("svev006");
+    let planted = boot.root.join("target/debug");
+    fs::create_dir_all(&planted).expect("create the stand-in folder");
+    let stand_in = planted.join(engine_file_name());
+    fs::write(&stand_in, b"stand-in\n").expect("plant the stand-in binary");
+    let stand_in_hash = sha256_file(&stand_in);
+
+    // Valid control: the same fixture with the toolchain's own cargo exits 0,
+    // so the refusal below is Cargo's answer, never a fixture that cannot run.
+    let control_output =
+        TempTree::new("t053-svev006-control").expect("create the control's output folder");
+    let control = boot.bootstrap_env(
+        &[("CARGO_TARGET_DIR", control_output.path().as_os_str())],
+        &REDIRECTS,
+    );
+    assert!(
+        control.status.success(),
+        "SVEV-006 control: without the stand-in cargo the fixture bootstraps: {}",
+        text(&control)
+    );
+
+    let empty = TempTree::new("t053-svev006-empty").expect("create the empty output folder");
+    let bin = TempTree::new("t053-svev006-bin").expect("create the stand-in cargo folder");
+    stand_in_cargo(bin.path(), empty.path(), &boot.root);
+    let path = child_path(bin.path());
+    let refused = boot.bootstrap_env(&[("PATH", path.as_os_str())], &REDIRECTS);
+    let report = text(&refused);
+    assert_eq!(
+        refused.status.code(),
+        Some(1),
+        "SVEV-006: when Cargo reports no Engine the bootstrap refuses with exit 1: {report}"
+    );
+    let stderr = String::from_utf8_lossy(&refused.stderr);
+    let refusal = stderr
+        .lines()
+        .find(|line| line.starts_with("bootstrap refused:"))
+        .unwrap_or_else(|| {
+            panic!("SVEV-006: a `bootstrap refused:` line on standard error: {report}")
+        });
+    assert!(
+        refusal.contains("searched:")
+            && refusal.contains("Cargo reported")
+            && refusal.contains("repair:"),
+        "SVEV-006: the `bootstrap refused:` line names what it searched, what Cargo reported and the repair: \
+         {refusal}"
+    );
+    assert!(
+        report_lines(&report, "Engine: ").is_empty(),
+        "SVEV-006: a refusal prints no Engine: line: {report}"
+    );
+    let shown = spelled(&report);
+    let target = boot.root.join("target");
+    for spelling in [
+        spelled(&target.to_string_lossy()),
+        resolved(&target),
+        spelled(&format!("target/debug/{}", engine_file_name())),
+    ] {
+        assert!(
+            !shown.contains(&spelling),
+            "SVEV-006: the bootstrap never names the stand-in ({spelling}): {report}"
+        );
+    }
+    assert!(
+        !report.contains(&stand_in_hash),
+        "SVEV-006: the refusal never names the stand-in's hash: {report}"
     );
 }
