@@ -21,10 +21,11 @@
 //! Every fixture is its own temporary Git repository carrying a routed copy
 //! of the shipped Runbook: the recorded base bytes (the sha256 the ticket
 //! pins) plus the eight blocked self-routes WRS-003 declares. The repository's
-//! tracked `.ratmac/ratmac.toml` is never read to prove the eight routes. All
-//! Engine invocations go through the in-process library entry so the t-129
-//! test trust injection participates where a fixture is governed; every
-//! signing key is generated with the host's real `ssh-keygen`.
+//! tracked `.ratmac/ratmac.toml` is never read to prove the eight routes.
+//! Unarmed commands use the in-process library entry so t-129 test trust
+//! participates where a fixture is governed; barrier-armed commands use a
+//! scrubbed child. Every signing key is generated with the host's real
+//! `ssh-keygen`.
 
 use ratmac::cli;
 use ratmac::machine::MachineClass;
@@ -2641,16 +2642,21 @@ fn wrsv_003_08() {
 
     // An interruption before publication refuses with today's barrier text
     // and leaves every persisted byte unchanged.
-    std::env::set_var("RATMAC_TEST_HOLD_BARRIER", "before-journal-publication");
-    std::env::set_var("RATMAC_TEST_HOLD_BARRIER_MARKER", &marker);
-    std::env::set_var("RATMAC_TEST_HOLD_BARRIER_RELEASE", &release);
-    std::env::set_var("RATMAC_TEST_HOLD_BARRIER_TIMEOUT_MILLIS", "1");
+
     let before = cycle.snapshot();
-    let refused = cycle.hold(&run, BLOCKER);
-    std::env::remove_var("RATMAC_TEST_HOLD_BARRIER");
-    std::env::remove_var("RATMAC_TEST_HOLD_BARRIER_MARKER");
-    std::env::remove_var("RATMAC_TEST_HOLD_BARRIER_RELEASE");
-    std::env::remove_var("RATMAC_TEST_HOLD_BARRIER_TIMEOUT_MILLIS");
+    let refused = armed_motion(
+        &cycle,
+        "hold",
+        &run,
+        &Barrier {
+            boundary: "before-journal-publication",
+            marker: Some(&marker),
+            release: Some(&release),
+            timeout_millis: "1",
+        },
+    )
+    .finish();
+
     assert_eq!(
         refused.code, 1,
         "WRS-003: a graceful failure before publication refuses: {}{}",
@@ -2669,12 +2675,20 @@ fn wrsv_003_08() {
 
     // An interruption after publication reports the committed action
     // honestly and leaves the journal entry for recovery.
-    std::env::set_var("RATMAC_TEST_HOLD_BARRIER", "after-journal-publication");
-    std::env::set_var("RATMAC_TEST_HOLD_BARRIER_MARKER", &marker);
-    std::env::set_var("RATMAC_TEST_HOLD_BARRIER_RELEASE", &release);
-    std::env::set_var("RATMAC_TEST_HOLD_BARRIER_TIMEOUT_MILLIS", "1");
-    let committed = cycle.hold(&run, BLOCKER);
-    std::env::remove_var("RATMAC_TEST_HOLD_BARRIER_TIMEOUT_MILLIS");
+
+    let committed = armed_motion(
+        &cycle,
+        "hold",
+        &run,
+        &Barrier {
+            boundary: "after-journal-publication",
+            marker: Some(&marker),
+            release: Some(&release),
+            timeout_millis: "1",
+        },
+    )
+    .finish();
+
     assert_eq!(
         committed.code, 1,
         "WRS-003: a graceful failure after publication reports the commit: {}{}",
@@ -2803,15 +2817,20 @@ fn wrsv_003_08() {
     // The different-command branch: a second post-publication interruption
     // whose entry a competing mutating command reconciles first.
     cycle.resume_ok(&run, 1, "intake");
-    std::env::set_var("RATMAC_TEST_HOLD_BARRIER", "after-journal-publication");
-    std::env::set_var("RATMAC_TEST_HOLD_BARRIER_MARKER", &marker);
-    std::env::set_var("RATMAC_TEST_HOLD_BARRIER_RELEASE", &release);
-    std::env::set_var("RATMAC_TEST_HOLD_BARRIER_TIMEOUT_MILLIS", "1");
-    let interrupted_hold = cycle.hold(&run, BLOCKER);
-    std::env::remove_var("RATMAC_TEST_HOLD_BARRIER");
-    std::env::remove_var("RATMAC_TEST_HOLD_BARRIER_MARKER");
-    std::env::remove_var("RATMAC_TEST_HOLD_BARRIER_RELEASE");
-    std::env::remove_var("RATMAC_TEST_HOLD_BARRIER_TIMEOUT_MILLIS");
+
+    let interrupted_hold = armed_motion(
+        &cycle,
+        "hold",
+        &run,
+        &Barrier {
+            boundary: "after-journal-publication",
+            marker: Some(&marker),
+            release: Some(&release),
+            timeout_millis: "1",
+        },
+    )
+    .finish();
+
     assert_eq!(
         interrupted_hold.code, 1,
         "WRS-003: the second hold reports its commit: {}{}",
@@ -2876,13 +2895,20 @@ fn wrsv_003_08() {
     cycle.assert_pause_record(&run, 2, "intake", "runbook");
 
     // The same boundary serves resume identically.
-    std::env::set_var("RATMAC_TEST_HOLD_BARRIER", "after-journal-publication");
-    std::env::set_var("RATMAC_TEST_HOLD_BARRIER_TIMEOUT_MILLIS", "1");
-    let resume_committed = cycle.resume(&run, BLOCKER);
-    std::env::remove_var("RATMAC_TEST_HOLD_BARRIER");
-    std::env::remove_var("RATMAC_TEST_HOLD_BARRIER_MARKER");
-    std::env::remove_var("RATMAC_TEST_HOLD_BARRIER_RELEASE");
-    std::env::remove_var("RATMAC_TEST_HOLD_BARRIER_TIMEOUT_MILLIS");
+
+    let resume_committed = armed_motion(
+        &cycle,
+        "resume",
+        &run,
+        &Barrier {
+            boundary: "after-journal-publication",
+            marker: None,
+            release: None,
+            timeout_millis: "1",
+        },
+    )
+    .finish();
+
     assert_eq!(
         resume_committed.code, 1,
         "WRS-003: the interrupted resume reports its commit: {}{}",
@@ -2935,15 +2961,20 @@ fn wrsv_003_08() {
         reheld.stdout, reheld.message
     );
     let barrier_before = cycle.snapshot();
-    std::env::set_var("RATMAC_TEST_HOLD_BARRIER", "before-journal-publication");
-    std::env::set_var("RATMAC_TEST_HOLD_BARRIER_MARKER", &marker);
-    std::env::set_var("RATMAC_TEST_HOLD_BARRIER_RELEASE", &release);
-    std::env::set_var("RATMAC_TEST_HOLD_BARRIER_TIMEOUT_MILLIS", "1");
-    let refused_resume = cycle.resume(&run, BLOCKER);
-    std::env::remove_var("RATMAC_TEST_HOLD_BARRIER");
-    std::env::remove_var("RATMAC_TEST_HOLD_BARRIER_MARKER");
-    std::env::remove_var("RATMAC_TEST_HOLD_BARRIER_RELEASE");
-    std::env::remove_var("RATMAC_TEST_HOLD_BARRIER_TIMEOUT_MILLIS");
+
+    let refused_resume = armed_motion(
+        &cycle,
+        "resume",
+        &run,
+        &Barrier {
+            boundary: "before-journal-publication",
+            marker: Some(&marker),
+            release: Some(&release),
+            timeout_millis: "1",
+        },
+    )
+    .finish();
+
     assert_eq!(
         refused_resume.code, 1,
         "WRS-003: a graceful failure before the resume's publication refuses: {}{}",
@@ -2969,62 +3000,33 @@ fn wrsv_003_08() {
     let race_marker = race_cycle.root().join("qa/race-marker.md");
     let race_release = race_cycle.root().join("qa/race-release.md");
     fs::create_dir_all(race_cycle.root().join("qa")).expect("create the race directory");
-    std::env::set_var("RATMAC_TEST_HOLD_BARRIER", "after-journal-publication");
-    std::env::set_var("RATMAC_TEST_HOLD_BARRIER_MARKER", &race_marker);
-    std::env::set_var("RATMAC_TEST_HOLD_BARRIER_RELEASE", &race_release);
+
     // The holder must outlast the competing step's 5 s lock wait, so the
     // barrier's timeout is explicit rather than the default.
-    std::env::set_var("RATMAC_TEST_HOLD_BARRIER_TIMEOUT_MILLIS", "20000");
-    let race_root = race_cycle.root().to_path_buf();
-    let race_id = race_run.clone();
-    let race_blocker = BLOCKER.to_owned();
-    let holder = std::thread::spawn(move || {
-        let mut full = vec![
-            "rtm".to_owned(),
-            "hold".to_owned(),
-            "--run".to_owned(),
-            race_id,
-            "--blocker".to_owned(),
-            race_blocker,
-        ];
-        full.push("--confirm".to_owned());
-        full.push(format!("hold {}", full[3]));
-        let mut stdout = Vec::new();
-        let result = match cli::run_from(full, &race_root, &mut stdout) {
-            Ok(code) => Ran {
-                code,
-                stdout: String::from_utf8_lossy(&stdout).into_owned(),
-                message: String::new(),
-            },
-            Err(error) => Ran {
-                code: error.exit_code(),
-                stdout: String::from_utf8_lossy(&stdout).into_owned(),
-                message: error.to_string(),
-            },
-        };
-        result
-    });
+    let mut holder = armed_motion(
+        &race_cycle,
+        "hold",
+        &race_run,
+        &Barrier {
+            boundary: "after-journal-publication",
+            marker: Some(&race_marker),
+            release: Some(&race_release),
+            timeout_millis: "20000",
+        },
+    );
     // The hold is parked only once the barrier's whole line is published
     // (SVE-005); the wait runs in short slices so a holder that ends without
     // parking ends it early, and one last zero-limit read then decides.
     let race_line = "holding before after-journal-publication\n";
-    let deadline = Instant::now() + Duration::from_secs(4);
+    let deadline = Instant::now() + Duration::from_secs(15);
     let race_parked = loop {
         let left = deadline.saturating_duration_since(Instant::now());
-        let parked = support::await_marker_line(
-            &race_marker,
-            MarkerLine::Exact(race_line),
-            left.min(Duration::from_millis(100)),
-        );
+        let parked = holder.parked(left.min(Duration::from_millis(100)));
         if !matches!(parked, Err(MarkerWait::NotYetPublished(_))) || left.is_zero() {
             break parked;
         }
-        if holder.is_finished() {
-            break support::await_marker_line(
-                &race_marker,
-                MarkerLine::Exact(race_line),
-                Duration::ZERO,
-            );
+        if !holder.running() {
+            break holder.parked(Duration::ZERO);
         }
     };
     assert_eq!(
@@ -3047,7 +3049,7 @@ fn wrsv_003_08() {
         competing.message
     );
     fs::write(&race_release, "released\n").expect("release the barrier");
-    let held = holder.join().expect("the holding thread finished");
+    let held = holder.finish();
     assert_eq!(
         held.code, 0,
         "WRS-003: the released hold completes: {}{}",
@@ -3068,10 +3070,6 @@ fn wrsv_003_08() {
         .filter(|line| line.contains(&format!("- Hold: run {race_run} paused against")))
         .count();
     assert_eq!(race_holds, 1, "WRS-003: the race hold is recorded once");
-    std::env::remove_var("RATMAC_TEST_HOLD_BARRIER");
-    std::env::remove_var("RATMAC_TEST_HOLD_BARRIER_MARKER");
-    std::env::remove_var("RATMAC_TEST_HOLD_BARRIER_RELEASE");
-    std::env::remove_var("RATMAC_TEST_HOLD_BARRIER_TIMEOUT_MILLIS");
 
     // t-128's per-failure rule: the refused held step emits exactly one
     // refusal-code record for the new `held` kind - `run`, never a `path` -
@@ -3419,11 +3417,11 @@ struct Barrier<'a> {
     timeout_millis: &'a str,
 }
 
-/// Red: the existing process-wide mechanism, kept behind the green API.
-/// Unwinding releases and joins the holder before its fixture can drop.
+/// One barrier-armed Engine command, run as its own child process so its
+/// settings reach only that process (SVE-006). Dropping it, also while
+/// unwinding, kills and reaps an unfinished child before its fixture drops.
 struct Armed {
-    holder: Option<std::thread::JoinHandle<Ran>>,
-    release: Option<PathBuf>,
+    child: Option<std::process::Child>,
     /// The marker this command publishes its parked line at, when it names one.
     marker: Option<PathBuf>,
     /// The whole line it publishes there when it parks.
@@ -3432,25 +3430,29 @@ struct Armed {
 
 fn armed(root: &Path, args: &[&str], barrier: &Barrier<'_>) -> Armed {
     let marker = barrier.marker.map(Path::to_path_buf);
-    std::env::set_var("RATMAC_TEST_HOLD_BARRIER", barrier.boundary);
+    let mut command = support::command(ratmac_qa::engine_bin!(), root);
+    command
+        .args(args)
+        .env_remove("RATMAC_TRACE")
+        .env("RATMAC_TEST_HOLD_BARRIER", barrier.boundary)
+        .env(
+            "RATMAC_TEST_HOLD_BARRIER_TIMEOUT_MILLIS",
+            barrier.timeout_millis,
+        );
     if let Some(marker) = &marker {
-        std::env::set_var("RATMAC_TEST_HOLD_BARRIER_MARKER", marker);
+        command.env("RATMAC_TEST_HOLD_BARRIER_MARKER", marker);
     }
     if let Some(release) = barrier.release {
-        std::env::set_var("RATMAC_TEST_HOLD_BARRIER_RELEASE", release);
+        command.env("RATMAC_TEST_HOLD_BARRIER_RELEASE", release);
     }
-    std::env::set_var(
-        "RATMAC_TEST_HOLD_BARRIER_TIMEOUT_MILLIS",
-        barrier.timeout_millis,
-    );
-    let root = root.to_path_buf();
-    let args: Vec<String> = args.iter().map(|arg| (*arg).to_owned()).collect();
     Armed {
-        holder: Some(std::thread::spawn(move || {
-            let args: Vec<&str> = args.iter().map(String::as_str).collect();
-            rtm(&root, &args)
-        })),
-        release: barrier.release.map(Path::to_path_buf),
+        child: Some(
+            command
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .expect("SVE-006: start the armed Engine child"),
+        ),
         marker,
         parked_line: format!("holding before {}\n", barrier.boundary),
     }
@@ -3468,32 +3470,39 @@ impl Armed {
     }
 
     fn running(&mut self) -> bool {
-        self.holder
-            .as_ref()
-            .is_some_and(|holder| !holder.is_finished())
+        self.child.as_mut().is_some_and(|child| {
+            child
+                .try_wait()
+                .expect("SVE-006: inspect the armed child")
+                .is_none()
+        })
     }
 
     fn finish(mut self) -> Ran {
-        self.holder
+        let output = self
+            .child
             .take()
-            .expect("SVE-006: live holder")
-            .join()
-            .expect("SVE-006: the armed invocation finished")
+            .expect("SVE-006: live armed child")
+            .wait_with_output()
+            .expect("SVE-006: await the armed Engine child");
+        // The binary adds exactly this prefix and one LF to the library diagnosis.
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let message = stderr.strip_prefix("rtm: ").unwrap_or(&stderr);
+        let message = message.strip_suffix('\n').unwrap_or(message).to_owned();
+        Ran {
+            code: output.status.code().unwrap_or(1),
+            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+            message,
+        }
     }
 }
 
 impl Drop for Armed {
     fn drop(&mut self) {
-        if let Some(holder) = self.holder.take() {
-            if let Some(release) = &self.release {
-                let _ = fs::write(release, "released on drop\n");
-            }
-            let _ = holder.join();
+        if let Some(mut child) = self.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
         }
-        std::env::remove_var("RATMAC_TEST_HOLD_BARRIER");
-        std::env::remove_var("RATMAC_TEST_HOLD_BARRIER_MARKER");
-        std::env::remove_var("RATMAC_TEST_HOLD_BARRIER_RELEASE");
-        std::env::remove_var("RATMAC_TEST_HOLD_BARRIER_TIMEOUT_MILLIS");
     }
 }
 

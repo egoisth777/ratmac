@@ -37,7 +37,6 @@ use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Output;
-use std::sync::{Mutex, MutexGuard};
 
 /// Where a feature build appends one line per resolution.
 const LOG_VAR: &str = "RATMAC_TEST_ROOT_LOG";
@@ -45,12 +44,8 @@ const LOG_VAR: &str = "RATMAC_TEST_ROOT_LOG";
 const REPEAT_VAR: &str = "RATMAC_TEST_ROOT_REPEAT";
 
 /// Serializes every use of this process's `RATMAC_TEST_*` variables.
-static ROOT_LANE: Mutex<()> = Mutex::new(());
-
-fn root_lane() -> MutexGuard<'static, ()> {
-    ROOT_LANE
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+fn root_lane() -> support::HookLane {
+    support::hook_lane()
 }
 
 // --- shared helpers ----------------------------------------------------------

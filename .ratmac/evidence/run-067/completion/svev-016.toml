@@ -1,0 +1,10 @@
+ticket-id = "t-143"
+check-id = "SVEV-016"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test t130_cycle_pause_routes -- --exact svev_016"
+working-dir = "."
+exit-status = 0
+output-sha256 = "27018381ea435d53b40b8aedd3b825a1d779ebbb906f0154c205fb291d8c11b9"
+tree-roots = ["src","profiles","test","test-hidden","tools","Cargo.toml","Cargo.lock","AGENTS.md",".gitignore",".ratmac/ratmac.toml",".ratmac/turn.toml",".ratmac/lanes.toml"]
+tree-sha256 = "2dd3cc7c15f22bd3fbbe6d0c78e68465efa31107486d3538ea4903ef7c8d9261"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s\n     Running tests\\t130_cycle_pause_routes.rs (target\\debug\\deps\\t130_cycle_pause_routes-204ca5ff14fc3e3e.exe)\n\nrunning 1 test\ntest svev_016 ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out; finished in 1.06s\n\n"

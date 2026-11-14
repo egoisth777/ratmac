@@ -1,0 +1,10 @@
+ticket-id = "t-143"
+check-id = "HT-143-05"
+kind = "hidden-lane"
+command = "cargo test --offline --manifest-path test-hidden/t-143/Cargo.toml"
+working-dir = "."
+exit-status = 0
+output-sha256 = "de69804946e259904904c6c3d7fbcc0c75c23f9d883787df15181cf2bb3350f6"
+tree-roots = ["src","profiles","test","test-hidden","tools","Cargo.toml","Cargo.lock","AGENTS.md",".gitignore",".ratmac/ratmac.toml",".ratmac/turn.toml",".ratmac/lanes.toml"]
+tree-sha256 = "2dd3cc7c15f22bd3fbbe6d0c78e68465efa31107486d3538ea4903ef7c8d9261"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s\n     Running unittests src\\lib.rs (test-hidden\\t-143\\target\\debug\\deps\\ratmac_t143_hidden-a40eb1bcaf7ac99c.exe)\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n     Running tests\\hidden.rs (test-hidden\\t-143\\target\\debug\\deps\\hidden-84aeeac9085e3331.exe)\n\nrunning 7 tests\ntest ht_143_06_isolated_child ... ok\ntest ht_143_04_durability_recovery ... ok\ntest ht_143_01_regression ... ok\ntest ht_143_06_cross_feature ... ok\ntest ht_143_05_output_filesystem ... ok\ntest ht_143_03_lifecycle_model ... ok\ntest ht_143_02_input_routing ... ok\n\ntest result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 47.90s\n\n   Doc-tests ratmac_t143_hidden\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n"

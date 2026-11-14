@@ -29,7 +29,6 @@ use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Output;
-use std::sync::{Mutex, MutexGuard};
 
 /// Where a feature build records one operation kind per line.
 const OP_LOG_VAR: &str = "RATMAC_TEST_OPERATION_LOG";
@@ -43,12 +42,8 @@ const KNOWN_KINDS: [&str; 7] = [
 ];
 
 /// Serializes every in-process use of this process's `RATMAC_TEST_*` hooks.
-static LIBRARY_LANE: Mutex<()> = Mutex::new(());
-
-fn library_lane() -> MutexGuard<'static, ()> {
-    LIBRARY_LANE
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+fn library_lane() -> support::HookLane {
+    support::hook_lane()
 }
 
 // --- the machine every fixture shares -----------------------------------------
@@ -2906,6 +2901,7 @@ fn mixed_help_refuses(
 /// argument cannot bypass preflight.
 #[test]
 fn webv_016() {
+    let _lane = library_lane();
     let logs = TempTree::new("t120-016-op").expect("own the operation log tree");
     let project = plain_project("016", RUNBOOK);
     let root = project.path().to_path_buf();
