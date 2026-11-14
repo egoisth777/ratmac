@@ -7,8 +7,19 @@
 
 .DESCRIPTION
     One command, run from the project root, that resolves the Engine binary,
-    hashes it, compares it against the recorded pin when one exists, and
-    reports the resolved path and identity.
+    hashes it, and reports the resolved path and identity.
+
+    LRP-001: it checks that Engine against the pin of every live Run in the
+    one shared Engine root - the primary checkout's .ratmac, found the way
+    the Engine finds it, from the primary checkout or a linked worktree - and
+    never reads the flat .ratmac/evidence.toml. A Run is live while a line of
+    its run.toml reads status = "planned" or status = "executing". After the
+    Engine: and sha256: lines it prints one Pin: line per live Run, in Run-id
+    order: the Engine matches that Run's pin, the Run pinned another file, or
+    the Run has no readable pin; with no live Run, its one Pin: line says so.
+    It refuses only when the resolved Engine is a live Run's pinned file and
+    no longer has that pin's hash, naming each such Run, its pin file, and
+    the command that retires it.
 
     With no channel, or with -Channel nightly, the Engine resolves from the
     project-local build - building it there when absent - exactly as before:
@@ -95,6 +106,149 @@ function Get-EnginePin {
     }
     if ($null -eq $sha256) { return $null }
     [pscustomobject]@{ Resolved = $resolved; Sha256 = $sha256 }
+}
+
+# One Git query in $Root for Resolve-EngineRoot. Git prints paths as UTF-8
+# whatever the console's code page, while pwsh decodes a native command's
+# output with that code page (437 on a fresh console), so Git runs as its own
+# process whose output is read as UTF-8: no console is needed or changed, and
+# a console that other processes share keeps its code page. Standard error is
+# read and dropped. The answer is whether Git succeeded and its output lines.
+function Invoke-GitQuery {
+    param(
+        [Parameter(Mandatory)][string] $Root,
+        [Parameter(Mandatory)][string[]] $Arguments
+    )
+    $git = Get-Command -Name git -CommandType Application -ErrorAction Stop | Select-Object -First 1
+    $start = [Diagnostics.ProcessStartInfo]::new($git.Source)
+    foreach ($argument in @('-C', $Root) + $Arguments) { $start.ArgumentList.Add($argument) }
+    $start.UseShellExecute = $false
+    $start.CreateNoWindow = $true
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $true
+    $start.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)
+    $process = [Diagnostics.Process]::Start($start)
+    try {
+        $errors = $process.StandardError.ReadToEndAsync()
+        $lines = [Collections.Generic.List[string]]::new()
+        while ($null -ne ($line = $process.StandardOutput.ReadLine())) { $lines.Add($line) }
+        $process.WaitForExit()
+        $null = $errors.GetAwaiter().GetResult()
+        [pscustomobject]@{ Ok = ($process.ExitCode -eq 0); Lines = $lines.ToArray() }
+    } finally {
+        $process.Dispose()
+    }
+}
+
+# LRP-001: the one shared Engine root, found the way the Engine finds it
+# (ENS-002, git_repository in src/root.rs). Inside a Git work tree, the first
+# record of `git worktree list --porcelain` with no bare line names the
+# primary checkout by an absolute path, and `git rev-parse
+# --path-format=absolute --git-dir --git-common-dir` prints two absolute
+# paths, the first not that checkout; the root is then <primary>/.ratmac.
+# Each query goes through Invoke-GitQuery, read as UTF-8, with GIT_DIR,
+# GIT_COMMON_DIR, and GIT_WORK_TREE removed and restored after; any failed or
+# unsuitable answer falls back to .ratmac under the project root. Removal goes
+# through the Env: drive: a $null handed to [Environment]::SetEnvironmentVariable
+# arrives as an empty value, which Git reads as a Git directory named ''.
+function Resolve-EngineRoot {
+    param([Parameter(Mandatory)][string] $Root)
+    $local = Join-Path $Root '.ratmac'
+    $names = @('GIT_DIR', 'GIT_COMMON_DIR', 'GIT_WORK_TREE')
+    $saved = @{}
+    foreach ($name in $names) {
+        $saved[$name] = [Environment]::GetEnvironmentVariable($name)
+        Remove-Item -LiteralPath "Env:$name" -ErrorAction Ignore
+    }
+    try {
+        $inside = Invoke-GitQuery -Root $Root -Arguments @('rev-parse', '--is-inside-work-tree')
+        if (-not $inside.Ok -or "$($inside.Lines)".Trim() -cne 'true') { return $local }
+        $listing = Invoke-GitQuery -Root $Root -Arguments @('worktree', 'list', '--porcelain')
+        if (-not $listing.Ok) { return $local }
+        $primary = $null
+        $record = [Collections.Generic.List[string]]::new()
+        foreach ($line in $listing.Lines + @('')) {
+            if ($line -ne '') { $record.Add($line); continue }
+            if ($record.Count -eq 0) { continue }
+            if (-not ($record | Where-Object { $_ -ceq 'bare' })) {
+                $named = $record |
+                    Where-Object { $_.StartsWith('worktree ', [StringComparison]::Ordinal) } |
+                    Select-Object -First 1
+                if ($named) { $primary = $named.Substring('worktree '.Length) }
+                break
+            }
+            $record.Clear()
+        }
+        if (-not $primary -or -not [IO.Path]::IsPathFullyQualified($primary)) { return $local }
+        $answer = Invoke-GitQuery -Root $Root -Arguments @(
+            'rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir')
+        $dirs = $answer.Lines
+        if (-not $answer.Ok -or $dirs.Count -lt 2) { return $local }
+        foreach ($dir in $dirs[0..1]) {
+            if (-not [IO.Path]::IsPathFullyQualified($dir)) { return $local }
+        }
+        if ($primary -ceq $dirs[0]) { return $local }
+        [IO.Path]::GetFullPath((Join-Path $primary '.ratmac'))
+    } catch {
+        $local
+    } finally {
+        foreach ($name in $names) {
+            if ($null -eq $saved[$name]) {
+                Remove-Item -LiteralPath "Env:$name" -ErrorAction Ignore
+            } else {
+                [Environment]::SetEnvironmentVariable($name, $saved[$name])
+            }
+        }
+    }
+}
+
+# LRP-001: the live Runs under the shared Engine root, in ordinal Run-id order.
+# A Run is live, as the doctor counts it, while a line of its run.toml reads,
+# trimmed, status = "planned" or status = "executing"; a record that cannot be
+# read is skipped. Each live Run carries its pin and the pin's full path with
+# / separators, or no pin and the read error's text when there is one.
+function Get-LiveRunPins {
+    param([Parameter(Mandatory)][string] $EngineRoot)
+    $runs = Join-Path $EngineRoot 'runs'
+    if (-not (Test-Path -LiteralPath $runs -PathType Container)) { return @() }
+    try {
+        [string[]] $ids = @(Get-ChildItem -LiteralPath $runs -Directory -Force | ForEach-Object { $_.Name })
+    } catch {
+        return @()
+    }
+    [Array]::Sort($ids, [StringComparer]::Ordinal)
+    foreach ($id in $ids) {
+        $folder = Join-Path $runs $id
+        $live = $false
+        try {
+            foreach ($line in [IO.File]::ReadAllLines((Join-Path $folder 'run.toml'))) {
+                $trimmed = $line.Trim()
+                if ($trimmed -ceq 'status = "planned"' -or $trimmed -ceq 'status = "executing"') {
+                    $live = $true
+                    break
+                }
+            }
+        } catch {
+            continue
+        }
+        if (-not $live) { continue }
+        $evidence = Join-Path $folder 'evidence.toml'
+        $pin = $null
+        $full = $null
+        $err = $null
+        try {
+            $pin = Get-EnginePin -EvidencePath $evidence
+            if ($null -eq $pin -or [string]::IsNullOrEmpty($pin.Resolved) -or [string]::IsNullOrEmpty($pin.Sha256)) {
+                $pin = $null
+            } else {
+                $full = [IO.Path]::GetFullPath($pin.Resolved).Replace('\', '/')
+            }
+        } catch {
+            $pin = $null
+            $err = ($_.Exception.Message -replace '\s+', ' ').Trim()
+        }
+        [pscustomobject]@{ Id = $id; Evidence = $evidence; Pin = $pin; Full = $full; Error = $err }
+    }
 }
 
 
@@ -419,25 +573,44 @@ if ($Channel -eq 'stable') {
 
 $engine = (Resolve-Path -LiteralPath $engine).Path
 $observed = Get-Sha256 -Path $engine
-$evidencePath = Join-Path $root '.ratmac/evidence.toml'
-$pin = Get-EnginePin -EvidencePath $evidencePath
-
-if ($null -ne $pin -and $pin.Sha256 -ne $observed) {
-    Deny -Reason 'the resolved Engine is not the pinned Engine' -Guidance @(
-        "resolved (observed) = $engine",
-        "sha256 (observed) = $observed",
-        "resolved (expected) = $($pin.Resolved)",
-        "sha256 (expected) = $($pin.Sha256)",
-        'the pin was recorded by the active Run in .ratmac/evidence.toml [engine]',
-        'rebuild the pinned revision, or retire the Run with: rtm abandon --run <id> --confirm "abandon <run id>"')
+# LRP-001: check the pins of the live Runs in the one shared Engine root; the
+# flat .ratmac/evidence.toml is never read. A pin names this file when both
+# spell one full path with / separators, without letter case on Windows.
+$engineRoot = Resolve-EngineRoot -Root $root
+$live = @(Get-LiveRunPins -EngineRoot $engineRoot)
+$self = [IO.Path]::GetFullPath($engine).Replace('\', '/')
+$comparison = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+$changed = @($live | Where-Object {
+        $null -ne $_.Pin -and [string]::Equals($_.Full, $self, $comparison) -and $_.Pin.Sha256 -ne $observed
+    })
+if ($changed.Count -gt 0) {
+    $retire = 'rebuild the pinned revision, or retire the Run with: rtm abandon --run <id> --confirm "abandon <run id>"'
+    $guidance = foreach ($run in $changed) {
+        "$($run.Id) pinned this file in $($run.Evidence) [engine]"
+        "resolved (observed) = $engine"
+        "sha256 (observed) = $observed"
+        "resolved (expected) = $($run.Pin.Resolved)"
+        "sha256 (expected) = $($run.Pin.Sha256)"
+        $retire.Replace('<run id>', $run.Id).Replace('<id>', $run.Id)
+    }
+    Deny -Reason 'the resolved Engine is not the pinned Engine' -Guidance @($guidance)
 }
 
 Write-Report "Engine: $engine"
 Write-Report "sha256: $observed"
-if ($null -eq $pin) {
-    Write-Report 'Pin: no pin recorded in .ratmac/evidence.toml'
-} else {
-    Write-Report 'Pin: matches .ratmac/evidence.toml [engine]'
+if ($live.Count -eq 0) {
+    Write-Report "Pin: no live Run in $engineRoot"
+}
+foreach ($run in $live) {
+    if ($null -eq $run.Pin) {
+        $line = "Pin: $($run.Id) has no readable pin in $($run.Evidence)"
+        if ($run.Error) { $line += " ($($run.Error))" }
+        Write-Report $line
+    } elseif ([string]::Equals($run.Full, $self, $comparison)) {
+        Write-Report "Pin: matches the pin of $($run.Id)"
+    } else {
+        Write-Report "Pin: $($run.Id) pinned another Engine: $($run.Pin.Resolved)"
+    }
 }
 if ($Channel) {
     if ($Channel -eq 'nightly') {
