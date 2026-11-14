@@ -138,7 +138,7 @@ cherry-pick of the lane fix 64b2cf4) and 790091f (a wording-only commit in 8 lan
      failed final write in `failures` instead of panicking.
   2. Low: "never creates the marker" was only tested under a missing parent folder, where it cannot happen,
      and a wait that writes back the partial bytes it read was caught only through the writer's sharing
-     errors, in 4 of 5 runs. Fixed in the same commit by a fixed-state phase: a short wait on an absent marker
+     errors, in 4 of 5 runs. Fixed in the same commit by a fixed-state part: a short wait on an absent marker
      in a present folder, and on a planted partial line, must leave bytes, modified time and the folder
      snapshot unchanged.
 
@@ -163,7 +163,7 @@ The lane fix 1e4f826 entered the draft as 92eb03d (a cherry-pick), followed by t
 - **Private lane re-review at 1e4f826: accepted, no finding.** `StopWatching` is the first statement in the
   scope, so any panic in the two thread spawns, the wait or the writer join stops the watcher, and the writer
   has no `expect` or `unwrap` left. A wait that keeps the marker open now fails row 05 in 20 s with a verdict
-  (it hung for more than 90 s in round 2). The fixed-state phase checks a missing marker stays missing and a
+  (it hung for more than 90 s in round 2). The fixed-state part checks a missing marker stays missing and a
   planted partial line keeps its bytes and modified time, with the folder snapshot unchanged; the real wait
   only reads, so it cannot flake, and the 50 ms gap is longer than Windows' file-time step of at most 15.6 ms,
   so a wait that writes always shows a new modified time. Only row
