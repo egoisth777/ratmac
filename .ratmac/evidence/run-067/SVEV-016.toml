@@ -1,0 +1,10 @@
+planned-test-id = "SVEV-016"
+ticket-id = "t-143"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t130_cycle_pause_routes -- --exact svev_016"
+working-dir = "."
+test-file = "test/qa/tests/t130_cycle_pause_routes.rs"
+test-name = "svev_016"
+exit-status = 101
+output-sha256 = "38aa485ef767078b3a6a7c75c335555220a4320681c0eff8ecc2c1769557102d"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s\n     Running tests\\t130_cycle_pause_routes.rs (target\\debug\\deps\\t130_cycle_pause_routes-204ca5ff14fc3e3e.exe)\n\nrunning 1 test\ntest svev_016 ... FAILED\n\nfailures:\n\n---- svev_016 stdout ----\n\nthread 'svev_016' (34400) panicked at test\\qa\\tests\\t130_cycle_pause_routes.rs:3538:5:\nassertion `left == right` failed: SVE-006: the hold succeeds as alone: exit 1 stdout \"\" message \"hold refused; hold test barrier expired before before-journal-publication waiting for C:/Users/egois/AppData/Local/Temp/ratmac-svev016-barrier-49796-1794619690194677200-2/svev016-release.txt\"\n  left: 1\n right: 0\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    svev_016\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 10 filtered out; finished in 31.35s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t130_cycle_pause_routes`\n"

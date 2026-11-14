@@ -2006,6 +2006,2270 @@ fn past_quote(chars: &[char], at: usize) -> usize {
     }
 }
 
+// --- SVEV-018: case-scoped test hooks ----------------------------------------
+
+/// The prefix of every Engine test hook setting.
+const HOOK_PREFIX: &str = "RATMAC_TEST_";
+
+/// The shared support file. Its `hook_lane`, `HookLane`, and `StepFault`
+/// definitions are the one central implementation of the hook lane, so the
+/// settings they set and remove are exempt; every other place is not.
+const HOOK_SUPPORT: &str = "test/qa/src/support.rs";
+
+/// Words that stand before a parenthesis without calling a function.
+const NOT_CALLS: [&str; 18] = [
+    "as", "break", "dyn", "else", "fn", "for", "if", "impl", "in", "let", "loop", "match", "move",
+    "mut", "ref", "return", "unsafe", "while",
+];
+
+/// Conversions that leave a setting's name as it was (`key.as_str()`).
+const NAME_CONVERSIONS: [&str; 6] = [
+    "as_ref",
+    "as_str",
+    "as_os_str",
+    "clone",
+    "to_owned",
+    "to_string",
+];
+
+/// How a test case runs a place that sets or removes a hook setting.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum HookScope {
+    /// In the shared test process, with no hook lane held.
+    Open,
+    /// In the shared test process, under the hook lane.
+    Lane,
+    /// In a child of the test binary that runs exactly this one case.
+    Exact,
+    /// Inside `support::isolated_test` for the case's own name.
+    Isolated,
+}
+
+impl HookScope {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Open => "no lane",
+            Self::Lane => "hook lane",
+            Self::Exact => "--exact child",
+            Self::Isolated => "isolated_test",
+        }
+    }
+}
+
+/// What the name argument of a setting call reads as.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum HookName {
+    /// A `RATMAC_TEST_*` name.
+    Hook,
+    /// The enclosing function's parameter at this index (`self` not counted).
+    Param(usize),
+    /// Any other name, or one the scan cannot read.
+    Other,
+}
+
+/// One function item of a source: its name, the type of the `impl` or
+/// `trait` block it belongs to, and its signature and body.
+struct HookItem {
+    name: String,
+    owner: Option<String>,
+    test: bool,
+    at: usize,
+    params: Vec<(String, Option<String>)>,
+    has_self: bool,
+    body: Option<(usize, usize)>,
+}
+
+/// One parsed Rust source: its tokens, `use` names, string constants,
+/// `mod` declarations (with any `#[path]`), and function items.
+struct HookSource {
+    tokens: Vec<(usize, Token)>,
+    uses: BTreeMap<String, Vec<String>>,
+    globs: Vec<Vec<String>>,
+    consts: BTreeMap<String, String>,
+    mods: Vec<(String, Option<String>)>,
+    items: Vec<HookItem>,
+    /// The innermost function whose body holds each token.
+    within: Vec<Option<usize>>,
+}
+
+/// One compiled crate target: a library or a test binary, by its root
+/// source; its files with their module names; and the libraries it uses.
+struct HookUnit {
+    library: Option<String>,
+    files: Vec<(String, String)>,
+    deps: Vec<usize>,
+}
+
+/// One call inside a function: where, what it may reach, and its arguments.
+struct HookCall {
+    line: usize,
+    targets: Vec<usize>,
+    args: Vec<HookName>,
+    /// A path call (`Type::method(value, ...)`) passes a method's receiver first.
+    receiver_first: bool,
+    step_fault: bool,
+    engine: bool,
+    /// The call's value is kept by a named `let` binding (not `_`) or is the
+    /// body's tail: a lane it takes stays held from this line on.
+    bound: bool,
+}
+
+/// One function of one unit, with what its body does.
+struct HookNode {
+    unit: usize,
+    file: String,
+    module: String,
+    item: usize,
+    label: String,
+    exempt: bool,
+    direct: Vec<(usize, HookName)>,
+    calls: Vec<HookCall>,
+    isolated: Vec<String>,
+    /// Closures passed to a call, by first and last line, with that call's
+    /// index: their bodies run inside the callee.
+    closures: Vec<(usize, usize, usize)>,
+    /// The lines of a test's child-role branches: blocks guarded by an
+    /// environment read that end the case (`return`, `exit`) or have an
+    /// `else`. Only these run in an `--exact` child of the case.
+    children: Vec<(usize, usize)>,
+    /// The body ends by returning the shared hook lane (or a wrapper's).
+    taker: bool,
+    wraps: BTreeSet<usize>,
+    sites: Vec<usize>,
+}
+
+/// One hook-setting place: path, line, and the function it is in.
+type HookSite = (String, usize, String);
+
+/// What the SVEV-018 scan saw: each hook-setting place a test case reaches,
+/// with every case and how it runs it; and the findings.
+struct HookReport {
+    sites: BTreeMap<HookSite, BTreeSet<(String, HookScope)>>,
+    findings: Vec<String>,
+}
+
+/// SVEV-018 / SVE-006: case-scoped test hooks. A source inventory over the
+/// test crate and every declared, non-expired lane on the roster (no
+/// `target/` folder, not the frozen before-source corpus) finds every place
+/// a `RATMAC_TEST_*` setting is set or removed in the test process -
+/// `set_var` or `remove_var` with that name, `StepFault::set`, or a wrapper
+/// that passes such a name on - and follows calls inside the same test
+/// binary up to its `#[test]` cases. Each place runs only inside
+/// `support::isolated_test` for its own case, inside a child running exactly
+/// one named case (`--exact`), or under the shared hook lane in a binary
+/// whose every in-process Engine case also holds it. The matchers first
+/// prove themselves on synthetic binaries and on known clean places of this
+/// repository, so a blind scan cannot pass.
+#[test]
+fn svev_018() {
+    hook_controls();
+    let root = repo_root();
+    let (sources, lanes) = build_message_inventory(&root);
+    let expired = expired_lanes(&root);
+    let folder = lane_folder(&root);
+    let scanned: BTreeMap<String, String> = sources
+        .into_iter()
+        .filter(|(path, _)| {
+            !expired
+                .iter()
+                .any(|prefix| path.starts_with(prefix.as_str()))
+        })
+        .collect();
+    let report = hook_report(&scanned, &folder);
+    hook_witnesses(&report, &scanned, &folder);
+    let mut scopes: BTreeMap<&str, usize> = BTreeMap::new();
+    for (_, scope) in report.sites.values().flatten() {
+        *scopes.entry(scope.label()).or_default() += 1;
+    }
+    eprintln!(
+        "SVEV-018: {} hook places reached; case-place pairs by scope: {scopes:?}",
+        report.sites.len()
+    );
+    assert!(
+        report.findings.is_empty(),
+        "SVEV-018: every place that sets or removes a RATMAC_TEST_* setting in the test process \
+         must run inside support::isolated_test for its own case, in an --exact child of one \
+         named case, or under the shared hook lane in a test binary whose every in-process \
+         Engine case also holds it; the inventory of {} sources (test/qa/src, test/qa/tests, \
+         and {} of {lanes} roster lanes; expired: {expired:?}) reached {} hook places and found \
+         {}:\n{}",
+        scanned.len(),
+        lanes - expired.len(),
+        report.sites.len(),
+        report.findings.len(),
+        report.findings.join("\n")
+    );
+}
+
+/// The lane folder `.ratmac/lanes.toml` names (`roots.lanes`).
+fn lane_folder(root: &Path) -> String {
+    let declaration = root.join(".ratmac").join("lanes.toml");
+    let lanes: toml::Value = fs::read_to_string(&declaration)
+        .unwrap_or_else(|error| panic!("SVEV-018: read {}: {error}", declaration.display()))
+        .parse()
+        .unwrap_or_else(|error| panic!("SVEV-018: parse {}: {error}", declaration.display()));
+    lanes
+        .get("roots")
+        .and_then(|roots| roots.get("lanes"))
+        .and_then(toml::Value::as_str)
+        .expect("SVEV-018: .ratmac/lanes.toml names the lane folder (roots.lanes)")
+        .to_owned()
+}
+
+/// The scan on known shapes first: each control is a small repository of
+/// sources and exactly the findings it must yield.
+fn hook_controls() {
+    const SUPPORT: &str = "use std::sync::{Mutex, MutexGuard};\n\
+         static LANES: Mutex<()> = Mutex::new(());\n\
+         pub struct HookLane(MutexGuard<'static, ()>);\n\
+         pub fn hook_lane() -> HookLane {\n    std::env::remove_var(\"RATMAC_TEST_ANY\");\n    \
+         HookLane(LANES.lock().unwrap())\n}\n\
+         impl Drop for HookLane {\n    fn drop(&mut self) {\n        \
+         std::env::remove_var(\"RATMAC_TEST_ANY\");\n    }\n}\n\
+         pub struct StepFault;\n\
+         impl StepFault {\n    pub fn set(point: &str) -> Self {\n        \
+         std::env::set_var(\"RATMAC_TEST_STEP_FAULT\", point);\n        StepFault\n    }\n}\n\
+         pub fn isolated_test(name: &str) -> bool {\n    name.is_empty()\n}\n";
+    const LIB: &str = "pub mod support;\n";
+    const BIN: &str = "test/qa/tests/control.rs";
+    const LANE_LIB: &str = "lanes/t-900/src/lib.rs";
+    const LANE_BIN: &str = "lanes/t-900/tests/hidden.rs";
+    // Each control: its name, its sources by path, and its findings.
+    type Control<'a> = (&'a str, &'a [(&'a str, &'a str)], &'a [&'a str]);
+    let controls: &[Control<'_>] = &[
+        (
+            "an unlaned setter",
+            &[(
+                BIN,
+                "#[test]\nfn a() {\n    std::env::set_var(\"RATMAC_TEST_A\", \"1\");\n}\n",
+            )],
+            &["unlaned: test/qa/tests/control.rs:3 a <- a"],
+        ),
+        (
+            "a laned case beside an unlaned Engine sibling",
+            &[(
+                BIN,
+                "use ratmac_qa::support;\n#[test]\nfn a() {\n    let _lane = support::hook_lane();\n    \
+                 let _fault = support::StepFault::set(\"x\");\n}\n#[test]\nfn b() {\n    \
+                 ratmac::cli::run_from(vec![]);\n}\n",
+            )],
+            &[
+                "beside an unlaned Engine case: test/qa/tests/control.rs:5 a <- a",
+                "Engine case without the lane: test/qa/tests/control.rs:9 b <- b",
+            ],
+        ),
+        (
+            "an Engine entry through an imported type",
+            &[(
+                BIN,
+                "use ratmac::machine::MachineClass;\nuse ratmac_qa::support;\n#[test]\nfn a() {\n    \
+                 let _lane = support::hook_lane();\n    std::env::set_var(\"RATMAC_TEST_A\", \"1\");\n}\n\
+                 #[test]\nfn b() {\n    let _ = MachineClass::from_toml(\"\");\n}\n",
+            )],
+            &[
+                "beside an unlaned Engine case: test/qa/tests/control.rs:6 a <- a",
+                "Engine case without the lane: test/qa/tests/control.rs:10 b <- b",
+            ],
+        ),
+        (
+            "every arming case laned, and the static help text outside the lane",
+            &[(
+                BIN,
+                "use ratmac::cli;\nuse ratmac_qa::support;\nfn rtm() {\n    cli::run_from(vec![]);\n}\n\
+                 #[test]\nfn a() {\n    let _lane = support::hook_lane();\n    \
+                 std::env::set_var(\"RATMAC_TEST_A\", \"1\");\n    rtm();\n}\n\
+                 #[test]\nfn b() {\n    let _lane = support::hook_lane();\n    rtm();\n}\n\
+                 #[test]\nfn c() {\n    let _ = cli::help(\"step\");\n}\n",
+            )],
+            &[
+                "beside an unlaned Engine case: test/qa/tests/control.rs:9 a <- a",
+                "Engine case without the lane: test/qa/tests/control.rs:19 c <- c",
+            ],
+        ),
+        (
+            "an isolated case of its own name, and one of another name",
+            &[(
+                BIN,
+                "use ratmac_qa::support;\n#[test]\nfn a() {\n    if support::isolated_test(\"a\") {\n        \
+                 arm();\n    }\n}\n#[test]\nfn b() {\n    if support::isolated_test(\"a\") {\n        \
+                 arm();\n    }\n}\nfn arm() {\n    std::env::set_var(\"RATMAC_TEST_A\", \"1\");\n}\n",
+            )],
+            &["unlaned: test/qa/tests/control.rs:15 arm <- b"],
+        ),
+        (
+            "an exact child of one named case",
+            &[(
+                BIN,
+                "#[test]\nfn a() {\n    if std::env::var_os(\"ROLE\").is_some() {\n        \
+                 std::env::set_var(\"RATMAC_TEST_A\", \"1\");\n    } else {\n        \
+                 std::process::Command::new(\"x\").args([\"--exact\", \"a\"]);\n    }\n}\n",
+            )],
+            &[],
+        ),
+        (
+            "an env_set wrapper in a lane library, unlaned",
+            &[
+                (
+                    LANE_LIB,
+                    "pub struct EnvVar {\n    key: String,\n}\n\
+                     pub fn env_set(key: &str, value: &str) -> EnvVar {\n    \
+                     std::env::set_var(key, value);\n    EnvVar { key: key.to_owned() }\n}\n\
+                     impl Drop for EnvVar {\n    fn drop(&mut self) {\n        \
+                     std::env::remove_var(&self.key);\n    }\n}\n",
+                ),
+                (
+                    LANE_BIN,
+                    "use ratmac_t900_hidden::env_set;\nconst HOOK: &str = \"RATMAC_TEST_B\";\n#[test]\n\
+                     fn a() {\n    let _hook = env_set(HOOK, \"1\");\n    let _path = env_set(\"PATH\", \"x\");\n}\n",
+                ),
+            ],
+            &["unlaned: lanes/t-900/tests/hidden.rs:5 a <- a"],
+        ),
+        (
+            "a lane_guard wrapper and a private mutex named hook_lane",
+            &[
+                (
+                    LANE_LIB,
+                    "#[path = \"../../../test/qa/src/support.rs\"]\npub mod support;\n\
+                     pub fn lane_guard() -> support::HookLane {\n    support::hook_lane()\n}\n",
+                ),
+                (
+                    LANE_BIN,
+                    "use ratmac_t900_hidden::{lane_guard, support::StepFault};\n\
+                     use std::sync::{Mutex, MutexGuard};\nstatic PRIVATE: Mutex<()> = Mutex::new(());\n\
+                     fn hook_lane() -> MutexGuard<'static, ()> {\n    PRIVATE.lock().unwrap()\n}\n\
+                     #[test]\nfn guarded() {\n    let _lane = lane_guard();\n    let _fault = StepFault::set(\"x\");\n}\n\
+                     #[test]\nfn private() {\n    let _lane = hook_lane();\n    let _fault = StepFault::set(\"y\");\n}\n",
+                ),
+            ],
+            &["unlaned: lanes/t-900/tests/hidden.rs:15 private <- private"],
+        ),
+        (
+            "the shared lane through a library re-export, and a function named as a value",
+            &[
+                (LANE_LIB, "pub use ratmac_qa::support;\n"),
+                (
+                    LANE_BIN,
+                    "use ratmac_t900_hidden::support;\nfn arm(point: &str) -> support::StepFault {\n    \
+                     support::StepFault::set(point)\n}\n#[test]\nfn laned() {\n    \
+                     let _lane = support::hook_lane();\n    for run in [arm] {\n        let _fault = run(\"x\");\n    }\n}\n\
+                     #[test]\nfn bare() {\n    let cases = [(\"c\", arm)];\n    let _ = cases;\n}\n",
+                ),
+            ],
+            &["unlaned: lanes/t-900/tests/hidden.rs:3 arm <- bare"],
+        ),
+        (
+            "an --exact case's parent body outside its child-role branch",
+            &[(
+                BIN,
+                "#[test]\nfn a() {\n    if std::env::var_os(\"ROLE\").is_some() {\n        \
+                 std::env::set_var(\"RATMAC_TEST_A\", \"1\");\n        return;\n    }\n    \
+                 std::env::set_var(\"RATMAC_TEST_B\", \"1\");\n    \
+                 std::process::Command::new(\"x\").args([\"--exact\", \"a\"]);\n}\n",
+            )],
+            &["unlaned: test/qa/tests/control.rs:7 a <- a"],
+        ),
+        (
+            "an Engine method behind a field of an unknown receiver",
+            &[
+                (
+                    LANE_LIB,
+                    "pub use ratmac_qa::support;\npub struct Fixture;\nimpl Fixture {\n    \
+                     pub fn run(&self) {\n        ratmac::cli::run_from(vec![]);\n    }\n}\n",
+                ),
+                (
+                    LANE_BIN,
+                    "use ratmac_t900_hidden::{support, Fixture};\nstruct Gov {\n    fx: Fixture,\n}\n\
+                     fn gov() -> Gov {\n    Gov { fx: Fixture }\n}\n#[test]\nfn a() {\n    \
+                     let _lane = support::hook_lane();\n    let _fault = support::StepFault::set(\"x\");\n}\n\
+                     #[test]\nfn b() {\n    let state = gov();\n    state.fx.run();\n}\n",
+                ),
+            ],
+            &[
+                "beside an unlaned Engine case: lanes/t-900/tests/hidden.rs:11 a <- a",
+                "Engine case without the lane: lanes/t-900/src/lib.rs:5 Fixture::run <- b",
+            ],
+        ),
+        (
+            "setting names a helper returns, set through a tuple loop",
+            &[(
+                BIN,
+                "fn hooks() -> [(String, String); 1] {\n    \
+                 [(\"RATMAC_TEST_H\".to_owned(), \"1\".to_owned())]\n}\n#[test]\nfn a() {\n    \
+                 let pairs = hooks();\n    for (key, value) in &pairs {\n        \
+                 std::env::set_var(key, value);\n    }\n}\n",
+            )],
+            &["unlaned: test/qa/tests/control.rs:8 a <- a"],
+        ),
+        (
+            "a closure run by a callee holding the lane",
+            &[(
+                BIN,
+                "use ratmac_qa::support;\nfn launch(body: impl FnOnce()) {\n    \
+                 let _lane = support::hook_lane();\n    body();\n}\n#[test]\nfn a() {\n    \
+                 launch(|| {\n        std::env::set_var(\"RATMAC_TEST_C\", \"1\");\n    });\n}\n",
+            )],
+            &[],
+        ),
+        (
+            "an isolated name by constant, and a lane taken late or dropped at once",
+            &[(
+                BIN,
+                "use ratmac_qa::support;\nconst CHILD: &str = \"a\";\n#[test]\nfn a() {\n    \
+                 if support::isolated_test(CHILD) {\n        \
+                 std::env::set_var(\"RATMAC_TEST_A\", \"1\");\n    }\n}\n#[test]\nfn b() {\n    \
+                 std::env::set_var(\"RATMAC_TEST_B\", \"1\");\n    let _lane = support::hook_lane();\n}\n\
+                 #[test]\nfn c() {\n    support::hook_lane();\n    \
+                 std::env::set_var(\"RATMAC_TEST_C\", \"1\");\n}\n",
+            )],
+            &[
+                "unlaned: test/qa/tests/control.rs:11 b <- b",
+                "unlaned: test/qa/tests/control.rs:17 c <- c",
+            ],
+        ),
+        (
+            "a guard whose drop removes a setting, and names that must not link",
+            &[(
+                BIN,
+                "use std::collections::BTreeMap;\nstruct Armed {\n    on: bool,\n}\n\
+                 fn armed() -> Armed {\n    Armed { on: true }\n}\n\
+                 impl Drop for Armed {\n    fn drop(&mut self) {\n        \
+                 std::env::remove_var(\"RATMAC_TEST_E\");\n    }\n}\n\
+                 fn entry() {\n    std::env::set_var(\"RATMAC_TEST_C\", \"1\");\n}\n\
+                 struct Quiet;\nimpl Quiet {\n    fn run(&self) {}\n}\n\
+                 struct Loud;\nimpl Loud {\n    fn run(&self) {\n        \
+                 std::env::set_var(\"RATMAC_TEST_D\", \"1\");\n    }\n}\n\
+                 #[test]\nfn a() {\n    let _armed = armed();\n    let mut map = BTreeMap::new();\n    \
+                 map.entry(1).or_insert(2);\n    let quiet = Quiet;\n    quiet.run();\n}\n",
+            )],
+            &[
+                "unlaned: test/qa/tests/control.rs:10 Armed::drop <- a",
+                "unreached: test/qa/tests/control.rs:14 entry",
+                "unreached: test/qa/tests/control.rs:23 Loud::run",
+            ],
+        ),
+    ];
+    for (name, files, expected) in controls {
+        let mut sources: BTreeMap<String, String> = BTreeMap::new();
+        sources.insert(HOOK_SUPPORT.to_owned(), SUPPORT.to_owned());
+        sources.insert("test/qa/src/lib.rs".to_owned(), LIB.to_owned());
+        for (path, text) in *files {
+            sources.insert((*path).to_owned(), (*text).to_owned());
+        }
+        let report = hook_report(&sources, "lanes");
+        let expected: Vec<String> = expected.iter().map(|line| (*line).to_owned()).collect();
+        assert_eq!(
+            report.findings, expected,
+            "SVEV-018 control ({name}): the hook scan misread these sources:\n{files:#?}"
+        );
+    }
+}
+
+/// Known clean places of this repository, each by its file, the function or
+/// line text that marks it, and how every case reaching it must run it.
+const HOOK_WITNESSES: [(&str, &str, &str, HookScope); 6] = [
+    (
+        "test/qa/tests/t129_authorized_review_transitions.rs",
+        "fault_step",
+        "StepFault::set",
+        HookScope::Lane,
+    ),
+    (
+        "test/qa/tests/t132_rule_fix_recovery.rs",
+        "",
+        "RATMAC_TEST_RECOVER_FAULT",
+        HookScope::Lane,
+    ),
+    (
+        "/t-119/tests/hidden.rs",
+        "answered",
+        "",
+        HookScope::Isolated,
+    ),
+    (
+        "/t-132/tests/hidden.rs",
+        "kill_child_role",
+        "",
+        HookScope::Exact,
+    ),
+    (
+        "/t-062/tests/hidden.rs",
+        "",
+        "StepFault::set",
+        HookScope::Lane,
+    ),
+    (
+        "/t-069/tests/hidden.rs",
+        "",
+        "StepFault::set",
+        HookScope::Lane,
+    ),
+];
+
+/// The scan on this repository's known clean places: each is found, every
+/// case reaches it only the way it is known to, and no finding names it.
+fn hook_witnesses(report: &HookReport, sources: &BTreeMap<String, String>, folder: &str) {
+    for (file, function, text, scope) in HOOK_WITNESSES {
+        let path = if file.starts_with('/') {
+            format!("{folder}{file}")
+        } else {
+            file.to_owned()
+        };
+        let lines: Vec<&str> = sources
+            .get(&path)
+            .unwrap_or_else(|| panic!("SVEV-018 witness: {path} is inventoried"))
+            .lines()
+            .collect();
+        let matched: Vec<(&HookSite, &BTreeSet<(String, HookScope)>)> = report
+            .sites
+            .iter()
+            .filter(|((site, line, label), _)| {
+                *site == path
+                    && (function.is_empty()
+                        || label == function
+                        || label.ends_with(&format!("::{function}")))
+                    && lines
+                        .get(line - 1)
+                        .is_some_and(|source| source.contains(text))
+            })
+            .collect();
+        assert!(
+            !matched.is_empty(),
+            "SVEV-018 witness: the scan must reach the hook places of {path} {function} {text:?}"
+        );
+        for ((site, line, label), roots) in matched {
+            assert!(
+                roots.iter().all(|(_, found)| *found == scope),
+                "SVEV-018 witness: {site}:{line} {label} runs only under {}, yet the scan saw {roots:?}",
+                scope.label()
+            );
+            let named = format!(" {site}:{line} ");
+            assert!(
+                !report
+                    .findings
+                    .iter()
+                    .any(|finding| finding.contains(&named)),
+                "SVEV-018 witness: {site}:{line} {label} is clean, yet a finding names it"
+            );
+        }
+    }
+}
+
+/// The SVEV-018 scan of `sources` (keyed by `/`-separated path), whose lanes
+/// sit under `folder`.
+fn hook_report(sources: &BTreeMap<String, String>, folder: &str) -> HookReport {
+    let parsed: BTreeMap<String, HookSource> = sources
+        .iter()
+        .map(|(path, text)| (path.clone(), hook_source(text)))
+        .collect();
+    let units = hook_units(&parsed, folder);
+    let index = HookIndex::new(&parsed, units);
+    index.report()
+}
+
+/// The parsed shape of one Rust source.
+fn hook_source(source: &str) -> HookSource {
+    let tokens = rust_tokens(source);
+    let mut uses = BTreeMap::new();
+    let mut globs = Vec::new();
+    let mut consts = BTreeMap::new();
+    let mut mods = Vec::new();
+    let mut items: Vec<HookItem> = Vec::new();
+    let mut owners: Vec<(usize, usize, String)> = Vec::new();
+    for (at, (_, token)) in tokens.iter().enumerate() {
+        let Token::Word(word) = token else {
+            continue;
+        };
+        match word.as_str() {
+            "use" => {
+                let mut cursor = at + 1;
+                hook_use(&tokens, &mut cursor, Vec::new(), &mut uses, &mut globs);
+            }
+            "const" | "static" => {
+                let item_position = at == 0
+                    || matches!(tokens[at - 1].1, Token::Mark('}' | ';' | ']' | '{' | ')'))
+                    || matches!(&tokens[at - 1].1, Token::Word(before) if before == "pub");
+                if !item_position {
+                    continue;
+                }
+                let mut cursor = at + 1;
+                if hook_word(&tokens, cursor) == Some("mut") {
+                    cursor += 1;
+                }
+                let Some(name) = hook_word(&tokens, cursor) else {
+                    continue;
+                };
+                if name == "fn" {
+                    continue;
+                }
+                let end = (cursor..tokens.len())
+                    .find(|index| hook_mark(&tokens, *index, ';'))
+                    .unwrap_or(tokens.len());
+                if let Some(equals) = (cursor..end).find(|index| hook_mark(&tokens, *index, '=')) {
+                    if let [(_, Token::Text(value))] = &tokens[equals + 1..end] {
+                        consts.insert(name.to_owned(), value.clone());
+                    }
+                }
+            }
+            "mod" => {
+                if let (Some(name), true) =
+                    (hook_word(&tokens, at + 1), hook_mark(&tokens, at + 2, ';'))
+                {
+                    let path = hook_attributes(&tokens, at)
+                        .into_iter()
+                        .find_map(|attribute| match attribute {
+                            [(_, Token::Word(key)), (_, Token::Mark('=')), (_, Token::Text(path))]
+                                if key == "path" =>
+                            {
+                                Some(path.clone())
+                            }
+                            _ => None,
+                        });
+                    mods.push((name.to_owned(), path));
+                }
+            }
+            "impl" | "trait" => {
+                let item_position = at == 0
+                    || matches!(tokens[at - 1].1, Token::Mark('}' | ';' | ']' | '{'))
+                    || matches!(&tokens[at - 1].1, Token::Word(before) if before == "unsafe" || before == "pub");
+                if !item_position {
+                    continue;
+                }
+                let name = if word == "impl" {
+                    impl_name(&tokens[at + 1..])
+                } else {
+                    match hook_word(&tokens, at + 1) {
+                        Some(name) => name.to_owned(),
+                        None => continue,
+                    }
+                };
+                let open = (at + 1..tokens.len())
+                    .take_while(|index| !hook_mark(&tokens, *index, ';'))
+                    .find(|index| hook_mark(&tokens, *index, '{'));
+                if let Some(open) = open {
+                    owners.push((open, hook_closing(&tokens, open), name));
+                }
+            }
+            "fn" => {
+                if let Some(item) = hook_item(&tokens, at) {
+                    items.push(item);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut within = vec![None; tokens.len()];
+    for (index, item) in items.iter().enumerate() {
+        if let Some((open, close)) = item.body {
+            for slot in &mut within[open..=close] {
+                *slot = Some(index);
+            }
+        }
+    }
+    for item in &mut items {
+        // A function nested in another function's body belongs to no type.
+        if within[item.at].is_none() {
+            item.owner = owners
+                .iter()
+                .filter(|(open, close, _)| *open < item.at && item.at < *close)
+                .max_by_key(|(open, _, _)| *open)
+                .map(|(_, _, name)| name.clone());
+        }
+    }
+    HookSource {
+        tokens,
+        uses,
+        globs,
+        consts,
+        mods,
+        items,
+        within,
+    }
+}
+
+/// The word token at `at`, if it is one.
+fn hook_word(tokens: &[(usize, Token)], at: usize) -> Option<&str> {
+    match tokens.get(at) {
+        Some((_, Token::Word(word))) => Some(word.as_str()),
+        _ => None,
+    }
+}
+
+/// Whether the token at `at` is the mark `mark`.
+fn hook_mark(tokens: &[(usize, Token)], at: usize, mark: char) -> bool {
+    matches!(tokens.get(at), Some((_, Token::Mark(found))) if *found == mark)
+}
+
+/// Whether a name starts as a type does (an upper-case letter).
+fn hook_type_like(name: &str) -> bool {
+    name.chars().next().is_some_and(char::is_uppercase)
+}
+
+/// The index of the bracket closing the one at `open` (or the last token).
+fn hook_closing(tokens: &[(usize, Token)], open: usize) -> usize {
+    let (opening, closing) = match tokens.get(open) {
+        Some((_, Token::Mark('('))) => ('(', ')'),
+        Some((_, Token::Mark('['))) => ('[', ']'),
+        _ => ('{', '}'),
+    };
+    let mut depth = 0usize;
+    for (index, (_, token)) in tokens.iter().enumerate().skip(open) {
+        match token {
+            Token::Mark(mark) if *mark == opening => depth += 1,
+            Token::Mark(mark) if *mark == closing => {
+                depth -= 1;
+                if depth == 0 {
+                    return index;
+                }
+            }
+            _ => {}
+        }
+    }
+    tokens.len().saturating_sub(1)
+}
+
+/// The contents of the outer attributes (`#[...]`) right before the item
+/// whose keyword is at `at`, past any visibility and qualifiers.
+fn hook_attributes(tokens: &[(usize, Token)], at: usize) -> Vec<&[(usize, Token)]> {
+    let mut cursor = at;
+    while cursor > 0 {
+        match &tokens[cursor - 1].1 {
+            Token::Word(word)
+                if matches!(
+                    word.as_str(),
+                    "pub"
+                        | "crate"
+                        | "super"
+                        | "self"
+                        | "in"
+                        | "async"
+                        | "unsafe"
+                        | "const"
+                        | "extern"
+                ) =>
+            {
+                cursor -= 1;
+            }
+            Token::Mark('(' | ')') | Token::Text(_) => cursor -= 1,
+            _ => break,
+        }
+    }
+    let mut attributes = Vec::new();
+    while cursor > 1 && hook_mark(tokens, cursor - 1, ']') {
+        let mut depth = 0usize;
+        let mut open = None;
+        for (index, (_, token)) in tokens[..cursor].iter().enumerate().rev() {
+            match token {
+                Token::Mark(']') => depth += 1,
+                Token::Mark('[') => {
+                    depth -= 1;
+                    if depth == 0 {
+                        open = Some(index);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        match open {
+            Some(open) if open > 0 && hook_mark(tokens, open - 1, '#') => {
+                attributes.push(&tokens[open + 1..cursor - 1]);
+                cursor = open - 1;
+            }
+            _ => break,
+        }
+    }
+    attributes
+}
+
+/// One `use` tree from `at`, recording each name it brings in by its full
+/// path and each glob by its prefix.
+fn hook_use(
+    tokens: &[(usize, Token)],
+    at: &mut usize,
+    prefix: Vec<String>,
+    uses: &mut BTreeMap<String, Vec<String>>,
+    globs: &mut Vec<Vec<String>>,
+) {
+    let mut path = prefix;
+    while let Some((_, token)) = tokens.get(*at) {
+        match token {
+            Token::Mark(':') => *at += 1,
+            Token::Mark('*') => {
+                *at += 1;
+                globs.push(path);
+                return;
+            }
+            Token::Mark('{') => {
+                *at += 1;
+                while *at < tokens.len() && !hook_mark(tokens, *at, '}') {
+                    let before = *at;
+                    hook_use(tokens, at, path.clone(), uses, globs);
+                    if hook_mark(tokens, *at, ',') {
+                        *at += 1;
+                    } else if *at == before {
+                        break;
+                    }
+                }
+                *at += 1;
+                return;
+            }
+            Token::Word(word) if word == "as" => {
+                if let Some(alias) = hook_word(tokens, *at + 1) {
+                    uses.insert(alias.to_owned(), path);
+                }
+                *at += 2;
+                return;
+            }
+            Token::Word(word) => {
+                if !(word == "self" && !path.is_empty()) {
+                    path.push(word.clone());
+                }
+                *at += 1;
+            }
+            _ => break,
+        }
+    }
+    if let Some(last) = path.last() {
+        uses.insert(last.clone(), path.clone());
+    }
+}
+
+/// The function item whose `fn` keyword is at `at`.
+fn hook_item(tokens: &[(usize, Token)], at: usize) -> Option<HookItem> {
+    let name = hook_word(tokens, at + 1)?.to_owned();
+    let mut cursor = at + 2;
+    if hook_mark(tokens, cursor, '<') {
+        let mut depth = 0usize;
+        while let Some((_, token)) = tokens.get(cursor) {
+            match token {
+                Token::Mark('<') => depth += 1,
+                Token::Mark('>') if !hook_mark(tokens, cursor - 1, '-') => {
+                    depth -= 1;
+                    if depth == 0 {
+                        break;
+                    }
+                }
+                _ => {}
+            }
+            cursor += 1;
+        }
+        cursor += 1;
+    }
+    if !hook_mark(tokens, cursor, '(') {
+        return None;
+    }
+    let close = hook_closing(tokens, cursor);
+    let mut params = Vec::new();
+    let mut has_self = false;
+    for param in hook_split(&tokens[cursor + 1..close]) {
+        let colon = (0..param.len()).find(|index| {
+            hook_mark(param, *index, ':')
+                && !hook_mark(param, index + 1, ':')
+                && !(*index > 0 && hook_mark(param, index - 1, ':'))
+        });
+        let pattern = &param[..colon.unwrap_or(param.len())];
+        if pattern
+            .iter()
+            .any(|(_, token)| matches!(token, Token::Word(word) if word == "self"))
+        {
+            has_self = true;
+            continue;
+        }
+        let name = pattern
+            .iter()
+            .find_map(|(_, token)| match token {
+                Token::Word(word) if word != "mut" => Some(word.clone()),
+                _ => None,
+            })
+            .unwrap_or_default();
+        let kind = colon.and_then(|colon| hook_type(&param[colon + 1..]));
+        params.push((name, kind));
+    }
+    let mut body = None;
+    let mut index = close + 1;
+    let mut depth = 0usize;
+    while let Some((_, token)) = tokens.get(index) {
+        match token {
+            Token::Mark('(' | '[') => depth += 1,
+            Token::Mark(')' | ']') => depth = depth.saturating_sub(1),
+            Token::Mark(';') if depth == 0 => break,
+            Token::Mark('{') if depth == 0 => {
+                body = Some((index, hook_closing(tokens, index)));
+                break;
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    let test = hook_attributes(tokens, at)
+        .iter()
+        .any(|attribute| matches!(attribute, [(_, Token::Word(word))] if word == "test"));
+    Some(HookItem {
+        name,
+        owner: None,
+        test,
+        at,
+        params,
+        has_self,
+        body,
+    })
+}
+
+/// The top-level comma-separated parts of an argument or parameter list.
+fn hook_split(tokens: &[(usize, Token)]) -> Vec<&[(usize, Token)]> {
+    let mut parts = Vec::new();
+    let mut depth = 0usize;
+    let mut angle = 0usize;
+    let mut start = 0;
+    for (index, (_, token)) in tokens.iter().enumerate() {
+        match token {
+            Token::Mark('(' | '[' | '{') => depth += 1,
+            Token::Mark(')' | ']' | '}') => depth = depth.saturating_sub(1),
+            Token::Mark('<') => angle += 1,
+            Token::Mark('>') if !(index > 0 && hook_mark(tokens, index - 1, '-')) => {
+                angle = angle.saturating_sub(1);
+            }
+            Token::Mark(',') if depth == 0 && angle == 0 => {
+                parts.push(&tokens[start..index]);
+                start = index + 1;
+            }
+            _ => {}
+        }
+    }
+    if start < tokens.len() {
+        parts.push(&tokens[start..]);
+    }
+    parts
+}
+
+/// The type a type expression names: its first type-like word.
+fn hook_type(tokens: &[(usize, Token)]) -> Option<String> {
+    tokens.iter().find_map(|(_, token)| match token {
+        Token::Word(word) if hook_type_like(word) => Some(word.clone()),
+        _ => None,
+    })
+}
+
+/// The units this inventory compiles: the QA library and its test binaries,
+/// and each lane's library and test binaries, every one with the files its
+/// `mod` declarations reach.
+fn hook_units(parsed: &BTreeMap<String, HookSource>, folder: &str) -> Vec<HookUnit> {
+    let mut units = Vec::new();
+    let qa = parsed.contains_key("test/qa/src/lib.rs").then(|| {
+        units.push(HookUnit {
+            library: Some("ratmac_qa".to_owned()),
+            files: hook_files("test/qa/src/lib.rs", parsed),
+            deps: Vec::new(),
+        });
+        units.len() - 1
+    });
+    let binary = |path: &str, prefix: &str| {
+        path.strip_prefix(prefix)
+            .is_some_and(|name| !name.contains('/') && name.ends_with(".rs"))
+    };
+    for path in parsed.keys().filter(|path| binary(path, "test/qa/tests/")) {
+        units.push(HookUnit {
+            library: None,
+            files: hook_files(path, parsed),
+            deps: qa.into_iter().collect(),
+        });
+    }
+    let lanes: BTreeSet<&str> = parsed
+        .keys()
+        .filter_map(|path| {
+            path.strip_prefix(folder)?
+                .strip_prefix('/')?
+                .split('/')
+                .next()
+        })
+        .collect();
+    for lane in lanes {
+        let base = format!("{folder}/{lane}/");
+        let library = format!("{base}src/lib.rs");
+        let mut deps: Vec<usize> = qa.into_iter().collect();
+        if parsed.contains_key(&library) {
+            units.push(HookUnit {
+                library: Some(format!("ratmac_{}_hidden", lane.replace('-', ""))),
+                files: hook_files(&library, parsed),
+                deps: deps.clone(),
+            });
+            deps.push(units.len() - 1);
+        }
+        for path in parsed
+            .keys()
+            .filter(|path| binary(path, &format!("{base}tests/")))
+        {
+            units.push(HookUnit {
+                library: None,
+                files: hook_files(path, parsed),
+                deps: deps.clone(),
+            });
+        }
+    }
+    units
+}
+
+/// The files one crate root reaches through `mod` declarations (`#[path]`
+/// included), each with its module name.
+fn hook_files(root: &str, parsed: &BTreeMap<String, HookSource>) -> Vec<(String, String)> {
+    let mut files = vec![(root.to_owned(), "crate".to_owned())];
+    let mut at = 0;
+    while let Some((path, _)) = files.get(at).cloned() {
+        let folder = path
+            .rsplit_once('/')
+            .map_or("", |(folder, _)| folder)
+            .to_owned();
+        let own_folder = at == 0 || path.ends_with("/mod.rs");
+        let stem = path
+            .rsplit('/')
+            .next()
+            .and_then(|name| name.strip_suffix(".rs"))
+            .unwrap_or_default()
+            .to_owned();
+        for (name, attribute) in parsed
+            .get(&path)
+            .map(|source| &source.mods)
+            .into_iter()
+            .flatten()
+        {
+            let candidates = match attribute {
+                Some(relative) => vec![hook_normal(&format!("{folder}/{relative}"))],
+                None => {
+                    let base = if own_folder {
+                        folder.clone()
+                    } else {
+                        format!("{folder}/{stem}")
+                    };
+                    vec![format!("{base}/{name}.rs"), format!("{base}/{name}/mod.rs")]
+                }
+            };
+            if let Some(found) = candidates
+                .into_iter()
+                .find(|candidate| parsed.contains_key(candidate))
+            {
+                if !files.iter().any(|(file, _)| *file == found) {
+                    files.push((found, name.clone()));
+                }
+            }
+        }
+        at += 1;
+    }
+    files
+}
+
+/// A `/`-separated path with `.` and `..` resolved.
+fn hook_normal(path: &str) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    for part in path.split('/') {
+        match part {
+            "." | "" => {}
+            ".." => {
+                parts.pop();
+            }
+            other => parts.push(other),
+        }
+    }
+    parts.join("/")
+}
+
+/// What one function knows of its names: parameters, the types of its
+/// bindings, and what each binding holds as a setting's name.
+struct HookLocals<'a> {
+    params: Vec<String>,
+    types: BTreeMap<String, String>,
+    names: BTreeMap<String, HookName>,
+    consts: &'a BTreeMap<String, String>,
+    /// The functions of this unit whose bodies name a `RATMAC_TEST_*` setting,
+    /// directly or through another such function of their file: what they
+    /// return may be a setting's name (`kind.hooks(...)`).
+    mentions: &'a BTreeSet<String>,
+}
+
+impl HookLocals<'_> {
+    /// What an argument reads as a setting's name.
+    fn name(&self, argument: &[(usize, Token)]) -> HookName {
+        let mut tokens = argument;
+        while let [(_, Token::Mark('&' | '*')), rest @ ..] = tokens {
+            tokens = rest;
+        }
+        if let [(_, Token::Word(word)), rest @ ..] = tokens {
+            if word == "mut" {
+                tokens = rest;
+            }
+        }
+        while let [rest @ .., (_, Token::Mark('.')), (_, Token::Word(method)), (_, Token::Mark('(')), (_, Token::Mark(')'))] =
+            tokens
+        {
+            if !NAME_CONVERSIONS.contains(&method.as_str()) {
+                break;
+            }
+            tokens = rest;
+        }
+        let hook = |text: &str| {
+            if text.to_ascii_uppercase().starts_with(HOOK_PREFIX) {
+                HookName::Hook
+            } else {
+                HookName::Other
+            }
+        };
+        if let [(_, Token::Text(text))] = tokens {
+            return hook(text);
+        }
+        let path = !tokens.is_empty()
+            && tokens.iter().enumerate().all(|(index, (_, token))| {
+                if index % 3 == 0 {
+                    matches!(token, Token::Word(_))
+                } else {
+                    matches!(token, Token::Mark(':'))
+                }
+            });
+        if path {
+            if let Some((_, Token::Word(last))) = tokens.last() {
+                if let Some(index) = self.params.iter().position(|param| param == last) {
+                    return HookName::Param(index);
+                }
+                if let Some(name) = self.names.get(last) {
+                    return name.clone();
+                }
+                if let Some(value) = self.consts.get(last) {
+                    return hook(value);
+                }
+            }
+        }
+        if tokens
+            .iter()
+            .any(|(_, token)| matches!(token, Token::Text(text) if hook(text) == HookName::Hook))
+        {
+            return HookName::Hook;
+        }
+        let returned = tokens.windows(2).any(|pair| match pair {
+            [(_, Token::Word(called)), (_, Token::Mark('('))] => self.mentions.contains(called),
+            _ => false,
+        });
+        if returned {
+            HookName::Hook
+        } else {
+            HookName::Other
+        }
+    }
+}
+
+/// What one function body does: its setter calls, its resolved calls, the
+/// `isolated_test` names it asks for, the closures it passes, and (for a
+/// test) its child-role branches.
+struct HookBody {
+    direct: Vec<(usize, HookName)>,
+    calls: Vec<HookCall>,
+    isolated: Vec<String>,
+    closures: Vec<(usize, usize, usize)>,
+    children: Vec<(usize, usize)>,
+}
+
+/// The functions of one file whose bodies name a `RATMAC_TEST_*` setting (by
+/// literal or constant), closed over calls to each other inside the file.
+fn hook_mentions(source: &HookSource, consts: &BTreeMap<String, String>) -> BTreeSet<String> {
+    let hook = |text: &str| text.to_ascii_uppercase().starts_with(HOOK_PREFIX);
+    let bodies: Vec<(&str, Vec<&Token>)> = source
+        .items
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| !item.test)
+        .filter_map(|(index, item)| {
+            let (open, close) = item.body?;
+            let body = (open + 1..close)
+                .filter(|at| source.within[*at] == Some(index))
+                .map(|at| &source.tokens[at].1)
+                .collect();
+            Some((item.name.as_str(), body))
+        })
+        .collect();
+    let mut found: BTreeSet<String> = bodies
+        .iter()
+        .filter(|(_, body)| {
+            body.iter().any(|token| match token {
+                Token::Text(text) => hook(text),
+                Token::Word(word) => consts.get(word).is_some_and(|value| hook(value)),
+                _ => false,
+            })
+        })
+        .map(|(name, _)| (*name).to_owned())
+        .collect();
+    loop {
+        let more: Vec<String> = bodies
+            .iter()
+            .filter(|(name, body)| {
+                !found.contains(*name)
+                    && body.windows(2).any(|pair| {
+                        matches!(pair, [Token::Word(called), Token::Mark('(')] if found.contains(called))
+                    })
+            })
+            .map(|(name, _)| (*name).to_owned())
+            .collect();
+        if more.is_empty() {
+            return found;
+        }
+        found.extend(more);
+    }
+}
+
+/// Whether the call from `start` (its first path segment) to `end` (its
+/// closing parenthesis) is kept: the whole value of a `let` naming a binding
+/// other than `_`, or the tail of the body closing at `close`.
+fn hook_bound(tokens: &[(usize, Token)], start: usize, end: usize, close: usize) -> bool {
+    let statement = start == 0 || matches!(tokens[start - 1].1, Token::Mark('{' | ';' | '}'));
+    if statement && end + 1 == close {
+        return true;
+    }
+    if !hook_mark(tokens, end + 1, ';') || start < 3 || !hook_mark(tokens, start - 1, '=') {
+        return false;
+    }
+    let mut cursor = start - 1;
+    while cursor > 0 {
+        cursor -= 1;
+        match &tokens[cursor].1 {
+            Token::Word(word) if word == "let" => {
+                let mut name = cursor + 1;
+                if hook_word(tokens, name) == Some("mut") {
+                    name += 1;
+                }
+                return hook_word(tokens, name).is_some_and(|name| name != "_");
+            }
+            Token::Mark('{' | ';' | '}') => return false,
+            _ => {}
+        }
+    }
+    false
+}
+
+/// The child-role branch of a test at the `if` or `match` at `at`: a block
+/// whose condition reads the environment (`var`, `var_os`) and that ends the
+/// case (`return`, `exit`) or, for an `if`, has an `else`; by its lines.
+fn hook_child_branch(
+    tokens: &[(usize, Token)],
+    at: usize,
+    close: usize,
+) -> Option<Vec<(usize, usize)>> {
+    let mut depth = 0usize;
+    let mut brace = None;
+    for (index, (_, token)) in tokens.iter().enumerate().take(close).skip(at + 1) {
+        match token {
+            Token::Mark('(' | '[') => depth += 1,
+            Token::Mark(')' | ']') => depth = depth.saturating_sub(1),
+            Token::Mark('{') if depth == 0 => {
+                brace = Some(index);
+                break;
+            }
+            Token::Mark(';' | '}') if depth == 0 => return None,
+            _ => {}
+        }
+    }
+    let brace = brace?;
+    let reads = tokens[at + 1..brace].windows(2).any(|pair| {
+        matches!(pair, [(_, Token::Word(read)), (_, Token::Mark('('))] if read == "var" || read == "var_os")
+    });
+    if !reads {
+        return None;
+    }
+    let end = hook_closing(tokens, brace);
+    let ends = |from: usize, to: usize| {
+        tokens[from..to].iter().any(
+            |(_, token)| matches!(token, Token::Word(word) if word == "return" || word == "exit"),
+        )
+    };
+    if hook_word(tokens, at) == Some("if") {
+        return (ends(brace, end) || hook_word(tokens, end + 1) == Some("else"))
+            .then(|| vec![(tokens[brace].0, tokens[end].0)]);
+    }
+    let mut regions = Vec::new();
+    let mut index = brace + 1;
+    while index < end {
+        if hook_mark(tokens, index, '=')
+            && hook_mark(tokens, index + 1, '>')
+            && hook_mark(tokens, index + 2, '{')
+        {
+            let arm = hook_closing(tokens, index + 2);
+            if ends(index + 2, arm) {
+                regions.push((tokens[index + 2].0, tokens[arm].0));
+            }
+            index = arm;
+        }
+        index += 1;
+    }
+    (!regions.is_empty()).then_some(regions)
+}
+
+/// Every unit's functions with their calls resolved.
+struct HookIndex<'a> {
+    parsed: &'a BTreeMap<String, HookSource>,
+    units: Vec<HookUnit>,
+    nodes: Vec<HookNode>,
+    free: BTreeMap<(usize, String), Vec<usize>>,
+    methods: BTreeMap<(usize, String, String), Vec<usize>>,
+    owners: BTreeMap<(usize, String), BTreeSet<String>>,
+    libraries: BTreeMap<String, usize>,
+    consts: Vec<BTreeMap<String, String>>,
+    mentions: Vec<BTreeSet<String>>,
+}
+
+impl<'a> HookIndex<'a> {
+    fn new(parsed: &'a BTreeMap<String, HookSource>, units: Vec<HookUnit>) -> Self {
+        let mut index = HookIndex {
+            parsed,
+            units: Vec::new(),
+            nodes: Vec::new(),
+            free: BTreeMap::new(),
+            methods: BTreeMap::new(),
+            owners: BTreeMap::new(),
+            libraries: BTreeMap::new(),
+            consts: Vec::new(),
+            mentions: Vec::new(),
+        };
+        for (unit, crate_unit) in units.iter().enumerate() {
+            if let Some(name) = &crate_unit.library {
+                index.libraries.insert(name.clone(), unit);
+            }
+            let mut consts = BTreeMap::new();
+            for (file, _) in crate_unit.files.iter().chain(
+                crate_unit
+                    .deps
+                    .iter()
+                    .flat_map(|dep| units[*dep].files.iter()),
+            ) {
+                for (name, value) in &parsed[file].consts {
+                    consts.entry(name.clone()).or_insert_with(|| value.clone());
+                }
+            }
+            index.consts.push(consts);
+            let mentions = crate_unit
+                .files
+                .iter()
+                .flat_map(|(file, _)| hook_mentions(&parsed[file], &index.consts[unit]))
+                .collect();
+            index.mentions.push(mentions);
+            for (file, module) in &crate_unit.files {
+                for (item, function) in parsed[file].items.iter().enumerate() {
+                    if function.body.is_none() {
+                        continue;
+                    }
+                    let id = index.nodes.len();
+                    let label = match &function.owner {
+                        Some(owner) => format!("{owner}::{}", function.name),
+                        None => function.name.clone(),
+                    };
+                    let exempt = file == HOOK_SUPPORT
+                        && match function.owner.as_deref() {
+                            None => function.name == "hook_lane",
+                            Some(owner) => owner == "HookLane" || owner == "StepFault",
+                        };
+                    match &function.owner {
+                        Some(owner) => {
+                            index
+                                .methods
+                                .entry((unit, owner.clone(), function.name.clone()))
+                                .or_default()
+                                .push(id);
+                            index
+                                .owners
+                                .entry((unit, function.name.clone()))
+                                .or_default()
+                                .insert(owner.clone());
+                        }
+                        None => index
+                            .free
+                            .entry((unit, function.name.clone()))
+                            .or_default()
+                            .push(id),
+                    }
+                    index.nodes.push(HookNode {
+                        unit,
+                        file: file.clone(),
+                        module: module.clone(),
+                        item,
+                        label,
+                        exempt,
+                        direct: Vec::new(),
+                        calls: Vec::new(),
+                        isolated: Vec::new(),
+                        closures: Vec::new(),
+                        children: Vec::new(),
+                        taker: false,
+                        wraps: BTreeSet::new(),
+                        sites: Vec::new(),
+                    });
+                }
+            }
+        }
+        index.units = units;
+        for id in 0..index.nodes.len() {
+            let body = index.scan(id);
+            let node = &mut index.nodes[id];
+            node.direct = body.direct;
+            node.calls = body.calls;
+            node.isolated = body.isolated;
+            node.closures = body.closures;
+            node.children = body.children;
+        }
+        index.settle();
+        index
+    }
+
+    fn item(&self, id: usize) -> &HookItem {
+        let node = &self.nodes[id];
+        &self.parsed[&node.file].items[node.item]
+    }
+
+    /// The units a call from `unit` may reach: itself, then its libraries.
+    fn reach(&self, unit: usize) -> impl Iterator<Item = usize> + '_ {
+        std::iter::once(unit).chain(self.units[unit].deps.iter().copied())
+    }
+
+    /// The library unit a crate name stands for, seen from `unit`.
+    fn library(&self, unit: usize, name: &str) -> Option<usize> {
+        if matches!(name, "crate" | "self" | "super") {
+            return Some(unit);
+        }
+        let found = *self.libraries.get(name)?;
+        self.reach(unit)
+            .any(|reached| reached == found)
+            .then_some(found)
+    }
+
+    /// The methods `owner::name` the first reachable unit defines.
+    fn methods_of(&self, unit: usize, owner: &str, name: &str) -> Vec<usize> {
+        self.reach(unit)
+            .find_map(|reached| {
+                self.methods
+                    .get(&(reached, owner.to_owned(), name.to_owned()))
+                    .filter(|found| !found.is_empty())
+                    .cloned()
+            })
+            .unwrap_or_default()
+    }
+
+    /// The free functions `name` of `unit`, those of module `module` first.
+    fn free_of(&self, unit: usize, name: &str, module: Option<&str>) -> Vec<usize> {
+        let all = self
+            .free
+            .get(&(unit, name.to_owned()))
+            .cloned()
+            .unwrap_or_default();
+        let preferred: Vec<usize> = all
+            .iter()
+            .copied()
+            .filter(|id| Some(self.nodes[*id].module.as_str()) == module)
+            .collect();
+        if preferred.is_empty() {
+            all
+        } else {
+            preferred
+        }
+    }
+
+    /// Whether a full path names the Engine library; every entry counts.
+    fn engine(full: &[String]) -> bool {
+        full.first().is_some_and(|head| head == "ratmac")
+    }
+
+    /// The targets of a full path (`crate::module::function`,
+    /// `library::Type::method`), and whether it is an Engine entry.
+    fn resolve_full(&self, unit: usize, full: &[String]) -> (Vec<usize>, bool) {
+        self.resolve_through(unit, full, 0)
+    }
+
+    /// [`Self::resolve_full`], following a library's own re-exports (`pub use
+    /// ratmac_qa::support;` in a lane library) a bounded number of times.
+    fn resolve_through(&self, unit: usize, full: &[String], depth: usize) -> (Vec<usize>, bool) {
+        if Self::engine(full) {
+            return (Vec::new(), true);
+        }
+        let (Some(head), Some(name)) = (full.first(), full.last()) else {
+            return (Vec::new(), false);
+        };
+        let Some(target) = self.library(unit, head) else {
+            return (Vec::new(), false);
+        };
+        let before = full.len().checked_sub(2).map(|index| full[index].as_str());
+        let found = match before {
+            Some(owner) if hook_type_like(owner) => (self.methods_of(target, owner, name), false),
+            _ => (self.free_of(target, name, before), false),
+        };
+        if !found.0.is_empty() || depth > 4 || target == unit || full.len() < 2 {
+            return found;
+        }
+        // The library's root re-exports the second segment under that name.
+        let root = &self.units[target].files[0].0;
+        let Some(exported) = self.parsed[root].uses.get(&full[1]) else {
+            return found;
+        };
+        if exported
+            .first()
+            .is_some_and(|head| matches!(head.as_str(), "self" | "super"))
+        {
+            return found;
+        }
+        let mut rewritten = exported.clone();
+        if rewritten.first().is_some_and(|head| head == "crate") {
+            rewritten[0] = full[0].clone();
+        }
+        rewritten.extend(full[2..].iter().cloned());
+        if rewritten == full {
+            return found;
+        }
+        self.resolve_through(target, &rewritten, depth + 1)
+    }
+
+    /// The parsed calls, setter calls, and `isolated_test` names in a body.
+    fn scan(&self, id: usize) -> HookBody {
+        let node = &self.nodes[id];
+        let source = &self.parsed[&node.file];
+        let function = self.item(id);
+        let tokens = &source.tokens;
+        let mut body = HookBody {
+            direct: Vec::new(),
+            calls: Vec::new(),
+            isolated: Vec::new(),
+            closures: Vec::new(),
+            children: Vec::new(),
+        };
+        let Some((open, close)) = function.body else {
+            return body;
+        };
+        let owner = function.owner.clone();
+        let mut locals = HookLocals {
+            params: function
+                .params
+                .iter()
+                .map(|(name, _)| name.clone())
+                .collect(),
+            types: function
+                .params
+                .iter()
+                .filter_map(|(name, kind)| Some((name.clone(), kind.clone()?)))
+                .collect(),
+            names: BTreeMap::new(),
+            consts: &self.consts[node.unit],
+            mentions: &self.mentions[node.unit],
+        };
+        if let Some(owner) = &owner {
+            locals.types.insert("self".to_owned(), owner.clone());
+        }
+        let HookBody {
+            direct,
+            calls,
+            isolated,
+            closures,
+            children,
+        } = &mut body;
+        for at in open + 1..close {
+            if source.within[at] != Some(node.item) {
+                continue;
+            }
+            let (line, token) = &tokens[at];
+            let Token::Word(word) = token else {
+                continue;
+            };
+            let previous = at.checked_sub(1).map(|before| &tokens[before].1);
+            if word == "let" {
+                Self::bind(tokens, at, owner.as_deref(), &mut locals);
+                continue;
+            }
+            if word == "for" {
+                // `for key in [...]` or `for (key, value) in &pairs`: the
+                // pattern's first name holds a setting's name when the
+                // iterated value does.
+                let within = (at + 1..close).find(|index| hook_word(tokens, *index) == Some("in"));
+                if let Some(within) = within {
+                    let end = (within + 1..close)
+                        .find(|index| hook_mark(tokens, *index, '{'))
+                        .unwrap_or(close);
+                    let held = locals.name(&tokens[within + 1..end]);
+                    let names: Vec<&str> = (at + 1..within)
+                        .filter_map(|index| hook_word(tokens, index))
+                        .filter(|name| !matches!(*name, "mut" | "ref" | "_"))
+                        .collect();
+                    for (index, name) in names.iter().enumerate() {
+                        let name_held = if index == 0 {
+                            held.clone()
+                        } else {
+                            HookName::Other
+                        };
+                        locals.names.insert((*name).to_owned(), name_held);
+                    }
+                }
+                continue;
+            }
+            if function.test && (word == "if" || word == "match") {
+                if let Some(region) = hook_child_branch(tokens, at, close) {
+                    children.extend(region);
+                }
+            }
+            if hook_type_like(word) {
+                // A value of a type built here drops here: its `Drop` runs.
+                let built = (hook_mark(tokens, at + 1, '{') || hook_mark(tokens, at + 1, '('))
+                    && !matches!(previous, Some(Token::Mark('>' | ':')))
+                    && !matches!(previous, Some(Token::Word(before)) if matches!(before.as_str(), "impl" | "for" | "struct" | "enum" | "trait" | "union" | "in" | "fn"));
+                if built {
+                    let kind = if word == "Self" {
+                        owner.clone()
+                    } else {
+                        Some(word.clone())
+                    };
+                    if let Some(kind) = kind {
+                        let targets = self.methods_of(node.unit, &kind, "drop");
+                        if !targets.is_empty() {
+                            calls.push(HookCall {
+                                line: *line,
+                                targets,
+                                args: Vec::new(),
+                                receiver_first: false,
+                                step_fault: false,
+                                engine: false,
+                                bound: false,
+                            });
+                        }
+                    }
+                }
+                continue;
+            }
+            // A function named as a value (`[("case", recover_case)]`,
+            // `.map(answer)`) runs wherever that value is called.
+            let value_position = matches!(previous, Some(Token::Mark('(' | ',' | '[' | '=')))
+                && matches!(
+                    tokens.get(at + 1),
+                    Some((_, Token::Mark(',' | ')' | ']' | ';')))
+                );
+            if value_position
+                && !locals.params.contains(word)
+                && !locals.types.contains_key(word)
+                && !locals.names.contains_key(word)
+            {
+                let (targets, engine) = self.resolve_free(id, word);
+                if !targets.is_empty() || engine {
+                    calls.push(HookCall {
+                        line: *line,
+                        targets,
+                        args: Vec::new(),
+                        receiver_first: false,
+                        step_fault: false,
+                        engine,
+                        bound: false,
+                    });
+                }
+                continue;
+            }
+            if !hook_mark(tokens, at + 1, '(')
+                || NOT_CALLS.contains(&word.as_str())
+                || matches!(previous, Some(Token::Word(before)) if before == "fn")
+            {
+                continue;
+            }
+            let end = hook_closing(tokens, at + 1);
+            let parts = hook_split(&tokens[at + 2..end]);
+            let args: Vec<HookName> = parts.iter().map(|part| locals.name(part)).collect();
+            let method = matches!(previous, Some(Token::Mark('.')));
+            let path = !method
+                && hook_mark(tokens, at.wrapping_sub(1), ':')
+                && hook_mark(tokens, at.wrapping_sub(2), ':');
+            let mut segments: Vec<String> = Vec::new();
+            if path {
+                let mut cursor = at;
+                while cursor >= 3
+                    && hook_mark(tokens, cursor - 1, ':')
+                    && hook_mark(tokens, cursor - 2, ':')
+                {
+                    match hook_word(tokens, cursor - 3) {
+                        Some(segment) => segments.push(segment.to_owned()),
+                        None => {
+                            segments.clear();
+                            break;
+                        }
+                    }
+                    cursor -= 3;
+                }
+                segments.reverse();
+            }
+            if !method && (word == "set_var" || word == "remove_var") {
+                direct.push((*line, args.first().cloned().unwrap_or(HookName::Other)));
+                continue;
+            }
+            if word == "isolated_test" {
+                match parts.first() {
+                    Some([(_, Token::Text(name))]) => isolated.push(name.clone()),
+                    Some([(_, Token::Word(name))]) => {
+                        if let Some(value) = locals.consts.get(name) {
+                            isolated.push(value.clone());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let step_fault =
+                word == "set" && segments.last().is_some_and(|last| last == "StepFault");
+            let (targets, engine) = if method {
+                // A call result's method (`OpenOptions::new().create(true)`)
+                // names no receiver: it links nothing.
+                let named = matches!(
+                    at.checked_sub(2).map(|before| &tokens[before].1),
+                    Some(Token::Word(_))
+                );
+                let receiver = match (
+                    at.checked_sub(2).map(|before| &tokens[before].1),
+                    at.checked_sub(3),
+                ) {
+                    (Some(Token::Word(name)), before)
+                        if !before.is_some_and(|before| hook_mark(tokens, before, '.')) =>
+                    {
+                        locals.types.get(name).cloned()
+                    }
+                    _ => None,
+                };
+                if named {
+                    self.resolve_method(id, receiver.as_deref(), word)
+                } else {
+                    (Vec::new(), false)
+                }
+            } else if path {
+                self.resolve_path(id, &segments, word)
+            } else {
+                self.resolve_free(id, word)
+            };
+            if targets.is_empty() && !engine && !step_fault {
+                continue;
+            }
+            let bound = !method && hook_bound(tokens, at - 3 * segments.len(), end, close);
+            for part in &parts {
+                let closure = matches!(part.first(), Some((_, Token::Mark('|'))))
+                    || (matches!(part.first(), Some((_, Token::Word(word))) if word == "move")
+                        && matches!(part.get(1), Some((_, Token::Mark('|')))));
+                if let (true, Some((first, _)), Some((last, _))) =
+                    (closure, part.first(), part.last())
+                {
+                    closures.push((*first, *last, calls.len()));
+                }
+            }
+            calls.push(HookCall {
+                line: *line,
+                targets,
+                args,
+                receiver_first: path,
+                step_fault,
+                engine,
+                bound,
+            });
+        }
+        body
+    }
+
+    /// Records a `let` binding's type and what it holds as a setting's name.
+    fn bind(
+        tokens: &[(usize, Token)],
+        at: usize,
+        owner: Option<&str>,
+        locals: &mut HookLocals<'_>,
+    ) {
+        let mut cursor = at + 1;
+        if hook_word(tokens, cursor) == Some("mut") {
+            cursor += 1;
+        }
+        let Some(name) = hook_word(tokens, cursor) else {
+            return;
+        };
+        let mut depth = 0usize;
+        let mut equals = None;
+        let mut end = tokens.len();
+        for (index, (_, token)) in tokens.iter().enumerate().skip(cursor + 1) {
+            match token {
+                Token::Mark('(' | '[' | '{') => depth += 1,
+                Token::Mark(')' | ']' | '}') => {
+                    if depth == 0 {
+                        end = index;
+                        break;
+                    }
+                    depth -= 1;
+                }
+                // The first `=` of a `let` is its binding's.
+                Token::Mark('=') if depth == 0 && equals.is_none() => {
+                    equals = Some(index);
+                }
+                Token::Mark(';') if depth == 0 => {
+                    end = index;
+                    break;
+                }
+                _ => {}
+            }
+        }
+        let annotated = hook_mark(tokens, cursor + 1, ':')
+            .then(|| hook_type(&tokens[cursor + 2..equals.unwrap_or(end)]))
+            .flatten();
+        let Some(equals) = equals else {
+            if let Some(kind) = annotated {
+                locals.types.insert(name.to_owned(), kind);
+            }
+            return;
+        };
+        let value = &tokens[equals + 1..end];
+        // The first type a leading path names: `Type::new()`,
+        // `module::Type::new()`, `Self { .. }`.
+        let mut cursor = value
+            .iter()
+            .position(|(_, token)| {
+                !matches!(token, Token::Mark('&'))
+                    && !matches!(token, Token::Word(word) if word == "mut")
+            })
+            .unwrap_or(value.len());
+        let mut built = None;
+        while let Some((_, Token::Word(word))) = value.get(cursor) {
+            if word == "Self" {
+                built = owner.map(str::to_owned);
+                break;
+            }
+            if hook_type_like(word) {
+                built = Some(word.clone());
+                break;
+            }
+            if !hook_mark(value, cursor + 1, ':') || !hook_mark(value, cursor + 2, ':') {
+                break;
+            }
+            cursor += 3;
+        }
+        match annotated.or(built) {
+            Some(kind) => {
+                locals.types.insert(name.to_owned(), kind);
+            }
+            None => {
+                locals.types.remove(name);
+            }
+        }
+        let held = locals.name(value);
+        locals.names.insert(name.to_owned(), held);
+    }
+
+    fn resolve_free(&self, id: usize, name: &str) -> (Vec<usize>, bool) {
+        let node = &self.nodes[id];
+        let source = &self.parsed[&node.file];
+        if let Some(local) = self.free.get(&(node.unit, name.to_owned())) {
+            let same: Vec<usize> = local
+                .iter()
+                .copied()
+                .filter(|other| self.nodes[*other].file == node.file)
+                .collect();
+            return (if same.is_empty() { local.clone() } else { same }, false);
+        }
+        if let Some(full) = source.uses.get(name) {
+            return self.resolve_full(node.unit, full);
+        }
+        for glob in &source.globs {
+            let mut full = glob.clone();
+            full.push(name.to_owned());
+            let found = self.resolve_full(node.unit, &full);
+            if found.1 || !found.0.is_empty() {
+                return found;
+            }
+        }
+        (Vec::new(), false)
+    }
+
+    fn resolve_path(&self, id: usize, segments: &[String], name: &str) -> (Vec<usize>, bool) {
+        let node = &self.nodes[id];
+        let source = &self.parsed[&node.file];
+        let Some(head) = segments.first() else {
+            return (Vec::new(), false);
+        };
+        if head == "Self" {
+            return match &self.item(id).owner {
+                Some(owner) => (self.methods_of(node.unit, owner, name), false),
+                None => (Vec::new(), false),
+            };
+        }
+        let mut full: Vec<String> = match source.uses.get(head) {
+            Some(used) if !matches!(head.as_str(), "crate" | "self" | "super") => {
+                used.iter().chain(&segments[1..]).cloned().collect()
+            }
+            _ => segments.to_vec(),
+        };
+        full.push(name.to_owned());
+        if Self::engine(&full) {
+            return (Vec::new(), true);
+        }
+        if self.library(node.unit, &full[0]).is_some() {
+            return self.resolve_full(node.unit, &full);
+        }
+        let before = &segments[segments.len() - 1];
+        if hook_type_like(before) {
+            return (self.methods_of(node.unit, before, name), false);
+        }
+        let module = self.units[node.unit]
+            .files
+            .iter()
+            .any(|(_, module)| module == head);
+        if segments.len() == 1 && module {
+            return (self.free_of(node.unit, name, Some(head)), false);
+        }
+        (Vec::new(), false)
+    }
+
+    fn resolve_method(&self, id: usize, receiver: Option<&str>, name: &str) -> (Vec<usize>, bool) {
+        let node = &self.nodes[id];
+        let source = &self.parsed[&node.file];
+        match receiver {
+            Some(kind) => {
+                if let Some(full) = source.uses.get(kind) {
+                    let mut full = full.clone();
+                    full.push(name.to_owned());
+                    if Self::engine(&full) {
+                        return (Vec::new(), true);
+                    }
+                }
+                (self.methods_of(node.unit, kind, name), false)
+            }
+            None => {
+                // An unknown receiver (`gov.fx.run(...)`) reaches only a
+                // method that exactly one type defines, in the nearest unit
+                // defining any: this one, then its own lane library, then
+                // the QA library. Never a free function.
+                let nearest = std::iter::once(node.unit)
+                    .chain(self.units[node.unit].deps.iter().rev().copied())
+                    .find_map(|unit| Some((unit, self.owners.get(&(unit, name.to_owned()))?)));
+                match nearest.map(|(unit, owners)| (unit, owners.iter().collect::<Vec<_>>())) {
+                    Some((unit, owners)) if owners.len() == 1 => (
+                        self.methods
+                            .get(&(unit, owners[0].clone(), name.to_owned()))
+                            .cloned()
+                            .unwrap_or_default(),
+                        false,
+                    ),
+                    _ => (Vec::new(), false),
+                }
+            }
+        }
+    }
+
+    /// Lane takers, wrappers, and hook places, to a fixed point.
+    fn settle(&mut self) {
+        for id in 0..self.nodes.len() {
+            let function = self.item(id);
+            self.nodes[id].taker = self.nodes[id].file == HOOK_SUPPORT
+                && function.owner.is_none()
+                && function.name == "hook_lane";
+        }
+        loop {
+            let mut changed = false;
+            for id in 0..self.nodes.len() {
+                if self.nodes[id].taker || self.nodes[id].exempt {
+                    continue;
+                }
+                // A wrapper returns the shared lane: its body ends with a
+                // call that reaches it (`fn lane_guard() -> ... { hook_lane() }`).
+                let Some((_, close)) = self.item(id).body else {
+                    continue;
+                };
+                let tokens = &self.parsed[&self.nodes[id].file].tokens;
+                if close > 0 && hook_mark(tokens, close - 1, ')') && self.tail_call(id, close - 1) {
+                    self.nodes[id].taker = true;
+                    changed = true;
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+        for id in 0..self.nodes.len() {
+            if self.nodes[id].exempt {
+                continue;
+            }
+            let wraps: BTreeSet<usize> = self.nodes[id]
+                .direct
+                .iter()
+                .filter_map(|(_, name)| match name {
+                    HookName::Param(index) => Some(*index),
+                    _ => None,
+                })
+                .collect();
+            self.nodes[id].wraps = wraps;
+        }
+        loop {
+            let mut changed = false;
+            for id in 0..self.nodes.len() {
+                if self.nodes[id].exempt {
+                    continue;
+                }
+                let mut found = Vec::new();
+                for call in &self.nodes[id].calls {
+                    for target in &call.targets {
+                        let shift = usize::from(call.receiver_first && self.item(*target).has_self);
+                        for param in &self.nodes[*target].wraps {
+                            if let Some(HookName::Param(index)) = call.args.get(param + shift) {
+                                found.push(*index);
+                            }
+                        }
+                    }
+                }
+                for index in found {
+                    changed |= self.nodes[id].wraps.insert(index);
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+        for id in 0..self.nodes.len() {
+            if self.nodes[id].exempt {
+                continue;
+            }
+            let node = &self.nodes[id];
+            let mut sites: Vec<usize> = node
+                .direct
+                .iter()
+                .filter(|(_, name)| *name == HookName::Hook)
+                .map(|(line, _)| *line)
+                .collect();
+            for call in &node.calls {
+                let wrapped = call.targets.iter().any(|target| {
+                    let shift = usize::from(call.receiver_first && self.item(*target).has_self);
+                    self.nodes[*target]
+                        .wraps
+                        .iter()
+                        .any(|param| call.args.get(param + shift) == Some(&HookName::Hook))
+                });
+                if call.step_fault || wrapped {
+                    sites.push(call.line);
+                }
+            }
+            sites.sort_unstable();
+            sites.dedup();
+            self.nodes[id].sites = sites;
+        }
+    }
+
+    /// Whether the call whose closing parenthesis is at `close` is the whole
+    /// tail expression of the function's body, and reaches a lane taker.
+    fn tail_call(&self, id: usize, close: usize) -> bool {
+        let source = &self.parsed[&self.nodes[id].file];
+        let tokens = &source.tokens;
+        let mut depth = 0usize;
+        let mut open = None;
+        for (index, (_, token)) in tokens[..=close].iter().enumerate().rev() {
+            match token {
+                Token::Mark(')') => depth += 1,
+                Token::Mark('(') => {
+                    depth -= 1;
+                    if depth == 0 {
+                        open = Some(index);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let Some(open) = open else {
+            return false;
+        };
+        let Some(callee) = open.checked_sub(1) else {
+            return false;
+        };
+        let mut start = callee;
+        while start >= 3 && hook_mark(tokens, start - 1, ':') && hook_mark(tokens, start - 2, ':') {
+            start -= 3;
+        }
+        let statement_start =
+            start == 0 || matches!(tokens[start - 1].1, Token::Mark('{' | ';' | '}'));
+        let line = tokens[callee].0;
+        let name = hook_word(tokens, callee);
+        statement_start
+            && self.nodes[id].calls.iter().any(|call| {
+                call.line == line
+                    && call.targets.iter().any(|target| {
+                        self.nodes[*target].taker && Some(self.item(*target).name.as_str()) == name
+                    })
+            })
+    }
+
+    /// Follows every test case of every unit to the hook places and Engine
+    /// entries it reaches, and judges each binary.
+    fn report(&self) -> HookReport {
+        let mut sites: BTreeMap<HookSite, BTreeSet<(String, HookScope)>> = BTreeMap::new();
+        let mut grouped: BTreeMap<(usize, HookSite), BTreeSet<String>> = BTreeMap::new();
+        let site = |id: usize, line: usize| -> HookSite {
+            let node = &self.nodes[id];
+            (node.file.clone(), line, node.label.clone())
+        };
+        // The first line from which each function holds the lane: a kept
+        // (`let _lane = ...`) call reaching a taker.
+        let taken: Vec<Option<usize>> = self
+            .nodes
+            .iter()
+            .map(|node| {
+                node.calls
+                    .iter()
+                    .filter(|call| {
+                        call.bound && call.targets.iter().any(|target| self.nodes[*target].taker)
+                    })
+                    .map(|call| call.line)
+                    .min()
+            })
+            .collect();
+        // Whether `line` of function `id` runs under the lane: held from an
+        // earlier line, or inside a closure handed to a function holding it.
+        let held = |id: usize, line: usize| {
+            let node = &self.nodes[id];
+            taken[id].is_some_and(|from| from <= line)
+                || node.closures.iter().any(|(first, last, call)| {
+                    (*first..=*last).contains(&line)
+                        && node.calls[*call]
+                            .targets
+                            .iter()
+                            .any(|target| taken[*target].is_some())
+                })
+        };
+        for (unit, crate_unit) in self.units.iter().enumerate() {
+            let exact: BTreeSet<&str> =
+                crate_unit
+                    .files
+                    .iter()
+                    .flat_map(|(file, _)| {
+                        self.parsed[file].tokens.windows(3).filter_map(|window| match window {
+                        [(_, Token::Text(flag)), (_, Token::Mark(',')), (_, Token::Text(name))]
+                            if flag == "--exact" =>
+                        {
+                            Some(name.as_str())
+                        }
+                        _ => None,
+                    })
+                    })
+                    .collect();
+            let mut laned: BTreeMap<HookSite, BTreeSet<String>> = BTreeMap::new();
+            let mut open_engine: BTreeMap<String, HookSite> = BTreeMap::new();
+            for root in (0..self.nodes.len()).filter(|id| {
+                self.nodes[*id].unit == unit && !self.nodes[*id].exempt && self.item(*id).test
+            }) {
+                let name = self.item(root).name.clone();
+                // Only a named `--exact` case's child-role branches run in
+                // its child; the rest of its body runs in the shared process.
+                let child = |line: usize| {
+                    exact.contains(name.as_str())
+                        && self.nodes[root]
+                            .children
+                            .iter()
+                            .any(|(first, last)| (*first..=*last).contains(&line))
+                };
+                let mut seen: BTreeSet<(usize, bool, bool)> = BTreeSet::new();
+                let mut stack = vec![(root, false, false)];
+                let mut hits: Vec<(usize, usize, bool, bool)> = Vec::new();
+                let mut engine: Vec<(usize, usize, bool, bool)> = Vec::new();
+                let mut isolated = false;
+                while let Some((id, inherited, in_child)) = stack.pop() {
+                    if !seen.insert((id, inherited, in_child)) {
+                        continue;
+                    }
+                    let node = &self.nodes[id];
+                    let scope = |line: usize| {
+                        (
+                            inherited || held(id, line),
+                            in_child || (id == root && child(line)),
+                        )
+                    };
+                    isolated |= node.isolated.contains(&name);
+                    hits.extend(node.sites.iter().map(|line| {
+                        let (here, in_child) = scope(*line);
+                        (id, *line, here, in_child)
+                    }));
+                    for call in &node.calls {
+                        let (here, in_child) = scope(call.line);
+                        if call.engine {
+                            engine.push((id, call.line, here, in_child));
+                        }
+                        stack.extend(call.targets.iter().map(|target| (*target, here, in_child)));
+                    }
+                }
+                for (id, line, here, in_child) in hits {
+                    let scope = if isolated {
+                        HookScope::Isolated
+                    } else if in_child {
+                        HookScope::Exact
+                    } else if here {
+                        HookScope::Lane
+                    } else {
+                        HookScope::Open
+                    };
+                    sites
+                        .entry(site(id, line))
+                        .or_default()
+                        .insert((name.clone(), scope));
+                    match scope {
+                        HookScope::Open => {
+                            grouped
+                                .entry((0, site(id, line)))
+                                .or_default()
+                                .insert(name.clone());
+                        }
+                        HookScope::Lane => {
+                            laned
+                                .entry(site(id, line))
+                                .or_default()
+                                .insert(name.clone());
+                        }
+                        _ => {}
+                    }
+                }
+                if !isolated {
+                    if let Some((id, line, _, _)) = engine
+                        .iter()
+                        .filter(|(_, _, here, in_child)| !here && !in_child)
+                        .min_by_key(|(id, line, _, _)| site(*id, *line))
+                    {
+                        open_engine.insert(name.clone(), site(*id, *line));
+                    }
+                }
+            }
+            if !laned.is_empty() && !open_engine.is_empty() {
+                for (place, roots) in laned {
+                    grouped.entry((1, place)).or_default().extend(roots);
+                }
+                for (root, place) in open_engine {
+                    grouped.entry((2, place)).or_default().insert(root);
+                }
+            }
+        }
+        let libraries: BTreeSet<&str> = self
+            .units
+            .iter()
+            .filter(|crate_unit| crate_unit.library.is_some())
+            .flat_map(|crate_unit| crate_unit.files.iter().map(|(file, _)| file.as_str()))
+            .collect();
+        for (id, node) in self.nodes.iter().enumerate() {
+            if libraries.contains(node.file.as_str()) {
+                continue;
+            }
+            for line in &node.sites {
+                let place = site(id, *line);
+                if !sites.contains_key(&place) {
+                    grouped.entry((3, place)).or_default();
+                }
+            }
+        }
+        let findings = grouped
+            .into_iter()
+            .map(|((kind, (path, line, label)), roots)| {
+                let roots: Vec<&str> = roots.iter().map(String::as_str).collect();
+                match kind {
+                    0 => format!("unlaned: {path}:{line} {label} <- {}", roots.join(", ")),
+                    1 => format!(
+                        "beside an unlaned Engine case: {path}:{line} {label} <- {}",
+                        roots.join(", ")
+                    ),
+                    2 => format!(
+                        "Engine case without the lane: {path}:{line} {label} <- {}",
+                        roots.join(", ")
+                    ),
+                    _ => format!("unreached: {path}:{line} {label}"),
+                }
+            })
+            .collect();
+        HookReport { sites, findings }
+    }
+}
+
 // --- SVEV-010 to SVEV-012: one helper hands out every scratch folder ---------
 
 /// The clock value the SVE-004 checks pin: one no real request carries, so
@@ -2896,6 +5160,7 @@ const MARKER_KEY_CRATES: &[&str] = &[
     "test-hidden/t-134",
     "test-hidden/t-136",
     "test-hidden/t-142",
+    "test-hidden/t-143",
     "test/qa/tests/t050_blocked_route.rs",
     "test/qa/tests/t086_single_engine_binary.rs",
     "test/qa/tests/t122_successor_ownership.rs",

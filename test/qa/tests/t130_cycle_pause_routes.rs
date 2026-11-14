@@ -3408,3 +3408,242 @@ fn wrsv_003_09() {
     // The restored record resumes cleanly.
     plain.resume_ok(&plain_run, 1, "intake");
 }
+
+// --- SVEV-016/017: an armed command cannot arm its neighbours -----------------
+
+/// SVE-006: only these settings belong to one barrier-armed invocation.
+struct Barrier<'a> {
+    boundary: &'a str,
+    marker: Option<&'a Path>,
+    release: Option<&'a Path>,
+    timeout_millis: &'a str,
+}
+
+/// Red: the existing process-wide mechanism, kept behind the green API.
+/// Unwinding releases and joins the holder before its fixture can drop.
+struct Armed {
+    holder: Option<std::thread::JoinHandle<Ran>>,
+    release: Option<PathBuf>,
+    /// The marker this command publishes its parked line at, when it names one.
+    marker: Option<PathBuf>,
+    /// The whole line it publishes there when it parks.
+    parked_line: String,
+}
+
+fn armed(root: &Path, args: &[&str], barrier: &Barrier<'_>) -> Armed {
+    let marker = barrier.marker.map(Path::to_path_buf);
+    std::env::set_var("RATMAC_TEST_HOLD_BARRIER", barrier.boundary);
+    if let Some(marker) = &marker {
+        std::env::set_var("RATMAC_TEST_HOLD_BARRIER_MARKER", marker);
+    }
+    if let Some(release) = barrier.release {
+        std::env::set_var("RATMAC_TEST_HOLD_BARRIER_RELEASE", release);
+    }
+    std::env::set_var(
+        "RATMAC_TEST_HOLD_BARRIER_TIMEOUT_MILLIS",
+        barrier.timeout_millis,
+    );
+    let root = root.to_path_buf();
+    let args: Vec<String> = args.iter().map(|arg| (*arg).to_owned()).collect();
+    Armed {
+        holder: Some(std::thread::spawn(move || {
+            let args: Vec<&str> = args.iter().map(String::as_str).collect();
+            rtm(&root, &args)
+        })),
+        release: barrier.release.map(Path::to_path_buf),
+        marker,
+        parked_line: format!("holding before {}\n", barrier.boundary),
+    }
+}
+
+impl Armed {
+    /// The shared whole-line wait (SVE-005) for this command's parked line at
+    /// its own marker.
+    fn parked(&self, limit: Duration) -> Result<String, MarkerWait> {
+        let marker = self
+            .marker
+            .as_ref()
+            .expect("SVE-006: a parked wait needs the command's own marker");
+        support::await_marker_line(marker, MarkerLine::Exact(&self.parked_line), limit)
+    }
+
+    fn running(&mut self) -> bool {
+        self.holder
+            .as_ref()
+            .is_some_and(|holder| !holder.is_finished())
+    }
+
+    fn finish(mut self) -> Ran {
+        self.holder
+            .take()
+            .expect("SVE-006: live holder")
+            .join()
+            .expect("SVE-006: the armed invocation finished")
+    }
+}
+
+impl Drop for Armed {
+    fn drop(&mut self) {
+        if let Some(holder) = self.holder.take() {
+            if let Some(release) = &self.release {
+                let _ = fs::write(release, "released on drop\n");
+            }
+            let _ = holder.join();
+        }
+        std::env::remove_var("RATMAC_TEST_HOLD_BARRIER");
+        std::env::remove_var("RATMAC_TEST_HOLD_BARRIER_MARKER");
+        std::env::remove_var("RATMAC_TEST_HOLD_BARRIER_RELEASE");
+        std::env::remove_var("RATMAC_TEST_HOLD_BARRIER_TIMEOUT_MILLIS");
+    }
+}
+
+fn armed_motion(cycle: &Cycle, verb: &str, run: &str, barrier: &Barrier<'_>) -> Armed {
+    armed(
+        cycle.root(),
+        &[
+            verb,
+            "--run",
+            run,
+            "--blocker",
+            BLOCKER,
+            "--confirm",
+            &format!("{verb} {run}"),
+        ],
+        barrier,
+    )
+}
+
+/// Both public checks use this same parked hold and wrsv_003_08's helper.
+fn parked_hold(cycle: &Cycle, run: &str, marker: &Path, release: &Path) -> Armed {
+    let holder = armed_motion(
+        cycle,
+        "hold",
+        run,
+        &Barrier {
+            boundary: "before-journal-publication",
+            marker: Some(marker),
+            release: Some(release),
+            timeout_millis: "30000",
+        },
+    );
+    assert_eq!(
+        holder.parked(Duration::from_secs(20)).as_deref(),
+        Ok("holding before before-journal-publication\n"),
+        "SVE-006: the armed hold must publish its whole parked line",
+    );
+    holder
+}
+
+fn assert_scoped_hold(cycle: &Cycle, run: &str, held: &Ran) {
+    assert_eq!(held.code, 0, "SVE-006: the hold succeeds as alone: {held}");
+    assert_eq!(
+        held.stdout,
+        format!(
+            "rtm: run {run} paused against {BLOCKER}; routed intake -> intake\n\
+         The Run is not passed; a human resumes it when the blocker clears.\n"
+        ),
+        "SVE-006: the hold keeps today's success bytes"
+    );
+    assert!(
+        held.message.is_empty(),
+        "SVE-006: no barrier refusal: {held}"
+    );
+    cycle.assert_pause_record(run, 1, "intake", "runbook");
+    assert_eq!(cycle.status(run), "blocked", "SVE-006: the hold is durable");
+    assert_eq!(
+        fs::read_dir(cycle.run_dir(run).join("journal"))
+            .map(|entries| entries.count())
+            .unwrap_or(0),
+        0,
+        "SVE-006: a finished hold leaves no pending journal entry",
+    );
+    assert_eq!(
+        cycle
+            .history()
+            .lines()
+            .filter(|line| line.contains(&format!("- Hold: run {run} paused against {BLOCKER};")))
+            .count(),
+        1,
+        "SVE-006: the hold is recorded exactly once",
+    );
+}
+
+#[test]
+fn svev_016() {
+    let _lane = support::hook_lane();
+    let first = Cycle::new("svev016-armed");
+    let second = Cycle::new("svev016-plain");
+    let first_run = first.start();
+    let second_run = second.start();
+    let barrier = TempTree::new("svev016-barrier").expect("SVE-006: own barrier paths");
+    let marker = barrier.join("svev016-marker.txt");
+    let release = barrier.join("svev016-release.txt");
+    let mut parked = parked_hold(&first, &first_run, &marker, &release);
+
+    let held = second.hold(&second_run, BLOCKER);
+    assert_scoped_hold(&second, &second_run, &held);
+    let other = second.snapshot();
+    assert!(
+        other.iter().all(|(path, bytes)| {
+            !path.ends_with("svev016-marker.txt")
+                && !bytes
+                    .windows(b"holding before".len())
+                    .any(|part| part == b"holding before")
+        }),
+        "SVE-006: the other fixture has neither marker nor barrier bytes"
+    );
+    assert!(
+        parked.running(),
+        "SVE-006: the other hold completed while the first stayed parked"
+    );
+    fs::write(&release, "released\n").expect("SVE-006: release only the armed hold");
+    assert_scoped_hold(&first, &first_run, &parked.finish());
+}
+
+#[test]
+fn svev_017() {
+    let _lane = support::hook_lane();
+    let cycle = Cycle::new("svev017-armed");
+    let run = cycle.start();
+    let barrier = TempTree::new("svev017-barrier").expect("SVE-006: own barrier paths");
+    let marker = barrier.join("svev017-marker.txt");
+    let release = barrier.join("svev017-release.txt");
+    let mut parked = parked_hold(&cycle, &run, &marker, &release);
+    let process_keys: Vec<_> = std::env::vars_os()
+        .filter_map(|(key, _)| {
+            key.to_string_lossy()
+                .to_ascii_uppercase()
+                .starts_with("RATMAC_TEST_HOLD_BARRIER")
+                .then_some(key)
+        })
+        .collect();
+    // Intentionally plain: this probe copies its parent, with no scrub.
+    #[cfg(windows)]
+    let probe = std::process::Command::new("cmd")
+        .args(["/D", "/C", "set"])
+        .output();
+    #[cfg(not(windows))]
+    let probe = std::process::Command::new("env").output();
+    let probe = probe.expect("SVE-006: run an unscrubbed environment probe");
+    assert!(probe.status.success(), "SVE-006: the probe ran");
+    let stdout = String::from_utf8_lossy(&probe.stdout);
+    let child_keys: Vec<_> = stdout
+        .lines()
+        .filter_map(|line| {
+            let key = line.split_once('=')?.0;
+            key.to_ascii_uppercase()
+                .starts_with("RATMAC_TEST_HOLD_BARRIER")
+                .then_some(key)
+        })
+        .collect();
+    assert!(
+        process_keys.is_empty() && child_keys.is_empty(),
+        "SVE-006: barrier settings escaped the armed command; process={process_keys:?}, plain child={child_keys:?}",
+    );
+    assert!(
+        parked.running(),
+        "SVE-006: both probes ran while the hold stayed parked"
+    );
+    fs::write(&release, "released\n").expect("SVE-006: release the armed hold");
+    assert_scoped_hold(&cycle, &run, &parked.finish());
+}
