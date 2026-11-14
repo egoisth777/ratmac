@@ -1,0 +1,10 @@
+ticket-id = "t-148"
+check-id = "WTCV-009"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test t104_operator_skill -- --exact wtcv_009"
+working-dir = "."
+exit-status = 0
+output-sha256 = "da207aadafb586b0dda24fdf0edef73f45c57c3efdb542aadda3649b16fdf8c6"
+tree-roots = ["src","profiles","test","test-hidden","tools","Cargo.toml","Cargo.lock","AGENTS.md",".gitignore",".ratmac/ratmac.toml",".ratmac/turn.toml",".ratmac/lanes.toml"]
+tree-sha256 = "09ef07431b38e8b39c4a700ba18378c588f1cf4b574d9032118f259b2474d411"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t104_operator_skill.rs (target\\debug\\deps\\t104_operator_skill-186fcede5bbb8fa6.exe)\n\nrunning 1 test\ntest wtcv_009 ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.31s\n\n"

@@ -1,0 +1,10 @@
+ticket-id = "t-148"
+check-id = "HT-148-04"
+kind = "hidden-lane"
+command = "cargo test --offline --manifest-path test-hidden/t-148/Cargo.toml"
+working-dir = "."
+exit-status = 0
+output-sha256 = "7a69ac860a3816baf537457a68db52bb3c58c029f14ec60b1e6a3df8e255344d"
+tree-roots = ["src","profiles","test","test-hidden","tools","Cargo.toml","Cargo.lock","AGENTS.md",".gitignore",".ratmac/ratmac.toml",".ratmac/turn.toml",".ratmac/lanes.toml"]
+tree-sha256 = "09ef07431b38e8b39c4a700ba18378c588f1cf4b574d9032118f259b2474d411"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running unittests src\\lib.rs (test-hidden\\t-148\\target\\debug\\deps\\ratmac_t148_hidden-c6d917755bb5365a.exe)\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n     Running tests\\hidden.rs (test-hidden\\t-148\\target\\debug\\deps\\hidden-eda808bc321fcce5.exe)\n\nrunning 6 tests\ntest ht_148_06 ... ok\ntest ht_148_02 ... ok\ntest ht_148_01 ... ok\ntest ht_148_05 ... ok\ntest ht_148_03 ... ok\ntest ht_148_04 ... ok\n\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.79s\n\n   Doc-tests ratmac_t148_hidden\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n"

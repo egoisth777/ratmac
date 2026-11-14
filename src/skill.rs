@@ -19,8 +19,16 @@
 //! never leave a half folder at the caller's path - only a named leftover
 //! beside it, which the next attempt refuses and names for the operator to
 //! remove.
+//!
+//! WTC-003: another program may briefly hold a just-written file open - an
+//! indexer, a scanner - and on Windows that refuses the move with an access
+//! denial. Such a move is retried within the lock module's wait bound,
+//! measured from the first denial, and the requested path is checked before
+//! every attempt; any other move failure refuses at once. Other platforms
+//! keep the single try.
 
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 pub use crate::root::entries::write_skill;
 
@@ -46,7 +54,7 @@ pub enum SkillRefusal {
     Leftover(String),
     /// A live pre-split artifact prevents any Engine entry from acting.
     Preflight(String),
-    /// The write itself failed; any partial sibling was removed.
+    /// The write itself failed; removal of any partial sibling was tried.
     Unwritable(String, String),
 }
 
@@ -81,6 +89,9 @@ impl std::fmt::Display for SkillRefusal {
 /// it into place with one rename, so an interrupted write leaves the
 /// caller's path absent and a named leftover beside it - never a half
 /// folder that passes for the skill.
+/// On Windows a move refused with an access denial is retried within the
+/// lock module's wait bound (WTC-003), checking the requested path before
+/// every attempt.
 /// `project` is the resolved context of the project that owns `path`; the
 /// path-taking `write_skill` lives in `src/root.rs`.
 pub(crate) fn write_skill_in(
@@ -127,14 +138,103 @@ pub(crate) fn write_skill_in(
         let _ = std::fs::remove_dir_all(&partial);
         return Err(SkillRefusal::Unwritable(shown, error.to_string()));
     }
-    match std::fs::rename(&partial, path) {
-        Ok(()) => Ok(()),
-        Err(error) => {
-            let _ = std::fs::remove_dir_all(&partial);
-            Err(SkillRefusal::Unwritable(shown, error.to_string()))
+    move_into_place(&partial, path, &shown)
+}
+
+/// WTC-003: move the finished `partial` folder to `path`. Just before every
+/// attempt, the first included, the requested path must still be free; if
+/// something exists there, removal of the partial folder is tried and the
+/// write refuses as occupied instead of moving or waiting. A move refused
+/// with an access denial is retried every `MOVE_RETRY_INTERVAL` until the
+/// lock module's `WAIT_TIMEOUT` has passed since the first denial; any
+/// other failure, or a denial at that bound, tries to remove the partial
+/// folder and refuses with the last error. No lock is taken and nothing is
+/// resolved again.
+fn move_into_place(partial: &Path, path: &Path, shown: &str) -> Result<(), SkillRefusal> {
+    let refuse = |error: String| {
+        let _ = std::fs::remove_dir_all(partial);
+        SkillRefusal::Unwritable(shown.to_owned(), error)
+    };
+    crate::nested::hold_pause_if_requested(&SKILL_MOVE_PAUSE, "before-first-attempt")
+        .map_err(refuse)?;
+    let mut first_denial: Option<Instant> = None;
+    loop {
+        if path.exists() {
+            let _ = std::fs::remove_dir_all(partial);
+            return Err(SkillRefusal::Occupied(shown.to_owned()));
         }
+        let error = match std::fs::rename(partial, path) {
+            Ok(()) => return Ok(()),
+            Err(error) => error,
+        };
+        if !move_denied(&error) {
+            return Err(refuse(error.to_string()));
+        }
+        let since = match first_denial {
+            Some(since) => since,
+            None => {
+                // The bound starts once a test holding this pause lets go,
+                // so the pause never eats it; without the pause it starts
+                // at the first denial itself.
+                crate::nested::hold_pause_if_requested(&SKILL_DENIAL_PAUSE, "after-first-denial")
+                    .map_err(refuse)?;
+                *first_denial.insert(Instant::now())
+            }
+        };
+        let deadline = since + crate::lock::WAIT_TIMEOUT;
+        let now = Instant::now();
+        if now >= deadline {
+            return Err(refuse(error.to_string()));
+        }
+        std::thread::sleep(MOVE_RETRY_INTERVAL.min(deadline - now));
     }
 }
+
+/// The wait between two attempts of a denied move: the lock module's retry
+/// cadence.
+const MOVE_RETRY_INTERVAL: Duration = Duration::from_millis(10);
+
+/// Windows' `ERROR_ACCESS_DENIED`: the code a move gets while another
+/// program holds a file inside the moved folder open.
+#[cfg(windows)]
+const ERROR_ACCESS_DENIED: i32 = 5;
+
+/// Whether a failed move is an access denial, the one failure retried. A
+/// sharing violation (raw code 32) and every other error are not.
+#[cfg(windows)]
+fn move_denied(error: &std::io::Error) -> bool {
+    error.raw_os_error() == Some(ERROR_ACCESS_DENIED)
+}
+
+/// Other platforms keep the single try.
+#[cfg(not(windows))]
+fn move_denied(_error: &std::io::Error) -> bool {
+    false
+}
+
+/// The QA-only pause just before the first attempt's check of the requested
+/// path, the `src/nested.rs` pause pattern. Production builds compile it
+/// away with the no-op `hold_pause_if_requested`.
+const SKILL_MOVE_PAUSE: crate::nested::PauseSpec = crate::nested::PauseSpec {
+    selector: "RATMAC_TEST_SKILL_MOVE_PAUSE",
+    marker: "RATMAC_TEST_SKILL_MOVE_PAUSE_MARKER",
+    release: "RATMAC_TEST_SKILL_MOVE_PAUSE_RELEASE",
+    timeout: "RATMAC_TEST_SKILL_MOVE_PAUSE_TIMEOUT_MILLIS",
+    name: "RATMAC_TEST_SKILL_MOVE_PAUSE",
+    word: "skill move",
+    boundaries: &["before-first-attempt"],
+};
+
+/// The QA-only pause just after the first denied move.
+const SKILL_DENIAL_PAUSE: crate::nested::PauseSpec = crate::nested::PauseSpec {
+    selector: "RATMAC_TEST_SKILL_DENIAL_PAUSE",
+    marker: "RATMAC_TEST_SKILL_DENIAL_PAUSE_MARKER",
+    release: "RATMAC_TEST_SKILL_DENIAL_PAUSE_RELEASE",
+    timeout: "RATMAC_TEST_SKILL_DENIAL_PAUSE_TIMEOUT_MILLIS",
+    name: "RATMAC_TEST_SKILL_DENIAL_PAUSE",
+    word: "skill denial",
+    boundaries: &["after-first-denial"],
+};
 
 /// Die mid-write, exactly as an interrupted process dies, when the QA-only
 /// fault seam asks for it: after the entry document lands, before the
