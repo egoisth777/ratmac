@@ -1,0 +1,10 @@
+planned-test-id = "LRPV-002"
+ticket-id = "t-145"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t045_bootstrap_doctor -- --exact lrpv_002"
+working-dir = "."
+test-file = "test/qa/tests/t045_bootstrap_doctor.rs"
+test-name = "lrpv_002"
+exit-status = 101
+output-sha256 = "9cab517d35f4e26351c2bf827179dff336ad4cc5fdce9fb40dbd0399c5662b56"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t045_bootstrap_doctor.rs (target\\debug\\deps\\t045_bootstrap_doctor-0fe522d236908f2a.exe)\n\nrunning 1 test\ntest lrpv_002 ... FAILED\n\nfailures:\n\n---- lrpv_002 stdout ----\n\nthread 'lrpv_002' (57328) panicked at test\\qa\\tests\\t045_bootstrap_doctor.rs:1334:5:\nassertion `left == right` failed: LRPV-002: the bootstrap prints `Pin: matches the pin of run-001`: Engine: C:\\Users\\egois\\AppData\\Local\\Temp\\ratmac-t053-lrpv002-39092-1794674582703795800-0\\target\\debug\\rtm.exe\nsha256: 7940dbdb165437dcc19e096485a705e2bc62f3bc4d4128a74ab05b583c643765\nPin: no pin recorded in .ratmac/evidence.toml\nDiagnose: C:\\Users\\egois\\AppData\\Local\\Temp\\ratmac-t053-lrpv002-39092-1794674582703795800-0\\target\\debug\\rtm.exe doctor\n\n  left: [\"no pin recorded in .ratmac/evidence.toml\"]\n right: [\"matches the pin of run-001\"]\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    lrpv_002\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.92s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t045_bootstrap_doctor`\n"

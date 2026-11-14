@@ -1,31 +1,58 @@
 //! t-053 / ORS-002: project-local bootstrap and read-only doctor.
 //!
 //! PT-053-01 `bootstrap_resolves_offline`
-//! PT-053-02 `bootstrap_refuses_pin_mismatch`
 //! PT-053-03 `doctor_is_actionable_and_write_free`
 //! HT-053-01 `cli_surface_survives_the_new_entry_point`
 //! HT-053-02 `doctor_rejects_extra_arguments`
 //! HT-053-04 `doctor_survives_corrupt_state_and_held_lock`
 //! HT-053-05 `bootstrap_writes_only_declared_build_output`
-//! HT-053-06 `bootstrap_refusal_quotes_recorded_identity_fields`
+//! HT-053-06 (the refusal quotes the recorded identity fields), kept in
+//! `lrpv_001`
 //! SVEV-004 `svev_004`, SVEV-005 `svev_005` (project root), SVEV-006 `svev_006`
 //! (t-144 / SVE-002: the Engine is the executable Cargo reported)
+//! LRPV-001 `lrpv_001`, LRPV-002 `lrpv_002`, LRPV-003 `lrpv_003`, LRPV-004
+//! `lrpv_004`, LRPV-005 `lrpv_005` (t-145 / LRP-001: the live Run pin check;
+//! LRPV-001 supersedes PT-053-02 / ORSV-006, the flat-pin
+//! `bootstrap_refuses_pin_mismatch`). Under LRP-001 the bootstrap reads only
+//! live Runs' pins, so PT-053-01 expects `Pin: no live Run in`, and SVEV-004
+//! and SVEV-005 record their pins in a live Run instead of the flat
+//! `.ratmac/evidence.toml`.
 //!
 //! A fresh session must be able to orient and start without ad-hoc installs:
-//! one documented command resolves or builds the Engine offline and refuses on
-//! pin mismatch, and the doctor diagnoses the project while writing nothing.
+//! one documented command resolves or builds the Engine offline and refuses
+//! when a live Run's pinned Engine file has changed, and the doctor diagnoses
+//! the project while writing nothing.
 
 use std::ffi::{OsStr, OsString};
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::time::{Duration, Instant};
 
 use ratmac::pin::{Evidence, Identity};
-use ratmac_qa::support::TempTree;
+use ratmac_qa::support::{self, TempTree};
+use ratmac_qa::tempgit::TempRepo;
 use sha2::{Digest, Sha256};
 
 /// Cargo writes these while building; everything else must stay byte-identical.
 const DECLARED_BUILD_OUTPUT: [&str; 2] = ["target", "Cargo.lock"];
+
+/// The fixture's manifest: a workspace of one bin named exactly as the
+/// bootstrap builds it.
+const FIXTURE_MANIFEST: &str = "[workspace]\n\n[package]\nname = \"ratmac-bootstrap-fixture\"\n\
+     version = \"0.0.0\"\nedition = \"2021\"\n\n\
+     [[bin]]\nname = \"rtm\"\npath = \"src/main.rs\"\n";
+
+/// LRP-001: a runbook with a second State and one transition, so the Engine's
+/// `rtm start` leaves a live Run (`status = "planned"`); with one State the
+/// Run it starts has already passed.
+const TWO_STATE_RUNBOOK: &str = "[states.build]\nprompt = \"Build the selected artifact.\"\n\n\
+     [states.done]\nprompt = \"Confirm the built artifact.\"\n\n\
+     [[transitions]]\nfrom = \"build\"\nto = \"done\"\n";
+
+/// LRP-001's one pin refusal keeps the bootstrap's existing reason.
+const PIN_REFUSAL: &str = "bootstrap refused: the resolved Engine is not the pinned Engine";
 
 struct Boot {
     _tree: TempTree,
@@ -41,13 +68,7 @@ impl Boot {
         for dir in [".ratmac", "src", "tools"] {
             fs::create_dir_all(root.join(dir)).expect("create fixture tree");
         }
-        fs::write(
-            root.join("Cargo.toml"),
-            "[workspace]\n\n[package]\nname = \"ratmac-bootstrap-fixture\"\n\
-             version = \"0.0.0\"\nedition = \"2021\"\n\n\
-             [[bin]]\nname = \"rtm\"\npath = \"src/main.rs\"\n",
-        )
-        .expect("write fixture manifest");
+        fs::write(root.join("Cargo.toml"), FIXTURE_MANIFEST).expect("write fixture manifest");
         fs::write(root.join("src/main.rs"), "fn main() {}\n").expect("write fixture source");
         fs::write(
             root.join(".ratmac/ratmac.toml"),
@@ -58,13 +79,18 @@ impl Boot {
         Boot { _tree: tree, root }
     }
 
+    /// LRP-001: the same project root with a two-State runbook, so a Run the
+    /// Engine starts in it stays live.
+    fn two_state(label: &str) -> Self {
+        let boot = Self::new(label);
+        fs::write(boot.root.join(".ratmac/ratmac.toml"), TWO_STATE_RUNBOOK)
+            .expect("write the two-State runbook");
+        boot
+    }
+
     /// Put a real executable where the bootstrap resolves it, without building.
     fn prebuild(&self) -> PathBuf {
-        let target = self.root.join("target/debug");
-        fs::create_dir_all(&target).expect("create build directory");
-        let binary = target.join(engine_file_name());
-        fs::copy(ratmac_qa::engine_bin!(), &binary).expect("place a prebuilt Engine");
-        binary
+        plant_engine(&self.root)
     }
 
     /// The bootstrap with the fixture's own `target` named to Cargo and the
@@ -74,24 +100,13 @@ impl Boot {
     /// so no inherited redirect or Cargo configuration file moves their
     /// output; `CARGO_BUILD_BUILD_DIR` is cleared for the same reason).
     fn bootstrap(&self) -> Output {
-        let own = self.root.join("target");
-        self.bootstrap_env(&[("CARGO_TARGET_DIR", own.as_os_str())], &REDIRECTS)
+        bootstrap_planted(&self.root, &[])
     }
 
     /// `pwsh -NoProfile -File tools/rtm.ps1` from the root, with each variable
     /// in `remove` cleared and then each one in `set` given.
     fn bootstrap_env(&self, set: &[(&str, &OsStr)], remove: &[&str]) -> Output {
-        let mut command = Command::new("pwsh");
-        command
-            .args(["-NoProfile", "-File", "tools/rtm.ps1"])
-            .current_dir(&self.root);
-        for name in remove {
-            command.env_remove(name);
-        }
-        for (name, value) in set {
-            command.env(name, value);
-        }
-        command.output().expect("invoke the bootstrap")
+        bootstrap_in(&self.root, set, remove)
     }
 
     fn rtm(&self, args: &[&str]) -> Output {
@@ -111,6 +126,42 @@ impl Boot {
     fn whole_snapshot(&self) -> String {
         digest_tree(&self.root, &[])
     }
+}
+
+/// A real executable where the bootstrap resolves it under `root`, without
+/// building: the test Engine copied to `target/debug`.
+fn plant_engine(root: &Path) -> PathBuf {
+    let target = root.join("target/debug");
+    fs::create_dir_all(&target).expect("create build directory");
+    let binary = target.join(engine_file_name());
+    fs::copy(ratmac_qa::engine_bin!(), &binary).expect("place a prebuilt Engine");
+    binary
+}
+
+/// `pwsh -NoProfile -File tools/rtm.ps1` from `root`, with each variable in
+/// `remove` cleared and then each one in `set` given.
+fn bootstrap_in(root: &Path, set: &[(&str, &OsStr)], remove: &[&str]) -> Output {
+    let mut command = Command::new("pwsh");
+    command
+        .args(["-NoProfile", "-File", "tools/rtm.ps1"])
+        .current_dir(root);
+    for name in remove {
+        command.env_remove(name);
+    }
+    for (name, value) in set {
+        command.env(name, value);
+    }
+    command.output().expect("invoke the bootstrap")
+}
+
+/// The planted-binary bootstrap from `root` (SVE-002): every output redirect
+/// cleared, `CARGO_TARGET_DIR` naming `root`'s own `target`, and then each
+/// variable in `set` given.
+fn bootstrap_planted(root: &Path, set: &[(&str, &OsStr)]) -> Output {
+    let own = root.join("target");
+    let mut given: Vec<(&str, &OsStr)> = vec![("CARGO_TARGET_DIR", own.as_os_str())];
+    given.extend_from_slice(set);
+    bootstrap_in(root, &given, &REDIRECTS)
 }
 
 fn engine_file_name() -> &'static str {
@@ -245,9 +296,11 @@ fn bootstrap_resolves_offline() {
         sha256_file(&binary),
         "the reported hash is this binary's content: {report}"
     );
+    // LRP-001: with no live Run the one `Pin:` line says so, naming the
+    // fixture's `.ratmac`, rather than claiming a match.
     assert!(
-        report.contains("no pin recorded"),
-        "with no pin the report says so rather than claiming a match: {report}"
+        no_live_run(&pin_lines(&output), &boot.root),
+        "with no live Run the one Pin: line is `no live Run in` the fixture's .ratmac: {report}"
     );
 
     // The command is documented as running from the project root, and says so
@@ -280,70 +333,96 @@ fn bootstrap_resolves_offline() {
     );
 }
 
-/// PT-053-02 and HT-053-06: a pin that no longer matches the binary refuses,
-/// naming the same identity fields the Engine records.
+/// LRPV-001 (LRP-001; supersedes PT-053-02 / ORSV-006 and keeps HT-053-06):
+/// in a two-State fixture the Engine planted at `target/debug` starts
+/// `run-001`, so the Engine itself writes the live record and the pin. With
+/// one byte appended to that binary the bootstrap refuses: exit 1, standard
+/// error starting with the reason and naming `run-001`, its `evidence.toml`,
+/// the observed and expected path and hash under the field names the Engine
+/// records, and the command that retires the Run; no `Engine:` or `Pin:` line
+/// on standard output; the whole fixture byte-identical. The same holds with
+/// the record's status line changed to `executing`.
 #[test]
-fn bootstrap_refuses_pin_mismatch() {
-    let boot = Boot::new("pin");
+fn lrpv_001() {
+    let boot = Boot::two_state("lrpv001");
     let binary = boot.prebuild();
+    start_run(&binary, &boot.root, "LRPV-001");
+    let run = boot.root.join(".ratmac/runs/run-001");
+    let record = run.join("run.toml");
+    let written = fs::read_to_string(&record).expect("read the Run record");
+    assert!(
+        written
+            .lines()
+            .any(|line| line.trim() == "status = \"planned\""),
+        "LRPV-001: the Engine wrote a live record: {written}"
+    );
     let pinned = sha256_file(&binary);
-
-    // The bootstrap reads the Engine `.ratmac/evidence.toml` pin;
-    // Evidence::load/write take the directory holding `evidence.toml`.
-    let mut evidence = Evidence::load(&boot.root.join(".ratmac"));
-    evidence.set_engine(Identity {
-        resolved: binary.to_string_lossy().into_owned(),
-        sha256: pinned.clone(),
-        ..Identity::default()
-    });
-    evidence
-        .write(&boot.root.join(".ratmac"))
-        .expect("record the Engine pin");
-
-    let mut bytes = fs::read(&binary).expect("read the pinned Engine");
-    bytes.push(0);
-    fs::write(&binary, &bytes).expect("alter the pinned Engine");
-    let observed = sha256_file(&binary);
-    assert_ne!(observed, pinned, "the fixture really altered the binary");
-
-    let before = boot.snapshot();
-    let output = boot.bootstrap();
-    let report = text(&output);
-
+    let pin = fs::read_to_string(run.join("evidence.toml")).expect("read the Run's pin");
+    let identity = Evidence::load(&run)
+        .engine
+        .unwrap_or_else(|| panic!("LRPV-001: the Engine recorded an [engine] pin: {pin}"));
     assert!(
-        !output.status.success(),
-        "a pin mismatch refuses instead of reporting success: {report}"
+        resolved(Path::new(&identity.resolved)) == resolved(&binary) && identity.sha256 == pinned,
+        "LRPV-001: the Engine pinned the planted binary and its hash: {pin}"
     );
-    assert!(
-        report.contains(&observed) && report.contains(&pinned),
-        "the refusal names observed and expected identity: {report}"
-    );
-    assert!(
-        report.contains("observed") && report.contains("expected"),
-        "the refusal says which hash is which: {report}"
-    );
-    // HT-053-06: the same field names the Engine writes into its pin record.
-    let recorded = fs::read_to_string(boot.root.join(".ratmac/evidence.toml")).expect("read pin");
+    // HT-053-06: the pin carries the identity fields the refusal quotes.
     for field in ["resolved", "sha256"] {
         assert!(
-            recorded.contains(&format!("{field} = ")),
-            "the Engine records {field} in the pin: {recorded}"
-        );
-        assert!(
-            report.contains(field),
-            "the refusal quotes the recorded field {field}: {report}"
+            pin.contains(&format!("{field} = ")),
+            "the Engine records {field} in the pin: {pin}"
         );
     }
+
+    // Valid control: the unchanged pinned binary bootstraps and is reported.
+    let control = boot.bootstrap();
+    let report = text(&control);
     assert!(
-        report.contains(".ratmac/evidence.toml"),
-        "the refusal names where the pin lives: {report}"
+        control.status.success(),
+        "LRPV-001 control: the pinned binary bootstraps: {report}"
     );
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let engines = report_lines(&report, "Engine: ");
     assert!(
-        !stdout.contains("Pin: matches") && !stdout.contains("Engine: "),
-        "the refusal prints no report that reads as success: {stdout}"
+        engines.len() == 1 && resolved(Path::new(engines[0])) == resolved(&binary),
+        "LRPV-001 control: the Engine: line names the planted binary: {report}"
     );
-    assert_eq!(boot.snapshot(), before, "the refusal writes nothing");
+    assert_eq!(
+        report_lines(&report, "sha256: "),
+        [pinned.as_str()],
+        "LRPV-001 control: sha256: is the pinned hash: {report}"
+    );
+
+    append_byte(&binary);
+    let observed = sha256_file(&binary);
+    assert_ne!(
+        observed, pinned,
+        "the fixture really changed the pinned binary"
+    );
+    for status in ["planned", "executing"] {
+        if status == "executing" {
+            let planned = fs::read_to_string(&record).expect("read the Run record");
+            let executing = planned.replace("status = \"planned\"", "status = \"executing\"");
+            assert_ne!(executing, planned, "the record's status line changes");
+            fs::write(&record, executing).expect("mark the Run executing");
+        }
+        let before = boot.whole_snapshot();
+        let refused = boot.bootstrap();
+        assert_pin_refusal(
+            &format!("LRPV-001 ({status})"),
+            &refused,
+            &[Refused {
+                id: "run-001",
+                shared: &boot.root,
+                engine: &binary,
+                observed: &observed,
+                pinned: &pinned,
+            }],
+        );
+        assert_eq!(
+            boot.whole_snapshot(),
+            before,
+            "LRPV-001 ({status}): the refusal writes nothing"
+        );
+    }
 }
 
 /// PT-053-03 and HT-053-05: the doctor is actionable with and without a Run,
@@ -665,18 +744,19 @@ fn inside(path: &Path, folder: &Path) -> bool {
     resolved(path).starts_with(&format!("{}/", resolved(folder).trim_end_matches('/')))
 }
 
-/// Record an Engine pin where the bootstrap reads it when this ticket lands,
-/// `.ratmac/evidence.toml`, through the Engine's own pin record.
+/// Record an Engine pin where the bootstrap reads it (LRP-001): the
+/// `evidence.toml` of a live Run, `run-001`, in the fixture's `.ratmac`,
+/// whose record reads `status = "planned"`, through the Engine's own pin
+/// record. SVEV-004 and SVEV-005 recorded their pins in the flat
+/// `.ratmac/evidence.toml` until LRP-001 stopped the bootstrap reading it.
 fn record_pin(root: &Path, engine: &Path, sha256: &str) {
-    let mut evidence = Evidence::load(&root.join(".ratmac"));
-    evidence.set_engine(Identity {
-        resolved: engine.to_string_lossy().into_owned(),
-        sha256: sha256.to_owned(),
-        ..Identity::default()
-    });
-    evidence
-        .write(&root.join(".ratmac"))
-        .expect("record the Engine pin");
+    let run = root.join(".ratmac/runs/run-001");
+    write_pin(&run, engine, sha256);
+    fs::write(
+        run.join("run.toml"),
+        "state = \"build\"\nstatus = \"planned\"\n",
+    )
+    .expect("record a live Run");
 }
 
 /// Change the fixture's `rtm` source so it no longer compiles.
@@ -754,10 +834,10 @@ fn child_path(first: &Path) -> OsString {
 /// setting in its `.cargo/config.toml` naming a folder outside it, and by one
 /// naming a folder inside it other than `target`. Each first run exits 0, its
 /// `Engine:` line names the executable Cargo reported in that folder,
-/// `sha256:` is that file's hash, and with a pin recorded for it the pin reads
-/// `Pin: matches`. With the source then broken, the folder inside the fixture
-/// is reused with the same lines; with a folder outside, the second run builds
-/// first and refuses as a failed build.
+/// `sha256:` is that file's hash, and with a live Run's pin recorded for it
+/// (LRP-001) the pin reads `Pin: matches`. With the source then broken, the
+/// folder inside the fixture is reused with the same lines; with a folder
+/// outside, the second run builds first and refuses as a failed build.
 #[test]
 fn svev_004() {
     for case in ["environment", "config-outside", "config-inside"] {
@@ -875,8 +955,10 @@ fn svev_004() {
 /// folder outside the fixture and stand-in binaries of different bytes at the
 /// fixture's `target/release` and `target/debug`, the bootstrap builds and
 /// reports the fresh binary's path and hash, never a stand-in's, and the
-/// stand-ins stay byte-identical; pinning a stand-in's hash refuses with "the
-/// resolved Engine is not the pinned Engine".
+/// stand-ins stay byte-identical; a live Run pinning a stand-in's hash for the
+/// reported Engine refuses with "the resolved Engine is not the pinned
+/// Engine" (LRP-001 refuses only for the pinned file, so the pin names the
+/// reported path).
 #[test]
 fn svev_005() {
     let boot = Boot::new("svev005");
@@ -936,7 +1018,7 @@ fn svev_005() {
     }
 
     // A pin naming the release stand-in's hash refuses.
-    record_pin(&boot.root, &stand_ins[0].0, &stand_in_hashes[0]);
+    record_pin(&boot.root, &engine, &stand_in_hashes[0]);
     let refused = boot.bootstrap_env(&set, &REDIRECTS);
     let refusal = text(&refused);
     assert_eq!(
@@ -1035,4 +1117,503 @@ fn svev_006() {
         !report.contains(&stand_in_hash),
         "SVEV-006: the refusal never names the stand-in's hash: {report}"
     );
+}
+
+// --- LRP-001: the live Run pin check -------------------------------------------
+
+impl Boot {
+    /// The planted-binary bootstrap, asserting that every file in the fixture
+    /// stays byte-identical around it.
+    fn bootstrap_unchanged(&self, check: &str) -> Output {
+        let before = self.whole_snapshot();
+        let output = self.bootstrap();
+        assert_eq!(
+            self.whole_snapshot(),
+            before,
+            "{check}: the bootstrap writes nothing: {}",
+            text(&output)
+        );
+        output
+    }
+}
+
+/// `rtm start` run by `engine` from `directory` through the shared support's
+/// scrubbed command, so the Engine pins the very file that started it.
+fn start_run(engine: &Path, directory: &Path, check: &str) {
+    let started = support::command(engine, directory)
+        .arg("start")
+        .output()
+        .expect("invoke the planted Engine");
+    assert!(
+        started.status.success(),
+        "{check}: {} starts a Run: {}",
+        engine.display(),
+        text(&started)
+    );
+}
+
+/// Append one byte to `path`. An Engine that has just run may still be held
+/// on Windows (a scanner reading it: sharing or access errors), so the
+/// append retries for up to five seconds.
+fn append_byte(path: &Path) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let appended = fs::OpenOptions::new()
+            .append(true)
+            .open(path)
+            .and_then(|mut file| file.write_all(&[0]));
+        match appended {
+            Ok(()) => return,
+            Err(error)
+                if matches!(error.raw_os_error(), Some(5 | 32 | 33))
+                    && Instant::now() < deadline =>
+            {
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            Err(error) => panic!("append a byte to {}: {error}", path.display()),
+        }
+    }
+}
+
+/// Record an Engine pin in `folder`'s `evidence.toml` through the Engine's own
+/// pin record.
+fn write_pin(folder: &Path, engine: &Path, sha256: &str) {
+    let mut evidence = Evidence::load(folder);
+    evidence.set_engine(Identity {
+        resolved: engine.to_string_lossy().into_owned(),
+        sha256: sha256.to_owned(),
+        ..Identity::default()
+    });
+    evidence.write(folder).expect("record the Engine pin");
+}
+
+/// The text after `Pin: ` on each standard-output line that starts with it.
+fn pin_lines(output: &Output) -> Vec<String> {
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| line.strip_prefix("Pin: "))
+        .map(|rest| rest.trim().to_owned())
+        .collect()
+}
+
+/// Whether `pins` is the one line `no live Run in` naming `root`'s `.ratmac`.
+fn no_live_run(pins: &[String], root: &Path) -> bool {
+    pins.len() == 1
+        && pins[0]
+            .strip_prefix("no live Run in ")
+            .is_some_and(|named| resolved(Path::new(named)) == resolved(&root.join(".ratmac")))
+}
+
+/// Whether `text` names `suffix` below the folder `base`. Git and PowerShell
+/// spell one folder with different separators, so the comparison runs through
+/// `spelled` on `base`'s own name (its `TempTree` leaf) and the suffix.
+fn names_below(text: &str, base: &Path, suffix: &str) -> bool {
+    let leaf = base
+        .file_name()
+        .expect("a fixture folder has a name")
+        .to_string_lossy();
+    spelled(text).contains(&spelled(&format!("{leaf}/{suffix}")))
+}
+
+/// `toml` without its `[name]` table: the header and every line up to the
+/// next table header.
+fn without_table(toml: &str, name: &str) -> String {
+    let header = format!("[{name}]");
+    let mut inside = false;
+    toml.lines()
+        .filter(|line| {
+            let trimmed = line.trim();
+            if trimmed.starts_with('[') {
+                inside = trimmed == header;
+            }
+            !inside
+        })
+        .map(|line| format!("{line}\n"))
+        .collect()
+}
+
+/// One Run the pin refusal must name: its id, the checkout whose `.ratmac`
+/// holds it, the Engine file it pinned (the resolved one), and the observed
+/// and pinned hashes.
+struct Refused<'a> {
+    id: &'a str,
+    shared: &'a Path,
+    engine: &'a Path,
+    observed: &'a str,
+    pinned: &'a str,
+}
+
+/// LRP-001's one pin refusal: exit 1; standard error starts with the reason
+/// and names each Run in `runs` with its `evidence.toml` under the shared
+/// root, the observed and expected path and hash under the field names the
+/// Engine records, and the command that retires it, once; standard output
+/// has no `Engine:` or `Pin:` line.
+fn assert_pin_refusal(check: &str, output: &Output, runs: &[Refused]) {
+    let report = text(output);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "{check}: a changed pinned Engine refuses with exit 1: {report}"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.starts_with(PIN_REFUSAL),
+        "{check}: standard error starts with the pin refusal: {report}"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout
+            .lines()
+            .any(|line| line.starts_with("Engine:") || line.starts_with("Pin:")),
+        "{check}: the refusal prints no Engine: or Pin: line: {report}"
+    );
+    let guidance: Vec<&str> = stderr.lines().map(str::trim).collect();
+    for field in ["observed", "expected"] {
+        let paths: Vec<&str> = guidance
+            .iter()
+            .filter_map(|line| line.strip_prefix(&format!("resolved ({field}) = ")))
+            .collect();
+        assert_eq!(
+            paths.len(),
+            runs.len(),
+            "{check}: one `resolved ({field})` line per refused Run: {report}"
+        );
+        for (path, run) in paths.iter().zip(runs) {
+            assert_eq!(
+                resolved(Path::new(path)),
+                resolved(run.engine),
+                "{check}: `resolved ({field})` names the pinned Engine file: {report}"
+            );
+        }
+    }
+    for run in runs {
+        let id = run.id;
+        let evidence = format!(".ratmac/runs/{id}/evidence.toml");
+        assert!(
+            guidance
+                .iter()
+                .any(|line| line.contains(id) && names_below(line, run.shared, &evidence)),
+            "{check}: the refusal names {id} with its pin file {evidence} under {}: {report}",
+            run.shared.display()
+        );
+        for (field, hash) in [("observed", run.observed), ("expected", run.pinned)] {
+            assert!(
+                guidance.contains(&format!("sha256 ({field}) = {hash}").as_str()),
+                "{check}: the refusal quotes `sha256 ({field}) = {hash}` for {id}: {report}"
+            );
+        }
+        let retire = format!("rtm abandon --run {id} --confirm \"abandon {id}\"");
+        assert_eq!(
+            stderr.matches(&retire).count(),
+            1,
+            "{check}: the refusal names `{retire}` once: {report}"
+        );
+    }
+}
+
+/// LRPV-002 (LRP-001): one `Pin:` line per live Run, in Run-id order. With
+/// `run-001` started by the planted Engine the bootstrap exits 0 with
+/// `Pin: matches the pin of run-001`; with `run-002` started by a copy at
+/// another path it still exits 0 and prints the `run-001` line, then
+/// `Pin: run-002 pinned another Engine:` naming the copy. A passed record, a
+/// Run folder with no record, and a record that is a folder, each pinning the
+/// resolved path with another hash, add no line and no refusal. With no live
+/// Run the one `Pin:` line is `Pin: no live Run in` naming the fixture's
+/// `.ratmac`. No bootstrap writes anything.
+#[test]
+fn lrpv_002() {
+    let boot = Boot::two_state("lrpv002");
+    let binary = boot.prebuild();
+    start_run(&binary, &boot.root, "LRPV-002");
+    let one = boot.bootstrap_unchanged("LRPV-002 (run-001)");
+    let report = text(&one);
+    assert!(
+        one.status.success(),
+        "LRPV-002: the pinned Engine bootstraps: {report}"
+    );
+    assert_eq!(
+        pin_lines(&one),
+        ["matches the pin of run-001"],
+        "LRPV-002: the bootstrap prints `Pin: matches the pin of run-001`: {report}"
+    );
+
+    // The flat `.ratmac/evidence.toml` is never read: while run-001 is live, a
+    // flat pin naming the binary with another hash adds no line and no
+    // refusal.
+    let flat = boot.root.join(".ratmac/evidence.toml");
+    let other = format!("{:x}", Sha256::digest(b"another Engine"));
+    write_pin(&boot.root.join(".ratmac"), &binary, &other);
+    assert!(
+        fs::read_to_string(&flat).is_ok_and(|pin| pin.contains("[engine]") && pin.contains(&other)),
+        "LRPV-002: the flat pin is planted"
+    );
+    let beside = boot.bootstrap_unchanged("LRPV-002 (run-001, stale flat pin)");
+    let report = text(&beside);
+    assert!(
+        beside.status.success(),
+        "LRPV-002: a stale flat pin beside a live Run refuses nothing: {report}"
+    );
+    assert_eq!(
+        pin_lines(&beside),
+        ["matches the pin of run-001"],
+        "LRPV-002: a stale flat pin beside a live Run adds no Pin: line: {report}"
+    );
+    fs::remove_file(&flat).expect("remove the flat pin");
+
+    let copy = boot.root.join("copies").join(engine_file_name());
+    fs::create_dir_all(boot.root.join("copies")).expect("create the copies folder");
+    fs::copy(&binary, &copy).expect("copy the Engine to another path");
+    start_run(&copy, &boot.root, "LRPV-002");
+    let two = boot.bootstrap_unchanged("LRPV-002 (run-002)");
+    let report = text(&two);
+    assert!(
+        two.status.success(),
+        "LRPV-002: a Run that pinned another file refuses nothing: {report}"
+    );
+    let pins = pin_lines(&two);
+    assert!(
+        pins.len() == 2
+            && pins[0] == "matches the pin of run-001"
+            && pins[1]
+                .strip_prefix("run-002 pinned another Engine: ")
+                .is_some_and(|named| resolved(Path::new(named)) == resolved(&copy)),
+        "LRPV-002: the run-001 line, then run-002's naming the copy {}: {report}",
+        copy.display()
+    );
+
+    let runs = boot.root.join(".ratmac/runs");
+    let stale = "0".repeat(64);
+    for id in ["run-003", "run-004", "run-005"] {
+        write_pin(&runs.join(id), &binary, &stale);
+    }
+    let live = fs::read_to_string(runs.join("run-001/run.toml")).expect("read run-001's record");
+    let passed = live.replace("status = \"planned\"", "status = \"passed\"");
+    assert_ne!(passed, live, "the passed record differs from the live one");
+    fs::write(runs.join("run-003/run.toml"), passed).expect("write a passed record");
+    fs::create_dir_all(runs.join("run-005/run.toml")).expect("make a record that is a folder");
+    let more = boot.bootstrap_unchanged("LRPV-002 (run-003..run-005)");
+    let report = text(&more);
+    assert!(
+        more.status.success(),
+        "LRPV-002: Runs that are not live refuse nothing: {report}"
+    );
+    assert_eq!(
+        pin_lines(&more),
+        pins,
+        "LRPV-002: Runs that are not live add no Pin: line: {report}"
+    );
+    for id in ["run-003", "run-004", "run-005"] {
+        assert!(
+            !report.contains(id),
+            "LRPV-002: {id} appears nowhere in the report: {report}"
+        );
+    }
+
+    let idle = Boot::two_state("lrpv002-idle");
+    idle.prebuild();
+    let output = idle.bootstrap_unchanged("LRPV-002 (no live Run)");
+    let report = text(&output);
+    assert!(
+        output.status.success(),
+        "LRPV-002: with no live Run the bootstrap exits 0: {report}"
+    );
+    assert!(
+        no_live_run(&pin_lines(&output), &idle.root),
+        "LRPV-002: the one Pin: line is `no live Run in` the fixture's .ratmac: {report}"
+    );
+}
+
+/// LRPV-003 (LRP-001): the flat `.ratmac/evidence.toml` is never read. With no
+/// live Run and a flat `[engine]` table naming the resolved binary with
+/// another hash, the bootstrap exits 0, prints `Pin: no live Run in` naming
+/// the fixture's `.ratmac`, never names the flat file, and writes nothing.
+#[test]
+fn lrpv_003() {
+    let boot = Boot::new("lrpv003");
+    let binary = boot.prebuild();
+    let control = boot.bootstrap();
+    assert!(
+        control.status.success(),
+        "LRPV-003 control: the planted Engine bootstraps: {}",
+        text(&control)
+    );
+    let reported = sha256_file(&binary);
+    let other = format!("{:x}", Sha256::digest(b"another Engine"));
+    // The flat pin the bootstrap read before LRP-001.
+    write_pin(&boot.root.join(".ratmac"), &binary, &other);
+    let flat =
+        fs::read_to_string(boot.root.join(".ratmac/evidence.toml")).expect("read the flat pin");
+    assert!(
+        flat.contains("[engine]") && flat.contains(&other) && other != reported,
+        "LRPV-003: the flat file pins the resolved binary with another hash: {flat}"
+    );
+
+    let output = boot.bootstrap_unchanged("LRPV-003");
+    let report = text(&output);
+    assert!(
+        output.status.success(),
+        "LRPV-003: the flat pin causes no refusal: {report}"
+    );
+    assert!(
+        no_live_run(&pin_lines(&output), &boot.root),
+        "LRPV-003: the one Pin: line is `no live Run in` the fixture's .ratmac: {report}"
+    );
+    assert!(
+        !spelled(&report).contains(".ratmac/evidence.toml") && !report.contains("pinned Engine"),
+        "LRPV-003: the bootstrap never names the flat file: {report}"
+    );
+}
+
+/// LRPV-004 (LRP-001): a linked worktree's shared Engine root is the primary
+/// checkout's `.ratmac`. A Git repository with one commit holding the
+/// two-State runbook, the source, and `tools/rtm.ps1`, with `target/`
+/// ignored, and a linked worktree beside it whose `target/debug` holds the
+/// planted Engine; that Engine, run in the worktree, starts `run-001`, whose
+/// record lands under the primary checkout. The worktree's bootstrap exits 0
+/// with `Pin: matches the pin of run-001`; with one byte appended to the
+/// Engine it exits 1 naming `run-001` and its evidence file under the primary
+/// checkout. With `GIT_DIR` naming the primary checkout's Git folder in the
+/// bootstrap's environment both outcomes stay the same.
+#[test]
+fn lrpv_004() {
+    let repo = TempRepo::new("t145-primary");
+    let primary = repo.root().to_path_buf();
+    for dir in [".ratmac", "src", "tools"] {
+        fs::create_dir_all(primary.join(dir)).expect("create the repository tree");
+    }
+    fs::write(primary.join("Cargo.toml"), FIXTURE_MANIFEST).expect("write the manifest");
+    fs::write(primary.join("src/main.rs"), "fn main() {}\n").expect("write the source");
+    fs::write(primary.join(".ratmac/ratmac.toml"), TWO_STATE_RUNBOOK).expect("write the runbook");
+    fs::write(primary.join(".gitignore"), "target/\n").expect("ignore the build output");
+    fs::copy(bootstrap_source(), primary.join("tools/rtm.ps1")).expect("install the bootstrap");
+    repo.commit_all("t-145: a project with a two-State runbook");
+
+    let side = TempTree::new("t145-linked").expect("create the folder beside the repository");
+    let worktree = side.path().join("wt");
+    let linked = repo.git(&[
+        "worktree",
+        "add",
+        "--detach",
+        worktree.to_str().expect("a UTF-8 worktree path"),
+    ]);
+    assert!(
+        linked.status.success(),
+        "LRPV-004: link the worktree: {}",
+        text(&linked)
+    );
+    let engine = plant_engine(&worktree);
+    // With no live Run yet, the worktree's one `Pin:` line names the shared
+    // Engine root, the primary checkout's `.ratmac`, not its own.
+    let idle = bootstrap_planted(&worktree, &[]);
+    assert!(
+        idle.status.success() && no_live_run(&pin_lines(&idle), &primary),
+        "LRPV-004: with no live Run the worktree names the primary checkout's .ratmac: {}",
+        text(&idle)
+    );
+    start_run(&engine, &worktree, "LRPV-004");
+    assert!(
+        primary.join(".ratmac/runs/run-001/run.toml").is_file()
+            && !worktree.join(".ratmac/runs").exists(),
+        "LRPV-004: the worktree's Run lands under the primary checkout"
+    );
+
+    let pinned = sha256_file(&engine);
+    let git_dir = primary.join(".git");
+    let environments: [(&str, Vec<(&str, &OsStr)>); 2] = [
+        ("LRPV-004", Vec::new()),
+        ("LRPV-004 (GIT_DIR)", vec![("GIT_DIR", git_dir.as_os_str())]),
+    ];
+    for (check, set) in &environments {
+        let output = bootstrap_planted(&worktree, set);
+        let report = text(&output);
+        assert!(
+            output.status.success(),
+            "{check}: the worktree bootstraps: {report}"
+        );
+        assert_eq!(
+            pin_lines(&output),
+            ["matches the pin of run-001"],
+            "{check}: the worktree reads the primary checkout's Run: {report}"
+        );
+    }
+
+    append_byte(&engine);
+    let observed = sha256_file(&engine);
+    for (check, set) in &environments {
+        assert_pin_refusal(
+            check,
+            &bootstrap_planted(&worktree, set),
+            &[Refused {
+                id: "run-001",
+                shared: &primary,
+                engine: &engine,
+                observed: &observed,
+                pinned: &pinned,
+            }],
+        );
+    }
+}
+
+/// LRPV-005 (LRP-001): a live Run without a readable pin gets a line, never a
+/// refusal or a PowerShell error. `run-001` started as in the
+/// changed-pinned-file check, its `evidence.toml` replaced first by a folder
+/// of that name, then by a file with no `[engine]` table: each time the
+/// bootstrap exits 0, prints `Pin: run-001 has no readable pin in` naming that
+/// path, shows no PowerShell error record on standard error, and writes
+/// nothing.
+#[test]
+fn lrpv_005() {
+    let boot = Boot::two_state("lrpv005");
+    let binary = boot.prebuild();
+    start_run(&binary, &boot.root, "LRPV-005");
+    let run = boot.root.join(".ratmac/runs/run-001");
+    let evidence = run.join("evidence.toml");
+    let recorded = fs::read_to_string(&evidence).expect("read the Run's pin");
+    // Valid control: the Engine's own reader finds the planted binary's pin,
+    // and the bootstrap runs, before the pin is made unreadable.
+    assert!(
+        Evidence::load(&run)
+            .engine
+            .is_some_and(|pin| resolved(Path::new(&pin.resolved)) == resolved(&binary)),
+        "LRPV-005 control: run-001 pins the planted binary: {recorded}"
+    );
+    let control = boot.bootstrap();
+    assert!(
+        control.status.success(),
+        "LRPV-005 control: the pinned Engine bootstraps: {}",
+        text(&control)
+    );
+
+    let unpinned = without_table(&recorded, "engine");
+    assert!(
+        recorded.contains("[engine]") && !unpinned.contains("[engine]"),
+        "LRPV-005: the pin without its [engine] table: {unpinned}"
+    );
+    fs::remove_file(&evidence).expect("remove the pin");
+    fs::create_dir(&evidence).expect("put a folder where the pin was");
+    for case in ["a folder", "no [engine] table"] {
+        if case == "no [engine] table" {
+            fs::remove_dir(&evidence).expect("remove the folder");
+            fs::write(&evidence, &unpinned).expect("write a pin with no [engine] table");
+        }
+        let check = format!("LRPV-005 ({case})");
+        let output = boot.bootstrap_unchanged(&check);
+        let report = text(&output);
+        assert!(
+            output.status.success(),
+            "{check}: an unreadable pin refuses nothing: {report}"
+        );
+        let pins = pin_lines(&output);
+        assert!(
+            pins.len() == 1
+                && pins[0].starts_with("run-001 has no readable pin in ")
+                && names_below(&pins[0], &boot.root, ".ratmac/runs/run-001/evidence.toml"),
+            "{check}: one Pin: line naming run-001's unreadable pin: {report}"
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.trim().is_empty(),
+            "{check}: no PowerShell error record on standard error: {stderr}"
+        );
+    }
 }

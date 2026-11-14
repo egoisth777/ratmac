@@ -1,0 +1,10 @@
+planned-test-id = "LRPV-003"
+ticket-id = "t-145"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t045_bootstrap_doctor -- --exact lrpv_003"
+working-dir = "."
+test-file = "test/qa/tests/t045_bootstrap_doctor.rs"
+test-name = "lrpv_003"
+exit-status = 101
+output-sha256 = "1bdb75f8f2675d95d6e802299b61e9d9ff8794e6232508471792287c2e79a60a"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t045_bootstrap_doctor.rs (target\\debug\\deps\\t045_bootstrap_doctor-0fe522d236908f2a.exe)\n\nrunning 1 test\ntest lrpv_003 ... FAILED\n\nfailures:\n\n---- lrpv_003 stdout ----\n\nthread 'lrpv_003' (34588) panicked at test\\qa\\tests\\t045_bootstrap_doctor.rs:1453:5:\nLRPV-003: the flat pin causes no refusal: bootstrap refused: the resolved Engine is not the pinned Engine\n  resolved (observed) = C:\\Users\\egois\\AppData\\Local\\Temp\\ratmac-t053-lrpv003-23548-1794674583713875700-0\\target\\debug\\rtm.exe\n  sha256 (observed) = 7940dbdb165437dcc19e096485a705e2bc62f3bc4d4128a74ab05b583c643765\n  resolved (expected) = C:\\\\Users\\\\egois\\\\AppData\\\\Local\\\\Temp\\\\ratmac-t053-lrpv003-23548-1794674583713875700-0\\\\target/debug\\\\rtm.exe\n  sha256 (expected) = 6e65093c4903ad785a91b15670d7cb14e1e71c20cedac915e1d478939de7cbe6\n  the pin was recorded by the active Run in .ratmac/evidence.toml [engine]\n  rebuild the pinned revision, or retire the Run with: rtm abandon --run <id> --confirm \"abandon <run id>\"\n\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    lrpv_003\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 14 filtered out; finished in 1.19s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t045_bootstrap_doctor`\n"

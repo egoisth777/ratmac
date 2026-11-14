@@ -1,0 +1,10 @@
+planned-test-id = "LRPV-004"
+ticket-id = "t-145"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t045_bootstrap_doctor -- --exact lrpv_004"
+working-dir = "."
+test-file = "test/qa/tests/t045_bootstrap_doctor.rs"
+test-name = "lrpv_004"
+exit-status = 101
+output-sha256 = "3cee596545191c60d20a67563db9c8d34873edef0aca7e2dc7005ec6ee438c0f"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running tests\\t045_bootstrap_doctor.rs (target\\debug\\deps\\t045_bootstrap_doctor-0fe522d236908f2a.exe)\n\nrunning 1 test\ntest lrpv_004 ... FAILED\n\nfailures:\n\n---- lrpv_004 stdout ----\n\nthread 'lrpv_004' (43300) panicked at test\\qa\\tests\\t045_bootstrap_doctor.rs:1508:5:\nLRPV-004: with no live Run the worktree names the primary checkout's .ratmac: Engine: C:\\Users\\egois\\AppData\\Local\\Temp\\ratmac-t145-linked-63552-1794674585339371700-1\\wt\\target\\debug\\rtm.exe\nsha256: 7940dbdb165437dcc19e096485a705e2bc62f3bc4d4128a74ab05b583c643765\nPin: no pin recorded in .ratmac/evidence.toml\nDiagnose: C:\\Users\\egois\\AppData\\Local\\Temp\\ratmac-t145-linked-63552-1794674585339371700-1\\wt\\target\\debug\\rtm.exe doctor\n\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    lrpv_004\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 14 filtered out; finished in 1.06s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t045_bootstrap_doctor`\n"

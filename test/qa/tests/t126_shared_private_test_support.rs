@@ -1240,7 +1240,7 @@ struct Exception {
 /// SVEV-003's exceptions, file by file. The baseline support is exempt only as
 /// the one reader: its fixed joins stay findings. No exception covers a
 /// redirect refusal.
-const EXCEPTIONS: [Exception; 11] = [
+const EXCEPTIONS: [Exception; 12] = [
     Exception {
         path: "test/qa/src/baseline.rs",
         kinds: &[Finding::Reader],
@@ -1305,6 +1305,12 @@ const EXCEPTIONS: [Exception; 11] = [
         reason: "the t-144 private lane (i-064): its stand-in cargo prints the build report the \
                  bootstrap reads, and it plants stand-ins at the fixed folders the bootstrap must \
                  never report",
+    },
+    Exception {
+        path: "test-hidden/t-145/",
+        kinds: &[Finding::FixedJoin],
+        reason: "the t-145 private lane (i-074): it plants the Engine at target/debug, where the \
+                 bootstrap finds it without building, so a live Run can pin that very file",
     },
 ];
 
