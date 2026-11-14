@@ -1,0 +1,10 @@
+planned-test-id = "WTCV-008"
+ticket-id = "t-148"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t104_operator_skill -- --exact wtcv_008"
+working-dir = "."
+test-file = "test/qa/tests/t104_operator_skill.rs"
+test-name = "wtcv_008"
+exit-status = 101
+output-sha256 = "54b7f3d5a39272e89ab8fd148fea3f54ac7fbb7b7cf9ad1983a7c91759816925"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s\n     Running tests\\t104_operator_skill.rs (target\\debug\\deps\\t104_operator_skill-186fcede5bbb8fa6.exe)\n\nrunning 1 test\ntest wtcv_008 ... FAILED\n\nfailures:\n\n---- wtcv_008 stdout ----\n\nthread 'wtcv_008' (5696) panicked at test\\qa\\tests\\t104_operator_skill.rs:688:17:\nWTCV-008: rtm skill never published the whole line \"before-first-attempt\\n\" at C:\\Users\\egois\\AppData\\Local\\Temp\\ratmac-t104-wtcv-008-pause-60748-1794639566777744100-1\\move.marker; it exited exit code: 0: Wrote skills/ratmac-operator. Its SKILL.md carries the identity stamp of the engine that wrote it.\n\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    wtcv_008\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.35s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t104_operator_skill`\n"
