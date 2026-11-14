@@ -1,0 +1,10 @@
+ticket-id = "t-144"
+check-id = "HT-144-03"
+kind = "hidden-lane"
+command = "cargo test --offline --manifest-path test-hidden/t-144/Cargo.toml"
+working-dir = "."
+exit-status = 0
+output-sha256 = "50dbd04c6f790e2eb6fac829ca9ff7ba4ad1710a2341379428037df80a409347"
+tree-roots = ["src","profiles","test","test-hidden","tools","Cargo.toml","Cargo.lock","AGENTS.md",".gitignore",".ratmac/ratmac.toml",".ratmac/turn.toml",".ratmac/lanes.toml"]
+tree-sha256 = "9b2b1bc61f8edcf965ab09f21e63b7d5abcf696ea5f8dd21eb42fefebd060f1c"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s\n     Running unittests src\\lib.rs (test-hidden\\t-144\\target\\debug\\deps\\ratmac_t144_hidden-85a395e0884d6e6d.exe)\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n     Running tests\\hidden.rs (test-hidden\\t-144\\target\\debug\\deps\\hidden-91a157c2e1543061.exe)\n\nrunning 9 tests\ntest ht_144_05_missing_cargo_refuses_by_name_and_names_the_repair ... ok\ntest ht_144_05_metadata_failure_never_falls_back_to_the_roots_target ... ok\ntest ht_144_05_writes_stay_in_the_folders_cargo_resolves_and_a_refusal_names_its_search ... ok\ntest ht_144_03_a_root_prefix_is_not_an_inside_redirect ... ok\ntest ht_144_01_without_a_redirect_the_roots_own_target_is_reused_and_refusals_keep_their_reasons ... ok\ntest ht_144_02_only_what_cargo_reported_for_rtm_picks_the_engine ... ok\ntest ht_144_04_relative_redirects_and_a_repaired_build_leave_nothing_that_stands_in ... ok\ntest ht_144_06_under_one_machine_wide_redirect_editions_and_the_root_never_share_a_binary ... ok\ntest ht_144_03_outside_the_root_means_build_first_and_stable_keeps_its_own_target ... ok\n\ntest result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.14s\n\n   Doc-tests ratmac_t144_hidden\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n"

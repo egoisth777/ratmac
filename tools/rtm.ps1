@@ -12,7 +12,8 @@
 
     With no channel, or with -Channel nightly, the Engine resolves from the
     project-local build - building it there when absent - exactly as before:
-    nightly stamps the current landing, and an existing binary is reused.
+    nightly stamps the current landing, and an existing binary is reused
+    where SVE-002 below allows.
 
     With -Channel stable (ELR-002) the resolve and the build are split.
     Resolution belongs to the invoking checkout: its editions ledger and its
@@ -24,10 +25,20 @@
     paths beyond the declared build output count as differing - so no hand
     edit and no overlay is ever built from.
 
+    SVE-002: the Engine is what Cargo answers. After a build it is the one
+    executable Cargo reported for rtm. A binary is reused only from release,
+    then debug, below the output folder Cargo resolves for the build root:
+    with no channel or nightly only when that folder lies inside the project
+    root - a folder outside it means building first - and with stable only
+    from the build checkout's own target, which a stable build names as both
+    of Cargo's folders. When Cargo reports or resolves no Engine, the
+    bootstrap refuses by name, stating what it searched and the repair.
+
     It is deterministic and self-contained: nothing is installed, no PATH or
     global configuration is written, and no network is used. The build runs
     offline against the toolchain already on this machine, and the only paths
-    it may write are the declared build output: target and Cargo.lock.
+    it may write are the declared build output: the output and build folders
+    Cargo resolves (target by default) and Cargo.lock.
 #>
 
 [CmdletBinding()]
@@ -124,13 +135,68 @@ function Resolve-StableChannel {
     [pscustomobject]@{ Edition = $edition; Commit = $recorded }
 }
 
-# The two places a built Engine binary may sit, in the order the bootstrap
-# prefers them, under the root being built in.
-function Get-EngineCandidates {
+# SVE-002: the output folder Cargo resolves for the build root, asked of
+# Cargo itself and offline; no answer refuses by name.
+function Get-CargoOutputFolder {
     param([Parameter(Mandatory)][string] $Directory)
+    Push-Location -LiteralPath $Directory
+    try {
+        $answer = & cargo metadata --format-version 1 --no-deps --offline 2>&1
+        $answerExit = $LASTEXITCODE
+    } catch [System.Management.Automation.CommandNotFoundException] {
+        Deny -Reason ("Cargo could not resolve the Engine's output folder in $Directory; " +
+            "searched: cargo metadata --format-version 1 --no-deps --offline in $Directory; " +
+            "repair: put cargo on PATH, then run pwsh -File tools/rtm.ps1")
+    } finally {
+        Pop-Location
+    }
+    $stdout = @($answer | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] })
+    $stderr = @($answer | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] } | ForEach-Object { "$_" })
+    $folder = $null
+    if ($answerExit -eq 0) {
+        try {
+            $folder = (ConvertFrom-Json -InputObject ($stdout -join "`n") -ErrorAction Stop).target_directory
+        } catch {
+            $folder = $null
+        }
+    }
+    if (-not $folder) {
+        Deny -Reason ("Cargo could not resolve the Engine's output folder in $Directory; " +
+            "searched: cargo metadata --format-version 1 --no-deps --offline in $Directory; " +
+            "repair: fix the Cargo configuration or CARGO_TARGET_DIR it names, then run pwsh -File tools/rtm.ps1") -Guidance (
+            @("Cargo's standard error:") + (@($stderr) | Select-Object -Last 10 | ForEach-Object { "  $_" }))
+    }
+    [string] $folder
+}
+
+# SVE-002: whether $Path is $Root or lies below it, compared as full paths,
+# without case on Windows.
+function Test-InsideRoot {
+    param(
+        [Parameter(Mandatory)][string] $Path,
+        [Parameter(Mandatory)][string] $Root
+    )
+    $separators = [char[]]@([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+    $full = [IO.Path]::GetFullPath($Path).TrimEnd($separators)
+    $base = [IO.Path]::GetFullPath($Root).TrimEnd($separators)
+    $comparison = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+    $full.Equals($base, $comparison) -or $full.StartsWith($base + [IO.Path]::DirectorySeparatorChar, $comparison)
+}
+
+# The two places an earlier build's Engine binary may sit, in the order the
+# bootstrap prefers them, below the output folder Cargo resolves - inside the
+# folder for the build target CARGO_BUILD_TARGET names, when it names one.
+function Get-EngineCandidates {
+    param([Parameter(Mandatory)][string] $Folder)
+    $base = $Folder
+    if ($env:CARGO_BUILD_TARGET) {
+        $triple = $env:CARGO_BUILD_TARGET
+        if ($triple.EndsWith('.json')) { $triple = [IO.Path]::GetFileNameWithoutExtension($triple) }
+        $base = Join-Path $Folder $triple
+    }
     @(
-        (Join-Path $Directory 'target/release'),
-        (Join-Path $Directory 'target/debug')
+        (Join-Path $base 'release'),
+        (Join-Path $base 'debug')
     ) | ForEach-Object { Join-Path $_ $engineName }
 }
 
@@ -214,12 +280,15 @@ function Assert-BuildTreeIsTagged {
 }
 
 # Build the Engine inside $Directory after stamping provenance, and return
-# the built binary's path. An empty stamp pair builds without stamps.
+# the one executable Cargo reported for rtm (SVE-002), never a binary at a
+# guessed path. An empty stamp pair builds without stamps. A -TargetDir is
+# named to Cargo as both its output and its build folder, for this build only.
 function Invoke-EngineBuild {
     param(
         [Parameter(Mandatory)][string] $Directory,
         [Parameter(Mandatory)][AllowEmptyString()][string] $StampChannel,
-        [Parameter(Mandatory)][AllowEmptyString()][string] $StampCommit
+        [Parameter(Mandatory)][AllowEmptyString()][string] $StampCommit,
+        [string] $TargetDir = ''
     )
     # ECP-002: stamp resolved provenance into the binary the build makes, so
     # a built engine can name the channel and commit it came from.
@@ -227,26 +296,69 @@ function Invoke-EngineBuild {
         $env:RTM_CHANNEL = $StampChannel
         $env:RTM_SOURCE_COMMIT = $StampCommit
     }
+    $arguments = @('build', '--offline', '--bin', 'rtm', '--message-format=json')
+    if ($TargetDir) { $arguments += @('--target-dir', $TargetDir) }
+    $buildDir = $env:CARGO_BUILD_BUILD_DIR
     Push-Location -LiteralPath $Directory
     try {
-        $build = & cargo build --offline --bin rtm 2>&1
+        if ($TargetDir) { $env:CARGO_BUILD_BUILD_DIR = $TargetDir }
+        $build = & cargo @arguments 2>&1
         $buildExit = $LASTEXITCODE
     } finally {
+        if ($TargetDir) {
+            if ($null -eq $buildDir) {
+                Remove-Item Env:CARGO_BUILD_BUILD_DIR -ErrorAction SilentlyContinue
+            } else {
+                $env:CARGO_BUILD_BUILD_DIR = $buildDir
+            }
+        }
         Pop-Location
+    }
+    # Cargo's answers are its JSON records on standard output: the rendered
+    # compiler messages, and each artifact's target name and executable.
+    $rendered = @()
+    $artifacts = @()
+    $stderr = @()
+    foreach ($line in @($build)) {
+        if ($line -is [System.Management.Automation.ErrorRecord]) {
+            $stderr += "$line"
+            continue
+        }
+        try {
+            $record = ConvertFrom-Json -InputObject "$line" -ErrorAction Stop
+        } catch {
+            continue
+        }
+        if ($record.reason -eq 'compiler-message' -and $record.message.rendered) {
+            $rendered += @("$($record.message.rendered)".TrimEnd() -split "\r?\n")
+        } elseif ($record.reason -eq 'compiler-artifact') {
+            $artifacts += [pscustomobject]@{ Name = "$($record.target.name)"; Executable = "$($record.executable)" }
+        }
     }
     if ($buildExit -ne 0) {
         Deny -Reason 'the project-local build did not produce an Engine' -Guidance (
             @('the build ran offline against the installed toolchain; it reported:') +
-            (@($build) | Select-Object -Last 10 | ForEach-Object { "  $_" }))
+            (@($rendered) | ForEach-Object { "  $_" }) +
+            @("Cargo's standard error:") +
+            (@($stderr) | Select-Object -Last 10 | ForEach-Object { "  $_" }))
     }
-    $built = Get-EngineCandidates -Directory $Directory |
-        Where-Object { Test-Path -LiteralPath $_ } |
-        Select-Object -First 1
-    if (-not $built) {
-        Deny -Reason 'the build succeeded but no Engine binary is at the expected path' -Guidance @(
-            "expected $(Join-Path $Directory (Join-Path 'target/debug' $engineName))")
+    $executables = @($artifacts | Where-Object { $_.Name -eq 'rtm' -and $_.Executable } |
+        ForEach-Object { $_.Executable } | Select-Object -Unique)
+    if ($executables.Count -eq 1) {
+        return $executables[0]
     }
-    $built
+    $reported = if ($artifacts.Count -eq 0) { 'nothing' } else {
+        (@($artifacts) | ForEach-Object {
+            if ($_.Executable) { "$($_.Name): $($_.Executable)" } else { "$($_.Name): no executable" }
+        }) -join ', '
+    }
+    $verdict = if ($executables.Count -eq 0) {
+        "Cargo reported no Engine executable for rtm in $Directory"
+    } else {
+        "Cargo reported $($executables.Count) distinct Engine executables for rtm in $Directory"
+    }
+    Deny -Reason ("$verdict; searched: Cargo's build report (cargo $($arguments -join ' ') in $Directory); " +
+        "Cargo reported: $reported; repair: make the rtm binary target build in $Directory, then run pwsh -File tools/rtm.ps1")
 }
 
 $scriptRoot = Split-Path -Parent $PSCommandPath
@@ -273,16 +385,25 @@ if ($Channel -eq 'stable') {
     $stable = Resolve-StableChannel -Root $root
     $buildRoot = Get-StableBuildCheckout -Root $root -Edition $stable.Edition -Commit $stable.Commit
     Assert-BuildTreeIsTagged -BuildRoot $buildRoot -Commit $stable.Commit
-    $engine = Get-EngineCandidates -Directory $buildRoot |
+    # SVE-002: the build checkout's own target is both of Cargo's folders, so
+    # an inherited redirect never mixes editions or dirties the checkout.
+    $own = Join-Path $buildRoot 'target'
+    $engine = Get-EngineCandidates -Folder $own |
         Where-Object { Test-Path -LiteralPath $_ } |
         Select-Object -First 1
     if (-not $engine) {
-        $engine = Invoke-EngineBuild -Directory $buildRoot -StampChannel 'stable' -StampCommit $stable.Commit
+        $engine = Invoke-EngineBuild -Directory $buildRoot -StampChannel 'stable' -StampCommit $stable.Commit -TargetDir $own
     }
 } else {
-    $engine = Get-EngineCandidates -Directory $root |
-        Where-Object { Test-Path -LiteralPath $_ } |
-        Select-Object -First 1
+    # SVE-002: reuse only from the output folder Cargo resolves, and only when
+    # it lies inside the project root; a folder outside it means building.
+    $out = Get-CargoOutputFolder -Directory $root
+    $engine = $null
+    if (Test-InsideRoot -Path $out -Root $root) {
+        $engine = Get-EngineCandidates -Folder $out |
+            Where-Object { Test-Path -LiteralPath $_ } |
+            Select-Object -First 1
+    }
     if (-not $engine) {
         $stampChannel = ''
         $stampCommit = ''
