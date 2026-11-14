@@ -9,6 +9,13 @@
 //! current runbook; a missing or bad address still refuses without choosing
 //! a Run, and nothing is written. Stored values are quoted, so a binding
 //! value cannot start a row of its own.
+//!
+//! t-146 / WTC-001: `hold`, `resume`, `recover`, `spawn`, and `respawn`
+//! refuse a second `--run` - matching or not - before reading its value,
+//! with `<command>: --run given twice; address exactly one run; ` and then
+//! exactly the roster their own missing-value refusal prints, and write
+//! nothing (WTCV-001, WTCV-002). `status`, `step`, `intent`, and `abandon`
+//! keep today's bytes.
 
 use ratmac_qa::support::{self, CaptureOptions, TempTree};
 use std::collections::BTreeMap;
@@ -960,4 +967,362 @@ fn wrsv_005_04() {
         "no raw control character reaches the roster: {:?}",
         hostile.rows
     );
+}
+
+// --- t-146 / WTC-001: repeated run refusal ------------------------------------
+
+/// The five commands that read `--run` themselves; `status`, `step`,
+/// `intent`, and `abandon` are the controls that keep today's bytes.
+const FIVE: [&str; 5] = ["hold", "resume", "recover", "spawn", "respawn"];
+
+/// The repeats every row addresses: two different Runs, then one Run twice.
+const PAIRS: [(&str, &str); 2] = [("run-001", "run-002"), ("run-001", "run-001")];
+
+/// The t117 machine plus a declared `work` root and a blocked route out of
+/// `delegate`, so `hold` and `resume` can carry otherwise valid arguments.
+/// The shared `RUNBOOK` stays exactly as the `wrsv_005_*` rows read it.
+fn repeat_runbook() -> String {
+    format!(
+        "{RUNBOOK}\n[roots]\nwork = \"work\"\n\n[[transitions]]\nfrom = \"delegate\"\nto = \
+         \"plan\"\nblocked-route = true\n"
+    )
+}
+
+impl Project {
+    /// A project on `repeat_runbook()` with the blocker the `hold` and
+    /// `resume` rows name and a placeholder for `recover`'s decision file,
+    /// holding two `delegate` Runs, `run-001` and `run-002`.
+    fn repeat(label: &str) -> Self {
+        let project = Project::new(label);
+        project.write(".ratmac/ratmac.toml", &repeat_runbook());
+        fs::create_dir_all(project.root.join("work")).expect("create the work root");
+        project.write(
+            "work/blocker.txt",
+            "Opaque blocker; its content is not a gate.\n",
+        );
+        project.write("work/decision.sig", "Placeholder; never a signature.\n");
+        let first = project.parent();
+        let second = project.parent();
+        assert_eq!(
+            [first.as_str(), second.as_str()],
+            ["run-001", "run-002"],
+            "the fixture holds two delegate Runs"
+        );
+        project
+    }
+
+    fn rtm_owned(&self, args: &[String]) -> Output {
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        self.rtm_in(&self.root, &args)
+    }
+}
+
+/// `cmd` addressing each of `runs` with its own `--run`, written first
+/// (after `spawn`'s name), then otherwise valid arguments whose phrase
+/// names the last value.
+fn shaped(cmd: &str, runs: &[&str]) -> Vec<String> {
+    let last = runs.last().copied().unwrap_or_default();
+    let mut args = vec![cmd.to_owned()];
+    if cmd == "spawn" {
+        args.push("rev".to_owned());
+    }
+    for run in runs {
+        args.extend(["--run".to_owned(), (*run).to_owned()]);
+    }
+    let rest: &[&str] = match cmd {
+        "hold" | "resume" => &["--blocker", "work/blocker.txt", "--confirm"],
+        "recover" => &["--decision", "work/decision.sig", "--confirm"],
+        "spawn" => &["--bind", "ticket=t-7"],
+        "respawn" => &["--confirm"],
+        other => panic!("{other} is not one of the five"),
+    };
+    args.extend(rest.iter().map(|arg| (*arg).to_owned()));
+    if cmd != "spawn" {
+        args.push(format!("{cmd} {last}"));
+    }
+    args
+}
+
+/// The command's own missing-value form: `<cmd> [name] --run`.
+fn missing_value(cmd: &str) -> Vec<String> {
+    let mut args = vec![cmd.to_owned()];
+    if cmd == "spawn" {
+        args.push("rev".to_owned());
+    }
+    args.push("--run".to_owned());
+    args
+}
+
+/// How `args` misses the repeat refusal R of `cmd`, as one line, or `None`.
+/// R exits 2, prints nothing on stdout, and its stderr is exactly `rtm:
+/// <cmd>: --run given twice; address exactly one run; ` plus the bytes that
+/// follow the prefix of the command's own missing-value refusal M, taken
+/// right before R because rows carry state; no line starts `next:`.
+fn repeat_miss(project: &Project, cmd: &str, args: &[String]) -> Option<String> {
+    let missing = project.rtm_owned(&missing_value(cmd));
+    let missing_stderr = String::from_utf8_lossy(&missing.stderr).into_owned();
+    let prefix = format!("rtm: {cmd}: --run needs a run id; ");
+    let Some(tail) = missing_stderr.strip_prefix(&prefix) else {
+        return Some(format!(
+            "{args:?}: the missing-value refusal M must start {prefix:?}; held {}",
+            support::text(&missing)
+        ));
+    };
+    let output = project.rtm_owned(args);
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    let expected = format!("rtm: {cmd}: --run given twice; address exactly one run; {tail}");
+    let mut missed = Vec::new();
+    if output.status.code() != Some(2) {
+        missed.push("exit 2");
+    }
+    if !stdout.is_empty() {
+        missed.push("empty stdout");
+    }
+    if !stderr.starts_with(&format!(
+        "rtm: {cmd}: --run given twice; address exactly one run; runs: "
+    )) {
+        missed.push("the repeat prefix");
+    }
+    if stderr != expected {
+        missed.push("prefix plus tail(M), byte for byte");
+    }
+    if stderr.lines().any(|line| line.starts_with("next:")) {
+        missed.push("no next: line");
+    }
+    (!missed.is_empty()).then(|| {
+        format!(
+            "{args:?} misses R ({}): exit {:?}, stdout {stdout:?}, stderr {stderr:?}; expected \
+             {expected:?}",
+            missed.join(", "),
+            output.status.code()
+        )
+    })
+}
+
+/// How one control misses today's bytes, as one line, or `None`: exit 2,
+/// nothing written, its first line and every line after the rows exactly
+/// as frozen, and the rows of `status`'s own missing-value refusal.
+fn control_miss(project: &Project, args: &[&str], first: &str, rest: &[&str]) -> Option<String> {
+    let listing = project.rtm_in(&project.root, &["status", "--run"]);
+    let listed = Refusal::parse(
+        &["status", "--run"],
+        &String::from_utf8_lossy(&listing.stderr),
+    );
+    let before = project.bytes();
+    let output = project.rtm_in(&project.root, args);
+    let changed = project.bytes() != before;
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    let refused = Refusal::parse(args, &stderr);
+    let mut missed = Vec::new();
+    if output.status.code() != Some(2) {
+        missed.push("exit 2");
+    }
+    if !output.stdout.is_empty() {
+        missed.push("empty stdout");
+    }
+    if changed {
+        missed.push("nothing written");
+    }
+    if refused.first != first {
+        missed.push("the first line");
+    }
+    if refused.rest != rest {
+        missed.push("the lines after the rows");
+    }
+    if refused.rows != listed.rows || refused.rows.is_empty() {
+        missed.push("the roster rows");
+    }
+    (!missed.is_empty()).then(|| {
+        format!(
+            "control {args:?} misses today's bytes ({}): exit {:?}, stderr {stderr:?}",
+            missed.join(", "),
+            output.status.code()
+        )
+    })
+}
+
+/// WTCV-001 (t-146 / WTC-001): each of `hold`, `resume`, `recover`,
+/// `spawn`, and `respawn`, given otherwise valid arguments with `--run
+/// run-001 --run run-002` and then `--run run-001 --run run-001`, exits 2
+/// with `rtm: <command>: --run given twice; address exactly one run; runs:
+/// ` and the rows of its own missing-value refusal; `status`, `step`,
+/// `intent`, and `abandon` keep today's bytes.
+#[test]
+fn wtcv_001() {
+    // Positive control first, on a twin: the argument shapes act when the
+    // Run is addressed once. `recover` has no control here: its arguments
+    // are only well-formed (a placeholder decision file, no enrolled trust),
+    // and its working case is proven by HT-146-01 and HT-146-02 and by
+    // `wrsv_004_01` to `wrsv_004_09` in `t132_rule_fix_recovery.rs`.
+    let twin = Project::repeat("wtcv001-twin");
+    let held = twin.ok(&[
+        "hold",
+        "--run",
+        "run-002",
+        "--blocker",
+        "work/blocker.txt",
+        "--confirm",
+        "hold run-002",
+    ]);
+    assert!(
+        held.contains("rtm: run run-002 paused against work/blocker.txt"),
+        "the single-address hold acts: {held}"
+    );
+    let resumed = twin.ok(&[
+        "resume",
+        "--run",
+        "run-002",
+        "--blocker",
+        "work/blocker.txt",
+        "--confirm",
+        "resume run-002",
+    ]);
+    assert!(
+        resumed.contains("rtm: run run-002 resumed against work/blocker.txt"),
+        "the single-address resume acts: {resumed}"
+    );
+    let child = twin.spawn("run-001", "t-7");
+    assert_eq!(child, "run-003", "the single-address spawn mints a child");
+    let successor = twin.respawn(&child);
+    assert_eq!(
+        successor, "run-004",
+        "the single-address respawn mints a successor"
+    );
+
+    let project = Project::repeat("wtcv001");
+    let mut failures: Vec<String> = Vec::new();
+
+    // Controls first, both pairs: today's bytes, before and after the change.
+    let usage = "a Run is retired only by its own phrase: rtm abandon --run <id> --confirm \"abandon <run id>\"";
+    for (a, b) in PAIRS {
+        for command in ["status", "step", "intent"] {
+            failures.extend(control_miss(
+                &project,
+                &[command, "--run", a, "--run", b],
+                &format!(
+                    "rtm: {command}: --run given twice; address exactly one run; runs: run-001, \
+                     run-002"
+                ),
+                &["next: rtm status --run run-001"],
+            ));
+        }
+        failures.extend(control_miss(
+            &project,
+            &[
+                "abandon",
+                "--run",
+                a,
+                "--run",
+                b,
+                "--confirm",
+                &format!("abandon {b}"),
+            ],
+            &format!(
+                "rtm: abandon: --run given twice; address exactly one run; runs: run-001, \
+                 run-002; {usage}"
+            ),
+            &[],
+        ));
+    }
+
+    // Each of the five, both pairs: the repeat refusal R.
+    for (a, b) in PAIRS {
+        for command in FIVE {
+            failures.extend(repeat_miss(&project, command, &shaped(command, &[a, b])));
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "WTCV-001: every repeated --run refuses with R and the controls keep today's bytes; \
+         {} misses:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}
+
+/// WTCV-002 (t-146 / WTC-001): a refused repeat writes nothing. The byte
+/// snapshot of the project - Run Records, spawn ledgers, `.ratmac/log.md`,
+/// `.ratmac/mint.toml`, and `.ratmac/locks/` - is the same before and after
+/// every refused invocation, and the requirement's example `rtm spawn rev
+/// --run run-001 --run run-002 --bind ticket=t-7` mints no child and adds
+/// no ledger entry.
+#[test]
+fn wtcv_002() {
+    // Twin positive control: the example's single-address form spawns.
+    let twin = Project::repeat("wtcv002-twin");
+    let spawned = twin.ok(&["spawn", "rev", "--run", "run-002", "--bind", "ticket=t-7"]);
+    assert!(
+        spawned.contains("rtm: spawned run run-003 (spawn rev) from run run-002"),
+        "the single-address spawn mints run-003 under run-002: {spawned}"
+    );
+    let twin_ledger =
+        fs::read_to_string(twin.root.join(".ratmac/runs/run-002/spawn-ledger")).unwrap_or_default();
+    assert!(
+        twin_ledger.contains("id = \"run-003\""),
+        "the single-address spawn records its child in run-002's ledger: {twin_ledger:?}"
+    );
+
+    // The example first, on the main fixture, so a failure names exactly
+    // the requirement's case.
+    let project = Project::repeat("wtcv002");
+    let example = [
+        "spawn",
+        "rev",
+        "--run",
+        "run-001",
+        "--run",
+        "run-002",
+        "--bind",
+        "ticket=t-7",
+    ];
+    let ledger = project.root.join(".ratmac/runs/run-002/spawn-ledger");
+    let ledger_before = fs::read(&ledger).ok();
+    let before = project.bytes();
+    let output = project.rtm_in(&project.root, &example);
+    let shown = support::text(&output);
+    assert!(
+        !String::from_utf8_lossy(&output.stdout).contains("spawned run"),
+        "WTCV-002: the example spawns nothing: {shown}"
+    );
+    assert!(
+        !project.root.join(".ratmac/runs/run-003").exists(),
+        "WTCV-002: the example mints no child: {shown}"
+    );
+    let ledger_after = fs::read(&ledger).ok();
+    assert!(
+        ledger_after == ledger_before
+            && !String::from_utf8_lossy(ledger_after.as_deref().unwrap_or_default())
+                .contains("run-003"),
+        "WTCV-002: the example adds no ledger entry: {shown}"
+    );
+    assert!(
+        project.bytes() == before,
+        "WTCV-002: the example changes no byte: {shown}"
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "WTCV-002: the example is refused: {shown}"
+    );
+
+    // Then every repeat of the five, both pairs, each against a snapshot
+    // taken immediately before it.
+    for (a, b) in PAIRS {
+        for command in FIVE {
+            let args = shaped(command, &[a, b]);
+            let before = project.bytes();
+            let output = project.rtm_owned(&args);
+            let shown = support::text(&output);
+            assert_eq!(
+                output.status.code(),
+                Some(2),
+                "WTCV-002: {args:?} is refused: {shown}"
+            );
+            assert!(
+                project.bytes() == before,
+                "WTCV-002: the refused {args:?} changes no byte: {shown}"
+            );
+        }
+    }
 }

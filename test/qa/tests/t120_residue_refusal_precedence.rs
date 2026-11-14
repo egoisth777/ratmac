@@ -16,6 +16,11 @@
 //! exact standalone help forms and unknown commands stay pure usage responses
 //! even with residue, and a help token mixed with any other argument cannot
 //! bypass preflight.
+//! WTCV-003 (t-146 / WTC-001): a repeated `--run` on `hold`, `resume`,
+//! `recover`, `spawn`, or `respawn` refuses before any later check - an
+//! unknown second value, a missing blocker, a wrong phrase, an undeclared
+//! spawn - with only the roster reads its own missing-value refusal makes,
+//! while retired-layout residue still refuses first, byte-for-byte as today.
 
 use ratmac::abandon::{self, AbandonRequest};
 use ratmac::blocked::{self, HoldRequest};
@@ -3275,4 +3280,291 @@ fn hide_test_hooks() -> Vec<HookVar> {
         HookVar::hide(ROOT_LOG_VAR),
         HookVar::hide(REPEAT_VAR),
     ]
+}
+
+// --- WTCV-003 (t-146 / WTC-001) -------------------------------------------------
+
+/// The five commands that read `--run` themselves.
+const REPEAT_FIVE: [&str; 5] = ["hold", "resume", "recover", "spawn", "respawn"];
+
+/// `command` (with `name` when it is `spawn`) addressing each of `runs` in
+/// order, then `tail`.
+fn repeat_args(command: &str, name: &str, runs: &[&str], tail: &[String]) -> Vec<String> {
+    let mut args = vec![command.to_owned()];
+    if command == "spawn" {
+        args.push(name.to_owned());
+    }
+    for run in runs {
+        args.push("--run".to_owned());
+        args.push((*run).to_owned());
+    }
+    args.extend(tail.iter().cloned());
+    args
+}
+
+/// The ordinary arguments after the address: `blocker` for `hold` and
+/// `resume`, the decision for `recover`, the binding for `spawn`, and a
+/// confirmation phrase naming `phrase_run`.
+fn repeat_tail(command: &str, blocker: &str, phrase_run: &str) -> Vec<String> {
+    let owned = |parts: &[&str]| parts.iter().map(|part| (*part).to_owned()).collect();
+    let mut tail: Vec<String> = match command {
+        "hold" | "resume" => owned(&["--blocker", blocker, "--confirm"]),
+        "recover" => owned(&["--decision", "work/decision.sig", "--confirm"]),
+        "spawn" => return owned(&["--bind", "ticket=t-7"]),
+        "respawn" => owned(&["--confirm"]),
+        other => panic!("{other} is not one of the five"),
+    };
+    tail.push(format!("{command} {phrase_run}"));
+    tail
+}
+
+fn as_strs(args: &[String]) -> Vec<&str> {
+    args.iter().map(String::as_str).collect()
+}
+
+/// How the repeated `args` of `command` misses the repeat refusal R, one
+/// line per miss. R exits 2, prints nothing on stdout, and its stderr is
+/// `rtm: <command>: --run given twice; address exactly one run; ` plus the
+/// bytes after the prefix of the command's own missing-value refusal M,
+/// taken right before R; no line starts `next:`, the tree keeps every
+/// byte, and the operation log holds exactly M's reads.
+fn repeat_misses(
+    label: &str,
+    root: &Path,
+    ops: &mut OpLog,
+    command: &str,
+    args: &[String],
+) -> Vec<String> {
+    let missing_log = ops.fresh();
+    let missing = rtm_observed(root, &missing_log, &[command, "--run"]);
+    let missing_stderr = stderr(&missing);
+    let prefix = format!("rtm: {command}: --run needs a run id; ");
+    let Some(tail) = missing_stderr.strip_prefix(&prefix) else {
+        return vec![format!(
+            "{label}: the missing-value refusal M starts {prefix:?}; held {missing_stderr:?}"
+        )];
+    };
+    let missing_ops = fs::read(&missing_log).ok();
+    let repeat_log = ops.fresh();
+    let before = tree_snapshot(root);
+    let output = rtm_observed(root, &repeat_log, &as_strs(args));
+    let changed = tree_snapshot(root) != before;
+    let held = stderr(&output);
+    let expected = format!("rtm: {command}: --run given twice; address exactly one run; {tail}");
+    let mut missed = Vec::new();
+    if output.status.code() != Some(2) {
+        missed.push("exit 2".to_owned());
+    }
+    if !output.stdout.is_empty() {
+        missed.push(format!("empty stdout, held {:?}", stdout(&output)));
+    }
+    if held != expected {
+        missed.push("prefix plus tail(M), byte for byte".to_owned());
+    }
+    if held.lines().any(|line| line.starts_with("next:")) {
+        missed.push("no next: line".to_owned());
+    }
+    if changed {
+        missed.push("every byte unchanged".to_owned());
+    }
+    let repeat_ops = fs::read(&repeat_log).ok();
+    if repeat_ops != missing_ops {
+        let shown = |ops: &Option<Vec<u8>>| {
+            ops.as_deref()
+                .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
+        };
+        missed.push(format!(
+            "only M's reads: M logged {:?}, R logged {:?}",
+            shown(&missing_ops),
+            shown(&repeat_ops)
+        ));
+    }
+    if missed.is_empty() {
+        Vec::new()
+    } else {
+        vec![format!(
+            "{label}: {args:?} misses R ({}): exit {:?}, stderr {held:?}; expected {expected:?}",
+            missed.join(", "),
+            output.status.code()
+        )]
+    }
+}
+
+/// WTCV-003 (t-146 / WTC-001): each of the five commands given a repeated
+/// `--run` together with a defect that today refuses later - an unknown
+/// second value, a missing blocker, a wrong phrase, an undeclared spawn -
+/// still prints the repeated-address refusal; retired-layout residue still
+/// refuses first, byte-for-byte as today.
+#[test]
+fn wtcv_003() {
+    let mut ops = OpLog {
+        logs: TempTree::new("t120-wtcv003-op").expect("own the operation log tree"),
+        next: 0,
+    };
+    let project = plain_project("wtcv003", RUNBOOK);
+    let root = project.path().to_path_buf();
+    fs::write(
+        root.join("work/decision.sig"),
+        "Placeholder; never a signature.\n",
+    )
+    .expect("write the decision placeholder");
+    // run-001 and run-002 wait in `delegate`; run-003 is held against the
+    // blocker, so `resume` meets its own blocker and phrase checks.
+    for expected in ["run-001", "run-002", "run-003"] {
+        let started = rtm(&root, &["start"]);
+        assert_eq!(
+            started_run(&started),
+            expected,
+            "WTCV-003: the fixture mints {expected}"
+        );
+        let stepped = rtm(&root, &["step", "--run", expected]);
+        assert!(
+            stepped.status.success(),
+            "WTCV-003: {expected} steps into delegate: {}",
+            stderr(&stepped)
+        );
+    }
+    let held = rtm(
+        &root,
+        &[
+            "hold",
+            "--run",
+            "run-003",
+            "--blocker",
+            "work/blocker.txt",
+            "--confirm",
+            "hold run-003",
+        ],
+    );
+    assert!(
+        held.status.success(),
+        "WTCV-003: the fixture holds run-003: {}",
+        stderr(&held)
+    );
+
+    // Defect rows: each refused later today; each must give R.
+    let blocker = "work/blocker.txt";
+    let missing = "work/missing.txt";
+    let mut rows: Vec<(String, &str, Vec<String>)> = Vec::new();
+    for command in REPEAT_FIVE {
+        rows.push((
+            format!("unknown second value ({command})"),
+            command,
+            repeat_args(
+                command,
+                "rev",
+                &["run-001", "run-009"],
+                &repeat_tail(command, blocker, "run-009"),
+            ),
+        ));
+    }
+    for (command, second) in [("hold", "run-002"), ("resume", "run-003")] {
+        rows.push((
+            format!("missing blocker ({command})"),
+            command,
+            repeat_args(
+                command,
+                "rev",
+                &["run-001", second],
+                &repeat_tail(command, missing, second),
+            ),
+        ));
+    }
+    for (command, second) in [
+        ("hold", "run-002"),
+        ("resume", "run-003"),
+        ("recover", "run-002"),
+        ("respawn", "run-002"),
+    ] {
+        rows.push((
+            format!("wrong phrase ({command})"),
+            command,
+            repeat_args(
+                command,
+                "rev",
+                &["run-001", second],
+                &repeat_tail(command, blocker, "run-999"),
+            ),
+        ));
+    }
+    rows.push((
+        "undeclared spawn (spawn)".to_owned(),
+        "spawn",
+        repeat_args(
+            "spawn",
+            "ghost",
+            &["run-001", "run-002"],
+            &repeat_tail("spawn", blocker, "run-002"),
+        ),
+    ));
+    let mut failures: Vec<String> = Vec::new();
+    for (label, command, args) in &rows {
+        failures.extend(repeat_misses(
+            &format!("WTCV-003: {label}"),
+            &root,
+            &mut ops,
+            command,
+            args,
+        ));
+    }
+
+    // Residue rows: today's single address and the repeat answer the same
+    // residue refusal, byte for byte, reading and writing nothing.
+    for command in REPEAT_FIVE {
+        for shape in [Shape::FlatState, Shape::RecordState] {
+            let label = format!("WTCV-003: {command} beside {shape:?} residue");
+            let tail = repeat_tail(command, blocker, "run-002");
+            let single_args = repeat_args(command, "rev", &["run-001"], &tail);
+            let repeat = repeat_args(command, "rev", &["run-001", "run-002"], &tail);
+            let expect = Expect::Invoking {
+                command,
+                trailing_next: false,
+            };
+            let planted = plant(&root, shape);
+            let before = tree_snapshot(&root);
+            let single_log = ops.fresh();
+            let single = rtm_observed(&root, &single_log, &as_strs(&single_args));
+            assert_refusal(
+                &format!("{label} (one address)"),
+                &single,
+                expect,
+                &planted,
+                &single_log,
+            );
+            let repeat_log = ops.fresh();
+            let repeated = rtm_observed(&root, &repeat_log, &as_strs(&repeat));
+            assert_refusal(
+                &format!("{label} (repeated address)"),
+                &repeated,
+                expect,
+                &planted,
+                &repeat_log,
+            );
+            assert_eq!(
+                repeated.status.code(),
+                single.status.code(),
+                "{label}: the repeat exits as today's single address"
+            );
+            assert_eq!(
+                stderr(&repeated),
+                stderr(&single),
+                "{label}: the repeat refuses byte-for-byte as today's single address"
+            );
+            assert_eq!(
+                tree_snapshot(&root),
+                before,
+                "{label}: both refusals leave the tree byte-identical"
+            );
+            drop(planted);
+        }
+    }
+
+    assert!(
+        failures.is_empty(),
+        "WTCV-003: every repeat refuses as given twice before any later check; {} of {} rows \
+         miss:\n{}",
+        failures.len(),
+        rows.len(),
+        failures.join("\n")
+    );
 }
