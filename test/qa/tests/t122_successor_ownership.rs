@@ -9,7 +9,7 @@
 //! spawned child is killed and reaped on every exit path.
 
 use ratmac_qa::support;
-use ratmac_qa::support::TempTree;
+use ratmac_qa::support::{MarkerLine, TempTree};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -339,17 +339,15 @@ fn read_pipe(pipe: Option<&mut impl std::io::Read>) -> Vec<u8> {
     bytes
 }
 
-/// Wait until `path` is a file, bounded, failing with `what`.
-fn wait_for_file(path: &Path, seconds: u64, what: &str) {
-    let deadline = Instant::now() + Duration::from_secs(seconds);
-    while !path.is_file() {
-        assert!(
-            Instant::now() < deadline,
-            "WRSV-001: {what} within {seconds}s: {}",
-            path.display()
-        );
-        std::thread::sleep(Duration::from_millis(50));
-    }
+/// The whole line the pause at `marker` publishes, through the shared
+/// whole-line wait (SVE-005), bounded, failing with `what`.
+fn await_pause_line(marker: &Path, line: MarkerLine<'_>, seconds: u64, what: &str) -> String {
+    support::await_marker_line(marker, line, Duration::from_secs(seconds)).unwrap_or_else(|wait| {
+        panic!(
+            "WRSV-001: {what} within {seconds}s: {}: {wait}",
+            marker.display()
+        )
+    })
 }
 
 /// An owned marker/release pair for one paused invocation, inside a scratch
@@ -584,16 +582,16 @@ fn wrsv_001_01() {
     let (_pair, marker, release) = marker_pair("01-b1");
     let ledger_before = fixture.ledger_text(&parent);
     let mut paused = fixture.spawn_paused_respawn("after-record", &marker, &release, &predecessor);
-    wait_for_file(
+    let published = await_pause_line(
         &marker,
+        MarkerLine::Exact("after-record\n"),
         15,
         "WRSV-001-01: the after-record pause publishes its marker (the \
          RATMAC_TEST_RESPAWN_PAUSE seam must stop the respawn after the entry \
          is durable and before the predecessor is retired)",
     );
     assert_eq!(
-        fs::read_to_string(&marker).expect("the pause marker is readable"),
-        "after-record\n",
+        published, "after-record\n",
         "WRSV-001-01: the marker carries the boundary name"
     );
 
@@ -863,16 +861,16 @@ fn wrsv_001_01() {
     let (_b2_pair, b2_marker, b2_release) = marker_pair("01-b2");
     let mut b2_paused =
         b2.spawn_paused_respawn("after-retire", &b2_marker, &b2_release, &b2_predecessor);
-    wait_for_file(
+    let b2_published = await_pause_line(
         &b2_marker,
+        MarkerLine::Exact("after-retire\n"),
         15,
         "WRSV-001-01: the after-retire pause publishes its marker (the \
          RATMAC_TEST_RESPAWN_PAUSE seam must stop the respawn after the \
          predecessor is retired and before the successor is admitted)",
     );
     assert_eq!(
-        fs::read_to_string(&b2_marker).expect("the pause marker is readable"),
-        "after-retire\n",
+        b2_published, "after-retire\n",
         "WRSV-001-01: the marker carries the boundary name"
     );
     let b2_successor = recorded_successor(&b2, &b2_parent, &b2_predecessor)
@@ -1249,8 +1247,9 @@ fn wrsv_001_03() {
     let (killed_parent, killed_child) = recorded_child(&killed, "t-102");
     let (_pair, marker, release) = marker_pair("03-kill-b1");
     let mut paused = killed.spawn_paused_respawn("after-record", &marker, &release, &killed_child);
-    wait_for_file(
+    await_pause_line(
         &marker,
+        MarkerLine::Exact("after-record\n"),
         15,
         "WRSV-001-03: the after-record pause publishes its marker (the kill \
          fixture needs the RATMAC_TEST_RESPAWN_PAUSE seam)",
@@ -1295,8 +1294,9 @@ fn wrsv_001_03() {
     let (_human_pair, human_marker, human_release) = marker_pair("03-human");
     let mut human_paused =
         human.spawn_paused_respawn("after-record", &human_marker, &human_release, &human_child);
-    wait_for_file(
+    await_pause_line(
         &human_marker,
+        MarkerLine::Exact("after-record\n"),
         15,
         "WRSV-001-03: the after-record pause publishes its marker for the human route",
     );
@@ -1340,8 +1340,9 @@ fn wrsv_001_03() {
     let (_race_pair, race_marker, race_release) = marker_pair("03-race");
     let mut winner =
         race.spawn_paused_respawn("after-record", &race_marker, &race_release, &race_child);
-    wait_for_file(
+    await_pause_line(
         &race_marker,
+        MarkerLine::Exact("after-record\n"),
         15,
         "WRSV-001-03: the winning respawn pauses at after-record",
     );
@@ -1419,8 +1420,9 @@ fn wrsv_001_03() {
     let (_early_pair, early_marker, early_release) = marker_pair("03-early-release");
     let mut early_winner =
         early.spawn_paused_respawn("after-record", &early_marker, &early_release, &early_child);
-    wait_for_file(
+    await_pause_line(
         &early_marker,
+        MarkerLine::Exact("after-record\n"),
         15,
         "WRSV-001-03: the winning respawn pauses at after-record for the early release",
     );

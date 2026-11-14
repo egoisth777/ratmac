@@ -33,7 +33,7 @@
 //! is a child `Command` carrying its own environment, and every fixture is
 //! an owned `TempTree` whose name is unique by construction.
 
-use ratmac_qa::support::{self, TempTree};
+use ratmac_qa::support::{self, MarkerLine, TempTree};
 use ratmac_qa::tempgit::TempRepo;
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
@@ -220,17 +220,6 @@ fn finish_bounded(label: &str, child: &mut std::process::Child, seconds: u64) ->
     }
 }
 
-/// Wait until `path` exists as a file, bounded by `seconds`.
-fn wait_for_file(label: &str, path: &Path, seconds: u64) {
-    let deadline = Instant::now() + Duration::from_secs(seconds);
-    while !path.is_file() {
-        if Instant::now() > deadline {
-            panic!("{label}: {} never appeared within {seconds}s", shown(path));
-        }
-        thread::sleep(Duration::from_millis(50));
-    }
-}
-
 /// Every regular file under `root`, as `/`-separated paths relative to it.
 fn walk_files(label: &str, root: &Path) -> Vec<(String, PathBuf)> {
     let mut found = Vec::new();
@@ -410,7 +399,18 @@ fn contention_round(label: &str, project: &Path, traced: bool) -> (u32, Output) 
     let mut holder_child = holder
         .spawn()
         .unwrap_or_else(|error| panic!("{label}: spawn the lock holder: {error}"));
-    wait_for_file(label, &marker, 15);
+    // The holder has parked only once its whole lock line is published
+    // (SVE-005); the path it names may take any spelling.
+    if let Err(wait) = support::await_marker_line(
+        &marker,
+        MarkerLine::Prefix("holding root lock "),
+        Duration::from_secs(15),
+    ) {
+        panic!(
+            "{label}: {} never appeared within 15s: {wait}",
+            shown(&marker)
+        );
+    }
 
     let mut contender = support::command(ratmac_qa::engine_bin!(), project);
     contender

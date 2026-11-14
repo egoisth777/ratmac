@@ -23,7 +23,7 @@
 //! same-root spawn model, Run-lock discipline, and ordinary command gates
 //! keep working beside a nested guard.
 
-use ratmac_qa::support::TempTree;
+use ratmac_qa::support::{await_marker_line, MarkerLine, MarkerWait, TempTree};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
@@ -179,26 +179,18 @@ fn wait_for_run(directory: &Path, label: &str) -> String {
     }
 }
 
-/// Poll until `path` exists with the expected bytes.
-fn wait_for_file(path: &Path, expected: &str, label: &str) {
-    let deadline = Instant::now() + Duration::from_secs(30);
-    loop {
-        if let Ok(bytes) = fs::read(path) {
-            let text = String::from_utf8_lossy(&bytes).into_owned();
-            assert_eq!(
-                text.trim_end(),
-                expected.trim_end(),
-                "{label}: the pause marker names its boundary"
-            );
-            return;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "{label}: the pause marker {} appears",
-            shown(path)
-        );
-        thread::sleep(Duration::from_millis(25));
-    }
+/// Wait, through the shared whole-line wait (SVE-005), until the pause
+/// marker at `path` holds a whole line, which must be `expected`.
+fn await_pause_line(path: &Path, expected: &str, label: &str) {
+    let text = match await_marker_line(path, MarkerLine::Exact(expected), Duration::from_secs(30)) {
+        Ok(line) => line,
+        Err(MarkerWait::OtherText(bytes)) => String::from_utf8_lossy(&bytes).into_owned(),
+        Err(wait) => panic!("{label}: the pause marker {} appears: {wait}", shown(path)),
+    };
+    assert_eq!(
+        text, expected,
+        "{label}: the pause marker names its boundary"
+    );
 }
 
 fn spawn_step(directory: &Path, run: &str, vars: &[(&str, &str)]) -> StepChild {
@@ -2177,9 +2169,9 @@ fn webv_024() {
         .collect();
     let parent_step = spawn_step(&parent, &run, &refs);
     let child_run = wait_for_run(&child, "webv024-admit");
-    wait_for_file(
+    await_pause_line(
         &markers.join("admit.marker"),
-        "after-admit",
+        "after-admit\n",
         "webv024-admit",
     );
     assert!(
@@ -2260,9 +2252,9 @@ fn webv_024() {
         "the child turns terminal: {}",
         combined(&child_step)
     );
-    wait_for_file(
+    await_pause_line(
         &markers.join("terminal.marker"),
-        "after-terminal",
+        "after-terminal\n",
         "webv024-terminal",
     );
     parent_step.kill();
@@ -2315,9 +2307,9 @@ fn webv_024() {
         .map(|(key, value)| (key.as_str(), value.as_str()))
         .collect();
     let parent_step = spawn_step(&parent, &run, &refs);
-    wait_for_file(
+    await_pause_line(
         &markers.join("record.marker"),
-        "after-record",
+        "after-record\n",
         "webv024-record",
     );
     assert!(
@@ -2387,9 +2379,9 @@ fn webv_024() {
     let child_run = wait_for_run(&child, "webv024-receipt");
     let child_step = step(&child, &child_run);
     assert!(child_step.status.success());
-    wait_for_file(
+    await_pause_line(
         &markers.join("receipt.marker"),
-        "after-receipt",
+        "after-receipt\n",
         "webv024-receipt",
     );
     let recorded = ledger_text(&parent, &run);
@@ -2450,9 +2442,9 @@ fn webv_024() {
     let child_run = wait_for_run(&child, "webv024-consume");
     let child_step = step(&child, &child_run);
     assert!(child_step.status.success());
-    wait_for_file(
+    await_pause_line(
         &markers.join("consume.marker"),
-        "after-consume",
+        "after-consume\n",
         "webv024-consume",
     );
     parent_step.kill();

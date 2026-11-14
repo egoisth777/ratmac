@@ -7,14 +7,21 @@
 
 use ratmac_qa::baseline::built_executable;
 use ratmac_qa::engine_bin;
-use ratmac_qa::support::TempTree;
+use ratmac_qa::support::{await_marker_line, MarkerLine, MarkerWait, TempTree};
 use ratmac_qa::targets::{self, Kind};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 /// The string only a pause-point build carries.
 const PAUSE_POINT: &str = "RATMAC_TEST_HOLD_BARRIER";
+
+/// The whole line the hold barrier publishes once it has parked.
+const PARKED_LINE: &str = "holding before before-state-write\n";
+
+/// One bounded look at the barrier's marker between checks on the child.
+const MARKER_SLICE: Duration = Duration::from_millis(100);
 
 /// The blocker record a fixture hold cites.
 const BLOCKER: &str = ".arca/issue/i-777-blocker";
@@ -384,19 +391,21 @@ impl HoldFixture {
             .expect("start the hold");
 
         // Stop as soon as the answer is known: the pause point appeared, or
-        // the command ran to completion without one.
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-        let mut reached = false;
-        while std::time::Instant::now() < deadline {
-            if marker.is_file() {
-                reached = true;
-                break;
+        // the command ran to completion without one. The pause point counts
+        // only once its whole line is published (SVE-005); after the command
+        // exits, one last zero-limit read decides.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let reached = loop {
+            match await_marker_line(&marker, MarkerLine::Exact(PARKED_LINE), MARKER_SLICE) {
+                Ok(_) => break true,
+                Err(MarkerWait::OtherText(_)) => break false,
+                Err(MarkerWait::NotYetPublished(_)) => {}
             }
-            if child.try_wait().expect("poll the hold").is_some() {
-                break;
+            if child.try_wait().expect("poll the hold").is_some() || Instant::now() >= deadline {
+                break await_marker_line(&marker, MarkerLine::Exact(PARKED_LINE), Duration::ZERO)
+                    .is_ok();
             }
-            std::thread::sleep(std::time::Duration::from_millis(25));
-        }
+        };
         let _ = fs::write(&release, "release\n");
         let _ = child.wait();
         reached

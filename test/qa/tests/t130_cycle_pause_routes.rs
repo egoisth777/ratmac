@@ -29,7 +29,7 @@
 use ratmac::cli;
 use ratmac::machine::MachineClass;
 use ratmac::review::test::{install, TestTrust};
-use ratmac_qa::support::{self, TempTree};
+use ratmac_qa::support::{self, MarkerLine, MarkerWait, TempTree};
 use ratmac_qa::tempgit::TempRepo;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -3004,12 +3004,32 @@ fn wrsv_003_08() {
         };
         result
     });
+    // The hold is parked only once the barrier's whole line is published
+    // (SVE-005); the wait runs in short slices so a holder that ends without
+    // parking ends it early, and one last zero-limit read then decides.
+    let race_line = "holding before after-journal-publication\n";
     let deadline = Instant::now() + Duration::from_secs(4);
-    while !race_marker.is_file() && Instant::now() < deadline && !holder.is_finished() {
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(
-        race_marker.is_file(),
+    let race_parked = loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        let parked = support::await_marker_line(
+            &race_marker,
+            MarkerLine::Exact(race_line),
+            left.min(Duration::from_millis(100)),
+        );
+        if !matches!(parked, Err(MarkerWait::NotYetPublished(_))) || left.is_zero() {
+            break parked;
+        }
+        if holder.is_finished() {
+            break support::await_marker_line(
+                &race_marker,
+                MarkerLine::Exact(race_line),
+                Duration::ZERO,
+            );
+        }
+    };
+    assert_eq!(
+        race_parked.as_deref(),
+        Ok(race_line),
         "WRS-003: the hold waits at the after-journal-publication boundary while it owns the \
          Run lock"
     );

@@ -15,12 +15,11 @@
 //! this fixture's ticket and residual - must come through every hold
 //! byte-identical.
 
-use ratmac_qa::support::TempTree;
+use ratmac_qa::support::{await_marker_line, MarkerLine, TempTree};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 const BLOCKER: &str = ".arca/issue/i-777-blocker";
 
@@ -254,19 +253,6 @@ fn set_readonly(path: &Path, readonly: bool) {
     #[allow(clippy::permissions_set_readonly_false)]
     permissions.set_readonly(readonly);
     fs::set_permissions(path, permissions).expect("set permissions");
-}
-
-fn wait_for_file(path: &Path, timeout: Duration) -> bool {
-    let deadline = Instant::now() + timeout;
-    loop {
-        if path.is_file() {
-            return true;
-        }
-        if Instant::now() >= deadline {
-            return false;
-        }
-        thread::sleep(Duration::from_millis(10));
-    }
 }
 
 /// PT-048-01: an authorized, linked hold routes the Run onward and records
@@ -647,7 +633,13 @@ fn runbook_swap_before_hold_state_write_refuses_without_a_half_route() {
         .spawn()
         .expect("start hold at the snapshot barrier");
 
-    if !wait_for_file(&marker, Duration::from_secs(5)) {
+    // The barrier is reached only once its whole line is published (SVE-005).
+    let parked = await_marker_line(
+        &marker,
+        MarkerLine::Exact("holding before before-state-write\n"),
+        Duration::from_secs(5),
+    );
+    if parked.is_err() {
         let _ = fs::write(&release, "release\n");
         let _ = child.kill();
         let _ = child.wait();

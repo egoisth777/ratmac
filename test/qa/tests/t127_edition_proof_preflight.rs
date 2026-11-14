@@ -14,13 +14,12 @@ use ratmac_qa::edition::{
     audit_editions, audit_sequence, edition_commit, edition_tags, repo_root, AuditFinding,
     EXAMPLE_BAR_MESSAGE, LEDGER_PATH, RECORDED_BAR,
 };
-use ratmac_qa::support::{self, TempTree};
+use ratmac_qa::support::{self, MarkerLine, MarkerWait, TempTree};
 use ratmac_qa::tempgit::TempRepo;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::LazyLock;
-use std::thread;
 use std::time::{Duration, Instant};
 
 /// The prefix every refusal line carries, exactly as the contract fixes it.
@@ -187,18 +186,42 @@ fn assert_green(output: &Output, line: &str, twin: &str) {
     assert_eq!(stderr, "", "{twin}: a green run writes no stderr");
 }
 
-/// Wait until the paused child publishes its marker, or name its early exit.
+/// The whole line the after-checks pause publishes.
+const PAUSED_LINE: &str = "after-checks\n";
+
+/// One bounded look at the pause marker between checks on the child.
+const MARKER_SLICE: Duration = Duration::from_millis(100);
+
+/// Wait until the paused child publishes its whole marker line through the
+/// shared whole-line wait (SVE-005), or name its early exit.
 fn wait_for_marker(marker: &Path, child: &mut Child) {
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
-        if marker.is_file() {
-            return;
+        match support::await_marker_line(marker, MarkerLine::Exact(PAUSED_LINE), MARKER_SLICE) {
+            Ok(_) => return,
+            Err(MarkerWait::NotYetPublished(_)) => {}
+            Err(other) => panic!(
+                "edition-cut published another pause marker line at {}: {other}",
+                marker.display()
+            ),
         }
         match child.try_wait() {
-            Ok(Some(status)) => panic!(
-                "the paused edition-cut exited with {status} before writing the pause marker; \
-                 the after-checks seam did not pause"
-            ),
+            Ok(Some(status)) => {
+                // A line published just before the exit still counts.
+                if support::await_marker_line(
+                    marker,
+                    MarkerLine::Exact(PAUSED_LINE),
+                    Duration::ZERO,
+                )
+                .is_ok()
+                {
+                    return;
+                }
+                panic!(
+                    "the paused edition-cut exited with {status} before writing the pause marker; \
+                     the after-checks seam did not pause"
+                )
+            }
             Ok(None) => {}
             Err(error) => panic!("inspect the paused edition-cut child: {error}"),
         }
@@ -207,7 +230,6 @@ fn wait_for_marker(marker: &Path, child: &mut Child) {
             "edition-cut never wrote the pause marker {}",
             marker.display()
         );
-        thread::sleep(Duration::from_millis(20));
     }
 }
 

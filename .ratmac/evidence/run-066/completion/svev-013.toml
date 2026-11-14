@@ -1,0 +1,10 @@
+ticket-id = "t-142"
+check-id = "SVEV-013"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test t126_shared_private_test_support --test t125_checkpoint_only_restoration -- --exact svev_013 svev_014 svev_015"
+working-dir = "."
+exit-status = 0
+output-sha256 = "77afa814e29b74e23b2fd49efd289b49f0be377113285c967e8f464a520b3f3a"
+tree-roots = ["src","profiles","test","test-hidden","tools","Cargo.toml","Cargo.lock","AGENTS.md",".gitignore",".ratmac/ratmac.toml",".ratmac/turn.toml",".ratmac/lanes.toml"]
+tree-sha256 = "b8cd9d2fc47096addadafabe88653abd573000b93905c8819a0f9739e19e3f72"
+output = "   Compiling ratmac-qa v0.1.0 (E:\\hive\\packs\\repos\\skills\\ratmac-t-142\\test\\qa)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.88s\n     Running tests\\t125_checkpoint_only_restoration.rs (target\\debug\\deps\\t125_checkpoint_only_restoration-609f1f199a84e334.exe)\n\nrunning 1 test\ntest svev_014 ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 34.73s\n\n     Running tests\\t126_shared_private_test_support.rs (target\\debug\\deps\\t126_shared_private_test_support-29668d2a9087e468.exe)\n\nrunning 2 tests\ntest svev_013 ... ok\ntest svev_015 ... ok\n\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.86s\n\n"

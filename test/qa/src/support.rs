@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 // --- owned temporary trees ---------------------------------------------------
 
@@ -166,14 +166,63 @@ impl fmt::Display for MarkerWait {
 /// whole line (text closed by `\n`) that `expected` accepts, and return that
 /// line with its `\n`.
 ///
-/// Red-phase stub (t-142): the shared whole-line wait does not exist yet.
+/// Missing, unreadable, empty, and partial markers remain unpublished until
+/// the limit. A completed line with other text fails immediately. This only
+/// reads: it never creates or changes the marker or its parent directory.
+/// It reads at least once even when `limit` is zero, so a zero limit judges
+/// the marker exactly as it stands.
+///
+/// # Panics
+///
+/// `Exact` must contain exactly one closing newline; `Prefix` must contain
+/// no newline. These are caller errors, not marker states.
 pub fn await_marker_line(
     path: &Path,
     expected: MarkerLine<'_>,
     limit: Duration,
 ) -> Result<String, MarkerWait> {
-    let _ = (path, expected, limit);
-    panic!("the shared whole-line wait does not exist yet (SVE-005 red stub)")
+    match expected {
+        MarkerLine::Exact(line) => assert!(
+            line.ends_with('\n') && !line[..line.len() - 1].contains('\n'),
+            "MarkerLine::Exact must be exactly one whole line ending in a newline"
+        ),
+        MarkerLine::Prefix(prefix) => assert!(
+            !prefix.contains('\n'),
+            "MarkerLine::Prefix must not contain a newline"
+        ),
+    }
+
+    let started = Instant::now();
+    let mut last = None;
+    loop {
+        if let Ok(bytes) = fs::read(path) {
+            if bytes.last() != Some(&b'\n') {
+                last = Some(bytes);
+            } else {
+                if bytes[..bytes.len() - 1].contains(&b'\n') {
+                    return Err(MarkerWait::OtherText(bytes));
+                }
+                let line = match String::from_utf8(bytes) {
+                    Ok(line) => line,
+                    Err(error) => return Err(MarkerWait::OtherText(error.into_bytes())),
+                };
+                let accepted = match expected {
+                    MarkerLine::Exact(wanted) => line == wanted,
+                    MarkerLine::Prefix(prefix) => line.starts_with(prefix),
+                };
+                return if accepted {
+                    Ok(line)
+                } else {
+                    Err(MarkerWait::OtherText(line.into_bytes()))
+                };
+            }
+        }
+        let remaining = limit.saturating_sub(started.elapsed());
+        if remaining.is_zero() {
+            return Err(MarkerWait::NotYetPublished(last));
+        }
+        std::thread::sleep(Duration::from_millis(20).min(remaining));
+    }
 }
 
 // --- scrubbed child processes ------------------------------------------------

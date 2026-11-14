@@ -1,0 +1,10 @@
+ticket-id = "t-142"
+check-id = "HT-142-03"
+kind = "hidden-lane"
+command = "cargo test --offline --manifest-path test-hidden/t-142/Cargo.toml"
+working-dir = "."
+exit-status = 0
+output-sha256 = "3096e209432e5da19a83e6ee75a17e51b37ac418596bc9bc612ce05c4d0df6ef"
+tree-roots = ["src","profiles","test","test-hidden","tools","Cargo.toml","Cargo.lock","AGENTS.md",".gitignore",".ratmac/ratmac.toml",".ratmac/turn.toml",".ratmac/lanes.toml"]
+tree-sha256 = "b8cd9d2fc47096addadafabe88653abd573000b93905c8819a0f9739e19e3f72"
+output = "   Compiling ratmac-qa v0.1.0 (E:\\hive\\packs\\repos\\skills\\ratmac-t-142\\test\\qa)\n   Compiling ratmac-t142-hidden v0.1.0 (E:\\hive\\packs\\repos\\skills\\ratmac-t-142\\test-hidden\\t-142)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.60s\n     Running unittests src\\lib.rs (test-hidden\\t-142\\target\\debug\\deps\\ratmac_t142_hidden-aa9334bfd6686c67.exe)\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n     Running unittests ..\\..\\test\\qa\\src\\bin\\edition_cut.rs (test-hidden\\t-142\\target\\debug\\deps\\edition_cut-2b1726778bb74cbe.exe)\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n     Running unittests ..\\..\\src\\bin\\rtm.rs (test-hidden\\t-142\\target\\debug\\deps\\rtm-09527ce896054ecf.exe)\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n     Running tests\\hidden.rs (test-hidden\\t-142\\target\\debug\\deps\\hidden-e6fc0759c65f69f3.exe)\n\nrunning 6 tests\ntest ht_142_02_input_routing ... ok\ntest ht_142_04_durability_recovery ... ok\ntest ht_142_05_output_filesystem ... ok\ntest ht_142_03_lifecycle_model ... ok\ntest ht_142_06_cross_feature ... ok\ntest ht_142_01_regression ... ok\n\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 19.41s\n\n   Doc-tests ratmac_t142_hidden\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n"

@@ -19,7 +19,7 @@ use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Output};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, SystemTime};
 
 use ratmac_qa::snapshot::sha256_file;
 use ratmac_qa::support::{
@@ -89,27 +89,13 @@ fn paused_restore(global: &Path, turn: &Turn, marker: &Path, release: &Path) -> 
     invocation.spawn().expect("spawn the paused restore")
 }
 
-/// Wait up to `limit` for the pause seam's marker and return what it holds.
-///
-/// Red-phase body (t-142): today's existence-only wait, then one read - it
-/// ignores `expected` and returns at once on a planted empty file.
+/// Wait up to `limit` for the pause seam's expected whole marker line.
 fn await_marker(
     marker: &Path,
     expected: MarkerLine<'_>,
     limit: Duration,
 ) -> Result<String, MarkerWait> {
-    let _ = expected;
-    let deadline = Instant::now() + limit;
-    while !marker.exists() {
-        if Instant::now() >= deadline {
-            return Err(MarkerWait::NotYetPublished(None));
-        }
-        std::thread::sleep(Duration::from_millis(25));
-    }
-    match fs::read(marker) {
-        Ok(bytes) => Ok(String::from_utf8_lossy(&bytes).into_owned()),
-        Err(_) => Err(MarkerWait::NotYetPublished(None)),
-    }
+    ratmac_qa::support::await_marker_line(marker, expected, limit)
 }
 
 /// Fixture Git with the same isolation, and no other setting at all.

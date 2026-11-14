@@ -16,7 +16,9 @@
 //! assertion, and a barrier guard writes the release file on unwinding so
 //! no paused child is ever stranded.
 
-use ratmac_qa::support::{self, CaptureOptions, TempTree};
+use ratmac_qa::support::{
+    self, await_marker_line, CaptureOptions, MarkerLine, MarkerWait, TempTree,
+};
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::fs;
@@ -310,21 +312,20 @@ fn stayed_live(label: &str, child: &mut Child, probe: Duration) -> bool {
     }
 }
 
-/// Wait until `path` holds a non-empty marker, bounded by `timeout`. `None`
-/// is the seam never pausing.
-fn wait_marker(path: &Path, timeout: Duration) -> Option<Vec<u8>> {
-    let deadline = Instant::now() + timeout;
-    loop {
-        match fs::read(path) {
-            Ok(bytes) if !bytes.is_empty() => return Some(bytes),
-            Ok(_) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(_) => return None,
-        }
-        if Instant::now() >= deadline {
-            return None;
-        }
-        thread::sleep(Duration::from_millis(50));
+/// Whether a seam's marker wait (the shared whole-line wait, SVE-005) found a
+/// whole line at all: a missing, empty, or unfinished marker by the limit is
+/// the seam never pausing.
+fn published(marker: &Result<String, MarkerWait>) -> bool {
+    !matches!(marker, Err(MarkerWait::NotYetPublished(_)))
+}
+
+/// The whole line a seam's marker wait found: the line it accepted, or the
+/// other text it reported; empty when no whole line was published.
+fn whole_line(marker: &Result<String, MarkerWait>) -> String {
+    match marker {
+        Ok(line) => line.clone(),
+        Err(MarkerWait::OtherText(bytes)) => String::from_utf8_lossy(bytes).into_owned(),
+        Err(MarkerWait::NotYetPublished(_)) => String::new(),
     }
 }
 
@@ -364,7 +365,7 @@ impl Drop for Barrier {
 /// waiter started once the marker appears, both reaped after release.
 struct WindowCase {
     label: &'static str,
-    marker: Option<Vec<u8>>,
+    marker: Result<String, MarkerWait>,
     expected_marker: String,
     holder: Output,
     waiter: Option<Output>,
@@ -402,9 +403,13 @@ fn observe_window(
             ),
         ],
     );
-    let marker = wait_marker(&marker_path, MARKER_WAIT);
+    let marker = await_marker_line(
+        &marker_path,
+        MarkerLine::Prefix("holding unlink lock "),
+        MARKER_WAIT,
+    );
     let mut waiter = marker
-        .is_some()
+        .is_ok()
         .then(|| spawn_rtm(label, isolate, root, waiter_args, &[]));
     #[cfg(windows)]
     let waiter_stayed_live = match waiter.as_mut() {
@@ -437,7 +442,7 @@ fn assert_waited_through(
 ) {
     let label = case.label;
     assert!(
-        case.marker.is_some(),
+        published(&case.marker),
         "{label}: the holder must pause after requesting its pathname's deletion - the \
          `holding unlink lock` marker never appeared within {} s; RATMAC_TEST_LOCK_HOLD=unlink \
          does not pause today (contract: 'A root or Run lock's release pauses after its pathname \
@@ -445,7 +450,7 @@ fn assert_waited_through(
         MARKER_WAIT.as_secs()
     );
     assert_eq!(
-        String::from_utf8_lossy(case.marker.as_deref().unwrap_or_default()),
+        whole_line(&case.marker),
         case.expected_marker,
         "{label}: the unlink hold marker reads `holding unlink lock <path>` plus LF"
     );
@@ -577,14 +582,14 @@ fn ensv_006_waiters_wait_through_a_peer_release() {
         &root_lock,
     );
     assert!(
-        root_case.marker.is_some(),
+        published(&root_case.marker),
         "ensv-root-window: the root holder must pause after requesting its pathname's deletion - \
          the `holding unlink lock` marker never appeared within {} s; \
          RATMAC_TEST_LOCK_HOLD=unlink does not pause today",
         MARKER_WAIT.as_secs()
     );
     assert_eq!(
-        String::from_utf8_lossy(root_case.marker.as_deref().unwrap_or_default()),
+        whole_line(&root_case.marker),
         root_case.expected_marker,
         "ensv-root-window: the unlink hold marker reads `holding unlink lock <path>` plus LF"
     );
@@ -678,11 +683,15 @@ fn ensv_006_waiters_wait_through_a_peer_release() {
                 ),
             ],
         );
-        let marker = wait_marker(&marker_path, MARKER_WAIT);
+        let marker = await_marker_line(
+            &marker_path,
+            MarkerLine::Prefix("holding unlink lock "),
+            MARKER_WAIT,
+        );
         let mut waiter_output = None;
         let mut tree_before = None;
         let mut tree_after = None;
-        if marker.is_some() {
+        if marker.is_ok() {
             tree_before = Some(tagged_tree_excluding(root, &excluded));
             let mut waiter = spawn_rtm(
                 "ensv-deadline waiter",
@@ -698,7 +707,7 @@ fn ensv_006_waiters_wait_through_a_peer_release() {
         let _ = reap("ensv-deadline holder", &mut holder, CHILD_CEILING);
 
         assert!(
-            marker.is_some(),
+            published(&marker),
             "ensv-deadline: the Run holder must pause after requesting its pathname's deletion - \
              the `holding unlink lock` marker never appeared within {} s; \
              RATMAC_TEST_LOCK_HOLD=unlink does not pause today",
@@ -768,7 +777,7 @@ fn already_present_stdout(checkout: &Path) -> String {
 struct ParallelCase {
     label: &'static str,
     boundary: &'static str,
-    marker: Option<Vec<u8>>,
+    marker: Result<String, MarkerWait>,
     second: Option<Output>,
     peer: Output,
     peer_live_when_second_finished: Option<bool>,
@@ -796,10 +805,11 @@ fn observe_second_completes_while_paused(
             ("RATMAC_TEST_POLICY_PAUSE_RELEASE", release_path.as_os_str()),
         ],
     );
-    let marker = wait_marker(&marker_path, MARKER_WAIT);
+    let boundary_line = format!("{boundary}\n");
+    let marker = await_marker_line(&marker_path, MarkerLine::Exact(&boundary_line), MARKER_WAIT);
     let mut second = None;
     let mut peer_live = None;
-    if marker.is_some() {
+    if marker.is_ok() {
         // The release file does not exist yet, so a completion collected
         // here happened while the peer was still paused.
         second = Some(run_rtm(label, isolate, root, &["init"], &[]));
@@ -820,7 +830,7 @@ fn observe_second_completes_while_paused(
 /// Assert the seam paused with the boundary's marker and stayed paused.
 fn assert_peer_paused(case: &ParallelCase) {
     assert!(
-        case.marker.is_some(),
+        published(&case.marker),
         "{}: the peer must pause at the `{}` boundary - its marker never appeared within {} s; \
          RATMAC_TEST_POLICY_PAUSE={} does not pause today (contract: 'Boundary `inspect` pauses \
          inside the pre-claim Git inspection' / 'Boundary `verify` pauses at the start of \
@@ -831,7 +841,7 @@ fn assert_peer_paused(case: &ParallelCase) {
         case.boundary
     );
     assert_eq!(
-        String::from_utf8_lossy(case.marker.as_deref().unwrap_or_default()),
+        whole_line(&case.marker),
         format!("{}\n", case.boundary),
         "{}: the pause marker content is the boundary name plus LF",
         case.label
@@ -847,7 +857,7 @@ fn assert_peer_paused(case: &ParallelCase) {
 /// One paused-writer round: the second caller is watched for early exit
 /// while the peer holds the claim, then both complete after release.
 struct BlockedCase {
-    marker: Option<Vec<u8>>,
+    marker: Result<String, MarkerWait>,
     second: Option<Output>,
     peer: Output,
     second_stayed_live: Option<bool>,
@@ -870,10 +880,10 @@ fn observe_blocked_second(isolate: &GitIsolate, root: &Path) -> BlockedCase {
             ("RATMAC_TEST_POLICY_PAUSE_RELEASE", release_path.as_os_str()),
         ],
     );
-    let marker = wait_marker(&marker_path, MARKER_WAIT);
+    let marker = await_marker_line(&marker_path, MarkerLine::Exact("verify\n"), MARKER_WAIT);
     let mut second = None;
     let mut second_stayed_live = None;
-    if marker.is_some() {
+    if marker.is_ok() {
         let mut child = spawn_rtm("webv-verify-writing second", isolate, root, &["init"], &[]);
         second_stayed_live = Some(stayed_live(
             "webv-verify-writing second",
@@ -1027,13 +1037,13 @@ fn webv_008_policy_claim_covers_only_the_policy_bytes() {
     writing.write(".ratmac/.gitignore", "operator-a/\noperator-b");
     let blocked = observe_blocked_second(&isolate, writing.path());
     assert!(
-        blocked.marker.is_some(),
+        published(&blocked.marker),
         "webv-verify-writing: the peer must pause at the `verify` boundary - its marker never \
          appeared within {} s; RATMAC_TEST_POLICY_PAUSE=verify does not pause today",
         MARKER_WAIT.as_secs()
     );
     assert_eq!(
-        String::from_utf8_lossy(blocked.marker.as_deref().unwrap_or_default()),
+        whole_line(&blocked.marker),
         "verify\n",
         "webv-verify-writing: the pause marker content is the boundary name plus LF"
     );
