@@ -17,6 +17,18 @@
 //! fixture keys exercised through the host's real `ssh-keygen`, exactly as the
 //! landed suites do. Every refusal twin first establishes its valid positive
 //! control and asserts unchanged State and Status after the refusal.
+//!
+//! t-147 / WTCV-004, WTCV-005 (WTC-002): the validator refuses a bound item
+//! record, or a gap record that item lists, that exists but cannot be read:
+//! one standard-error line naming the record's kind, its path as the
+//! neighbouring `does not exist` rows show it, and the read error's short
+//! reason, never a traceback; exit 1, empty standard output, nothing
+//! written. Each case makes its record unreadable without relying on
+//! timing: on Windows a handle holds it open with no sharing for the whole
+//! validator run, elsewhere every permission bit is removed. A host probe
+//! (the validator's own existence test and open mode) then confirms the
+//! record still exists while its open fails and supplies the reason. A
+//! record the host still reads (for example, as root) is reported skipped.
 
 use ratmac::cli;
 use ratmac::doctor::{self, Severity};
@@ -2266,4 +2278,240 @@ fn wcpv_009() {
     // The parent consumes both terminal review results through the join.
     fx.step_ok(&parent, "the join consumes the passed turns");
     assert_eq!(fx.state(&parent), "close", "the parent leaves ticket-turns");
+}
+
+// --- t-147 / WTC-002: the unreadable record refusal -----------------------------
+
+/// The host probe: the validator's own file-existence test and its own open
+/// mode, run by the host's Python against one record path. The first line is
+/// the existence answer; the second is the read error's short reason
+/// (`strerror`), or `readable` when the open and the read succeed.
+const PROBE: &str = r#"import os, sys
+path = sys.argv[1]
+print(os.path.isfile(path))
+try:
+    with open(path, "r", encoding="utf-8", errors="replace") as handle:
+        handle.read()
+except OSError as error:
+    print(error.strerror)
+else:
+    print("readable")
+"#;
+
+/// One record made unreadable without relying on timing, for as long as this
+/// value lives: on Windows a handle holding it open with no sharing,
+/// elsewhere every permission bit removed and the saved permissions restored
+/// on drop. Declare it after the fixture, so it drops first, on unwind too:
+/// a held file blocks the removal of the fixture tree.
+struct Unreadable {
+    #[cfg(windows)]
+    _held: fs::File,
+    #[cfg(unix)]
+    path: PathBuf,
+    #[cfg(unix)]
+    mode: fs::Permissions,
+}
+
+impl Unreadable {
+    /// Make `relative` under `root` unreadable, then confirm on this host that
+    /// the record still passes the validator's file-existence test while its
+    /// open fails, answering the hold and the read error's short reason. A
+    /// record that stays readable - an identity that bypasses file
+    /// permissions, such as root - is released and reported as skipped, and
+    /// answers `None`; on Windows the hold must work.
+    fn make(root: &Path, relative: &str) -> Option<(Self, String)> {
+        let hold = Self::hold(&root.join(relative));
+        let probe = support::command("python", root)
+            .args(["-c", PROBE, relative])
+            .output()
+            .expect("invoke the host probe with real Python");
+        let answer = String::from_utf8_lossy(&probe.stdout).into_owned();
+        assert!(
+            probe.status.success(),
+            "the host probe runs: {}",
+            support::text(&probe)
+        );
+        let mut lines = answer.lines();
+        assert_eq!(
+            lines.next(),
+            Some("True"),
+            "the unreadable {relative} still passes the validator's file-existence test"
+        );
+        let reason = lines.next().unwrap_or_default().to_owned();
+        if reason == "readable" {
+            if cfg!(windows) {
+                panic!("the no-sharing hold must make {relative} unreadable: {answer}");
+            }
+            drop(hold);
+            eprintln!(
+                "skipped: {relative} stays readable with every permission bit removed; \
+                 this identity bypasses file permissions (e.g. root)"
+            );
+            return None;
+        }
+        assert!(
+            !reason.is_empty(),
+            "the host probe names the read error of {relative}: {answer}"
+        );
+        Some((hold, reason))
+    }
+
+    #[cfg(windows)]
+    fn hold(path: &Path) -> Self {
+        use std::os::windows::fs::OpenOptionsExt;
+        use std::time::{Duration, Instant};
+        // A scanner or indexer may still hold the fresh file: only this
+        // acquisition retries, on a sharing violation (raw 32), for at most
+        // five seconds; the validator run itself never retries.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            match fs::OpenOptions::new().read(true).share_mode(0).open(path) {
+                Ok(file) => return Self { _held: file },
+                Err(error) if error.raw_os_error() == Some(32) && Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                Err(error) => panic!("hold {} open with no sharing: {error}", path.display()),
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    fn hold(path: &Path) -> Self {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = fs::metadata(path)
+            .unwrap_or_else(|error| panic!("inspect {}: {error}", path.display()))
+            .permissions();
+        fs::set_permissions(path, fs::Permissions::from_mode(0)).unwrap_or_else(|error| {
+            panic!("remove the permissions of {}: {error}", path.display())
+        });
+        Self {
+            path: path.to_path_buf(),
+            mode,
+        }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for Unreadable {
+    fn drop(&mut self) {
+        if let Err(error) = fs::set_permissions(&self.path, self.mode.clone()) {
+            eprintln!(
+                "restore the permissions of {}: {error}",
+                self.path.display()
+            );
+        }
+    }
+}
+
+/// The validator's success line for the bound turn every case builds.
+fn verified_line() -> String {
+    format!("issue binding verified: {ITEM} -> {ISSUE} (1 requirement, 2 checks)\n")
+}
+
+/// One turn bound to the item and its selected issue, on which the
+/// validator passes: the valid positive case each unreadable case holds
+/// first.
+fn bound_turn(label: &str) -> (Fixture, String, String) {
+    let fx = Fixture::create(label, Inv::Process);
+    let parent = fx.walk_to_ticket_turns();
+    let child = fx.spawn_child(&parent, &["item=t-100.md", "issue=i-100-demo"], None);
+    assert_eq!(
+        fx.state(&child),
+        "tests",
+        "a turn starts at the tests State"
+    );
+    assert_eq!(
+        run_validator(&fx.root),
+        (0, verified_line(), String::new()),
+        "the valid positive case: the readable bound turn passes the validator"
+    );
+    (fx, parent, child)
+}
+
+/// WTCV-004: the bound item record exists but cannot be read; the validator
+/// refuses by name in one standard-error line, never a traceback.
+#[test]
+fn wtcv_004() {
+    let (fx, _parent, _child) = bound_turn("wtcv004");
+    let record = format!(".arca/ticket/{ITEM}");
+    let Some((hold, reason)) = Unreadable::make(&fx.root, &record) else {
+        return;
+    };
+    let (code, out, err) = run_validator(&fx.root);
+    drop(hold);
+    assert!(
+        !err.contains("Traceback"),
+        "WTCV-004: the unreadable item record is refused, not a Python traceback: {err}"
+    );
+    assert_eq!(
+        err,
+        format!("verify_issue_binding: cannot read the item record {record}: {reason}\n"),
+        "WTCV-004: stderr is exactly one line naming the item record's path and the read error"
+    );
+    assert_eq!(code, 1, "WTCV-004: the refusal exits 1: {err}");
+    assert_eq!(out, "", "WTCV-004: the refusal leaves stdout empty");
+    assert_eq!(
+        run_validator(&fx.root),
+        (0, verified_line(), String::new()),
+        "WTCV-004: readable again, the validator passes again"
+    );
+}
+
+/// WTCV-005: one of the item's gap records exists but cannot be read; the
+/// validator refuses by name and writes nothing anywhere in the fixture.
+#[test]
+fn wtcv_005() {
+    let (fx, parent, child) = bound_turn("wtcv005");
+    // The byte snapshot before the hold: every Run Record, spawn ledger, and
+    // workflow record, and Git's own files - the validator only queries Git.
+    let snapshot = || {
+        support::capture(&fx.root, CaptureOptions::default())
+            .expect("snapshot the fixture outside the hold")
+            .tagged()
+    };
+    let before = snapshot();
+    for covered in [
+        format!(".ratmac/runs/{parent}/run.toml"),
+        format!(".ratmac/runs/{parent}/spawn-ledger"),
+        format!(".ratmac/runs/{child}/run.toml"),
+        format!(".arca/ticket/{ITEM}"),
+        ".arca/residual/res-100.md".to_owned(),
+    ] {
+        assert!(
+            before.contains_key(&covered),
+            "the snapshot covers {covered}"
+        );
+    }
+    let record = ".arca/residual/res-100.md";
+    let Some((hold, reason)) = Unreadable::make(&fx.root, record) else {
+        return;
+    };
+    let (code, out, err) = run_validator(&fx.root);
+    drop(hold);
+    let after = snapshot();
+    assert!(
+        !err.contains("Traceback"),
+        "WTCV-005: the unreadable gap record is refused, not a Python traceback: {err}"
+    );
+    assert_eq!(
+        err,
+        format!("verify_issue_binding: cannot read the residual record {record}: {reason}\n"),
+        "WTCV-005: stderr is exactly one line naming the gap record's path and the read error"
+    );
+    assert_eq!(code, 1, "WTCV-005: the refusal exits 1: {err}");
+    assert_eq!(out, "", "WTCV-005: the refusal leaves stdout empty");
+    let changed: Vec<&String> = before
+        .keys()
+        .chain(after.keys())
+        .filter(|key| before.get(*key) != after.get(*key))
+        .collect();
+    assert!(
+        changed.is_empty(),
+        "WTCV-005: the snapshot after the hold ends equals the first: {changed:?}"
+    );
+    assert_eq!(
+        run_validator(&fx.root),
+        (0, verified_line(), String::new()),
+        "WTCV-005: readable again, the validator passes again"
+    );
 }

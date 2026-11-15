@@ -27,6 +27,15 @@
 //! the leftover refusal - plus two-export determinism and the runtime ignore
 //! boundaries that hold after initialization.
 //!
+//! t-147 / WTCV-006 (WTC-002): the exported checker stays byte-identical to
+//! the tool and refuses an unreadable bound item record and an unreadable
+//! gap record exactly as the tool does - the same exit code and the same
+//! standard-error bytes - in a clean repository initialized from the export.
+//! Each record is made unreadable without relying on timing (a no-sharing
+//! hold on Windows, every permission bit removed elsewhere) after a host
+//! probe confirms it still exists while its open fails; a record the host
+//! still reads (for example, as root) is reported skipped.
+//!
 //! The sprint's whole dependency inventory is git, python (3.11 or newer,
 //! for `tomllib`), and the Engine binary this suite was compiled against:
 //! no other program is invoked, nothing is fetched, and no sprint step
@@ -2337,4 +2346,277 @@ fn wcpv_021() {
         bundle_at_start, first_export,
         "WCPV-021: the installed bundle is the deterministic export's bytes"
     );
+}
+
+// --- t-147 / WTC-002: the unreadable record refusal -----------------------------
+
+/// The host probe: the validator's own file-existence test and its own open
+/// mode, run by the host's Python against one record path. The first line is
+/// the existence answer; the second is the read error's short reason
+/// (`strerror`), or `readable` when the open and the read succeed.
+const PROBE: &str = r#"import os, sys
+path = sys.argv[1]
+print(os.path.isfile(path))
+try:
+    with open(path, "r", encoding="utf-8", errors="replace") as handle:
+        handle.read()
+except OSError as error:
+    print(error.strerror)
+else:
+    print("readable")
+"#;
+
+/// One record made unreadable without relying on timing, for as long as this
+/// value lives: on Windows a handle holding it open with no sharing,
+/// elsewhere every permission bit removed and the saved permissions restored
+/// on drop. Declare it after the fixture, so it drops first, on unwind too:
+/// a held file blocks the removal of the fixture tree.
+struct Unreadable {
+    #[cfg(windows)]
+    _held: fs::File,
+    #[cfg(unix)]
+    path: PathBuf,
+    #[cfg(unix)]
+    mode: fs::Permissions,
+}
+
+impl Unreadable {
+    /// Make `relative` under `root` unreadable, then confirm on this host that
+    /// the record still passes the validator's file-existence test while its
+    /// open fails, answering the hold and the read error's short reason. A
+    /// record that stays readable - an identity that bypasses file
+    /// permissions, such as root - is released and reported as skipped, and
+    /// answers `None`; on Windows the hold must work.
+    fn make(root: &Path, relative: &str) -> Option<(Self, String)> {
+        let hold = Self::hold(&root.join(relative));
+        let probe = support::command("python", root)
+            .args(["-c", PROBE, relative])
+            .output()
+            .expect("invoke the host probe with real Python");
+        let answer = out_text(&probe);
+        assert!(
+            probe.status.success(),
+            "the host probe runs: {}",
+            support::text(&probe)
+        );
+        let mut lines = answer.lines();
+        assert_eq!(
+            lines.next(),
+            Some("True"),
+            "the unreadable {relative} still passes the validator's file-existence test"
+        );
+        let reason = lines.next().unwrap_or_default().to_owned();
+        if reason == "readable" {
+            if cfg!(windows) {
+                panic!("the no-sharing hold must make {relative} unreadable: {answer}");
+            }
+            drop(hold);
+            eprintln!(
+                "skipped: {relative} stays readable with every permission bit removed; \
+                 this identity bypasses file permissions (e.g. root)"
+            );
+            return None;
+        }
+        assert!(
+            !reason.is_empty(),
+            "the host probe names the read error of {relative}: {answer}"
+        );
+        Some((hold, reason))
+    }
+
+    #[cfg(windows)]
+    fn hold(path: &Path) -> Self {
+        use std::os::windows::fs::OpenOptionsExt;
+        use std::time::{Duration, Instant};
+        // A scanner or indexer may still hold the fresh file: only this
+        // acquisition retries, on a sharing violation (raw 32), for at most
+        // five seconds; the validator run itself never retries.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            match fs::OpenOptions::new().read(true).share_mode(0).open(path) {
+                Ok(file) => return Self { _held: file },
+                Err(error) if error.raw_os_error() == Some(32) && Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                Err(error) => panic!("hold {} open with no sharing: {error}", path.display()),
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    fn hold(path: &Path) -> Self {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = fs::metadata(path)
+            .unwrap_or_else(|error| panic!("inspect {}: {error}", path.display()))
+            .permissions();
+        fs::set_permissions(path, fs::Permissions::from_mode(0)).unwrap_or_else(|error| {
+            panic!("remove the permissions of {}: {error}", path.display())
+        });
+        Self {
+            path: path.to_path_buf(),
+            mode,
+        }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for Unreadable {
+    fn drop(&mut self) {
+        if let Err(error) = fs::set_permissions(&self.path, self.mode.clone()) {
+            eprintln!(
+                "restore the permissions of {}: {error}",
+                self.path.display()
+            );
+        }
+    }
+}
+
+/// The sprint's walk from `rtm start` to one turn bound to the item and the
+/// selected issue, every record placed from the packaged blanks (the same
+/// walk `wcpv_019` takes); answers the child Run id.
+fn walk_to_turn(fx: &Clean) -> String {
+    let started = fx.rtm(&["start"]);
+    assert!(
+        started.status.success(),
+        "rtm start admits the first Run: {}",
+        support::text(&started)
+    );
+    fx.step_ok(
+        RUN,
+        "intake -> gap-check validates the bundle and the records",
+    );
+    assert_eq!(fx.state(RUN), "gap-check");
+    let frozen = fx.frozen(RUN);
+    place_residual(fx, &frozen);
+    fx.write_verdict(RUN, "gap-check", "gaps");
+    fx.step_ok(RUN, "gap-check -> cut-tickets routes on gaps");
+    assert_eq!(fx.state(RUN), "cut-tickets");
+    place_ticket(fx);
+    fx.step_ok(RUN, "cut-tickets -> ticket-turns owns the gap");
+    assert_eq!(fx.state(RUN), "ticket-turns");
+    let spawned = fx.rtm(&[
+        "spawn",
+        "turn",
+        "--run",
+        RUN,
+        "--bind",
+        &format!("item={ITEM}"),
+        "--bind",
+        &format!("issue={ISSUE}"),
+    ]);
+    let spawned_text = support::text(&spawned);
+    assert!(
+        spawned.status.success(),
+        "the coordinator spawns the turn: {spawned_text}"
+    );
+    let child = spawned_text
+        .split("spawned run ")
+        .nth(1)
+        .and_then(|rest| rest.split_whitespace().next())
+        .expect("spawn names the child run id")
+        .to_owned();
+    assert_eq!(
+        fx.state(&child),
+        "tests",
+        "a turn starts at the tests State"
+    );
+    child
+}
+
+/// WTCV-006: the exported checker is byte-identical to the tool, and against
+/// an unreadable item record and an unreadable gap record it gives the
+/// tool's exit code and the tool's standard-error bytes.
+#[test]
+fn wtcv_006() {
+    let fx = export_and_initialize("wtcv006");
+    let tool = repo_root().join("tools/verify_issue_binding.py");
+    let checker = "profile/checkers/verify_issue_binding.py";
+    assert_eq!(
+        fs::read(fx.root.join(checker)).expect("read the exported checker"),
+        fs::read(&tool).expect("read the tool"),
+        "WTCV-006: the exported checker is byte-identical to the tool"
+    );
+    walk_to_turn(&fx);
+    // Both runners start in the fixture repository: the validator resolves
+    // everything from its working directory.
+    let tool = tool.to_str().expect("the tool path is text").to_owned();
+    let run_tool = || fx.python(&[tool.as_str(), "check"]);
+    let run_checker = || fx.python(&[checker, "check"]);
+
+    // The valid positive case first: both pass with one equal success line.
+    let control = |why: &str| {
+        let checked = run_checker();
+        let tooled = run_tool();
+        for (name, output) in [("checker", &checked), ("tool", &tooled)] {
+            assert_eq!(
+                output.status.code(),
+                Some(0),
+                "WTCV-006: {why}, the {name} passes: {}",
+                support::text(output)
+            );
+            assert_eq!(err_text(output), "", "WTCV-006: {why}, the {name}'s stderr");
+        }
+        assert_eq!(
+            out_text(&checked),
+            out_text(&tooled),
+            "WTCV-006: {why}, the checker and the tool print one equal success line"
+        );
+        assert!(
+            out_text(&checked).starts_with(&format!("issue binding verified: {ITEM} -> {ISSUE} (")),
+            "WTCV-006: {why}, the success line names the bound turn: {}",
+            out_text(&checked)
+        );
+    };
+    control("readable");
+
+    for (record, kind) in [
+        (format!(".arca/ticket/{ITEM}"), "item record"),
+        (format!(".arca/residual/{RESIDUAL}.md"), "residual record"),
+    ] {
+        let Some((hold, reason)) = Unreadable::make(&fx.root, &record) else {
+            return;
+        };
+        let checked = run_checker();
+        let tooled = run_tool();
+        drop(hold);
+        assert!(
+            !err_text(&checked).contains("Traceback"),
+            "WTCV-006: the exported checker refuses the unreadable {kind}, not a Python \
+             traceback: {}",
+            err_text(&checked)
+        );
+        assert_eq!(
+            checked.status.code(),
+            tooled.status.code(),
+            "WTCV-006: the unreadable {kind}: the checker's exit code is the tool's"
+        );
+        assert!(
+            checked.stderr == tooled.stderr,
+            "WTCV-006: the unreadable {kind}: the checker's stderr bytes are the tool's: \
+             {:?} vs {:?}",
+            err_text(&checked),
+            err_text(&tooled)
+        );
+        assert_eq!(
+            checked.status.code(),
+            Some(1),
+            "WTCV-006: the unreadable {kind} refuses with exit 1"
+        );
+        assert_eq!(
+            out_text(&checked),
+            "",
+            "WTCV-006: the checker's stdout is empty"
+        );
+        assert_eq!(
+            out_text(&tooled),
+            "",
+            "WTCV-006: the tool's stdout is empty"
+        );
+        assert_eq!(
+            err_text(&checked),
+            format!("verify_issue_binding: cannot read the {kind} {record}: {reason}\n"),
+            "WTCV-006: one line naming the {kind}'s path and the read error"
+        );
+        control(&format!("the {kind} readable again"));
+    }
 }
