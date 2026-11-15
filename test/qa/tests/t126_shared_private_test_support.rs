@@ -5027,6 +5027,11 @@ const NON_MARKER_WAITS: &[(&str, &str, &str)] = &[
         "ht_136_02_input_routing::park_external_holder#3",
         "the successor's external window-holder takes its marker as a command argument, not a setting",
     ),
+    (
+        "test-hidden/t-149/tests/hidden.rs",
+        "await_first_record_line",
+        "the lock-presence fault record RATMAC_TEST_LOCK_PRESENCE_RECORD names, not a pause marker",
+    ),
 ];
 
 /// A crate that sets a pause-marker key but never waits needs an explicit,
@@ -5175,6 +5180,7 @@ const MARKER_KEY_CRATES: &[&str] = &[
     "test-hidden/t-142",
     "test-hidden/t-143",
     "test-hidden/t-148",
+    "test-hidden/t-149",
     "test/qa/tests/t050_blocked_route.rs",
     "test/qa/tests/t086_single_engine_binary.rs",
     "test/qa/tests/t104_operator_skill.rs",

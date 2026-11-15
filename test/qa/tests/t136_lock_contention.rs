@@ -10,6 +10,19 @@
 //! inspection or at a non-writing verification, blocks only behind a
 //! writing peer, and sixteen concurrent inits all succeed.
 //!
+//! WTCV-010..012 (t-149 / WTC-004): `rtm abandon` reads whether the root
+//! lock and the addressed Run's lock exist while it holds no lock. A read
+//! that meets a peer's Windows release window - `Access is denied. (os
+//! error 5)` - is read again inside the lock module's five-second bound,
+//! measured from the first denial, and the settled answer, present or
+//! absent, decides exactly as an unfaulted read; a denial that outlasts the
+//! bound, or any other error, refuses with today's `abandon cannot inspect
+//! lock <path>: <error>`. The denials come from the test-only presence
+//! fault (`RATMAC_TEST_LOCK_PRESENCE_FAULT=<domains>:<reads>:<code>`), set
+//! only on its own case's `rtm` child, which records each injected failure
+//! as one whole line in `RATMAC_TEST_LOCK_PRESENCE_RECORD`, a file outside
+//! the project read only after that child has exited.
+//!
 //! Every pause is forced through the test seams (`RATMAC_TEST_LOCK_HOLD=`
 //! `unlink`, `RATMAC_TEST_POLICY_PAUSE`); no window case relies on a race.
 //! Every wait is bounded, every child is released or killed before an
@@ -1153,5 +1166,629 @@ fn webv_008_policy_claim_covers_only_the_policy_bytes() {
         )]),
         "WEBV-008 sixteen: the Engine root holds the policy file alone - no staging copy, claim, \
          or any other leftover"
+    );
+}
+
+// --- WTCV-010..012 (t-149 / WTC-004): abandon's lock-free read waits out a release window
+
+/// The test-only presence fault, `<domains>:<reads>:<code>`: which lock's
+/// presence reads fail (`root`, `run`, or `root,run`), how many fail (the
+/// first `N` reads of each named lock, or `all`), and the raw OS error code
+/// they fail with. It reaches only the child it is set on (SVE-006).
+const PRESENCE_FAULT: &str = "RATMAC_TEST_LOCK_PRESENCE_FAULT";
+
+/// The fault's companion: the file outside the project where each injected
+/// failure is recorded as one whole line, `<domain> <code> <lock path>`.
+const PRESENCE_RECORD: &str = "RATMAC_TEST_LOCK_PRESENCE_RECORD";
+
+/// The raw code a read answers inside a Windows peer's release window.
+const ACCESS_DENIED: i32 = 5;
+
+/// The other-code control: a sharing violation is never a release window.
+const SHARING_VIOLATION: i32 = 32;
+
+/// The lock module's one wait bound, measured from the first denial.
+const LOCK_WAIT_BOUND: Duration = Duration::from_secs(5);
+
+/// How many leading presence reads of each named lock the settling cases
+/// deny.
+const SETTLING_DENIALS: usize = 3;
+
+/// Today's success line for a retirement whose only remnant is a lock.
+const LEFTOVER_RETIRED: &str =
+    "rtm: retirement completed; the leftover lock is retired and no Run remains.\n";
+
+/// A leftover lock body whose owner cannot be alive (t-115's shape): the
+/// pid is far outside any supported host's process-id range.
+fn stale_lock_token(guard: &str) -> String {
+    format!("ratmac-lock-v1\npid=2000000000\nguard={guard}\nnonce=0\n")
+}
+
+/// The fault selector and its record as one child's explicit environment.
+fn presence_fault<'a>(selector: &'a str, record: &'a Path) -> [(&'static str, &'a OsStr); 2] {
+    [
+        (PRESENCE_FAULT, OsStr::new(selector)),
+        (PRESENCE_RECORD, record.as_os_str()),
+    ]
+}
+
+/// A fault record in a tree of its own, outside every project. The tree
+/// must outlive the record's reads.
+fn record_tree(label: &str) -> (TempTree, PathBuf) {
+    let tree = TempTree::new(&format!("t136-wtcv-{label}-record")).expect("own a record tree");
+    let record = tree.join("record");
+    (tree, record)
+}
+
+/// The record's whole lines, read after its writer exited: a missing
+/// record holds no line, and only newline-terminated text counts.
+fn record_lines(record: &Path) -> Vec<String> {
+    let text = match fs::read_to_string(record) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Vec::new(),
+        Err(error) => panic!("read the fault record {}: {error}", rendered(record)),
+    };
+    text.split_inclusive('\n')
+        .filter_map(|line| line.strip_suffix('\n'))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// One expected record line: an injected `code` at a presence read of
+/// `lock`.
+fn record_line(domain: &str, code: i32, lock: &Path) -> String {
+    format!("{domain} {code} {}", rendered(lock))
+}
+
+fn root_lock_path(root: &Path) -> PathBuf {
+    root.join(".ratmac/locks/root.lock")
+}
+
+fn run_lock_path(root: &Path, id: &str) -> PathBuf {
+    root.join(".ratmac/locks/runs").join(format!("{id}.lock"))
+}
+
+fn run_record_path(root: &Path, id: &str) -> PathBuf {
+    root.join(".ratmac/runs").join(id).join("run.toml")
+}
+
+/// The text the standard library gives a raw OS error code here.
+fn os_error_text(code: i32) -> String {
+    std::io::Error::from_raw_os_error(code).to_string()
+}
+
+/// Today's planning-route refusal for a lock read that did not settle.
+fn inspect_refusal(lock: &Path, code: i32) -> String {
+    format!(
+        "rtm: abandon refused; abandon cannot inspect lock {}: {}\n",
+        rendered(lock),
+        os_error_text(code)
+    )
+}
+
+/// The folder name a project phrase and a project refusal carry.
+fn project_name(root: &Path) -> String {
+    root.file_name()
+        .expect("a fixture root has a folder name")
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// A committed-runbook repository holding one Run a plain start admitted,
+/// with that Run's id.
+fn started_repo(isolate: &GitIsolate, label: &str) -> (TempTree, String) {
+    let repo = committed_runbook_repo(isolate, label);
+    let start_label = format!("{label} start");
+    let started = run_rtm(&start_label, isolate, repo.path(), &["start"], &[]);
+    assert!(
+        started.status.success(),
+        "{label}: a plain start admits a Run: {}",
+        combined_text(&started)
+    );
+    let id = started_run_id(&start_label, &started);
+    (repo, id)
+}
+
+/// A committed-runbook repository whose only remnant is a leftover root
+/// lock: no Run was ever admitted.
+fn leftover_repo(isolate: &GitIsolate, label: &str) -> TempTree {
+    let repo = committed_runbook_repo(isolate, label);
+    repo.write(".ratmac/locks/root.lock", stale_lock_token("root"));
+    repo
+}
+
+/// `rtm abandon --run <id> --confirm "abandon <id>"` with `vars` on the
+/// child alone.
+fn addressed_abandon(
+    label: &str,
+    isolate: &GitIsolate,
+    root: &Path,
+    id: &str,
+    vars: &[(&str, &OsStr)],
+) -> Output {
+    let phrase = format!("abandon {id}");
+    run_rtm(
+        label,
+        isolate,
+        root,
+        &["abandon", "--run", id, "--confirm", &phrase],
+        vars,
+    )
+}
+
+/// `rtm abandon --confirm "abandon <project folder name>"` with `vars` on
+/// the child alone.
+fn leftover_abandon(
+    label: &str,
+    isolate: &GitIsolate,
+    root: &Path,
+    vars: &[(&str, &OsStr)],
+) -> Output {
+    let phrase = format!("abandon {}", project_name(root));
+    run_rtm(
+        label,
+        isolate,
+        root,
+        &["abandon", "--confirm", &phrase],
+        vars,
+    )
+}
+
+/// Today's success line for retiring a Run admitted at `state`.
+fn abandoned_line(state: &str) -> String {
+    format!(
+        "rtm: Run abandoned at state {state}; admission state, Run evidence, and lock retired. \
+         A fresh rtm start may begin.\n"
+    )
+}
+
+/// The State a plain start admits a Run at: the first State of `RUNBOOK`.
+const INITIAL_STATE: &str = "plan";
+
+/// WTCV-010: denials of the first presence reads that then settle decide
+/// exactly as an unfaulted read - an addressed Run and a leftover root lock
+/// each retire with today's success line.
+#[test]
+fn wtcv_010() {
+    let isolate = GitIsolate::new("t136-wtcv-010-isolate");
+    #[cfg(windows)]
+    assert_eq!(
+        os_error_text(ACCESS_DENIED),
+        "Access is denied. (os error 5)",
+        "WTCV-010: the injected code is the release window's own answer"
+    );
+
+    // Valid controls: unfaulted twins retire with today's success lines.
+    let (run_twin, twin_id) = started_repo(&isolate, "wtcv-010-run-twin");
+    let run_reference = addressed_abandon(
+        "WTCV-010 run twin",
+        &isolate,
+        run_twin.path(),
+        &twin_id,
+        &[],
+    );
+    assert_eq!(
+        (exit_code(&run_reference), stdout_text(&run_reference)),
+        (0, abandoned_line(INITIAL_STATE)),
+        "WTCV-010 run twin: an unfaulted addressed abandon retires its Run as today: {}",
+        combined_text(&run_reference)
+    );
+    let leftover_twin = leftover_repo(&isolate, "wtcv-010-leftover-twin");
+    let leftover_reference = leftover_abandon(
+        "WTCV-010 leftover twin",
+        &isolate,
+        leftover_twin.path(),
+        &[],
+    );
+    assert_eq!(
+        (
+            exit_code(&leftover_reference),
+            stdout_text(&leftover_reference)
+        ),
+        (0, LEFTOVER_RETIRED.to_owned()),
+        "WTCV-010 leftover twin: an unfaulted project-phrase abandon retires the leftover root \
+         lock as today: {}",
+        combined_text(&leftover_reference)
+    );
+
+    // The faulted cases: the first reads of each named lock are denied.
+    let (run_repo, id) = started_repo(&isolate, "wtcv-010-run");
+    let (_run_record_tree, run_record) = record_tree("010-run");
+    let run_selector = format!("root,run:{SETTLING_DENIALS}:{ACCESS_DENIED}");
+    let run_output = addressed_abandon(
+        "WTCV-010 run",
+        &isolate,
+        run_repo.path(),
+        &id,
+        &presence_fault(&run_selector, &run_record),
+    );
+    let leftover = leftover_repo(&isolate, "wtcv-010-leftover");
+    let (_leftover_record_tree, leftover_record) = record_tree("010-leftover");
+    let leftover_selector = format!("root:{SETTLING_DENIALS}:{ACCESS_DENIED}");
+    let leftover_output = leftover_abandon(
+        "WTCV-010 leftover",
+        &isolate,
+        leftover.path(),
+        &presence_fault(&leftover_selector, &leftover_record),
+    );
+
+    let root_lock = root_lock_path(run_repo.path());
+    let run_lock = run_lock_path(run_repo.path(), &id);
+    let leftover_lock = root_lock_path(leftover.path());
+    // Windows reads again until a read settles; elsewhere the first denial
+    // is the single read's answer.
+    let denials = if cfg!(windows) { SETTLING_DENIALS } else { 1 };
+    let mut expected_run_record = vec![record_line("root", ACCESS_DENIED, &root_lock); denials];
+    if cfg!(windows) {
+        expected_run_record.extend(vec![record_line("run", ACCESS_DENIED, &run_lock); denials]);
+    }
+    assert_eq!(
+        record_lines(&run_record),
+        expected_run_record,
+        "WTCV-010 run: the fault's record shows a denial at each lock path read - the first \
+         reads of the root lock, then of the Run lock (the record is missing when no fault \
+         exists); abandon said: {}",
+        combined_text(&run_output)
+    );
+    assert_eq!(
+        record_lines(&leftover_record),
+        vec![record_line("root", ACCESS_DENIED, &leftover_lock); denials],
+        "WTCV-010 leftover: the fault's record shows a denial at the root lock path read (the \
+         record is missing when no fault exists); abandon said: {}",
+        combined_text(&leftover_output)
+    );
+
+    if cfg!(windows) {
+        assert_eq!(
+            exit_code(&run_output),
+            0,
+            "WTCV-010 run: the waited-out denials retire the Run as today, never `abandon cannot \
+             inspect lock`: {}",
+            combined_text(&run_output)
+        );
+        assert_eq!(
+            stdout_text(&run_output),
+            retarget(&stdout_text(&run_reference), &twin_id, &id),
+            "WTCV-010 run: stdout is byte-identical to the unfaulted twin's"
+        );
+        assert_eq!(
+            stderr_text(&run_output),
+            stderr_text(&run_reference),
+            "WTCV-010 run: stderr is byte-identical to the unfaulted twin's"
+        );
+        assert!(
+            !run_record_path(run_repo.path(), &id).exists(),
+            "WTCV-010 run: the Run Record is retired"
+        );
+        assert!(
+            !root_lock.exists() && !run_lock.exists(),
+            "WTCV-010 run: no lock file remains"
+        );
+        assert_eq!(
+            exit_code(&leftover_output),
+            0,
+            "WTCV-010 leftover: the waited-out denials retire the leftover root lock as today, \
+             never `abandon cannot inspect lock`: {}",
+            combined_text(&leftover_output)
+        );
+        assert_eq!(
+            stdout_text(&leftover_output),
+            stdout_text(&leftover_reference),
+            "WTCV-010 leftover: stdout is byte-identical to the unfaulted twin's"
+        );
+        assert_eq!(
+            stderr_text(&leftover_output),
+            stderr_text(&leftover_reference),
+            "WTCV-010 leftover: stderr is byte-identical to the unfaulted twin's"
+        );
+        assert!(
+            !leftover_lock.exists(),
+            "WTCV-010 leftover: the leftover root lock is retired"
+        );
+    } else {
+        for (label, output, lock) in [
+            ("WTCV-010 run", &run_output, &root_lock),
+            ("WTCV-010 leftover", &leftover_output, &leftover_lock),
+        ] {
+            assert_eq!(
+                (exit_code(output), stdout_text(output), stderr_text(output)),
+                (1, String::new(), inspect_refusal(lock, ACCESS_DENIED)),
+                "{label}: other platforms keep the single read, so the injected denial refuses \
+                 at once with today's `abandon cannot inspect lock`"
+            );
+        }
+    }
+}
+
+/// WTCV-011: denials that settle to not-found act exactly as the read
+/// without the fault - the unaddressed abandon refuses with today's
+/// nothing-to-retire text and the addressed one retires its Run.
+#[test]
+fn wtcv_011() {
+    let isolate = GitIsolate::new("t136-wtcv-011-isolate");
+
+    // The byte references, without the fault. The empty project's refusal
+    // writes nothing, so its reference runs on the same fixture.
+    let empty = committed_runbook_repo(&isolate, "wtcv-011-empty");
+    let empty_before = ratmac_tagged(empty.path());
+    let empty_reference = run_rtm(
+        "WTCV-011 empty reference",
+        &isolate,
+        empty.path(),
+        &["abandon"],
+        &[],
+    );
+    assert_eq!(
+        (
+            exit_code(&empty_reference),
+            stdout_text(&empty_reference),
+            stderr_text(&empty_reference)
+        ),
+        (
+            1,
+            String::new(),
+            format!(
+                "rtm: abandon refused; nothing to retire in {}: no live run and no leftover \
+                 lock\n",
+                project_name(empty.path())
+            )
+        ),
+        "WTCV-011 empty reference: with no live Run and no lock, the unaddressed abandon \
+         refuses with today's nothing-to-retire text"
+    );
+    assert_eq!(
+        ratmac_tagged(empty.path()),
+        empty_before,
+        "WTCV-011 empty reference: the refusal writes nothing"
+    );
+    let (run_twin, twin_id) = started_repo(&isolate, "wtcv-011-run-twin");
+    let run_reference = addressed_abandon(
+        "WTCV-011 run twin",
+        &isolate,
+        run_twin.path(),
+        &twin_id,
+        &[],
+    );
+    assert_eq!(
+        (exit_code(&run_reference), stdout_text(&run_reference)),
+        (0, abandoned_line(INITIAL_STATE)),
+        "WTCV-011 run twin: an unfaulted addressed abandon retires its Run as today: {}",
+        combined_text(&run_reference)
+    );
+
+    // The same fault on lock paths that do not exist.
+    let (_empty_record_tree, empty_record) = record_tree("011-empty");
+    let empty_selector = format!("root:{SETTLING_DENIALS}:{ACCESS_DENIED}");
+    let empty_output = run_rtm(
+        "WTCV-011 empty",
+        &isolate,
+        empty.path(),
+        &["abandon"],
+        &presence_fault(&empty_selector, &empty_record),
+    );
+    let (run_repo, id) = started_repo(&isolate, "wtcv-011-run");
+    let (_run_record_tree, run_record) = record_tree("011-run");
+    let run_selector = format!("root,run:{SETTLING_DENIALS}:{ACCESS_DENIED}");
+    let run_output = addressed_abandon(
+        "WTCV-011 run",
+        &isolate,
+        run_repo.path(),
+        &id,
+        &presence_fault(&run_selector, &run_record),
+    );
+
+    let empty_lock = root_lock_path(empty.path());
+    let root_lock = root_lock_path(run_repo.path());
+    let run_lock = run_lock_path(run_repo.path(), &id);
+    let denials = if cfg!(windows) { SETTLING_DENIALS } else { 1 };
+    assert_eq!(
+        record_lines(&empty_record),
+        vec![record_line("root", ACCESS_DENIED, &empty_lock); denials],
+        "WTCV-011 empty: the fault's record shows it fired at the root lock path (the record \
+         is missing when no fault exists); abandon said: {}",
+        combined_text(&empty_output)
+    );
+    let mut expected_run_record = vec![record_line("root", ACCESS_DENIED, &root_lock); denials];
+    if cfg!(windows) {
+        expected_run_record.extend(vec![record_line("run", ACCESS_DENIED, &run_lock); denials]);
+    }
+    assert_eq!(
+        record_lines(&run_record),
+        expected_run_record,
+        "WTCV-011 run: the fault's record shows it fired at each lock path read (the record is \
+         missing when no fault exists); abandon said: {}",
+        combined_text(&run_output)
+    );
+
+    if cfg!(windows) {
+        assert_eq!(
+            (
+                exit_code(&empty_output),
+                stdout_text(&empty_output),
+                stderr_text(&empty_output)
+            ),
+            (
+                exit_code(&empty_reference),
+                stdout_text(&empty_reference),
+                stderr_text(&empty_reference)
+            ),
+            "WTCV-011 empty: exit code, stdout, and stderr are byte-identical to the run without \
+             the fault, never `abandon cannot inspect lock`"
+        );
+        assert_eq!(
+            (
+                exit_code(&run_output),
+                stdout_text(&run_output),
+                stderr_text(&run_output)
+            ),
+            (
+                exit_code(&run_reference),
+                retarget(&stdout_text(&run_reference), &twin_id, &id),
+                stderr_text(&run_reference)
+            ),
+            "WTCV-011 run: exit code, stdout, and stderr are byte-identical to the run without \
+             the fault: the Run retires as today"
+        );
+        assert!(
+            !run_record_path(run_repo.path(), &id).exists(),
+            "WTCV-011 run: the Run Record is retired"
+        );
+    } else {
+        for (label, output, lock) in [
+            ("WTCV-011 empty", &empty_output, &empty_lock),
+            ("WTCV-011 run", &run_output, &root_lock),
+        ] {
+            assert_eq!(
+                (exit_code(output), stdout_text(output), stderr_text(output)),
+                (1, String::new(), inspect_refusal(lock, ACCESS_DENIED)),
+                "{label}: other platforms keep the single read, so the injected denial refuses \
+                 at once with today's `abandon cannot inspect lock`"
+            );
+        }
+    }
+    assert_eq!(
+        ratmac_tagged(empty.path()),
+        empty_before,
+        "WTCV-011 empty: the faulted refusal writes nothing either"
+    );
+}
+
+/// WTCV-012: a denial that outlasts the bound, or any other error, refuses
+/// with today's `abandon cannot inspect lock <path>: <error>` and retires
+/// nothing.
+#[test]
+fn wtcv_012() {
+    let isolate = GitIsolate::new("t136-wtcv-012-isolate");
+
+    // Valid control: the fixture shape can be retired.
+    let (twin, twin_id) = started_repo(&isolate, "wtcv-012-twin");
+    let reference = addressed_abandon("WTCV-012 twin", &isolate, twin.path(), &twin_id, &[]);
+    assert_eq!(
+        (exit_code(&reference), stdout_text(&reference)),
+        (0, abandoned_line(INITIAL_STATE)),
+        "WTCV-012 twin: an unfaulted addressed abandon retires its Run as today: {}",
+        combined_text(&reference)
+    );
+
+    // (a) Every presence read denied: the lasting denial.
+    let (lasting_repo, lasting_id) = started_repo(&isolate, "wtcv-012-lasting");
+    let lasting_before = ratmac_tagged(lasting_repo.path());
+    let (_lasting_record_tree, lasting_record) = record_tree("012-lasting");
+    let lasting_selector = format!("root,run:all:{ACCESS_DENIED}");
+    let started = Instant::now();
+    let lasting = addressed_abandon(
+        "WTCV-012 lasting denial",
+        &isolate,
+        lasting_repo.path(),
+        &lasting_id,
+        &presence_fault(&lasting_selector, &lasting_record),
+    );
+    let lasting_elapsed = started.elapsed();
+    let lasting_lock = root_lock_path(lasting_repo.path());
+    assert_eq!(
+        exit_code(&lasting),
+        1,
+        "WTCV-012 lasting denial: abandon refuses with exit 1 (with no fault it retires the \
+         Run): {}",
+        combined_text(&lasting)
+    );
+    assert_eq!(
+        stderr_text(&lasting),
+        inspect_refusal(&lasting_lock, ACCESS_DENIED),
+        "WTCV-012 lasting denial: the refusal is today's planning-route text naming the root \
+         lock, read first, with the last error"
+    );
+    #[cfg(windows)]
+    assert_eq!(
+        stderr_text(&lasting),
+        format!(
+            "rtm: abandon refused; abandon cannot inspect lock {}: Access is denied. (os error \
+             5)\n",
+            rendered(&lasting_lock)
+        ),
+        "WTCV-012 lasting denial: the refusal carries the release window's own answer"
+    );
+    assert!(
+        stdout_text(&lasting).is_empty(),
+        "WTCV-012 lasting denial: the refusal prints nothing on stdout: {}",
+        stdout_text(&lasting)
+    );
+    assert_eq!(
+        ratmac_tagged(lasting_repo.path()),
+        lasting_before,
+        "WTCV-012 lasting denial: nothing is retired - the Engine root is byte-identical"
+    );
+    assert!(
+        run_record_path(lasting_repo.path(), &lasting_id).is_file(),
+        "WTCV-012 lasting denial: the Run Record stays"
+    );
+    let lasting_lines = record_lines(&lasting_record);
+    let lasting_line = record_line("root", ACCESS_DENIED, &lasting_lock);
+    if cfg!(windows) {
+        assert!(
+            lasting_elapsed >= LOCK_WAIT_BOUND,
+            "WTCV-012 lasting denial: abandon refuses no sooner than five seconds after it \
+             started; it took {lasting_elapsed:?}"
+        );
+        assert!(
+            lasting_lines.len() >= 2 && lasting_lines.iter().all(|line| *line == lasting_line),
+            "WTCV-012 lasting denial: the record shows the root lock read again and again, and \
+             never a Run lock read: {lasting_lines:?}"
+        );
+    } else {
+        assert_eq!(
+            lasting_lines,
+            vec![lasting_line],
+            "WTCV-012 lasting denial: other platforms keep the single read"
+        );
+        assert!(
+            lasting_elapsed < LOCK_WAIT_BOUND,
+            "WTCV-012 lasting denial: other platforms refuse at once; it took \
+             {lasting_elapsed:?}"
+        );
+    }
+
+    // (b) Another code: a sharing violation is not a release window.
+    let (other_repo, other_id) = started_repo(&isolate, "wtcv-012-other");
+    let other_before = ratmac_tagged(other_repo.path());
+    let (_other_record_tree, other_record) = record_tree("012-other");
+    let other_selector = format!("root,run:all:{SHARING_VIOLATION}");
+    let started = Instant::now();
+    let other = addressed_abandon(
+        "WTCV-012 other code",
+        &isolate,
+        other_repo.path(),
+        &other_id,
+        &presence_fault(&other_selector, &other_record),
+    );
+    let other_elapsed = started.elapsed();
+    let other_lock = root_lock_path(other_repo.path());
+    assert_eq!(
+        (exit_code(&other), stdout_text(&other), stderr_text(&other)),
+        (
+            1,
+            String::new(),
+            inspect_refusal(&other_lock, SHARING_VIOLATION)
+        ),
+        "WTCV-012 other code: abandon refuses with the same message shape and that error"
+    );
+    assert_eq!(
+        record_lines(&other_record),
+        vec![record_line("root", SHARING_VIOLATION, &other_lock)],
+        "WTCV-012 other code: the record shows exactly one injected read"
+    );
+    assert!(
+        other_elapsed < LOCK_WAIT_BOUND,
+        "WTCV-012 other code: the refusal comes at once, never after the wait bound (a sanity \
+         bound, not a timing oracle); it took {other_elapsed:?}"
+    );
+    assert_eq!(
+        ratmac_tagged(other_repo.path()),
+        other_before,
+        "WTCV-012 other code: nothing is retired - the Engine root is byte-identical"
+    );
+    assert!(
+        run_record_path(other_repo.path(), &other_id).is_file(),
+        "WTCV-012 other code: the Run Record stays"
     );
 }
