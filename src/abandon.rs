@@ -174,7 +174,9 @@ pub(crate) fn resolve_target_in(
         // Only a true leftover-lock path teaches the project phrase: with no
         // admitted Run and no leftover root lock there is nothing to retire,
         // so the refusal teaches no phrase at all.
-        None if lock_path_present(&crate::lock::root_path(&engine_root))? => Ok(Target::Leftover),
+        None if lock_path_present("root", &crate::lock::root_path(&engine_root))? => {
+            Ok(Target::Leftover)
+        }
         None => Err(refusal(format!(
             "nothing to retire in {}: no live run and no leftover lock",
             project_name(root)
@@ -333,9 +335,9 @@ pub(crate) fn plan_abandon_in(
         }
     }
 
-    let root_lock_present = lock_path_present(&crate::lock::root_path(&engine_root))?;
+    let root_lock_present = lock_path_present("root", &crate::lock::root_path(&engine_root))?;
     let run_lock_present = match run_id.as_deref() {
-        Some(id) => lock_path_present(&crate::lock::run_path(&engine_root, id))?,
+        Some(id) => lock_path_present("run", &crate::lock::run_path(&engine_root, id))?,
         None => false,
     };
 
@@ -459,15 +461,20 @@ pub(crate) fn plan_abandon_in(
         run_lock_present,
     })
 }
-fn lock_path_present(path: &Path) -> Result<bool, AbandonRefusal> {
-    match fs::symlink_metadata(path) {
-        Ok(_) => Ok(true),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(refusal(format!(
-            "abandon cannot inspect lock {}: {error}",
-            path.displayed()
-        ))),
-    }
+
+/// WTC-004: whether the `domain` lock exists, read while holding no lock.
+/// The attribute read stays here; the lock module settles a peer's release
+/// window around it, and a read that does not settle refuses naming the
+/// path and its last error.
+fn lock_path_present(domain: &str, path: &Path) -> Result<bool, AbandonRefusal> {
+    crate::lock::settled_presence(domain, path, || fs::symlink_metadata(path).map(|_| ())).map_err(
+        |error| {
+            refusal(format!(
+                "abandon cannot inspect lock {}: {error}",
+                path.displayed()
+            ))
+        },
+    )
 }
 
 fn revision_or_none(revision: &str) -> String {

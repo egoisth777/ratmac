@@ -866,6 +866,44 @@ fn transient_release_window(_path: &Path, _error: &std::io::Error) -> bool {
     false
 }
 
+/// WTC-004: a presence read of a lock pathname taken while holding no lock
+/// (abandon's planning) settles a peer's release window the way the waiting
+/// acquirers do. `read` is the caller's own attribute read: success answers
+/// present and not-found answers absent. A read failing inside a release
+/// window, as [`transient_release_window`] classifies it, is taken again
+/// every `RETRY_INTERVAL` until `WAIT_TIMEOUT` after the first such failure,
+/// and the first read that then succeeds or answers not-found decides. A
+/// window still failing at that deadline returns its last error; any other
+/// error returns at once. Without a release window (other platforms) this is
+/// the single read. `domain` (`root` or `run`) names the lock for the
+/// test-only presence fault.
+pub(crate) fn settled_presence(
+    domain: &str,
+    path: &Path,
+    mut read: impl FnMut() -> std::io::Result<()>,
+) -> std::io::Result<bool> {
+    let mut deadline: Option<Instant> = None;
+    loop {
+        let result = match presence_fault(domain, path) {
+            Some(error) => Err(error),
+            None => read(),
+        };
+        match result {
+            Ok(()) => return Ok(true),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(error) if transient_release_window(path, &error) => {
+                let deadline = *deadline.get_or_insert_with(|| Instant::now() + WAIT_TIMEOUT);
+                let now = Instant::now();
+                if now >= deadline {
+                    return Err(error);
+                }
+                thread::sleep(RETRY_INTERVAL.min(deadline.saturating_duration_since(now)));
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
 #[cfg(not(windows))]
 fn classify_open_failure(_path: &Path, error: &std::io::Error) -> OpenFailure {
     if lock_is_contended(error) {
@@ -1189,6 +1227,85 @@ fn inject_lock_fault(domain: &str, path: &Path) -> Result<(), StateError> {
 #[cfg(not(feature = "test-fault-injection"))]
 fn inject_lock_fault(_domain: &str, _path: &Path) -> Result<(), StateError> {
     Ok(())
+}
+
+/// Feature-gated QA presence fault (WTC-004).
+/// `RATMAC_TEST_LOCK_PRESENCE_FAULT=<domains>:<reads>:<code>` fails the first
+/// `<reads>` presence reads (or `all` of them) of each named lock domain -
+/// `root`, `run`, or `root,run` - with the raw OS error `<code>`, counted per
+/// domain across this process; the classification, the wait, and the settled
+/// read run unchanged on the injected error. Each injected failure appends
+/// one whole line, `<domain> <code> <lock path>`, to the file
+/// `RATMAC_TEST_LOCK_PRESENCE_RECORD` names; nothing is written unless a
+/// read is injected. Unset or empty arms nothing; a malformed selector, or
+/// an armed fault without a writable record, panics.
+#[cfg(feature = "test-fault-injection")]
+fn presence_fault(domain: &str, path: &Path) -> Option<std::io::Error> {
+    use std::sync::atomic::AtomicUsize;
+
+    static ROOT_READS: AtomicUsize = AtomicUsize::new(0);
+    static RUN_READS: AtomicUsize = AtomicUsize::new(0);
+
+    fn malformed(selector: &str) -> ! {
+        panic!(
+            "RATMAC_TEST_LOCK_PRESENCE_FAULT must be <root|run|root,run>:<reads|all>:<raw os error code>, not {selector:?}"
+        )
+    }
+
+    let selector = std::env::var("RATMAC_TEST_LOCK_PRESENCE_FAULT")
+        .ok()
+        .filter(|selector| !selector.is_empty())?;
+    let mut parts = selector.split(':');
+    let (Some(domains), Some(reads), Some(code), None) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
+        malformed(&selector)
+    };
+    if domains
+        .split(',')
+        .any(|named| !matches!(named, "root" | "run"))
+    {
+        malformed(&selector);
+    }
+    let limit = match reads {
+        "all" => None,
+        count => match count.parse::<usize>() {
+            Ok(count) if count > 0 => Some(count),
+            _ => malformed(&selector),
+        },
+    };
+    let code = code.parse::<i32>().unwrap_or_else(|_| malformed(&selector));
+    if !domains.split(',').any(|named| named == domain) {
+        return None;
+    }
+    let reads = match domain {
+        "root" => &ROOT_READS,
+        "run" => &RUN_READS,
+        other => panic!("unknown lock presence domain {other}"),
+    };
+    let read = reads.fetch_add(1, Ordering::SeqCst);
+    if limit.is_some_and(|limit| read >= limit) {
+        return None;
+    }
+    let record = std::env::var_os("RATMAC_TEST_LOCK_PRESENCE_RECORD")
+        .filter(|record| !record.is_empty())
+        .expect("RATMAC_TEST_LOCK_PRESENCE_FAULT needs RATMAC_TEST_LOCK_PRESENCE_RECORD");
+    OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&record)
+        .and_then(|mut file| {
+            file.write_all(format!("{domain} {code} {}\n", path.displayed()).as_bytes())
+        })
+        .unwrap_or_else(|error| {
+            panic!("RATMAC_TEST_LOCK_PRESENCE_RECORD cannot record an injected presence fault: {error}")
+        });
+    Some(std::io::Error::from_raw_os_error(code))
+}
+
+#[cfg(not(feature = "test-fault-injection"))]
+fn presence_fault(_domain: &str, _path: &Path) -> Option<std::io::Error> {
+    None
 }
 
 #[cfg(feature = "test-fault-injection")]
