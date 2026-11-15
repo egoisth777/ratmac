@@ -1,0 +1,10 @@
+ticket-id = "t-146"
+check-id = "WTCV-003"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test t120_residue_refusal_precedence -- --exact wtcv_003"
+working-dir = "."
+exit-status = 0
+output-sha256 = "37fff02f5130b4482a6dcd24ff703aebac50538e6e63356caf925446adb5b254"
+tree-roots = ["src","profiles","test","test-hidden","tools","Cargo.toml","Cargo.lock","AGENTS.md",".gitignore",".ratmac/ratmac.toml",".ratmac/turn.toml",".ratmac/lanes.toml"]
+tree-sha256 = "e915506949de46ec69681711078d0a5eda17a8de7d7a8f1f0c64e4b67bd20660"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s\n     Running tests\\t120_residue_refusal_precedence.rs (target\\debug\\deps\\t120_residue_refusal_precedence-0a8fe06cd02a04f4.exe)\n\nrunning 1 test\ntest wtcv_003 ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 3.13s\n\n"

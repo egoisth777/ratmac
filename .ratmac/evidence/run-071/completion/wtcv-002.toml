@@ -1,0 +1,10 @@
+ticket-id = "t-146"
+check-id = "WTCV-002"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test t117_descriptive_run_roster -- --exact wtcv_002"
+working-dir = "."
+exit-status = 0
+output-sha256 = "db6e63d454d1a7c22607c71419cbac3edd8d60a005682cf21f94cbb15b106649"
+tree-roots = ["src","profiles","test","test-hidden","tools","Cargo.toml","Cargo.lock","AGENTS.md",".gitignore",".ratmac/ratmac.toml",".ratmac/turn.toml",".ratmac/lanes.toml"]
+tree-sha256 = "e915506949de46ec69681711078d0a5eda17a8de7d7a8f1f0c64e4b67bd20660"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s\n     Running tests\\t117_descriptive_run_roster.rs (target\\debug\\deps\\t117_descriptive_run_roster-af3b87f72112bc51.exe)\n\nrunning 1 test\ntest wtcv_002 ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 2.39s\n\n"

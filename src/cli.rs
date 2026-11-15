@@ -237,6 +237,21 @@ fn addressed_run_with_roots(
     Ok(id)
 }
 
+/// WTC-001: a second `--run` on a command that reads its own arguments
+/// refuses before its value is read, whether the values match or differ,
+/// with the roster exactly as that command's missing-value refusal prints it
+/// (summary and rows, no `next:` line). It reads only what that roster reads
+/// and writes nothing.
+fn repeated_run(command: &str, roots: &crate::root::Roots) -> CliError {
+    match roster_line(roots) {
+        Ok(roster) => CliError::refusal(format!(
+            "{command}: --run given twice; address exactly one run; {}{}",
+            roster.line, roster.rows
+        )),
+        Err(error) => error,
+    }
+}
+
 /// Run the CLI inside one invocation context; the path-taking `run_from`
 /// lives in `src/root.rs`. Each project the command addresses is resolved
 /// by `invocation` the first time it is needed, and every handler below is
@@ -712,6 +727,9 @@ fn hold<W: Write>(
     while index < args.len() {
         match args[index].as_str() {
             "--run" => {
+                if run.is_some() {
+                    return Err(repeated_run("hold", roots));
+                }
                 let Some(value) = args
                     .get(index + 1)
                     .filter(|value| !value.starts_with("--"))
@@ -862,6 +880,9 @@ fn resume<W: Write>(
     while index < args.len() {
         match args[index].as_str() {
             "--run" => {
+                if run.is_some() {
+                    return Err(repeated_run("resume", roots));
+                }
                 let Some(value) = args
                     .get(index + 1)
                     .filter(|value| !value.starts_with("--"))
@@ -1020,6 +1041,9 @@ fn recover<W: Write>(
     while index < args.len() {
         match args[index].as_str() {
             "--run" => {
+                if run.is_some() {
+                    return Err(repeated_run("recover", roots));
+                }
                 let Some(value) = args
                     .get(index + 1)
                     .filter(|value| !value.starts_with("--"))
@@ -1546,6 +1570,9 @@ fn spawn<W: Write>(
                 index += 2;
             }
             "--run" => {
+                if run.is_some() {
+                    return Err(repeated_run("spawn", roots));
+                }
                 let Some(value) = args
                     .get(index + 1)
                     .filter(|value| !value.starts_with("--"))
@@ -1611,6 +1638,9 @@ fn respawn<W: Write>(
     while index < args.len() {
         match args[index].as_str() {
             "--run" => {
+                if run.is_some() {
+                    return Err(repeated_run("respawn", roots));
+                }
                 let Some(value) = args
                     .get(index + 1)
                     .filter(|value| !value.starts_with("--"))
