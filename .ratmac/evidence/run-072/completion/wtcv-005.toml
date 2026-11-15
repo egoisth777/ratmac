@@ -1,0 +1,10 @@
+ticket-id = "t-147"
+check-id = "WTCV-005"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test t133_selected_issue_completion -- --exact wtcv_005"
+working-dir = "."
+exit-status = 0
+output-sha256 = "b3ccebb46a96f7403c643653eb8fa317dab17a34affbf6500269707509ec2a52"
+tree-roots = ["src","profiles","test","test-hidden","tools","Cargo.toml","Cargo.lock","AGENTS.md",".gitignore",".ratmac/ratmac.toml",".ratmac/turn.toml",".ratmac/lanes.toml"]
+tree-sha256 = "db7866fdc46c9fedda451b0c4bfd1d60e1f660414bc7af58c2a8506b609cebc8"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s\n     Running tests\\t133_selected_issue_completion.rs (target\\debug\\deps\\t133_selected_issue_completion-91cae6faa6c7d9f5.exe)\n\nrunning 1 test\ntest wtcv_005 ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 2.84s\n\n"

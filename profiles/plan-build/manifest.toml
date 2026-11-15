@@ -54,7 +54,7 @@ sha256 = "a30f09537d0c13762aa95951f94c18ff8681af3792cadb5247179ff80bc6eadf"
 [[artifact]]
 path = "checkers/verify_issue_binding.py"
 role = "checker"
-sha256 = "97a8bdc8d6570aead507d5d1b2b93afa27bf119007f3d421ddfaf235f4602f36"
+sha256 = "68f543970646d61c99e8c1fb82969317d6caec21507814e9601691a883b2e085"
 
 [[artifact]]
 path = "blanks/issue/index.md"

@@ -14,6 +14,8 @@ selected issue bundle at one location of the three-location issue
 namespace (PGE-001); and the item's declared check identifiers. Every
 requirement must occur verbatim in the selected issue's `spec.md` and
 every declared check verbatim in its `test-plan.md` (PGE-001, PCR-008).
+An item record or listed gap record that exists but cannot be opened or
+read refuses by name with the read error's short reason (WTC-002).
 
 The validator writes nothing anywhere (PGE-004): its only outputs are its
 exit code, one stdout line on success, and one stderr line on refusal,
@@ -287,7 +289,10 @@ def check(cwd: str):
     item_path = under(roots["ticket"], item)
     if not os.path.isfile(item_path):
         refuse(f"the item record {shown(item_path)} does not exist")
-    item_text = read_record(item_path)
+    try:
+        item_text = read_record(item_path)
+    except OSError as error:
+        refuse(f"cannot read the item record {shown(item_path)}: {error.strerror}")
 
     issue_root = roots["issue"]
     bundle = next(
@@ -317,7 +322,14 @@ def check(cwd: str):
         residual_path = under(roots["residual"], f"{residual}.md")
         if not os.path.isfile(residual_path):
             refuse(f"the residual record {shown(residual_path)} does not exist")
-        requirement = yaml_field(read_record(residual_path), "goal-requirement-ref")
+        try:
+            residual_text = read_record(residual_path)
+        except OSError as error:
+            refuse(
+                f"cannot read the residual record {shown(residual_path)}: "
+                f"{error.strerror}"
+            )
+        requirement = yaml_field(residual_text, "goal-requirement-ref")
         if not requirement:
             refuse(
                 f"the residual record {shown(residual_path)} carries no "
