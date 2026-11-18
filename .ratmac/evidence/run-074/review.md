@@ -1,6 +1,6 @@
 # Independent review before full proof
 
-Ticket [t-150](../../../.arca/ticket/t-150.md), Run `run-074`, requirement WTC-005
+Ticket [t-150](../../../.arca/ticket/archive/t-150.md), Run `run-074`, requirement WTC-005
 (endpoint release window). Independent review of the current green source, the three public checks,
 the t126 inventory row, and the four private-lane files against the whole ticket, WTC-005 in the
 goal design, the accepted issue, and SVE-005 through SVE-007. The reviewer authored none of those

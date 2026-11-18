@@ -1,6 +1,6 @@
 # Independent review before full proof
 
-Ticket [t-148](../../../.arca/ticket/t-148.md), Run `run-068`, requirement WTC-003 (skill move retry).
+Ticket [t-148](../../../.arca/ticket/archive/t-148.md), Run `run-068`, requirement WTC-003 (skill move retry).
 The independent reviewer built and ran tests only in its own throwaway clone with its own build folder; it
 edited no file and ran no git command that changes state in the draft, in the port, or in the real checkout,
 and it left no scratch folder behind. In its third round its first two launches used a shell that cannot see

@@ -1,6 +1,6 @@
 # Independent review before full proof
 
-Ticket [t-141](../../../.arca/ticket/t-141.md), Run `run-065`, requirement SVE-004 (unique test scratch
+Ticket [t-141](../../../.arca/ticket/archive/t-141.md), Run `run-065`, requirement SVE-004 (unique test scratch
 folders). Every reviewer only read files and ran tests into its own git-ignored build folder; none edited a
 file or ran a git command that changes state.
 

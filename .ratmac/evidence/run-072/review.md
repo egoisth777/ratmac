@@ -1,6 +1,6 @@
 # Independent review before full proof
 
-Ticket [t-147](../../../.arca/ticket/t-147.md), Run `run-072`, requirement WTC-002 (unreadable record
+Ticket [t-147](../../../.arca/ticket/archive/t-147.md), Run `run-072`, requirement WTC-002 (unreadable record
 refusal). The independent reviewer built and ran tests only in its own throwaway copies with their own build
 folders; it edited no file and ran no git command that changes state in the draft, in the port, or in either
 real checkout, and it deleted its scratch folder after each round. In both rounds "caught by" for a wrong

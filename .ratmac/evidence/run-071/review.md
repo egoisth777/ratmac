@@ -1,6 +1,6 @@
 # Independent review before full proof
 
-Ticket [t-146](../../../.arca/ticket/t-146.md), Run `run-071`, requirement WTC-001 (repeated run refusal).
+Ticket [t-146](../../../.arca/ticket/archive/t-146.md), Run `run-071`, requirement WTC-001 (repeated run refusal).
 The independent reviewer built and ran tests in its own throwaway copies with their own build folders, apart
 from one slip in round 2, stated there, in which three runs used the primary checkout as their working
 folder and changed nothing in it; it edited no file and ran no git command that changes state in the draft,

@@ -1,6 +1,6 @@
 # Independent review before full proof
 
-Ticket [t-149](../../../.arca/ticket/t-149.md), Run `run-073`, requirement WTC-004 (abandon release window).
+Ticket [t-149](../../../.arca/ticket/archive/t-149.md), Run `run-073`, requirement WTC-004 (abandon release window).
 The independent reviewer built and ran tests only in its own throwaway copies with their own build
 folders; it edited no file and ran no git command that changes state in the draft, in the port, or in
 either real checkout, and it deleted its scratch folder after each round. In both rounds "caught by" for a

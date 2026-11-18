@@ -1,6 +1,6 @@
 # Independent review before full proof
 
-Ticket [t-145](../../../.arca/ticket/t-145.md), Run `run-070`, requirement LRP-001 (live Run pin check). The
+Ticket [t-145](../../../.arca/ticket/archive/t-145.md), Run `run-070`, requirement LRP-001 (live Run pin check). The
 independent reviewer built and ran tests only in its own throwaway clones with their own build folders; it
 edited no file and ran no git command that changes state in the draft, in the port, or in either real
 checkout, and it deleted its scratch folder after each round. The reports of rounds 1 and 2 are restated

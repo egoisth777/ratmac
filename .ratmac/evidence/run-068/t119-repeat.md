@@ -1,6 +1,6 @@
 # Repeated single-root public suite
 
-Ticket [t-148](../../../.arca/ticket/t-148.md), Run `run-068`, requirement WTC-003 (skill move retry).
+Ticket [t-148](../../../.arca/ticket/archive/t-148.md), Run `run-068`, requirement WTC-003 (skill move retry).
 The merge gate asks for `cargo test --offline -p ratmac-qa --test t119_single_root_resolution` 25 times on
 this host with zero `rtm skill` failures. The 25 runs were made on 2026-11-14, one after another with
 nothing else running, in the ticket worktree on the fix (`src/skill.rs`, SHA-256

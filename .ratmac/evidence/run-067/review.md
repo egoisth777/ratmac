@@ -1,6 +1,6 @@
 # Independent review before full proof
 
-Ticket [t-143](../../../.arca/ticket/t-143.md), Run `run-067`, requirement SVE-006 (case-scoped test hooks).
+Ticket [t-143](../../../.arca/ticket/archive/t-143.md), Run `run-067`, requirement SVE-006 (case-scoped test hooks).
 The independent reviewer built and ran tests only in its own throwaway clone with its own build folder; it
 edited no file and ran no git command that changes state in the draft or in either real checkout, and it
 left no scratch folder behind. The drafter reported two slips of the coordinator's command rules, both in

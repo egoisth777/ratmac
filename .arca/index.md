@@ -31,8 +31,8 @@ only answer.
 
 ## Map - how ratmac hangs together
 
-Stamped cache - describes the tree through the WRS, WEB, WCP, and WRA
-tickets (`t-114` through `t-136`), surveyed 2026-10-16.
+Stamped cache - describes the tree through the same-verdict, Windows-timing,
+and live-run-pin tickets (`t-137` through `t-150`), surveyed 2026-11-18.
 The full doctor executable fingerprint first
 landed in the full-doctor-fingerprint ticket (`t-070`, `3e6ee6c`). The accepted
 carrier remains `.arca/issue/archive/i-023-doctor-full-fingerprint/`; `DFP-001`
@@ -42,7 +42,17 @@ landing's public proof is in `test/qa/tests/t045_bootstrap_doctor.rs`, and
 `test-hidden/t-058/` through `test-hidden/t-070/` held its hidden lanes. The
 lane-recovery cycle and expiry-aware turn-close ticket added no `src/`
 changes. `t-112` then landed generic typed completion-field selection, and
-`t-113` repaired review snapshots and reopened-work classification. Every
+`t-113` repaired review snapshots and reopened-work classification.
+The WRS, WEB, WCP, and WRA tickets (`t-114` through `t-136`) closed with
+`edition-009`. The run-060 batch (`t-137` through `t-150`) changed Engine source
+only where a command must give one answer whatever briefly holds a file or
+however `--run` is repeated: `cli.rs` (`t-146`), `skill.rs` (`t-148`),
+`lock.rs` and `abandon.rs` (`t-149`), and test-only first-retry pauses in
+`endpoint.rs` and `nested.rs` (`t-150`). The rest landed in the bootstrap
+(`tools/rtm.ps1`: `t-144`, `t-145`), the lane sweep (`tools/sweep_lanes.py`:
+`t-138`), the issue-binding validator and its packaged copy (`t-147`), and
+shared test support (`test/qa/src/baseline.rs` and `support.rs`: `t-137`,
+`t-139` through `t-143`). Every
 Architecture, Binary, Modules, and Tests row below describes this landed tree.
 The tracked Plan-Build Runbook selects its three completion fields explicitly,
 and since stable `edition-008` drove `run-034` to `rest` it also carries the
@@ -94,7 +104,9 @@ canonical exact `--run <id>`, `hold` binds through the same `open_run`
 preflight, and retiring a live Run requires its roster id. `spawn` creates a
 declared child from a parent's spawning State as ordinary checked motion;
 `respawn` and live-run `abandon` demand `--confirm` phrases naming the run id
-(FDC-007). Only leftover-lock retirement may be unaddressed; missing or unknown
+(FDC-007). A repeated `--run` refuses on every Run-addressing command with the
+roster and changes nothing (WTC-001). Only leftover-lock retirement may be
+unaddressed; missing or unknown
 addresses report the resolved Engine root's `.ratmac/runs/` roster. `doctor` is
 read-only and deep: its argument-free human report identifies the exact running
 Engine with the complete 64-character lowercase SHA-256, its build channel and
@@ -111,7 +123,7 @@ the identity-stamped operator-skill folder at a new path and never overwrites.
 
 | Module | Role |
 | :--- | :--- |
-| `cli.rs` | Hand-rolled parsing of sixteen verbs and exit codes; the `COMMANDS` route table is the one source of the usage's `Commands:` line (WEB-004). It dispatches the addressed lifecycle commands plus `init`, `doctor`, `scaffold`, `skill`, `endpoint`, and `profile`; argument-free human `doctor` renders the executable's full SHA-256, channel/source provenance, stable-edition resolution, and resolved Engine root, while JSON carries `engine_root` and `findings`. It contains no graph or guard policy. |
+| `cli.rs` | Hand-rolled parsing of sixteen verbs and exit codes; the `COMMANDS` route table is the one source of the usage's `Commands:` line (WEB-004). It dispatches the addressed lifecycle commands plus `init`, `doctor`, `scaffold`, `skill`, `endpoint`, and `profile`; argument-free human `doctor` renders the executable's full SHA-256, channel/source provenance, stable-edition resolution, and resolved Engine root, while JSON carries `engine_root` and `findings`. It contains no graph or guard policy. `hold`, `resume`, `recover`, `spawn`, and `respawn` refuse a second `--run` before reading it, with the same roster bytes as a missing value and no `next:` line (WTC-001, t-146). |
 | `teach.rs` | AOP-002: the Engine's own next-act table. Every status and step rendering ends in exactly one `next:` line naming a command the Engine dispatches and accepts in that state, or omits it for a terminal Run; `status_next`, `step_refusal_next`, `addressing_next`, and `error_next` derive the line from the Run's recorded status, the first refusal failure's kind, the roster, or the halting error, never from hand-kept prose. A step refusal teaches `rtm step` again (R-020), except the terminal refusal, which teaches `rtm status`; an unreadable Run Record (R-027) or a retired Run teaches `rtm start`, and any other halting error `rtm doctor`. |
 | `diag.rs` | The Engine's one owner of standard error (t-128). `diagnostic` writes the mandatory diagnostics - entry-point errors and `warning:` lines - byte-identical whether tracing is on or off; `event` writes one `rtm-trace:` line per traced decision only while tracing is on, and a failed write changes no decision. The binary calls `latch_from_environment` once, before dispatch: `RATMAC_TRACE=1` enables tracing, unset, empty, or `0` disables it, and any other value refuses before any work; library entries never read it, and a disabled `event` never calls its closure or allocates. `nested_child_stdio` gives nested-invocation children detached input and captured output (WEB-006). |
 | `observe.rs` | WEBV-014: the operation observer. In a `test-fault-injection` build, `operation` appends the operation kind (`roster`, `record`, `ledger`, `runbook`, `blocker`, `target`, or `lock`) as one line to the file `RATMAC_TEST_OPERATION_LOG` names; unset, empty, or built without the feature, it reads and writes nothing extra. `quiet_records` opens a scope whose `record` operations are not logged, and the residue inspection never passes through here. |
@@ -121,12 +133,12 @@ the identity-stamped operator-skill folder at a new path and never overwrites.
 | `roots.rs` | Parses and validates the Machine Class's optional `[roots]` role-to-repository-relative-path declarations, rejecting malformed, missing, escaping, or Engine-overlapping roots before lifecycle use. |
 | `scheduler.rs` | Project/Run binding and ordinary execution. `open` has no Run; `open_run` binds one canonical live roster member. `open`/`open_run` and `start` refuse flat residue, while pinned reads reject runbook drift. `start` mints a never-reused id through `mint.rs`, with no active-Run cap (FDC-006/ENS-004), and writes `passed` when the initial State is terminal; `step` refuses a passed Run by name, evaluates guards before verdict routing/consumption (a governed Run with an amendment chain first authorizes its verdict-routed motion, WRS-004), and writes `passed` beside a terminal successor in one replacement; `status` reloads and reports read-only. `resolve_state_scope` reads a child Run through its own class's view for step and status alike (FDC-011/FDC-012); `spawn` mints a declared child as an ordinary flat Run and appends its ledger entry, refusing any parent that is itself a recorded child (FDC-012); `respawn` supersedes by confirmed phrase; the `join` guard reads the ledger's live children's terminal facts. |
 | `mint.rs` | Durable Run-identifier minting. Under the root lock its caller must already hold, `next` reserves one past the larger of the `<engine-root>/mint.toml` high-water ordinal and the highest `run-NNN` ordinal in the roster, persists it, and only then returns the canonical id, so removing a directory never makes an id available again. A record already at `i64::MAX` refuses as `mint namespace exhausted` and mints nothing. |
-| `lock.rs` | Engine lock domains: the short root lock (`RootLock`, `locks/root.lock`) protects minting and shared roster, ledger, or ticket mutation, and a Run lock (`RunLock`, `locks/runs/<id>.lock`) protects motion of one addressed Run; `acquire_root_then_run` takes both, root first, under one deadline. Each guard keeps a kernel advisory claim for its whole life - one byte at offset 1,073,741,824 on Windows, `flock` on Unix - beside a diagnostic token that is not an ownership decision; every wait is bounded by `WAIT_TIMEOUT` (five seconds) and reads a Windows holder's delete-pending release as ordinary contention. `PolicyLock` serializes the tracking-policy step (WEB-002) directly in the Engine root, and `refuse_legacy` refuses the lock file the retired pre-rebrand command left behind. |
+| `lock.rs` | Engine lock domains: the short root lock (`RootLock`, `locks/root.lock`) protects minting and shared roster, ledger, or ticket mutation, and a Run lock (`RunLock`, `locks/runs/<id>.lock`) protects motion of one addressed Run; `acquire_root_then_run` takes both, root first, under one deadline. Each guard keeps a kernel advisory claim for its whole life - one byte at offset 1,073,741,824 on Windows, `flock` on Unix - beside a diagnostic token that is not an ownership decision; every wait is bounded by `WAIT_TIMEOUT` (five seconds) and reads a Windows holder's delete-pending release as ordinary contention. `PolicyLock` serializes the tracking-policy step (WEB-002) directly in the Engine root, and `refuse_legacy` refuses the lock file the retired pre-rebrand command left behind. `settled_presence` re-reads a lock path that a Windows read denies (os error 5) at the retry interval, inside the same five-second bound from the first denial, and takes no lock; other platforms read once (WTC-004, t-149). |
 | `ledger.rs` | The Scheduler-owned per-run spawn ledger (FDC-011): append at spawn, successor entries at respawn, abandoned-mark flips at retirement - never rewritten; strict read refuses malformed entries by name. |
 | `roster.rs` | WRS-005: the descriptive Run roster. Every refusal that prints the roster summary (`runs: run-001, run-002`) follows its first line with `rows`, one line per entry: the address, its top-level or child role, parent, class, bindings, and supersession as spawn ledger records, then State and status when its Run Record reads; retired, missing, and unreadable records, damaged ledgers, and stray directories are labeled, never omitted or guessed. `Records` reads only Engine-owned records - each Run Record, each roster member's spawn ledger, and the transition log, each once - reads no runbook, runs no guard, and writes nothing. |
 | `nested.rs` | WEB-006 (t-134): the nested-invocation machinery the parent's `nested_run` guard and the child endpoint share, with no policy of its own: the strict 12-field `ratmac-receipt-v1` `ReceiptEnvelope` codec; the parent-owned `nested-ledger` (append/annotate only, mechanically identical to the spawn ledger), whose `consume` flip a graceful rollback can restore exactly; and the dedicated `ReceiptPipe`, whose write end alone reaches the endpoint, which makes it non-inheritable before launching anything. |
 | `lineage.rs` | WEB-006 (t-134): the one codec of the `ratmac-lineage-v1` invocation-lineage record - the ordered (declared program identity, canonical Engine root) `Entry` pairs of one nested call chain, newest last. `encode` and `parse` frame the bytes; `to_carrier` and `parse_carrier` carry them as lowercase hexadecimal, because argv and the environment cannot carry a NUL byte; `repeated_identity` and `repeated_root` find the first repeat in a chain; `DEFAULT_MAX_DEPTH` (16) is the depth a declaration may tighten but never loosen. |
-| `endpoint.rs` | WEB-006 (t-134): `rtm endpoint`, the child Engine protocol endpoint the parent's `nested_run` guard launches in the child checkout with the Engine-minted invocation address, the complete invocation lineage, and the receipt pipe's write end. `run` admits at most one child Run per invocation address - exactly the `rtm start` path in that checkout - launches the parent's declared driver, if any, pinned like a gate artifact (ETB-001), and writes one strict terminal receipt to the pipe only after persisting and reading back the child Run's terminal fact. Operational refusals exit 1 with empty stdout; success prints nothing and exits 0. |
+| `endpoint.rs` | WEB-006 (t-134): `rtm endpoint`, the child Engine protocol endpoint the parent's `nested_run` guard launches in the child checkout with the Engine-minted invocation address, the complete invocation lineage, and the receipt pipe's write end. `run` admits at most one child Run per invocation address - exactly the `rtm start` path in that checkout - launches the parent's declared driver, if any, pinned like a gate artifact (ETB-001), and writes one strict terminal receipt to the pipe only after persisting and reading back the child Run's terminal fact. Operational refusals exit 1 with empty stdout; success prints nothing and exits 0. The resumed claim and the terminal read wait out a Windows release window on the child Run's lock within the five-second bound; a test-only first-retry pause proves each place (WTC-005, t-150). |
 | `verdict.rs` | Strict Run-local transition-input delivery. A branch validates exact `state`/`input`/`rationale`; a straight State requires an absent live slot. Valid bytes rename to monotonic `verdicts/NNNNNN.toml` evidence before Run Record advance; refusals consume nothing. |
 | `model.rs` | `Run`, `RunArtifacts`, plural `Runs`, and serde `RunState`/`Status`; persisted state belongs to `.ratmac/runs/<run-id>/run.toml`. |
 | `state.rs` | Strictly parses and atomically replaces the addressed `.ratmac/runs/<run-id>/run.toml`. The write path is crate-private, without filesystem-enforcing ownership, though the pause journal, endpoint admission, and the Scheduler's exact rollback also replace `run.toml` directly; it renders the report behind `rtm status`, and the `HistoryReport` printed instead for a passed Run (WRS-006). |
@@ -142,11 +154,11 @@ the identity-stamped operator-skill folder at a new path and never overwrites.
 | `pause.rs` | WRS-003: pause occurrences, the operation journal, and recovery. Hold and resume - and nothing else - publish through `runs/<id>/journal/`: each prepares every output, publishes one whole committed entry (`<action>-<n>.committed`) as its commit decision, then `finish`es the authorization archive (governed Runs only), pause record (hold only), Run Record, and history line idempotently and removes the entry. Any later mutating command on the Run `reconcile`s a committed entry first, under the Run lock, so an interrupted publication finishes exactly once; `rtm status` and `rtm doctor` (`RB901`) only report it. The strict version-1 pause record `pauses/<n>.toml` carries a `held-context-sha256` that recomputes from the contract's framed context. |
 | `review.rs` | WRA-001 (t-129): authorized review transitions. `parse_review_table` reads a `[review]` policy (top level or per class) binding the enrollment manifest, the verifier and allowed-signers file it pins by digest, reviewer roles, the designated Approver, and the minimum count of distinct reviews; a Run admitted under it is governed for life, and its directory carries the `review.toml` marker. `verify` is the one boundary every governed step and hold passes before writing: reviews sign the canonical transition intent (`ratmac-authorization-v1`) under `ratmac-review-v1`, the Approver signs it plus the review-set digest under `ratmac-approve-v1`, the pinned verifier (`ssh-keygen -Y verify`) judges by exit status alone, and `write_archive` keeps one authorization record per accepted transition under `authorizations/`. `verify_resolution` checks a governed resume's one `ratmac-resume-v1` signature (WRS-003). `IntentFacts` also binds the effective amendment head digest and a recovery's derived new-authority and change-set digests, and the archive keeps recovery decision records too (WRS-004). `review/protection.rs` accepts a trust enrollment only when the builder's effective token cannot rewrite it or any path component; the `test` seam, compiled only with `test-fault-injection`, is the one test route past that check. |
 | `recover.rs` | WRS-004 (t-132): rule fix recovery. An amendment is an independently signed decision that moves a Run's authority head forward over corrected rule bytes while the Run keeps its address, State, class, bindings, workspace, and original pins. `rtm recover` - always addressed by `--run <id>` (FDC-004), phrase `recover <run-id>`, one `ratmac-recover-v1` signature by the designated Approver - is the one verb that appends to the chain under `runs/<id>/amendments/`: `<n>.prepare`, renamed to `<n>.toml` as the commit point, then the authorization archive record and one `log.md` history event; repeating it reconciles an interrupted publication exactly once. Every reader validates the whole chain and reports, never repairs; `rtm doctor` reports a missing history event (`RB902`) and an invalid chain (`RB903`). |
-| `abandon.rs` | Human-confirmed retirement. A live Run requires `--run`; with no Run admitted, the project-name phrase retires only a leftover root lock (WRS-007). The Run is not opened through `open_run`, so its pins are not checked, but residue still refuses first, the runbook must load with valid roots, a pending pause-journal entry is finished first (WRS-003), and a missing amendment history event refuses (WRS-004). One terminal event naming the addressed Run durably precedes retirement of its evidence, then its Run Record; a later failure is never rolled back - one compensating history entry records that the Run was not retired, and re-running the confirmed command finishes the job. Its directory remains, so the id stays on the roster as a retired Run. A ledger-recorded child's confirmed retirement also flips its entry's abandoned mark. |
+| `abandon.rs` | Human-confirmed retirement. A live Run requires `--run`; with no Run admitted, the project-name phrase retires only a leftover root lock (WRS-007). The Run is not opened through `open_run`, so its pins are not checked, but residue still refuses first, the runbook must load with valid roots, a pending pause-journal entry is finished first (WRS-003), and a missing amendment history event refuses (WRS-004). One terminal event naming the addressed Run durably precedes retirement of its evidence, then its Run Record; a later failure is never rolled back - one compensating history entry records that the Run was not retired, and re-running the confirmed command finishes the job. Its directory remains, so the id stays on the roster as a retired Run. A ledger-recorded child's confirmed retirement also flips its entry's abandoned mark. Its lock-presence read settles through `lock::settled_presence`, so another command's release window is not a refusal; a read that does not settle refuses with today's `abandon cannot inspect lock` text (WTC-004, t-149). |
 | `ownership.rs` | PGE-004 ownership lint over prompts and guard contracts; the doctor's fourth pass. |
 | `doctor.rs` | Findings as data: stable code, severity, location, and message. Diagnosis goes through `machine.rs`, owns graph, guard-lint, and cycle-termination passes, pairs findings with the exact resolved Engine root, renders JSON as `{ engine_root, findings }`, and maps clean/warning/error to exit `0`/`1`/`2`. |
 | `scaffold.rs` | AAL-002: the smallest doctor-clean runbook, written at a path that does not exist yet. One file, no options, never overwrites. |
-| `skill.rs` | AOP-003/AOP-004: atomically writes one non-overwriting `ratmac-operator` skill folder whose `SKILL.md` carries the writing Engine's identity stamp and whose references teach invariant operating rules. |
+| `skill.rs` | AOP-003/AOP-004: atomically writes one non-overwriting `ratmac-operator` skill folder whose `SKILL.md` carries the writing Engine's identity stamp and whose references teach invariant operating rules. The final move checks that the requested path is still free before every attempt and, on Windows, retries an access-denied move every 10 ms within the lock module's `WAIT_TIMEOUT`; a sharing violation, any other error, or the bound refuses with the last error (WTC-003, t-148). |
 | `profile.rs` | WCP-007: embeds the distributable Plan-Build profile (tracked under `profiles/plan-build/`, `include_str!` at build time) and exports it as one deterministic offline folder - manifest self-validated against the embedded artifact table before the first byte, then the skill's atomic never-overwriting write discipline. Generic export plumbing only; the Engine gains no project-specific code from the profile. |
 
 ### Runbook shape (`.ratmac/ratmac.toml`)
@@ -164,7 +176,7 @@ an external program to inspect repository state.
 ### Tests
 
 `test/qa/` is the public integration-test crate, with ticket suites through
-`t136_lock_contention`. The established FDC
+`t140_same_lane_verdict`. The established FDC
 coverage remains in `t059_run_residency` through `t069_child_reviewer`; later
 coverage includes named workflow roots and resolved-root reporting (`t076`,
 `t078`), edition guards, audit, channels, and stable bootstrap (`t094`, `t095`,
@@ -182,11 +194,23 @@ through `t-136`, among them the deterministic trace channel (`t128`),
 authorized review transitions (`t129`), rule fix recovery (`t132`), safe nested
 invocations (`t134`), the distributable Plan-Build profile (`t135`), and lock
 contention (`t136`); each suite's header cites its requirement or wishlist
-verification identifiers. DFP-001 remains proven by
+verification identifiers. Suites `t137_build_message_test_engine`,
+`t139_same_lane_verdict`, and `t140_same_lane_verdict` are new for `t-137`,
+`t-139`, and `t-140`; the batch's other checks (`SVEV-*`, `WTCV-*`, `LRPV-*`)
+extend the suites they test - `t045`, `t102`, `t104`, `t108`, `t109`, `t117`,
+`t120`, `t125`, `t126`, `t130`, `t133`, `t134`, `t135`, and `t136`. Shared test
+support launches the Engine Cargo reports it built (`built_executable`,
+`today_engine`), gives each private lane its own locked build folder
+(`lane_folder`) and each freeze build its caller's folder, names scratch folders
+uniquely (`TempTree`), waits on a pause marker's whole line
+(`await_marker_line`), and arms test hooks only in the arming case's child
+commands (`hook_lane`). The lane sweep builds each crate in its own folder.
+DFP-001 remains proven by
 `t045_bootstrap_doctor::doctor_reports_complete_engine_fingerprint_and_is_write_free`
 plus the inherited `t045` and `t057` suites. Wording surfaces are asserted
 against `.arca/schema.md` and `AGENTS.md`. `.ratmac/lanes.toml` declares every
-landed hidden crate from `test-hidden/t-058/` through `test-hidden/t-136/`,
+landed hidden crate from `test-hidden/t-058/` through `test-hidden/t-150/` (93
+crates; the post-merge sweep reads 91 pass and 2 expired),
 including the typed-declaration lanes in `t-112` and the snapshot/history lanes
 in `t-113`; `t-078` and `t-079` retain their dated `edition-001` expiry
 markers. Opt-in release lane: `RATMAC_RELEASE_ACCEPTANCE=1`.
@@ -268,7 +292,7 @@ beside the claim. The binding archive, restoration, and snapshot rules are in
 
 ## Bootstrap
 
-    pwsh -File tools/rtm.ps1   # resolve (or build) and pin-check the Engine
+    pwsh -File tools/rtm.ps1   # resolve (or build) the Engine Cargo reports; check every live Run's pin
     rtm doctor                 # orient: engine identity, runbook, run state
 
 Details, caller policy, and everything binding: [schema.md](schema.md).

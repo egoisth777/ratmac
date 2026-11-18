@@ -1,6 +1,6 @@
 # Independent review before full proof
 
-Ticket [t-142](../../../.arca/ticket/t-142.md), Run `run-066`, requirement SVE-005 (whole pause marker line).
+Ticket [t-142](../../../.arca/ticket/archive/t-142.md), Run `run-066`, requirement SVE-005 (whole pause marker line).
 Every reviewer built and ran tests only in its own throwaway clone with its own build folder; none edited a
 file or ran a git command that changes state in the draft, the lane draft or either real checkout. Three
 slips, each reported to the coordinator: the shared-wait reviewer's background shell

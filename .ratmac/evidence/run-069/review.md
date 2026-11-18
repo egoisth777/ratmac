@@ -1,6 +1,6 @@
 # Independent review before full proof
 
-Ticket [t-144](../../../.arca/ticket/t-144.md), Run `run-069`, requirement SVE-002 (Cargo-built bootstrap
+Ticket [t-144](../../../.arca/ticket/archive/t-144.md), Run `run-069`, requirement SVE-002 (Cargo-built bootstrap
 Engine). The independent reviewer built and ran tests only in its own throwaway clones with their own build
 folders; it edited no file and ran no git command that changes state in the draft, in the port, or in the
 real checkout, and it deleted its scratch folders after each round. In its first round a failed change of
