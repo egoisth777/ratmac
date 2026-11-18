@@ -5181,6 +5181,7 @@ const MARKER_KEY_CRATES: &[&str] = &[
     "test-hidden/t-143",
     "test-hidden/t-148",
     "test-hidden/t-149",
+    "test-hidden/t-150",
     "test/qa/tests/t050_blocked_route.rs",
     "test/qa/tests/t086_single_engine_binary.rs",
     "test/qa/tests/t104_operator_skill.rs",
