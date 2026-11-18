@@ -1,0 +1,10 @@
+ticket-id = "t-150"
+check-id = "WTCV-013"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test t134_safe_nested_invocations -- --exact wtcv_013"
+working-dir = "."
+exit-status = 0
+output-sha256 = "74da7002f9435745bab59192e5753294afc0d978365c4a51f80bf7362e9c6597"
+tree-roots = ["src","profiles","test","test-hidden","tools","Cargo.toml","Cargo.lock","AGENTS.md",".gitignore",".ratmac/ratmac.toml",".ratmac/turn.toml",".ratmac/lanes.toml"]
+tree-sha256 = "97d0c420b7b2a622e986ac450747b9bffbad977c5a4643c16f864a61a52a43bc"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.05s\n     Running tests\\t134_safe_nested_invocations.rs (target\\debug\\deps\\t134_safe_nested_invocations-53f9db07d0f51bc1.exe)\n\nrunning 1 test\ntest wtcv_013 ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 4.34s\n\n"

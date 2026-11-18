@@ -317,8 +317,12 @@ fn terminal_snapshot(
             // first.
             Ok(None) => return Ok(None),
             Err(error) => {
+                let first = deadline.is_none();
                 let deadline = deadline
                     .get_or_insert_with(|| std::time::Instant::now() + crate::lock::WAIT_TIMEOUT);
+                if first {
+                    retry_pause(RetryPlace::TerminalRead)?;
+                }
                 if std::time::Instant::now() >= *deadline {
                     return Err(refuse(error.to_string()));
                 }
@@ -330,6 +334,33 @@ fn terminal_snapshot(
     let sequence = terminal_sequence(engine_root, run_id);
     drop(lock);
     Ok(terminal.map(|fact| (fact, sequence)))
+}
+
+/// WTC-005: the two places that take the child Run's lock, each with its
+/// own QA-only first-retry pause.
+#[derive(Clone, Copy)]
+enum RetryPlace {
+    Claim,
+    TerminalRead,
+}
+
+/// The QA-only first-retry pause at `place`, reached at the first denied
+/// lock try within one call, after that call's wait bound has started - so
+/// time spent paused counts toward the bound. A plain build compiles no
+/// place name and no setting name: only the fault-injection build pauses.
+#[cfg(feature = "test-fault-injection")]
+fn retry_pause(place: RetryPlace) -> Result<(), CliError> {
+    let place = match place {
+        RetryPlace::Claim => "claim",
+        RetryPlace::TerminalRead => "terminal-read",
+    };
+    crate::nested::hold_endpoint_retry_pause(place)
+        .map_err(|detail| CliError::new(format!("endpoint: {detail}")))
+}
+
+#[cfg(not(feature = "test-fault-injection"))]
+fn retry_pause(_place: RetryPlace) -> Result<(), CliError> {
+    Ok(())
 }
 
 fn read_terminal(engine_root: &Path, run_id: &str) -> Result<Option<TerminalFact>, CliError> {
@@ -527,6 +558,8 @@ pub(crate) fn run(request: EndpointRequest, roots: &Roots) -> Result<i32, CliErr
     // secluded before anything launches - no driver, or any descendant of
     // one, can receive it.
     crate::nested::validate_pause_companions(&crate::nested::ENDPOINT_PAUSE)
+        .map_err(|detail| CliError::new(format!("endpoint: {detail}")))?;
+    crate::nested::validate_endpoint_retry_companions()
         .map_err(|detail| CliError::new(format!("endpoint: {detail}")))?;
     nested_seclude(request.descriptor)?;
     let policy = crate::ignore_policy::install(checkout, engine_root)
@@ -740,8 +773,12 @@ fn admit(
                 )))
             }
             Err(error) => {
+                let first = deadline.is_none();
                 let deadline = deadline
                     .get_or_insert_with(|| std::time::Instant::now() + crate::lock::WAIT_TIMEOUT);
+                if first {
+                    retry_pause(RetryPlace::Claim)?;
+                }
                 if std::time::Instant::now() >= *deadline {
                     return Err(refuse(error.to_string()));
                 }

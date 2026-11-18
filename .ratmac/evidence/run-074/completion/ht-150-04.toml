@@ -1,0 +1,10 @@
+ticket-id = "t-150"
+check-id = "HT-150-04"
+kind = "hidden-lane"
+command = "cargo test --offline --manifest-path test-hidden/t-150/Cargo.toml"
+working-dir = "."
+exit-status = 0
+output-sha256 = "1efc6a00d89332505775a15405a5a09ea31024d6a589ca8ea9b16f6601e092f3"
+tree-roots = ["src","profiles","test","test-hidden","tools","Cargo.toml","Cargo.lock","AGENTS.md",".gitignore",".ratmac/ratmac.toml",".ratmac/turn.toml",".ratmac/lanes.toml"]
+tree-sha256 = "97d0c420b7b2a622e986ac450747b9bffbad977c5a4643c16f864a61a52a43bc"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s\n     Running unittests src\\lib.rs (test-hidden\\t-150\\target\\debug\\deps\\ratmac_t150_hidden-99026b653cc4dd06.exe)\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n     Running unittests ..\\..\\src\\bin\\rtm.rs (test-hidden\\t-150\\target\\debug\\deps\\rtm-57fea0634685a22a.exe)\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n     Running tests\\hidden.rs (test-hidden\\t-150\\target\\debug\\deps\\hidden-08d2e4becd8b13a5.exe)\n\nrunning 6 tests\ntest ht_150_06_cross_feature ... ok\ntest ht_150_02_input_routing ... ok\ntest ht_150_04_durability_recovery ... ok\ntest ht_150_03_lifecycle_model ... ok\ntest ht_150_05_output_filesystem ... ok\ntest ht_150_01_regression has been running for over 60 seconds\ntest ht_150_01_regression ... ok\n\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 67.28s\n\n   Doc-tests ratmac_t150_hidden\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n"

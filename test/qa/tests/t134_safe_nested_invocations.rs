@@ -1,4 +1,4 @@
-//! t-134 / WEBV-021..WEBV-024: safe nested invocations (WEB-006).
+//! t-134 / WEBV-021..WEBV-024, WTCV-013..WTCV-015: safe nested invocations.
 //!
 //! WEBV-021 `webv_021` — the positive control: parent, child, and grandchild
 //! programs with distinct declared identities and separate Engine roots, all
@@ -2596,4 +2596,481 @@ fn webv_024() {
         run_record(&parent, &run).contains("state = \"done\""),
         "the parent finished all four stages"
     );
+}
+
+// --- endpoint release windows (WTC-005) --------------------------------------
+
+/// A bounded step owns its entire process tree, including an endpoint paused
+/// beneath the parent. Assertions and timeout failures take the same cleanup
+/// path as an intentional interruption.
+struct WindowStep {
+    child: Option<Child>,
+}
+
+impl WindowStep {
+    fn spawn(mut command: Command) -> Self {
+        command.stdout(Stdio::piped()).stderr(Stdio::piped());
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            command.process_group(0);
+        }
+        Self {
+            child: Some(command.spawn().expect("spawn the endpoint-window step")),
+        }
+    }
+
+    fn finish(mut self, label: &str) -> Output {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            match self.child.as_mut().expect("the step is owned").try_wait() {
+                Ok(Some(_)) => return collect(self.child.take().expect("the step is owned")),
+                Ok(None) => assert!(Instant::now() < deadline, "{label}: the step exits in 30 s"),
+                Err(error) => panic!("{label}: poll the step: {error}"),
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    fn stop(&mut self) {
+        if let Some(child) = self.child.as_mut() {
+            if !matches!(child.try_wait(), Ok(Some(_))) {
+                #[cfg(windows)]
+                let _ = ratmac_qa::support::command("taskkill", std::env::temp_dir())
+                    .args(["/PID", &child.id().to_string(), "/T", "/F"])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
+                #[cfg(unix)]
+                let _ = ratmac_qa::support::command("kill", std::env::temp_dir())
+                    .args(["-KILL", "--", &format!("-{}", child.id())])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
+                let _ = child.kill();
+            }
+            let _ = child.wait();
+        }
+    }
+
+    fn interrupt(mut self) {
+        self.stop();
+        collect(self.child.take().expect("the interrupted step is owned"));
+    }
+}
+
+impl Drop for WindowStep {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+fn window_step_command(directory: &Path, run: &str) -> Command {
+    let mut command = ratmac_qa::support::command(ratmac_qa::engine_bin!(), directory);
+    command.args(["step", "--run", run]);
+    command
+}
+
+struct TerminalResume {
+    _sandbox: Sandbox,
+    parent: PathBuf,
+    child: PathBuf,
+    parent_run: String,
+    child_run: String,
+    marks: PathBuf,
+    launches: PathBuf,
+}
+
+/// Interrupt only after the endpoint has written and read the terminal child
+/// record, but before its receipt can advance the parent. A declared driver
+/// would leave a durable line if a later resume launched it.
+fn terminal_resume(label: &str, driver: bool) -> TerminalResume {
+    let sandbox = Sandbox::new(label);
+    #[cfg(windows)]
+    let driver_name = "./record-driver.cmd";
+    #[cfg(not(windows))]
+    let driver_name = "./record-driver.sh";
+    let extra = if driver {
+        format!(", driver = \"{driver_name}\"")
+    } else {
+        String::new()
+    };
+    let parent = sandbox.project(
+        "parent",
+        &parent_runbook("alpha", "beta", "../child", &extra),
+    );
+    let child = sandbox.project("child", &terminal_child_runbook("beta"));
+    let launches = child.join("driver-launches.txt");
+    fs::write(&launches, b"").expect("initialize the driver launch record");
+    if driver {
+        #[cfg(windows)]
+        fs::write(
+            child.join(driver_name),
+            b"@echo off\r\necho launch>>driver-launches.txt\r\nexit /b 0\r\n",
+        )
+        .expect("write the recording driver");
+        #[cfg(not(windows))]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let path = child.join(driver_name);
+            fs::write(
+                &path,
+                b"#!/bin/sh\nprintf 'launch\\n' >> driver-launches.txt\nexit 0\n",
+            )
+            .expect("write the recording driver");
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o755))
+                .expect("make the recording driver executable");
+        }
+    }
+    let marks = sandbox.root.join("marks");
+    fs::create_dir_all(&marks).expect("create the endpoint-window marker tree");
+    let parent_run = start(&parent);
+    let entered = step(&parent, &parent_run);
+    assert!(
+        entered.status.success(),
+        "{label}: enter nest: {}",
+        combined(&entered)
+    );
+    let terminal_marker = marks.join("terminal.marker");
+    let mut command = window_step_command(&parent, &parent_run);
+    command
+        .env("RATMAC_TEST_ENDPOINT_PAUSE", "after-terminal")
+        .env("RATMAC_TEST_ENDPOINT_PAUSE_MARKER", &terminal_marker)
+        .env(
+            "RATMAC_TEST_ENDPOINT_PAUSE_RELEASE",
+            marks.join("terminal.release"),
+        )
+        .env("RATMAC_TEST_ENDPOINT_PAUSE_TIMEOUT_MILLIS", "30000");
+    let interrupted = WindowStep::spawn(command);
+    await_pause_line(&terminal_marker, "after-terminal\n", label);
+    let children = roster(&child);
+    assert_eq!(children.len(), 1, "{label}: one child is admitted");
+    let child_run = children[0].clone();
+    assert!(run_record(&child, &child_run).contains("status = \"passed\""));
+    interrupted.interrupt();
+    assert_no_parent_transition(&parent, &parent_run, label);
+    if driver {
+        // Fresh admission deliberately launches its declared driver, even
+        // when its initial State is terminal. Record that positive control,
+        // then isolate launches caused by the resumed endpoint under test.
+        let fresh = fs::read_to_string(&launches).expect("read the fresh driver's launch record");
+        assert_eq!(
+            fresh.lines().collect::<Vec<_>>(),
+            ["launch"],
+            "{label}: the recording driver works"
+        );
+        fs::write(&launches, b"").expect("clear only the fresh driver's launch record");
+    }
+    TerminalResume {
+        _sandbox: sandbox,
+        parent,
+        child,
+        parent_run,
+        child_run,
+        marks,
+        launches,
+    }
+}
+
+fn assert_terminal_resume(fixture: &TerminalResume, output: &Output, label: &str) {
+    assert!(
+        output.status.success(),
+        "{label}: resume succeeds: {}",
+        combined(output)
+    );
+    assert_eq!(
+        output.stdout, b"The parent work is done.\n",
+        "{label}: today's resumed-step stdout"
+    );
+    assert!(
+        output.stderr.is_empty(),
+        "{label}: no stderr: {}",
+        combined(output)
+    );
+    assert!(run_record(&fixture.parent, &fixture.parent_run).contains("state = \"done\""));
+    assert_eq!(
+        roster(&fixture.child),
+        vec![fixture.child_run.clone()],
+        "{label}: no second admission"
+    );
+    let ledger = ledger_text(&fixture.parent, &fixture.parent_run);
+    assert_eq!(
+        ledger.matches("invocation = ").count(),
+        1,
+        "{label}: one invocation"
+    );
+    assert!(
+        ledger.contains("consumed = true"),
+        "{label}: the receipt is consumed"
+    );
+    assert_hex64(&quoted_field(&ledger, "receipt_sha256"), label);
+    assert_eq!(
+        fs::read(&fixture.launches).expect("read the driver launch record"),
+        b"",
+        "{label}: a terminal child never launches its driver"
+    );
+}
+
+fn unobstructed_terminal_resume(label: &str, driver: bool) -> Output {
+    let fixture = terminal_resume(label, driver);
+    let output =
+        WindowStep::spawn(window_step_command(&fixture.parent, &fixture.parent_run)).finish(label);
+    assert_terminal_resume(&fixture, &output, label);
+    output
+}
+
+/// Only the child's own step receives a lock hold. In the unlink case its
+/// whole marker line proves the Windows lock pathname is delete-pending;
+/// the release hold instead leaves a live kernel claimant.
+fn terminal_peer(fixture: &TerminalResume, hold: &str, label: &str) -> (WindowStep, PathBuf) {
+    let marker = fixture.marks.join(format!("{hold}.marker"));
+    let release = fixture.marks.join(format!("{hold}.release"));
+    let mut command = window_step_command(&fixture.child, &fixture.child_run);
+    command
+        .env("RATMAC_TEST_LOCK_HOLD", hold)
+        .env("RATMAC_TEST_LOCK_MARKER", &marker)
+        .env("RATMAC_TEST_LOCK_RELEASE", &release)
+        .env("RATMAC_TEST_LOCK_HOLD_TIMEOUT_MILLIS", "30000");
+    let peer = WindowStep::spawn(command);
+    await_pause_line(
+        &marker,
+        &format!(
+            "holding {hold} lock {}\n",
+            shown(
+                &fixture
+                    .child
+                    .join(".ratmac/locks/runs")
+                    .join(format!("{}.lock", fixture.child_run))
+            )
+        ),
+        label,
+    );
+    (peer, release)
+}
+
+fn assert_same_resume(control: &Output, resumed: &Output, label: &str) {
+    assert_eq!(
+        resumed.status.code(),
+        control.status.code(),
+        "{label}: the same exit code"
+    );
+    assert_eq!(
+        resumed.stdout, control.stdout,
+        "{label}: byte-identical stdout"
+    );
+    assert_eq!(
+        resumed.stderr, control.stderr,
+        "{label}: byte-identical stderr"
+    );
+}
+
+/// WTCV-013: a resumed claim waits out a peer's release window, completes with today's output, and admits the child once.
+#[test]
+fn wtcv_013() {
+    let control = unobstructed_terminal_resume("wtcv013-control", false);
+    #[cfg(not(windows))]
+    drop(control);
+    #[cfg(windows)]
+    {
+        let fixture = terminal_resume("wtcv013-window", false);
+        let (peer, peer_release) = terminal_peer(&fixture, "unlink", "WTCV-013 unlink window");
+        let retry_marker = fixture.marks.join("retry.marker");
+        let retry_release = fixture.marks.join("retry.release");
+        let mut command = window_step_command(&fixture.parent, &fixture.parent_run);
+        command
+            .env("RATMAC_TEST_ENDPOINT_RETRY_PAUSE", "claim")
+            .env("RATMAC_TEST_ENDPOINT_RETRY_PAUSE_MARKER", &retry_marker)
+            .env("RATMAC_TEST_ENDPOINT_RETRY_PAUSE_RELEASE", &retry_release)
+            .env("RATMAC_TEST_ENDPOINT_RETRY_PAUSE_TIMEOUT_MILLIS", "30000");
+        let parent = WindowStep::spawn(command);
+        await_pause_line(
+            &retry_marker,
+            "claim\n",
+            "WTCV-013: missing claim first-retry pause",
+        );
+        fs::write(&peer_release, b"release\n").expect("end the peer's unlink hold");
+        let peer_output = peer.finish("WTCV-013 peer");
+        assert!(
+            peer_output.status.success(),
+            "WTCV-013 peer: {}",
+            combined(&peer_output)
+        );
+        assert!(
+            peer_output.stderr.is_empty(),
+            "WTCV-013 peer: {}",
+            combined(&peer_output)
+        );
+        fs::write(&retry_release, b"release\n").expect("release the claim retry pause");
+        let resumed = parent.finish("WTCV-013 resumed claim");
+        assert_same_resume(&control, &resumed, "WTCV-013");
+        assert_terminal_resume(&fixture, &resumed, "WTCV-013");
+    }
+}
+
+/// WTCV-014: a resumed terminal read waits out a peer's release window, delivers the receipt, and never relaunches its driver.
+#[test]
+fn wtcv_014() {
+    let control = unobstructed_terminal_resume("wtcv014-control", true);
+    #[cfg(not(windows))]
+    drop(control);
+    #[cfg(windows)]
+    {
+        let fixture = terminal_resume("wtcv014-window", true);
+        let admit_marker = fixture.marks.join("admit.marker");
+        let admit_release = fixture.marks.join("admit.release");
+        let retry_marker = fixture.marks.join("retry.marker");
+        let retry_release = fixture.marks.join("retry.release");
+        let mut command = window_step_command(&fixture.parent, &fixture.parent_run);
+        command
+            .env("RATMAC_TEST_ENDPOINT_PAUSE", "after-admit")
+            .env("RATMAC_TEST_ENDPOINT_PAUSE_MARKER", &admit_marker)
+            .env("RATMAC_TEST_ENDPOINT_PAUSE_RELEASE", &admit_release)
+            .env("RATMAC_TEST_ENDPOINT_PAUSE_TIMEOUT_MILLIS", "30000")
+            .env("RATMAC_TEST_ENDPOINT_RETRY_PAUSE", "terminal-read")
+            .env("RATMAC_TEST_ENDPOINT_RETRY_PAUSE_MARKER", &retry_marker)
+            .env("RATMAC_TEST_ENDPOINT_RETRY_PAUSE_RELEASE", &retry_release)
+            .env("RATMAC_TEST_ENDPOINT_RETRY_PAUSE_TIMEOUT_MILLIS", "30000");
+        let parent = WindowStep::spawn(command);
+        await_pause_line(&admit_marker, "after-admit\n", "WTCV-014 after-admit");
+        let (peer, peer_release) = terminal_peer(&fixture, "unlink", "WTCV-014 unlink window");
+        fs::write(&admit_release, b"release\n").expect("let the terminal read meet the window");
+        await_pause_line(
+            &retry_marker,
+            "terminal-read\n",
+            "WTCV-014: missing terminal-read first-retry pause",
+        );
+        fs::write(&peer_release, b"release\n").expect("end the peer's unlink hold");
+        let peer_output = peer.finish("WTCV-014 peer");
+        assert!(
+            peer_output.status.success(),
+            "WTCV-014 peer: {}",
+            combined(&peer_output)
+        );
+        assert!(
+            peer_output.stderr.is_empty(),
+            "WTCV-014 peer: {}",
+            combined(&peer_output)
+        );
+        fs::write(&retry_release, b"release\n").expect("release the terminal-read retry pause");
+        let resumed = parent.finish("WTCV-014 resumed read");
+        assert_same_resume(&control, &resumed, "WTCV-014");
+        assert_terminal_resume(&fixture, &resumed, "WTCV-014");
+    }
+}
+
+/// WTCV-015: only a live holder refuses as held; a lasting release window reaches the retry pause and refuses with today's open error after the bound.
+#[test]
+fn wtcv_015() {
+    let control = unobstructed_terminal_resume("wtcv015-control", false);
+
+    // Live kernel contention is not a release window on any platform.
+    let fixture = terminal_resume("wtcv015-live", false);
+    let before_parent = tree(&fixture.parent);
+    let (peer, peer_release) = terminal_peer(&fixture, "release", "WTCV-015 live holder");
+    let retry_marker = fixture.marks.join("retry.marker");
+    let mut command = window_step_command(&fixture.parent, &fixture.parent_run);
+    command
+        .env("RATMAC_TEST_ENDPOINT_RETRY_PAUSE", "claim")
+        .env("RATMAC_TEST_ENDPOINT_RETRY_PAUSE_MARKER", &retry_marker)
+        .env(
+            "RATMAC_TEST_ENDPOINT_RETRY_PAUSE_RELEASE",
+            fixture.marks.join("retry.release"),
+        )
+        .env("RATMAC_TEST_ENDPOINT_RETRY_PAUSE_TIMEOUT_MILLIS", "30000");
+    let refused = WindowStep::spawn(command).finish("WTCV-015 live-holder refusal");
+    assert_refusal(
+        &refused,
+        &format!(
+            "rtm: step refused; nested_run: beta: observed endpoint exit 1; diagnostic: rtm: endpoint: the child Run lock for {} is held; retry once it frees; expected exit 0 after one receipt envelope",
+            fixture.child_run
+        ),
+        &fixture.parent_run,
+        "WTCV-015 live-holder refusal",
+    );
+    // This is a post-exit absence assertion, not a publication wait.
+    assert!(
+        matches!(
+            await_marker_line(&retry_marker, MarkerLine::Exact("claim\n"), Duration::ZERO),
+            Err(MarkerWait::NotYetPublished(None))
+        ),
+        "WTCV-015: a live holder never reaches the claim first-retry pause"
+    );
+    assert_tree_unchanged(
+        &fixture.parent,
+        &before_parent,
+        "WTCV-015 live-holder refusal",
+    );
+    assert_eq!(roster(&fixture.child), vec![fixture.child_run.clone()]);
+    fs::write(&peer_release, b"release\n").expect("release the live peer");
+    let peer_output = peer.finish("WTCV-015 live peer");
+    assert!(
+        peer_output.status.success(),
+        "WTCV-015 live peer: {}",
+        combined(&peer_output)
+    );
+    assert!(
+        peer_output.stderr.is_empty(),
+        "WTCV-015 live peer: {}",
+        combined(&peer_output)
+    );
+    let recovered = WindowStep::spawn(window_step_command(&fixture.parent, &fixture.parent_run))
+        .finish("WTCV-015 resume after live holder");
+    assert_same_resume(&control, &recovered, "WTCV-015 after live holder");
+    assert_terminal_resume(&fixture, &recovered, "WTCV-015 after live holder");
+
+    #[cfg(windows)]
+    {
+        let fixture = terminal_resume("wtcv015-lasting", false);
+        let before_parent = tree(&fixture.parent);
+        let (peer, peer_release) = terminal_peer(&fixture, "unlink", "WTCV-015 lasting window");
+        let retry_marker = fixture.marks.join("retry.marker");
+        let retry_release = fixture.marks.join("retry.release");
+        let mut command = window_step_command(&fixture.parent, &fixture.parent_run);
+        command
+            .env("RATMAC_TEST_ENDPOINT_RETRY_PAUSE", "claim")
+            .env("RATMAC_TEST_ENDPOINT_RETRY_PAUSE_MARKER", &retry_marker)
+            .env("RATMAC_TEST_ENDPOINT_RETRY_PAUSE_RELEASE", &retry_release)
+            .env("RATMAC_TEST_ENDPOINT_RETRY_PAUSE_TIMEOUT_MILLIS", "30000");
+        let started = Instant::now();
+        let parent = WindowStep::spawn(command);
+        await_pause_line(
+            &retry_marker,
+            "claim\n",
+            "WTCV-015: missing claim first-retry pause at lasting window",
+        );
+        fs::write(&retry_release, b"release\n")
+            .expect("resume the retry with the window still open");
+        let refused = parent.finish("WTCV-015 lasting-window refusal");
+        assert!(
+            started.elapsed() >= Duration::from_secs(5),
+            "WTCV-015: the lasting window does not refuse before the five-second bound"
+        );
+        assert_refusal(
+            &refused,
+            &format!(
+                "rtm: step refused; nested_run: beta: observed endpoint exit 1; diagnostic: rtm: endpoint: cannot open lock {}: Access is denied. (os error 5); expected exit 0 after one receipt envelope",
+                shown(&fixture.child.join(".ratmac/locks/runs").join(format!("{}.lock", fixture.child_run)))
+            ),
+            &fixture.parent_run,
+            "WTCV-015 lasting-window refusal",
+        );
+        assert_tree_unchanged(
+            &fixture.parent,
+            &before_parent,
+            "WTCV-015 lasting-window refusal",
+        );
+        assert_eq!(roster(&fixture.child), vec![fixture.child_run.clone()]);
+        fs::write(&peer_release, b"release\n").expect("end the lasting unlink hold");
+        let peer_output = peer.finish("WTCV-015 lasting peer");
+        assert!(
+            peer_output.status.success(),
+            "WTCV-015 lasting peer: {}",
+            combined(&peer_output)
+        );
+        assert!(
+            peer_output.stderr.is_empty(),
+            "WTCV-015 lasting peer: {}",
+            combined(&peer_output)
+        );
+    }
 }

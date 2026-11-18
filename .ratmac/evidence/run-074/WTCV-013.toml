@@ -1,0 +1,10 @@
+planned-test-id = "WTCV-013"
+ticket-id = "t-150"
+kind = "baseline-failure"
+command = "cargo test --offline -p ratmac-qa --test t134_safe_nested_invocations -- --exact wtcv_013"
+working-dir = "."
+test-file = "test/qa/tests/t134_safe_nested_invocations.rs"
+test-name = "wtcv_013"
+exit-status = 101
+output-sha256 = "735d04cf3078ee977b86184cb5dbb006b7f23cca31b905f2aec341a0ddcb2abf"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s\n     Running tests\\t134_safe_nested_invocations.rs (target\\debug\\deps\\t134_safe_nested_invocations-53f9db07d0f51bc1.exe)\n\nrunning 1 test\ntest wtcv_013 ... FAILED\n\nfailures:\n\n---- wtcv_013 stdout ----\n\nthread 'wtcv_013' (69976) panicked at test\\qa\\tests\\t134_safe_nested_invocations.rs:188:22:\nWTCV-013: missing claim first-retry pause: the pause marker C:/Users/egois/AppData/Local/Temp/ratmac-t134-wtcv013-window-67976-1794980025010847500-1/marks/retry.marker appears: marker not yet published (no read succeeded)\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    wtcv_013\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6 filtered out; finished in 33.03s\n\nerror: test failed, to rerun pass `-p ratmac-qa --test t134_safe_nested_invocations`\n"

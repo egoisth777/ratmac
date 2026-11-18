@@ -958,6 +958,25 @@ pub(crate) const ENDPOINT_PAUSE: PauseSpec = PauseSpec {
     boundaries: &["after-admit", "after-terminal", "after-receipt"],
 };
 
+/// WTC-005: the endpoint's first-retry pause seam - one pause at the first
+/// denied lock try within each call of each place that takes the child
+/// Run's lock (`claim`, `terminal-read`), so a check learns the endpoint
+/// met a release window before the window closes. Its own selector lets
+/// it combine with the endpoint pause, and the selector holds one place or
+/// a comma-separated list of them, so one resume can be armed at both
+/// places. Unlike the older seams it exists only in the fault-injection
+/// build: a plain build carries none of its names.
+#[cfg(feature = "test-fault-injection")]
+const ENDPOINT_RETRY_PAUSE: PauseSpec = PauseSpec {
+    selector: "RATMAC_TEST_ENDPOINT_RETRY_PAUSE",
+    marker: "RATMAC_TEST_ENDPOINT_RETRY_PAUSE_MARKER",
+    release: "RATMAC_TEST_ENDPOINT_RETRY_PAUSE_RELEASE",
+    timeout: "RATMAC_TEST_ENDPOINT_RETRY_PAUSE_TIMEOUT_MILLIS",
+    name: "RATMAC_TEST_ENDPOINT_RETRY_PAUSE",
+    word: "endpoint retry",
+    boundaries: &["claim", "terminal-read"],
+};
+
 #[cfg(feature = "test-fault-injection")]
 const MAX_PAUSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
@@ -974,16 +993,43 @@ fn pause_timeout(spec: &PauseSpec) -> Result<std::time::Duration, String> {
 }
 
 #[cfg(feature = "test-fault-injection")]
+/// Whether one selector value arms `boundary`: the whole value names it,
+/// or - for a listed seam - one comma-separated name does.
+fn arms(value: &str, boundary: &str, listed: bool) -> bool {
+    if listed {
+        value.split(',').any(|name| name == boundary)
+    } else {
+        value == boundary
+    }
+}
+
+#[cfg(feature = "test-fault-injection")]
 /// Validate one pause seam's companions: a marker path, a release path, and
 /// a positive-integer timeout when the selector is set. Compiled only with
 /// `test-fault-injection`; production builds expose none of these seams.
 pub(crate) fn validate_pause_companions(spec: &PauseSpec) -> Result<(), String> {
+    validate_companions(spec, false)
+}
+
+#[cfg(feature = "test-fault-injection")]
+/// Validate the endpoint first-retry pause's companions, as
+/// [`validate_pause_companions`] does, over its comma-separated selector.
+pub(crate) fn validate_endpoint_retry_companions() -> Result<(), String> {
+    validate_companions(&ENDPOINT_RETRY_PAUSE, true)
+}
+
+#[cfg(feature = "test-fault-injection")]
+fn validate_companions(spec: &PauseSpec, listed: bool) -> Result<(), String> {
     let Ok(value) = std::env::var(spec.selector) else {
         return Ok(());
     };
     // An empty or unrecognized value changes nothing: the companions
     // contract fires only for a boundary this seam actually holds.
-    if !spec.boundaries.contains(&value.as_str()) {
+    if !spec
+        .boundaries
+        .iter()
+        .any(|boundary| arms(&value, boundary, listed))
+    {
         return Ok(());
     }
     if std::env::var_os(spec.marker).is_none() {
@@ -1009,12 +1055,34 @@ pub(crate) fn validate_pause_companions(_spec: &PauseSpec) -> Result<(), String>
     Ok(())
 }
 
+#[cfg(not(feature = "test-fault-injection"))]
+pub(crate) fn validate_endpoint_retry_companions() -> Result<(), String> {
+    Ok(())
+}
+
 #[cfg(feature = "test-fault-injection")]
 /// Pause at `boundary` when the seam names it: write the boundary name and
 /// a newline to the marker path in one step, then wait for the release
 /// path to exist. Leaves exactly the boundary's disk state behind.
 pub(crate) fn hold_pause_if_requested(spec: &PauseSpec, boundary: &str) -> Result<(), String> {
-    if std::env::var(spec.selector).ok().as_deref() != Some(boundary) {
+    hold_pause(spec, boundary, false)
+}
+
+#[cfg(feature = "test-fault-injection")]
+/// The endpoint first-retry pause at `place` (`claim` or `terminal-read`),
+/// as [`hold_pause_if_requested`] holds over its comma-separated selector.
+/// Each pause replaces the marker's line with its own; the release file is
+/// never removed here.
+pub(crate) fn hold_endpoint_retry_pause(place: &str) -> Result<(), String> {
+    hold_pause(&ENDPOINT_RETRY_PAUSE, place, true)
+}
+
+#[cfg(feature = "test-fault-injection")]
+fn hold_pause(spec: &PauseSpec, boundary: &str, listed: bool) -> Result<(), String> {
+    let Ok(value) = std::env::var(spec.selector) else {
+        return Ok(());
+    };
+    if !arms(&value, boundary, listed) {
         return Ok(());
     }
     let marker = std::env::var_os(spec.marker)
