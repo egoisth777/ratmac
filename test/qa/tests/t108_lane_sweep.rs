@@ -367,6 +367,373 @@ impl Lanes {
     }
 }
 
+/// LNRV-001 (t-108, LNR-001): report replacement preserves complete verdicts
+/// through a bounded Windows denial without broadening other failure paths.
+#[test]
+fn the_sweep_keeps_complete_verdicts_across_report_replace_denials() {
+    let lanes = Lanes::new(
+        "report-replace-denials",
+        &["t-002", "t-001"],
+        &[("t-001", false), ("t-002", false)],
+    );
+    let mut markers = Vec::new();
+    for crate_id in ["t-001", "t-002"] {
+        let marked = lanes.mark(crate_id, "edition-001");
+        assert!(marked.status.success(), "{}", combined(&marked));
+        let path = lanes.crate_dir(crate_id).join("EXPIRED.toml");
+        markers.push((path.clone(), fs::read(path).expect("read fixture marker")));
+    }
+
+    let control = lanes.sweep(&[]);
+    assert!(
+        control.status.success(),
+        "unobstructed expired-crate control: {}",
+        combined(&control)
+    );
+    let control_report = lanes.report();
+    let control_rows = rows_of(&control_report);
+    assert_eq!(counts_of(&control_rows), (0, 2, 0, 0, 2));
+    assert_eq!(
+        control_rows
+            .iter()
+            .map(|(crate_id, _, _)| crate_id.as_str())
+            .collect::<Vec<_>>(),
+        ["t-001", "t-002"]
+    );
+    assert_eq!(
+        summary_line(&control_report),
+        "- verdicts: 0 pass, 2 expired, 0 red, 0 missing - 2 crates"
+    );
+    println!("unobstructed control passed: two complete expired verdicts and total");
+
+    // The imported copy owns every hold, clock, and error. No Python cache or
+    // process-wide hook can move the checkout or interfere with sibling tests.
+    const PROBES: &str = r#"
+import ctypes
+import importlib.util
+import math
+import os
+from pathlib import Path
+import sys
+from types import SimpleNamespace
+
+spec = importlib.util.spec_from_file_location('sweep_under_test', sys.argv[1])
+sweep = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(sweep)
+real_replace = os.replace
+root = Path.cwd()
+config = sweep.load_config(str(root / '.ratmac/lanes.toml'))
+config.update(lanes_root=str(root / config['lanes']), verify=False,
+              timeout=1, target_dir=None)
+report = root / config['report']
+config['report'] = str(report)
+roster = ['t-001', 't-002']
+assert config['roster'] == roster
+summary = '- verdicts: 0 pass, 2 expired, 0 red, 0 missing - 2 crates'
+
+def complete(text, verify=False):
+    assert text.startswith('# Lane sweep report\n') and text.endswith('\n'), text
+    assert text.count('# Lane sweep report') == 1, text
+    assert text.splitlines().count(summary) == 1, text
+    assert f'- verify-expired: {"yes" if verify else "no"}' in text.splitlines(), text
+    rows = [line for line in text.splitlines() if line.startswith('| t-')]
+    assert len(rows) == len(roster), rows
+    for crate, row in zip(roster, rows):
+        assert row.startswith(f'| {crate} | expired | last passed at edition-001 '), row
+
+def clean(destination):
+    leftovers = list(destination.parent.glob('.lane-sweep-*.tmp'))
+    assert not leftovers, f'leftover temporary reports: {leftovers}'
+
+def inspect(source, destination, expected_destination, old, attempts, verify=False):
+    source, destination = Path(source), Path(destination)
+    assert destination == expected_destination, (destination, expected_destination)
+    assert source.parent == destination.parent, (source, destination)
+    assert source.name.startswith('.lane-sweep-') and source.suffix == '.tmp', source
+    assert destination.read_bytes() == old, 'old report changed before atomic replacement'
+    body = source.read_bytes()
+    complete(body.decode('utf-8'), verify)
+    if attempts:
+        assert (source, body) == attempts[0], 'retry rebuilt or changed the staged report'
+    attempts.append((source, body))
+
+class DeleteDeny:
+    def __init__(self, path):
+        from ctypes import wintypes
+        kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+        create = kernel.CreateFileW
+        create.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                           wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD,
+                           wintypes.HANDLE]
+        create.restype = wintypes.HANDLE
+        self.close_handle = kernel.CloseHandle
+        self.close_handle.argtypes = [wintypes.HANDLE]
+        self.close_handle.restype = wintypes.BOOL
+        # GENERIC_READ; FILE_SHARE_READ | FILE_SHARE_WRITE, NOT FILE_SHARE_DELETE.
+        self.handle = create(str(path), 0x80000000, 0x3, None, 3, 0, None)
+        if self.handle == ctypes.c_void_p(-1).value:
+            raise ctypes.WinError(ctypes.get_last_error())
+
+    def close(self):
+        if self.handle is not None:
+            assert self.close_handle(self.handle), ctypes.WinError(ctypes.get_last_error())
+            self.handle = None
+
+def native_recovery():
+    old = report.read_bytes() + b'\nprevious complete publication\n'
+    report.write_bytes(old)
+    held = DeleteDeny(report)
+    attempts, denials, successes = [], [], []
+    sweep.os = SimpleNamespace(**vars(os))
+    def replace(source, destination):
+        inspect(source, destination, report, old, attempts)
+        try:
+            real_replace(source, destination)
+        except PermissionError as error:
+            assert error.winerror == 5, repr(error)
+            denials.append(error)
+            print(f'native denied-attempt observed: PermissionError winerror={error.winerror}',
+                  flush=True)
+            held.close()
+            raise
+        successes.append(destination)
+    sweep.os.replace = replace
+    try:
+        result = sweep.main(['sweep'])
+    except PermissionError as error:
+        assert denials and error is denials[-1], 'failure did not reach the native deny'
+        assert report.read_bytes() == old, 'single-try failure damaged the old report'
+        clean(report)
+        raise AssertionError('native WinError5 was observed and released, but the same sweep '
+                             'failed instead of publishing its complete report') from error
+    finally:
+        held.close()
+    assert result == 0, result
+    assert denials and len(successes) == 1 and len(attempts) >= 2, attempts
+    assert report.read_bytes() == attempts[0][1], 'published report differs from staged report'
+    complete(report.read_text(encoding='utf-8'))
+    clean(report)
+    print('native recovery passed: one atomic publication after a genuine WinError5', flush=True)
+
+complete(report.read_text(encoding='utf-8'))
+clean(report)
+# Keep this first after the real, unobstructed control: the baseline must fail
+# on an observed native denial, before any injected error or clock is involved.
+if os.name == 'nt':
+    native_recovery()
+else:
+    print('native Windows handle case not applicable on this host', flush=True)
+
+config['report'] = str(report.parent / 'clock-probes' / 'report.md')
+probe_report = Path(config['report'])
+probe_report.parent.mkdir(parents=True, exist_ok=True)
+rows = [(crate, 'expired', 'last passed at edition-001 (marked 2026-08-10)')
+        for crate in roster]
+
+class Clock:
+    def __init__(self):
+        self.now, self.reads, self.sleeps = 100.0, 0, []
+        self.advance = lambda delay: setattr(self, 'now', self.now + delay)
+    def monotonic(self):
+        self.reads += 1
+        assert self.reads < 100, 'retry loop did not stop under the controlled clock'
+        return self.now
+    def sleep(self, delay):
+        assert 0 < delay <= 0.010000001, f'not the bounded ten-millisecond interval: {delay}'
+        self.sleeps.append(delay)
+        self.advance(delay)
+
+def install(clock, windows=True):
+    sweep.os = SimpleNamespace(**vars(os))
+    sweep.os.name = 'nt' if windows else 'posix'
+    sweep.sys = SimpleNamespace(**vars(sys))
+    sweep.sys.platform = 'win32' if windows else 'linux'
+    sweep.time = SimpleNamespace(monotonic=clock.monotonic, sleep=clock.sleep)
+
+def denied(label, code=5):
+    error = PermissionError(13, label)
+    error.winerror = code
+    return error
+
+def seed():
+    clean(probe_report)
+    old = report.read_bytes() + b'\nold complete probe publication\n'
+    probe_report.write_bytes(old)
+    return old
+
+def unchanged(old):
+    assert probe_report.read_bytes() == old, 'failed publication changed the old report'
+    clean(probe_report)
+
+def expect_error(expected, action):
+    try:
+        action()
+    except BaseException as error:
+        assert error is expected, f'expected original/last error {expected!r}; got {error!r}'
+    else:
+        raise AssertionError(f'expected publication failure: {expected!r}')
+
+def first_denial_origin():
+    clock, attempts, old = Clock(), [], seed()
+    install(clock)
+    error = denied('first denial after slow staging/replace work')
+    def replace(source, destination):
+        inspect(source, destination, probe_report, old, attempts)
+        if len(attempts) == 1:
+            clock.now += 20.0
+            raise error
+        assert len(attempts) == 2, attempts
+        assert clock.now < 125.0, 'retry started after the first-denial deadline'
+        real_replace(source, destination)
+    sweep.os.replace = replace
+    text = sweep.write_report(config, rows, [])
+    assert len(attempts) == 2 and clock.sleeps == [0.01], clock.sleeps
+    assert probe_report.read_bytes() == attempts[0][1] == text.encode('utf-8')
+    complete(text)
+    clean(probe_report)
+    print('first-denial origin passed: pre-denial time does not consume the window', flush=True)
+
+def fixed_deadline_and_last_error():
+    clock, attempts, errors, old = Clock(), [], [], seed()
+    install(clock)
+    deadline = clock.now + 5.0
+    def advance(delay):
+        if len(clock.sleeps) == 1:
+            assert math.isclose(delay, 0.01, abs_tol=1e-9), delay
+            clock.now = deadline - 0.005
+        else:
+            assert len(clock.sleeps) == 2, 'deadline restarted after another denial'
+            assert math.isclose(delay, 0.005, abs_tol=1e-9), delay
+            clock.now = deadline
+    clock.advance = advance
+    def replace(source, destination):
+        assert clock.now < deadline, 'retry started at or after the five-second deadline'
+        inspect(source, destination, probe_report, old, attempts)
+        assert len(attempts) <= 2, 'deadline restarted'
+        error = denied(f'lasting denial {len(attempts)}')
+        errors.append(error)
+        raise error
+    sweep.os.replace = replace
+    try:
+        sweep.write_report(config, rows, [])
+    except PermissionError as error:
+        assert len(errors) == 2 and error is errors[-1], 'did not raise the last denial'
+    else:
+        raise AssertionError('lasting denial unexpectedly published a report')
+    assert clock.now == deadline and len(clock.sleeps) == 2, clock.sleeps
+    unchanged(old)
+    print('fixed five-second deadline passed: clipped final wait and last error', flush=True)
+
+def overslept_deadline():
+    clock, attempts, old = Clock(), [], seed()
+    install(clock)
+    error = denied('holder released only after an overslept deadline')
+    clock.advance = lambda delay: setattr(clock, 'now', 105.001)
+    def replace(source, destination):
+        inspect(source, destination, probe_report, old, attempts)
+        if len(attempts) == 1:
+            raise error
+        # A late attempt would really succeed; it must never start.
+        real_replace(source, destination)
+    sweep.os.replace = replace
+    expect_error(error, lambda: sweep.write_report(config, rows, []))
+    assert len(attempts) == 1 and clock.sleeps == [0.01], clock.sleeps
+    unchanged(old)
+    print('overslept deadline passed: no late retry even after release', flush=True)
+
+def other_errors_are_single_try():
+    cases = [
+        (True, denied('Windows sharing violation is not access denied', 32)),
+        (True, PermissionError(13, 'permission error without a Windows code')),
+        (True, OSError(5, 'errno 5 is not winerror 5')),
+        (True, FileNotFoundError(2, 'missing target parent')),
+        (False, denied('non-Windows error with a synthetic winerror attribute')),
+        (False, PermissionError(13, 'ordinary non-Windows permission denial')),
+    ]
+    for windows, error in cases:
+        clock, attempts, old = Clock(), [], seed()
+        install(clock, windows)
+        def replace(source, destination):
+            inspect(source, destination, probe_report, old, attempts)
+            assert len(attempts) == 1, f'broadened retry: {error!r}'
+            raise error
+        sweep.os.replace = replace
+        expect_error(error, lambda: sweep.write_report(config, rows, []))
+        assert len(attempts) == 1 and not clock.sleeps, (error, clock.sleeps)
+        unchanged(old)
+    # Eligibility must also be rechecked after an eligible first denial.
+    clock, attempts, old = Clock(), [], seed()
+    install(clock)
+    errors = [denied('eligible first denial'), denied('subsequent error 32', 32)]
+    def replace(source, destination):
+        inspect(source, destination, probe_report, old, attempts)
+        assert len(attempts) <= 2, 'retried an ineligible subsequent error'
+        raise errors[len(attempts) - 1]
+    sweep.os.replace = replace
+    expect_error(errors[-1], lambda: sweep.write_report(config, rows, []))
+    assert len(attempts) == 2 and clock.sleeps == [0.01], clock.sleeps
+    unchanged(old)
+    print('classification passed: only Windows PermissionError winerror 5 retries', flush=True)
+
+def recovery_does_not_rerun_crates():
+    clock, attempts, calls, old = Clock(), [], [], seed()
+    install(clock)
+    error = denied('recoverable publication after all verdicts are computed')
+    config['verify'] = True
+    def run_crate(current_config, crate, timeout):
+        assert current_config is config and timeout == 1
+        calls.append(crate)
+        assert calls.count(crate) == 1, f'publication reran crate {crate}'
+        return 'pass', ''
+    sweep.run_crate = run_crate
+    def replace(source, destination):
+        inspect(source, destination, probe_report, old, attempts, verify=True)
+        assert calls == roster, 'publication began before all verdicts were computed'
+        if len(attempts) == 1:
+            raise error
+        assert len(attempts) == 2, attempts
+        real_replace(source, destination)
+    sweep.os.replace = replace
+    assert sweep.sweep(config) == 0
+    assert calls == roster and len(attempts) == 2, (calls, attempts)
+    assert probe_report.read_bytes() == attempts[0][1]
+    complete(probe_report.read_text(encoding='utf-8'), verify=True)
+    clean(probe_report)
+    print('no-crate-rerun passed: each verified expired crate ran exactly once', flush=True)
+
+first_denial_origin()
+fixed_deadline_and_last_error()
+overslept_deadline()
+other_errors_are_single_try()
+recovery_does_not_rerun_crates()
+"#;
+    let probes = Command::new("python")
+        .args(["-B", "-c", PROBES])
+        .arg(lanes.root.join("tools/sweep_lanes.py"))
+        .current_dir(&lanes.root)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("invoke child-local report replacement probes");
+    print!("{}", combined(&probes));
+    assert!(
+        probes.status.success(),
+        "report replacement probes failed: {}",
+        probes.status
+    );
+    let published = lanes.report();
+    assert_eq!(counts_of(&rows_of(&published)), (0, 2, 0, 0, 2));
+    assert_eq!(published.matches("# Lane sweep report").count(), 1);
+    assert_eq!(published.matches("- verdicts: ").count(), 1);
+    for (path, before) in markers {
+        assert_eq!(
+            fs::read(&path).expect("read marker after report replacement probes"),
+            before,
+            "report publication changed expiry marker {}",
+            path.display()
+        );
+    }
+}
+
 // --- LNRV-001 -----------------------------------------------------------------
 
 /// A source-only copy of `source` under `destination`, skipping every
