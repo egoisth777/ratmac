@@ -1,0 +1,39 @@
+Observed at rest, 2026-11-20
+Commit: 28f104176663e1b12ff0f5d6be462aea921ee226, marked by edition-010 (tag object 36ffced39d8cbb00e7feaeb610471298f9bebd8c, created 2026-11-20T07:05:14-07:00) before either step below.
+Driver: E:/hive/packs/repos/agents/tools/ratmac-stable-edition-009/target/debug/rtm.exe
+Driver identity: stable edition-009 (channel stable, source commit f076320659dcddf6291511d2f502e84b6692b00e); sha256 74ba7d6ad4ee733dac7d90a1fadae804f292527e64e0d18559cedcc07491daf1, the hash run-075 pinned at that same path. Its doctor reported no findings before the steps and again after them.
+Invocations: step --run run-075; verdict input clean; step --run run-075; status --run run-075
+Verdict input (consumed by the Engine as .ratmac/runs/run-075/verdicts/000002.toml):
+state = "gap-check"
+input = "clean"
+rationale = "Every frozen requirement has one proven satisfied record across the active and archive folders, including the repaired LNR-001 record res-161 owned by the passed ticket t-151; no pending ask or open work remains. The fresh common close proof passed at 28f104176663e1b12ff0f5d6be462aea921ee226, and edition-010 marks that unchanged close commit."
+Captured tool result, first step (close to gap-check, exit 0):
+
+Freeze the goal and measure it. Compare every frozen requirement against what
+the tree actually holds, and state each answer as missing, partial, or
+satisfied with a pointer to the proof and a short why. Then answer this stage's
+question: are there gaps to work, or is the goal clean?
+
+
+Exit Guards:
+- intake_contract
+
+Legal transition inputs:
+- gaps
+- clean
+next: rtm step --run run-075
+Captured tool result, second step (gap-check to rest, exit 0):
+
+Nothing is open. The cycle is at rest until the next issue arrives.
+
+Captured status (exit 0), lines through Blocker:
+Engine root: E:/hive/packs/repos/agents/tools/ratmac/.ratmac
+Run: run-075
+Class: top-level
+State: rest
+Status: passed
+Goal revision: v2:fa3e740c95a958e84039a791a10fdd8f67ca94042f56be0744c662d282ae2c52
+Input revision: 
+Output revision: 
+Active refs: 
+Blocker: 

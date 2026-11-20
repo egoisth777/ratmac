@@ -58,8 +58,9 @@ lane sweep's report publication (`tools/sweep_lanes.py`): publication is still
 one atomic replacement of the complete report, but a Windows access-denied
 replacement (`PermissionError`, `winerror` 5) is retried every 10 ms for at
 most five seconds from the first denial, without rerunning any crate; a lasting
-denial raises the last error and leaves the old report whole. Every
-Architecture, Binary, Modules, and Tests row below describes this landed tree.
+denial raises the last error and leaves the old report whole. Both closed with
+`edition-010`. Every Architecture, Binary, Modules, and Tests row below
+describes this landed tree.
 The tracked Plan-Build Runbook selects its three completion fields explicitly,
 and since stable `edition-008` drove `run-034` to `rest` it also carries the
 three changes prepared for that boundary: human-confirmed pause routes

@@ -1,0 +1,28 @@
+edition-010 cut proof, recorded 2026-11-20
+Commit: 28f104176663e1b12ff0f5d6be462aea921ee226, the close candidate after the run-075 repair (t-151 landed at 854b3a2, stamped at a3cff20; records archived and project map refreshed at this commit).
+
+1. The supported preflight. On the first close candidate, c48774bf2cb358fe608a450189aead6879c71711, edition-cut --check-only refused with exactly its rest-scan line ("the cycle is not at rest: the intake work area holds i-063-build-message-test-engine"); that record is ../run-060/edition-010-preflight.txt. The intake folder .arca/issue/ is byte-identical between that commit and this one, and the twelve integrated bundles it holds can move only after both Runs rest, so the edition-009 conflict resolution applies again (.arca/log.md, 2026-11-20 conflict-resolved line).
+
+2. Fresh declared checks at this commit, from the primary checkout with the tree clean: cycle-close-checks.txt in this folder, raw output with its CRLF line endings kept. Every command exited 0: the lane sweep check; cargo test --offline --workspace; cargo fmt --check; cargo clippy --offline --workspace --all-targets; python tools/check_links.py; the record-contract check (t048 the_record_gate_passes_on_this_repository_as_it_stands); the resolving-citation check (t106 the_check_refuses_exactly_the_rotted_citations_and_the_allowlist_matches); a private sweep with expiry verification (91 pass, 2 expired, 0 red, 0 missing - 93 crates) and its completeness check; and rtm doctor through the unchanged Stable edition-009 driver (No findings). The sweep report is cycle-close-lanes.md here. The only file the checks changed was the tracked sweep report's timestamp line; it was restored from this commit before tagging, and the tree read clean at this commit again.
+
+3. The reviewable input snapshot of this commit: cycle-close-snapshot.txt here, 2180 rows over the declared roots: 1107 tracked files, and 1073 untracked private lane files under test-hidden/, each marked as an explicit exception. No other file is untracked or staged.
+
+4. The tag, by hand, with plain Git and no force. Immediately before creating it, the script checked that HEAD equals 28f104176663e1b12ff0f5d6be462aea921ee226, git status --porcelain is empty, refs/tags/edition-010 is a valid name that does not exist, and the commit is on main. It then ran git tag --cleanup=verbatim -F <message file> edition-010 <commit> once.
+latest editions before: edition-001 .. edition-009
+created edition-010 2026-11-20T07:05:14-07:00, tag object 36ffced39d8cbb00e7feaeb610471298f9bebd8c
+read back: object tag; marks 28f104176663e1b12ff0f5d6be462aea921ee226; git describe --exact-match --match 'edition-*' HEAD prints edition-010
+read back: stored message equals the validated message file byte for byte
+
+Stored message:
+edition-010: same-verdict and Windows-timing sprint close
+Proven at this commit:
+- cargo test --offline --workspace
+- cargo fmt --check
+- cargo clippy --offline --workspace --all-targets
+- python tools/check_links.py
+- rtm doctor, using the unchanged Stable edition-009 driver
+- record-contract and resolving-citation checks
+- private sweep with expiry verification and its completeness check
+The batch's fourteen tickets passed, and the run-075 repair ticket t-151 passed: the lane sweep now retries a Windows access-denied report replacement for up to five seconds. Their satisfied gap records and completed tickets are archived. The Engine remains deterministic and offline.
+
+5. After the tag, run-075 and then run-060 stepped close -> gap-check -> rest with a clean verdict each; see rest.txt here and ../run-060/rest.txt.

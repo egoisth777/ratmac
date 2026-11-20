@@ -1146,7 +1146,7 @@ and its decisions are in [ADR-0024](goal/design.md#same-verdict-and-windows-timi
 
 The shared test helper `today_engine()`, and every test helper that runs `cargo build` and then launches the built file itself, runs the executable Cargo reported for that build (the `executable` in its `compiler-artifact` record under `--message-format=json`), never a path joined from a fixed folder such as `target/debug`; helpers where Cargo runs what it built, such as `cargo test`, are out of scope. With output redirected by `CARGO_TARGET_DIR`, `CARGO_BUILD_TARGET_DIR`, `build.target-dir` in any Cargo configuration, or `CARGO_BUILD_TARGET`, the fresh build still runs and an older binary at the fixed folder never runs; a build that reports no such executable refuses, naming the binary and the build, and runs nothing. Private lanes use this shared helper instead of their own copies.
 
-Accepted from [build message test engine](issue/i-063-build-message-test-engine/spec.md#requirement-records).
+Accepted from [build message test engine](issue/archive/i-063-build-message-test-engine/spec.md#requirement-records).
 
 #### Accepted mechanics
 
@@ -1163,13 +1163,13 @@ Give the baseline support one function that asks Cargo where it put a binary, an
 - Migrated lanes keep their identity, requirement, and assertion strength under the history boundary of shared private test support ([WCP-002](#wcp-002--shared-private-test-support)), and the frozen before-source corpus under `test-hidden/t-126/fixtures/before/` stays byte-identical.
 - Must not break: the single-Engine-binary rule (`DEB-001`), whose tests launch the build they were compiled against; the build-output collision check (`DEB-002`); shared private test support (WCP-002); edition proof preflight ([WCP-008](#wcp-008--edition-proof-preflight)), whose `edition-cut` binary changes only how it is located; and the landed-lane sweep (`LNR-001`), which must still read every migrated lane green. No selected issue is a prerequisite.
 
-The mechanics implement [SVE-001](issue/i-063-build-message-test-engine/spec.md#requirement-records) and are tested by the [verification plan](issue/i-063-build-message-test-engine/test-plan.md#verification).
+The mechanics implement [SVE-001](issue/archive/i-063-build-message-test-engine/spec.md#requirement-records) and are tested by the [verification plan](issue/archive/i-063-build-message-test-engine/test-plan.md#verification).
 
 ### SVE-003 — sweep crates build apart
 
 By default the lane sweep (`tools/sweep_lanes.py`) runs each crate's `cargo test --offline` with a Cargo output folder no other crate builds into, even when a Cargo configuration file sends every build in the repository to one folder. That configured folder still decides where build output is stored: each crate's folder then sits inside it, named after the crate. With no such setting, a crate builds in its own `target`, as today. Inherited `CARGO_` variables are still dropped, and the explicit `--target-dir` opt-in to one shared folder stays.
 
-Accepted from [same lane verdict](issue/i-065-same-lane-verdict/spec.md#requirement-records).
+Accepted from [same lane verdict](issue/archive/i-065-same-lane-verdict/spec.md#requirement-records).
 
 #### Accepted mechanics
 
@@ -1182,13 +1182,13 @@ Before it tests a crate, `run_crate` in [the lane sweep](../tools/sweep_lanes.py
 - The explicit `--target-dir` opt-in stays as it is; only the default changes.
 - Must not break: the landed-lane sweep (`LNR-001`), its expiry markers (`LNR-002`), the close guard that reads its verdict (`LNR-003`), and the post-split ports rule (`RLR-003`). No selected issue is a prerequisite.
 
-The mechanics implement [SVE-003](issue/i-065-same-lane-verdict/spec.md#requirement-records) and are tested by the [verification plan](issue/i-065-same-lane-verdict/test-plan.md#verification).
+The mechanics implement [SVE-003](issue/archive/i-065-same-lane-verdict/spec.md#requirement-records) and are tested by the [verification plan](issue/archive/i-065-same-lane-verdict/test-plan.md#verification).
 
 ### SVE-004 — unique test scratch folders
 
 Every test that makes a scratch folder - public suites under `test/qa` and declared, non-expired private lanes under `test-hidden` - receives one no other test can be handed, even when two requests share one clock tick. It is created new, never adopting, emptying, or deleting an existing folder; its name does not rest on the clock alone; and a taken name is retried with a new one. One shared test-support helper hands out every such folder; only the shared-support oracle lane (`t-126`) keeps its own allocator, which puts a counter in each name, creates each folder new, and stops on a taken name instead of retrying. A check pins the clock and proves two requests get separate folders, so a suite gives the same verdict in parallel as alone.
 
-Accepted from [unique test scratch](issue/i-066-unique-test-scratch/spec.md#requirement-records).
+Accepted from [unique test scratch](issue/archive/i-066-unique-test-scratch/spec.md#requirement-records).
 
 #### Accepted mechanics
 
@@ -1207,13 +1207,13 @@ Add a source inventory check that fails when a test makes a folder under the sys
 - Out of scope: removing folders a run leaves behind in the system temporary folder, expired lanes, lane `target/` folders, the frozen before-source corpus under `test-hidden/t-126/fixtures/before/`, and folders the Engine itself creates inside a fixture.
 - Must not break the shared private test support rule ([WCP-002](#wcp-002--shared-private-test-support)): `TempTree` stays standard-library only and reachable from private lanes, and its concurrent-fixtures check (WCPV-005) keeps passing.
 
-The mechanics implement [SVE-004](issue/i-066-unique-test-scratch/spec.md#requirement-records) and are tested by the [verification plan](issue/i-066-unique-test-scratch/test-plan.md#verification).
+The mechanics implement [SVE-004](issue/archive/i-066-unique-test-scratch/spec.md#requirement-records) and are tested by the [verification plan](issue/archive/i-066-unique-test-scratch/test-plan.md#verification).
 
 ### SVE-005 — whole pause marker line
 
 Every test that waits on a pause marker - public suites under `test/qa` and declared, non-expired private lanes under `test-hidden` - acts only on the marker's whole boundary line: its complete text, ending in its newline. A missing file, an empty read, or text without its closing newline counts as not yet published; the test keeps waiting until its time limit and never compares, parses, or proceeds on such a read, nor on the file merely existing. A wait therefore fails only when the whole line never arrives in time or arrives with other text, so a pause-seam test never fails on timing alone. A check stages empty and partial markers deterministically and proves every waiter holds until the line is whole.
 
-Accepted from [whole pause marker](issue/i-067-whole-pause-marker/spec.md#requirement-records).
+Accepted from [whole pause marker](issue/archive/i-067-whole-pause-marker/spec.md#requirement-records).
 
 #### Accepted mechanics
 
@@ -1230,13 +1230,13 @@ Leave every publisher as it is: the requirement binds waiters, not publishers. T
 - Public suites are included beyond the wish's words, which name private lanes, because they wait on the same markers in the same full workspace proof. Existence-only waits are included even where nothing reads the content afterwards.
 - Must not break checkpoint only restoration ([WCP-006](#wcp-006--checkpoint-only-restoration)), review before proofs ([WCP-004](#wcp-004--review-before-proofs)), shared private test support ([WCP-002](#wcp-002--shared-private-test-support)), or the cycle pause routes checks (WRSV-003-01 to WRSV-003-09). The case-scoped hook rule (SVE-006) uses this wait in its check, and the Windows timing checks that wait on a pause marker follow it.
 
-The mechanics implement [SVE-005](issue/i-067-whole-pause-marker/spec.md#requirement-records) and are tested by the [verification plan](issue/i-067-whole-pause-marker/test-plan.md#verification).
+The mechanics implement [SVE-005](issue/archive/i-067-whole-pause-marker/spec.md#requirement-records) and are tested by the [verification plan](issue/archive/i-067-whole-pause-marker/test-plan.md#verification).
 
 ### SVE-006 — case-scoped test hooks
 
 A test hook that one test case arms through process-wide environment settings (`RATMAC_TEST_*`, such as the Engine's hold test barrier) reaches only that case's own commands. No other case running alongside - in the same test process or another - has its `rtm hold` or any other command wait on the hook, time out on it, or otherwise observe it. This holds in public suites under `test/qa` and declared, non-expired private lanes under `test-hidden`. The arming case still meets its hook, including today's expiry refusal, whose reason reads `hold test barrier expired before <boundary> waiting for <release file>`. A check proves deterministically that an `rtm hold` on another fixture, run while a barrier-armed `rtm hold` is parked, never sees the barrier.
 
-Accepted from [case scoped hold barrier](issue/i-068-case-scoped-hold-barrier/spec.md#requirement-records).
+Accepted from [case scoped hold barrier](issue/archive/i-068-case-scoped-hold-barrier/spec.md#requirement-records).
 
 #### Accepted mechanics
 
@@ -1251,13 +1251,13 @@ Add a source inventory check that each process-wide arming of a `RATMAC_TEST_*` 
 - The check learns that the armed case is parked from its marker's whole boundary line (SVE-005).
 - Must not break the cycle pause routes requirement (WRS-003) and its checks WRSV-003-01 to WRSV-003-09, nor shared private test support ([WCP-002](#wcp-002--shared-private-test-support)): `hook_lane`, `scrub`, and `isolated_test` keep their behavior, and the concurrent-fixtures check (WCPV-005) keeps passing.
 
-The mechanics implement [SVE-006](issue/i-068-case-scoped-hold-barrier/spec.md#requirement-records) and are tested by the [verification plan](issue/i-068-case-scoped-hold-barrier/test-plan.md#verification).
+The mechanics implement [SVE-006](issue/archive/i-068-case-scoped-hold-barrier/spec.md#requirement-records) and are tested by the [verification plan](issue/archive/i-068-case-scoped-hold-barrier/test-plan.md#verification).
 
 ### SVE-007 — lane builds stay private
 
 Every private lane test that runs Cargo on the repository or on another lane's crate - to build and launch an Engine (`rtm`, `rtm-qa`) or another binary of this repository (`edition-cut`, `snapshot-manifest`), or to run that crate's tests - builds in an output folder only that lane uses, holds a cross-process lock on that folder for the whole run so a second run of the same lane waits, and launches only the executable that build reported. It never reads, runs, or rebuilds the repository's shared build output. With that output rewritten, or replaced by a plain file, and the lane started twice at once, each run gives the lane's standalone verdict.
 
-Accepted from [same lane verdict](issue/i-065-same-lane-verdict/spec.md#requirement-records).
+Accepted from [same lane verdict](issue/archive/i-065-same-lane-verdict/spec.md#requirement-records).
 
 #### Accepted mechanics
 
@@ -1273,13 +1273,13 @@ The single-Engine-binary lane (`t-086`) builds both `rtm-qa` and `rtm` there and
 - Out of scope: per-test scratch folders (SVE-004), a hold barrier shared between cases in one process (SVE-006), wall-clock limits, and public suites, except as the concurrent writers a lane must not depend on. Meeting this does not by itself prove the wish's desired end: if verdicts still differ once no lane shares build output, wall-clock limits are the next suspect and the wish stays open.
 - Depends on SVE-001: a lane launches only the executable `built_executable` reports. Must not break: the landed-lane sweep (`LNR-001`), its expiry markers (`LNR-002`), the close guard that reads its verdict (`LNR-003`), shared private test support (WCP-002), the single-Engine-binary rule (`DEB-001`), and the post-split ports rule (`RLR-003`).
 
-The mechanics implement [SVE-007](issue/i-065-same-lane-verdict/spec.md#requirement-records) and are tested by the [verification plan](issue/i-065-same-lane-verdict/test-plan.md#verification).
+The mechanics implement [SVE-007](issue/archive/i-065-same-lane-verdict/spec.md#requirement-records) and are tested by the [verification plan](issue/archive/i-065-same-lane-verdict/test-plan.md#verification).
 
 ### SVE-008 — run-private freeze and ports folders
 
 The freeze build folder (`ratmac-freeze-<commit>` under the system temp folder) and the pre-split ports sweep folder (`target/lanes`) stop being shared. Every test that builds the freeze tree extracts and builds it in a folder only its own run uses, and the pre-split ports lane (`t-109`) sweeps its copied crates, and the pre-split ports suite runs the pre-split crates in place, each into a folder only that run uses. No run reads or rewrites the old shared paths: a plain file at the freeze folder's old name changes no verdict, and `target/lanes` keeps every path and byte.
 
-Accepted from [same lane verdict](issue/i-065-same-lane-verdict/spec.md#requirement-records).
+Accepted from [same lane verdict](issue/archive/i-065-same-lane-verdict/spec.md#requirement-records).
 
 #### Accepted mechanics
 
@@ -1292,4 +1292,4 @@ Reuse the locked-folder helper (SVE-007) for every run that used a shared folder
 - Depends on SVE-001 and SVE-007. The scratch-folder rule (SVE-004) leaves the freeze build folder to this requirement.
 - Must not break: the pre-split and post-split ports rules (`RLR-002`, `RLR-003`), the landed-lane sweep (`LNR-001`), and shared private test support (WCP-002).
 
-The mechanics implement [SVE-008](issue/i-065-same-lane-verdict/spec.md#requirement-records) and are tested by the [verification plan](issue/i-065-same-lane-verdict/test-plan.md#verification).
+The mechanics implement [SVE-008](issue/archive/i-065-same-lane-verdict/spec.md#requirement-records) and are tested by the [verification plan](issue/archive/i-065-same-lane-verdict/test-plan.md#verification).
