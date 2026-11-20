@@ -555,6 +555,14 @@ def denied(label, code=5):
     error.winerror = code
     return error
 
+def plain_os_error(label):
+    # Assign winerror afterwards: passing it to OSError() promotes the class to
+    # PermissionError, which would hide the exception-class edge.
+    error = OSError(5, label)
+    error.winerror = 5
+    assert type(error) is OSError and error.winerror == 5, (type(error), error.winerror)
+    return error
+
 def seed():
     clean(probe_report)
     old = report.read_bytes() + b'\nold complete probe publication\n'
@@ -641,11 +649,36 @@ def overslept_deadline():
     unchanged(old)
     print('overslept deadline passed: no late retry even after release', flush=True)
 
+def denial_consumes_remaining_window():
+    for consumed_to in (105.0, 105.001):
+        clock, attempts, old = Clock(), [], seed()
+        install(clock)
+        errors = [denied('first eligible denial at 100.0'),
+                  denied(f'final denial consuming the window to {consumed_to!r}')]
+        def replace(source, destination):
+            inspect(source, destination, probe_report, old, attempts)
+            assert len(attempts) <= 2, f'retried after a denial consumed the window: {consumed_to!r}'
+            if len(attempts) == 1:
+                assert clock.now == 100.0, clock.now
+            else:
+                assert clock.sleeps == [0.01], clock.sleeps
+                # The replacement attempt itself spends the rest of the window.
+                clock.now = consumed_to
+            raise errors[len(attempts) - 1]
+        sweep.os.replace = replace
+        expect_error(errors[1], lambda: sweep.write_report(config, rows, []))
+        assert len(attempts) == 2 and clock.sleeps == [0.01], (consumed_to, clock.sleeps)
+        assert clock.now == consumed_to, 'time moved after the window was consumed'
+        unchanged(old)
+    print('consumed-window denial passed: at and after the deadline the last denial is '
+          'raised with no further wait or attempt', flush=True)
+
 def other_errors_are_single_try():
     cases = [
         (True, denied('Windows sharing violation is not access denied', 32)),
         (True, PermissionError(13, 'permission error without a Windows code')),
         (True, OSError(5, 'errno 5 is not winerror 5')),
+        (True, plain_os_error('plain OSError carrying winerror 5 is not a PermissionError')),
         (True, FileNotFoundError(2, 'missing target parent')),
         (False, denied('non-Windows error with a synthetic winerror attribute')),
         (False, PermissionError(13, 'ordinary non-Windows permission denial')),
@@ -704,6 +737,7 @@ def recovery_does_not_rerun_crates():
 first_denial_origin()
 fixed_deadline_and_last_error()
 overslept_deadline()
+denial_consumes_remaining_window()
 other_errors_are_single_try()
 recovery_does_not_rerun_crates()
 "#;

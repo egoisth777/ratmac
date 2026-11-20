@@ -1,0 +1,10 @@
+ticket-id = "t-151"
+check-id = "LNRV-001"
+kind = "focused"
+command = "cargo test --offline -p ratmac-qa --test t108_lane_sweep -- --exact the_sweep_keeps_complete_verdicts_across_report_replace_denials --nocapture"
+working-dir = "."
+exit-status = 0
+output-sha256 = "74a4b2dcb68420b4f181b0fafc2c705bfdc610c16bd3acc297e95c3f2934470a"
+tree-roots = ["src","profiles","test","test-hidden","tools","Cargo.toml","Cargo.lock","AGENTS.md",".gitignore",".ratmac/ratmac.toml",".ratmac/turn.toml",".ratmac/lanes.toml"]
+tree-sha256 = "91adfc2d5496d416bdd421919a1a8a40918938c54b299fca61f2ca62f71b98b9"
+output = "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.36s\n     Running tests\\t108_lane_sweep.rs (target\\debug\\deps\\t108_lane_sweep-ca48a98abd56bc65.exe)\n\nrunning 1 test\nunobstructed control passed: two complete expired verdicts and total\nt-001: expired\r\nt-002: expired\r\nnative denied-attempt observed: PermissionError winerror=5\r\nlane sweep: 0 pass, 2 expired, 0 red, 0 missing - 2 crates; report: C:\\Users\\egois\\AppData\\Local\\Temp\\ratmac-t108-report-replace-denials-42428-1795163587940692300-0\\.ratmac\\evidence\\lane-sweep\\report.md\r\nnative recovery passed: one atomic publication after a genuine WinError5\r\nfirst-denial origin passed: pre-denial time does not consume the window\r\nfixed five-second deadline passed: clipped final wait and last error\r\noverslept deadline passed: no late retry even after release\r\nconsumed-window denial passed: at and after the deadline the last denial is raised with no further wait or attempt\r\nclassification passed: only Windows PermissionError winerror 5 retries\r\nt-001: expired\r\nt-002: expired\r\nlane sweep: 0 pass, 2 expired, 0 red, 0 missing - 2 crates; report: C:\\Users\\egois\\AppData\\Local\\Temp\\ratmac-t108-report-replace-denials-42428-1795163587940692300-0\\.ratmac\\evidence\\lane-sweep\\clock-probes\\report.md\r\nno-crate-rerun passed: each verified expired crate ran exactly once\r\ntest the_sweep_keeps_complete_verdicts_across_report_replace_denials ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.38s\n\n"

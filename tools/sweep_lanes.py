@@ -48,6 +48,10 @@ tool error. check exits 0 only when the report gives every rostered crate
 pass or expired - a red unexpired verdict, a named-missing crate, a foreign
 or absent row, and a missing or partial report each refuse with a named
 reason. That refusal is what the close guard reads (LNR-003).
+
+The complete report is published by one atomic replacement. A Windows
+access-denied replacement is retried for five seconds from its first denial,
+without rerunning crates; a lasting denial leaves the old report whole.
 """
 from __future__ import annotations
 
@@ -59,6 +63,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import tomllib
 
 TOOL_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -321,7 +326,22 @@ def write_report(config, rows, strays):
     try:
         with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as stream:
             stream.write(report)
-        os.replace(temporary, config["report"])
+        deadline = None
+        while True:
+            try:
+                os.replace(temporary, config["report"])
+                break
+            except PermissionError as error:
+                if os.name != "nt" or getattr(error, "winerror", None) != 5:
+                    raise
+                if deadline is None:
+                    deadline = time.monotonic() + 5.0
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise
+                time.sleep(min(0.01, remaining))
+                if time.monotonic() >= deadline:
+                    raise
     except BaseException:
         if os.path.exists(temporary):
             os.unlink(temporary)
