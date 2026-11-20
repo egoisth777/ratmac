@@ -32,7 +32,8 @@ only answer.
 ## Map - how ratmac hangs together
 
 Stamped cache - describes the tree through the same-verdict, Windows-timing,
-and live-run-pin tickets (`t-137` through `t-150`), surveyed 2026-11-18.
+and live-run-pin tickets (`t-137` through `t-150`) and the bounded
+lane-report publication repair (`t-151`), surveyed 2026-11-20.
 The full doctor executable fingerprint first
 landed in the full-doctor-fingerprint ticket (`t-070`, `3e6ee6c`). The accepted
 carrier remains `.arca/issue/archive/i-023-doctor-full-fingerprint/`; `DFP-001`
@@ -52,7 +53,12 @@ however `--run` is repeated: `cli.rs` (`t-146`), `skill.rs` (`t-148`),
 (`tools/rtm.ps1`: `t-144`, `t-145`), the lane sweep (`tools/sweep_lanes.py`:
 `t-138`), the issue-binding validator and its packaged copy (`t-147`), and
 shared test support (`test/qa/src/baseline.rs` and `support.rs`: `t-137`,
-`t-139` through `t-143`). Every
+`t-139` through `t-143`). The run-075 repair (`t-151`) then changed only the
+lane sweep's report publication (`tools/sweep_lanes.py`): publication is still
+one atomic replacement of the complete report, but a Windows access-denied
+replacement (`PermissionError`, `winerror` 5) is retried every 10 ms for at
+most five seconds from the first denial, without rerunning any crate; a lasting
+denial raises the last error and leaves the old report whole. Every
 Architecture, Binary, Modules, and Tests row below describes this landed tree.
 The tracked Plan-Build Runbook selects its three completion fields explicitly,
 and since stable `edition-008` drove `run-034` to `rest` it also carries the
@@ -205,6 +211,9 @@ support launches the Engine Cargo reports it built (`built_executable`,
 uniquely (`TempTree`), waits on a pause marker's whole line
 (`await_marker_line`), and arms test hooks only in the arming case's child
 commands (`hook_lane`). The lane sweep builds each crate in its own folder.
+LNRV-001 also proves bounded report publication (`t-151`) through
+`t108_lane_sweep::the_sweep_keeps_complete_verdicts_across_report_replace_denials`;
+the repair adds no private crate.
 DFP-001 remains proven by
 `t045_bootstrap_doctor::doctor_reports_complete_engine_fingerprint_and_is_write_free`
 plus the inherited `t045` and `t057` suites. Wording surfaces are asserted
