@@ -1,0 +1,125 @@
+# Durable Workflow Engines
+
+**Date:** 2026-11-21
+**Producing agent:** `astra-durable-workflow-engines`
+**Method:** web research only, nothing installed or run
+**Known defects:** These reports compared ratmac using an inaccurate summary: it said ratmac checks run nothing and a runbook cannot change during a Run. Both are wrong; see 07-ratmac-baseline.md. Every statement here about ratmac position or uniqueness is therefore unreliable. Also wrong in 04: "every model needs an explicit loop limit"; a state machine may run without end by design, and a bound is a choice per job.
+
+---
+
+## Comparison
+
+Maker matches the brand unless shown. **E/N** = established/newer: maturity judgments, not measured adoption. **A2** = Apache-2.0; **P** = proprietary service; **?** = unverified.
+
+**Questions 3–5, shared default:** the engine advances; workers/services execute nodes; successful returns complete them. **Model** means model-directed tool selection and completion inside an agent node. **Callback** means an outside worker/person reports completion.
+
+**Code** permits branches/loops; authors must add bounds. **R** means retry, timeout and failure handling—not exactly-once external effects. Approval entries name pause/resume mechanisms.
+
+**Self** requires a local service; **local** can run in-process. Offline operation requires local dependencies/models: an architectural inference, not an air-gap certification. Model choice is generally independent unless restricted below.
+
+| 1. Product / licence / maturity | 2. Definition; AI use | 3–6. Control; branching/loop bound | 7–8. State/history; carried data | 9. Approval; failure | 10. Hosting |
+|---|---|---|---|---|---|
+| Temporal / MIT / E [1] | Code; agent SDK integrations | Code | Server DB/expiry; arguments/results | Signals; R | Self/cloud |
+| Restate / BSL-1.1 / N [2] | Code; durable agents | Code | Journal/TTL; key-values/results | Promises; R | Self/cloud |
+| Inngest + AgentKit / SSPL+A2 / N [3] | Code; agent networks | Code/model; `maxIter` | Redis+DB/retention; shared State | Events; R | Self/cloud |
+| DBOS / MIT core / N [4] | Code; agent integrations | Code | SQLite/Postgres/purge; arguments/results | Messages; R | Local/database |
+| AWS Step Functions / P / E [5] | ASL/canvas; agent calls/tools | Choice; duration limits | Service/90d; JSON. Express: logs | Callback tokens: Standard; R | AWS |
+| Bedrock Flows, AWS / P / GA [6] | Canvas/JSON; model/agent nodes | Conditions; `maxIterations` | Service/90d; node outputs | Multi-turn input; failure-resume ? | AWS/Bedrock-native |
+| AgentCore, AWS / P / N; harness preview [7] | Code/config; agent hosting | Framework/model; framework bounds | Optional memory/storage/expiry; messages | Framework-defined; timeouts | AWS; multiple providers |
+| Azure Durable Functions/Task, Microsoft / MIT SDKs+P service / E [8] | Code; durable Agent Framework | Code | Storage backend/purge; JSON | External events; R | Self backend/Azure |
+| Cloudflare Workflows / P / GA [9] | Code; agent steps | Code; step quotas | Cloudflare/expiry; step results | Events; R | Cloud; local emulator |
+| Google Cloud Workflows / P / E [10] | YAML/JSON; model/API calls | Switch/for; one-year maximum | Google/90d; variables | Callbacks; R | Google Cloud |
+| Airflow 3.4, ASF / A2 / E [11] | Python; agent operators | Branches; `max_iterations` | SQL/cleanup; XCom | HITL operators; R | Self/cloud |
+| Prefect / A2 / E [12] | Python; Pydantic AI | Code | DB/purge+optional result files; Python values | Pause/suspend; R | Self/cloud |
+| Dagster, now Prefect / A2 / E [13] | Python assets/ops; model calls | Conditional outputs; DAG | DB/deletable; assets/results | Custom approval/new runs; retries | Local/self/cloud |
+| Argo Workflows, CNCF / A2 / E [14] | YAML; agent containers | `when`; lists/deadlines | Kubernetes+archive/TTL; parameters/artifacts | Suspend/callback; R | Kubernetes |
+| Camunda 8 / commercial / E; 7 CE ended [15] | BPMN; agent subprocesses | Gateways/model; configured bounds | Zeebe+DB/retention; variables | User tasks/callback; retries/incidents | Self/cloud |
+| n8n / Sustainable Use / E [16] | Canvas; agent/tool nodes | Conditions/model; iteration cap | DB/pruning; item arrays | Wait/tool approval; R | Self/cloud |
+| Dify, LangGenius / modified A2 / N [17] | Canvas; agent nodes | Conditions/model; loop cap | DB/optional pruning; variables | Human Input; node retries/timeouts | Self/cloud |
+| Flowise, Workday / A2+commercial / archived [18] | Canvas; Agentflow V2 | Conditions/model; loop cap | DB/checkpoints; shared state; retention ? | Human Input; loop-based retry | Self; discontinued support |
+| Langflow, IBM/DataStax / MIT / N [19] | Canvas/Python; agents | Router/model; iteration cap | DB/checkpoints; messages/data; retention ? | Human Input; general retry ? | Self/cloud |
+| Zapier Agents → AI by Zapier / P / migrating [20] | Prose/Zap; agent tools | Model; task cap | Cloud/deletable; conversation | Tool approval; rerun | Cloud/provider catalogue |
+| Make AI Agents / P / beta [21] | Prose/canvas; scenario tools | Model; step cap | Cloud/expiry; bundles/conversation | Custom approval; incomplete-run retries | Cloud/provider catalogue |
+| GitHub Actions / P / E [22] | YAML; agent CLIs/scripts | Conditions; DAG | Server/expiry; outputs/artifacts | Environments; rerun/timeouts | GitHub/GHES server |
+| GitHub Agentic Workflows / MIT+P / GA October 2026 [23] | Markdown→Actions; coding agents | Model; time/budget limits | Actions/expiry+Git memory; files | Environment gates; rerun/timeouts | GitHub.com/supported CLIs |
+| Hatchet / MIT / N [24] | Code; durable agent tasks | Code or DAG | Postgres; outputs; retention ? | Events; R | Self/cloud |
+| Trigger.dev / A2 / N [25] | TypeScript; `chat.agent` | Code/model; turn limits | DB; payloads; retention varies | Waitpoints; task retries/timeouts | Self/cloud; checkpoints Cloud-only |
+| Kestra / A2 / E [26] | YAML; AI-agent tasks | Conditions/model; loop/time limits | DB/purge; named outputs | Pause/resume; R | Self/cloud |
+| Windmill / AGPL+A2+commercial / N [27] | Canvas/code; agent steps | Conditions/model; iteration cap | Postgres/retention; JSON/results | Suspend/approval; R | Self/cloud |
+| AWS Lambda durable functions / P / N [28] | Code; agent integrations | Code; execution timeout | AWS/expiry; checkpoint results | Callbacks; R | AWS; local testing |
+| Absurd, Earendil / A2 / experimental [29] | Code; durable agent tasks | Code | Postgres/cleanup; JSON | Events; task retries/timeouts | Postgres+workers |
+| Unhinged, amackera / A2 / N [30] | Python; Pydantic AI | Code | SQLite/opt-in cleanup; results | Events; recovery; retry policy ? | Local |
+| pgtask, Kludex / MIT / preview [31] | Code; Pydantic AI | Code | Postgres/retention; JSON | Signals; retries/leases | Postgres+workers |
+| Gemini Enterprise Workflow Builder, Google / P / N [32] | Canvas; native/external agents | Conditions/model; loop bound ? | Cloud; variables; retention ? | Approval/input; general retry ? | Cloud; Gemini-native steps |
+
+## A. Three common choices
+
+- Engines own execution, rather than merely judge externally produced work.
+- Databases/services own run state; exported files are usually secondary.
+- Completion means a return, callback or model stopping—not necessarily artifact acceptance. [1–32]
+
+## B. Publicly reported problems
+
+Reports are evidence of problems encountered, not proof they remain unfixed.
+
+- **Temporal:** deployment changes break replay determinism. [33]
+- **Dify:** concurrent Human Input submissions can leave runs paused. [34]
+- **n8n:** agents repeatedly call already-successful tools. [35]
+- **Inngest:** self-hosted history grows without built-in retention cleanup. [36]
+
+## C. Closest to ratmac — inference
+
+- **DBOS/Unhinged:** small local deployments, but SQLite-backed executing SDKs—not plain-text acceptance gates. [4,30]
+- **Camunda/Step Functions:** outside workers complete tasks, but callbacks are trusted and state requires infrastructure. [5,15]
+- **GitHub Agentic Workflows:** repository prompts/files, but it launches agents and GitHub owns execution. [23]
+
+## D. Unfilled combination — inference
+
+No reviewed default combines ratmac’s caller-driven stepping, mandatory disk checks, closed branch-word/reason files, checksum-fixed runbooks and repository-only append history **without executing work**. Individual pieces exist. The opportunity is a portable acceptance gate, not another agent host.
+
+## E. What ratmac lacks
+
+Most offer automatic retries, timers, scheduling, distributed execution and operational interfaces; many add connectors and access controls. Ratmac deliberately leaves these outside. [1–32]
+
+**Scope:** All requested products found. Added nine relevant products. Skipped Dapr, Conductor, Copilot Studio, pricing and benchmarks. Ratmac comparisons use the supplied specification.
+
+## Sources
+
+Grouped sources support their corresponding table rows. Official documentation/repositories unless explicitly labelled otherwise.
+
+1. **Temporal:** [Licence](https://github.com/temporalio/temporal/blob/main/LICENSE); [agent integration](https://docs.temporal.io/develop/python/integrations/openai-agents); [history](https://docs.temporal.io/workflow-execution/event); [limits/retention](https://docs.temporal.io/cloud/limits); [message passing](https://docs.temporal.io/evaluate/features/workflow-message-passing).
+2. **Restate:** [Licence](https://github.com/restatedev/restate/blob/main/LICENSE); [durable agents](https://docs.restate.dev/ai/patterns/durable-agents); [state concepts](https://docs.restate.dev/foundations/key-concepts); [retention/configuration](https://docs.restate.dev/services/configuration); [approvals](https://docs.restate.dev/ai/patterns/human-in-the-loop); [hosting](https://docs.restate.dev/hosting/overview).
+3. **Inngest/AgentKit:** [server licence](https://github.com/inngest/inngest/blob/main/LICENSE.md); [AgentKit repository/licence](https://github.com/inngest/agent-kit); [networks](https://agentkit.inngest.com/concepts/networks); [State](https://agentkit.inngest.com/concepts/state); [human input](https://agentkit.inngest.com/advanced-patterns/human-in-the-loop); [self-hosted storage/retention](https://www.inngest.com/docs/platform-and-operations/self-host-inngest); [durable execution](https://www.inngest.com/docs/learn/inngest-functions).
+4. **DBOS:** [Licence](https://github.com/dbos-inc/dbos-transact-ts/blob/main/LICENSE); [architecture](https://docs.dbos.dev/architecture); [SQLite/Postgres](https://docs.dbos.dev/python/tutorials/database-connection); [agent integration](https://docs.dbos.dev/integrations/vercel-ai); [human input](https://docs.dbos.dev/ai/hitl); [retention](https://docs.dbos.dev/conductor/retention).
+5. **Step Functions:** [workflow types](https://docs.aws.amazon.com/step-functions/latest/dg/choosing-workflow-type.html); [state-machine structure](https://docs.aws.amazon.com/step-functions/latest/dg/statemachine-structure.html); [quotas/retention](https://docs.aws.amazon.com/step-functions/latest/dg/service-quotas.html); [callbacks](https://docs.aws.amazon.com/step-functions/latest/dg/connect-to-resource.html); [agent integration](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/gateway-target-connector-step-functions.html).
+6. **Bedrock Flows:** [GA announcement](https://aws.amazon.com/about-aws/whats-new/2024/11/amazon-bedrock-flows-new-capabilities/); [nodes/loops](https://docs.aws.amazon.com/bedrock/latest/userguide/flows-nodes.html); [asynchronous execution/history](https://docs.aws.amazon.com/bedrock/latest/userguide/flows-create-async.html); [multi-turn input](https://docs.aws.amazon.com/bedrock/latest/userguide/flows-multi-turn-invocation.html).
+7. **AgentCore:** [overview](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/what-is-bedrock-agentcore.html); [code/harness paths](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/agentcore-get-started-cli.html); [lifecycle](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-lifecycle-settings.html); [persistent storage preview](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-persistent-filesystems.html); [release notes](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/release-notes.html).
+8. **Azure Durable:** [Functions licence](https://github.com/Azure/azure-functions-durable-extension); [Task SDK licence](https://github.com/microsoft/durabletask-dotnet); [storage providers](https://learn.microsoft.com/en-us/azure/azure-functions/durable/durable-functions-storage-providers); [durable agents](https://learn.microsoft.com/en-us/azure/durable-task/sdks/durable-agents-microsoft-agent-framework); [instance controls](https://learn.microsoft.com/en-us/azure/durable-task/common/durable-task-instance-management); [scheduler retention](https://learn.microsoft.com/en-us/azure/durable-task/scheduler/durable-task-scheduler-billing).
+9. **Cloudflare:** [GA](https://developers.cloudflare.com/changelog/post/2025-04-07-workflows-ga/); [events](https://developers.cloudflare.com/workflows/build/events-and-parameters/); [retries](https://developers.cloudflare.com/workflows/build/sleeping-and-retrying/); [limits](https://developers.cloudflare.com/workflows/reference/limits/); [retention change](https://developers.cloudflare.com/changelog/post/2026-09-10-paid-retention-default/); [local emulator](https://developers.cloudflare.com/workflows/build/local-development/); [agent approvals](https://developers.cloudflare.com/agents/concepts/agentic-patterns/human-in-the-loop/).
+10. **Google Workflows:** [overview](https://docs.cloud.google.com/workflows/docs/overview); [quotas/retention](https://docs.cloud.google.com/workflows/quotas); [callbacks](https://cloud.google.com/workflows/docs/creating-callback-endpoints); [Gemini calls](https://docs.cloud.google.com/workflows/docs/tutorials/use-vertex-ai-models).
+11. **Airflow:** [repository/licence](https://github.com/apache/airflow); [3.4 loops](https://airflow.apache.org/docs/apache-airflow/3.4.0/authoring-and-scheduling/loops.html); [HITL operators](https://airflow.apache.org/docs/apache-airflow-providers-standard/stable/operators/hitl.html); [agent review](https://airflow.apache.org/docs/apache-airflow-providers-common-ai/stable/hitl_review.html); [XCom](https://airflow.apache.org/docs/apache-airflow/stable/core-concepts/xcoms.html).
+12. **Prefect:** [repository/licence](https://github.com/PrefectHQ/prefect); [agent durability](https://pydantic.dev/docs/ai/capabilities/durable_execution/prefect/); [interactive workflows](https://docs.prefect.io/v3/advanced/interactive); [result persistence](https://docs.prefect.io/v3/advanced/results); [retries](https://docs.prefect.io/v3/how-to-guides/workflows/retries); [database cleanup](https://docs.prefect.io/v3/advanced/database-maintenance).
+13. **Dagster:** [repository/licence](https://github.com/dagster-io/dagster); [Prefect acquisition](https://www.prefect.io/prefect-acquires-dagster); [continuity FAQ](https://www.prefect.io/prefect-dagster-faq); [graphs](https://docs.dagster.io/guides/build/ops/graphs); [model integration](https://docs.dagster.io/integrations/libraries/openai); [storage](https://docs.dagster.io/deployment/oss/oss-instance-configuration); [retries](https://docs.dagster.io/guides/build/ops/op-retries); [history deletion](https://docs.dagster.io/api/clis/cli).
+14. **Argo:** [repository/licence](https://github.com/argoproj/argo-workflows); [core concepts](https://argo-workflows.readthedocs.io/en/latest/workflow-concepts/); [fields/control limits](https://argo-workflows.readthedocs.io/en/latest/fields/); [external completion](https://argo-workflows.readthedocs.io/en/latest/async-pattern/); [archive](https://argo-workflows.readthedocs.io/en/latest/workflow-archive/); [agent-pipeline conference slides](https://static.sched.com/hosted_files/kccncna2025/48/KubeCon2025ArgoWorkflowsPDF.pptx.pdf).
+15. **Camunda:** [commercial licensing](https://camunda.com/blog/2024/10/camunda-licensing-what-you-need-to-know/); [7 CE end-of-life](https://forum.camunda.io/t/important-update-camunda-7-community-edition-end-of-life-announced/50921); [agent subprocess](https://docs.camunda.io/docs/8.8/components/connectors/out-of-the-box-connectors/agentic-ai-aiagent-subprocess/); [workers/completion](https://docs.camunda.io/docs/components/concepts/job-workers/); [user tasks](https://docs.camunda.io/docs/components/modeler/bpmn/user-tasks/); [retention](https://docs.camunda.io/docs/8.7/self-managed/tasklist-deployment/data-retention/).
+16. **n8n:** [licence](https://docs.n8n.io/n8n-community-license/community-license/license-faq); [Tools Agent](https://docs.n8n.io/integrations/builtin/cluster-nodes/root-nodes/n8n-nodes-langchain.agent/tools-agent); [human review](https://docs.n8n.io/build/integrate-ai/ai-examples/human-in-the-loop-for-tools); [Wait](https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.wait); [execution persistence/pruning](https://docs.n8n.io/deploy/host-n8n/configure-n8n/scaling/manage-execution-data); [hosting](https://docs.n8n.io/deploy/host-n8n).
+17. **Dify:** [licence](https://github.com/langgenius/dify/blob/main/LICENSE); [loops](https://docs.dify.ai/en/cloud/use-dify/nodes/loop); [human input](https://docs.dify.ai/en/cloud/use-dify/nodes/human-input); [error handling](https://docs.dify.ai/en/use-dify/build/predefined-error-handling-logic); [retention](https://docs.dify.ai/en/self-host/use-dify/monitor/logs); [runtime/storage settings](https://docs.dify.ai/en/self-host/deploy/configuration/environments); [self-hosting](https://docs.dify.ai/en/self-host/quick-start/docker-compose).
+18. **Flowise:** [licence](https://github.com/FlowiseAI/Flowise/blob/main/LICENSE.md); [Workday acquisition](https://blog.flowiseai.com/workday-flowise/); [sunset](https://flowiseai.com/sunset); [archival announcement](https://github.com/FlowiseAI/Flowise/discussions/6727); [Agentflow V2](https://docs.flowiseai.com/using-flowise/agentflowv2); [databases](https://docs.flowiseai.com/configuration/databases); [resumption](https://docs.flowiseai.com/using-flowise/prediction).
+19. **Langflow:** [licence](https://github.com/langflow-ai/langflow/blob/main/LICENSE); [IBM relationship](https://www.langflow.org/blog/big-news-for-langflow/); [IBM support](https://docs.langflow.org/luna-for-langflow); [logic](https://docs.langflow.org/components-logic); [human input](https://docs.langflow.org/human-input); [checkpoint resumption](https://docs.langflow.org/human-in-the-loop); [storage](https://docs.langflow.org/memory); [local models](https://docs.langflow.org/bundles-ollama).
+20. **Zapier:** [migration and current limits](https://help.zapier.com/hc/en-us/articles/47402591569805-Migrating-from-Agents-to-AI-by-Zapier); [agent construction/history deletion](https://help.zapier.com/hc/en-us/articles/24393442652557-Build-an-agent-in-Zapier-Agents); [usage limits](https://help.zapier.com/hc/en-us/articles/26559132765325-How-is-Zapier-Agents-usage-measured); [tool approval](https://help.zapier.com/hc/en-us/articles/45863491098893-Add-tools-to-your-AI-by-Zapier-step).
+21. **Make:** [current agent module/beta/limits](https://help.make.com/make-ai-agent-new-app); [guardrails/approval guidance](https://help.make.com/make-ai-agent-new-best-practices); [history](https://help.make.com/scenario-history); [incomplete executions](https://help.make.com/manage-incomplete-executions); [error handling](https://help.make.com/Overview-of-error-handling).
+22. **GitHub Actions:** [workflow syntax](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax); [outputs](https://docs.github.com/actions/writing-workflows/choosing-what-your-workflow-does/passing-information-between-jobs); [approval environments](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments); [retention](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository); [GHES networking](https://docs.github.com/en/enterprise-server@3.21/actions/reference/runners/self-hosted-runners).
+23. **GitHub Agentic Workflows:** [GA announcement](https://github.blog/changelog/2026-10-28-github-agentic-workflows-generally-available/); [licence](https://github.github.com/gh-aw/about/); [execution](https://github.github.com/gh-aw/introduction/how-they-work/); [engines/limits](https://github.github.com/gh-aw/reference/engines/); [approval gates](https://github.github.com/gh-aw/reference/triggers/); [safe-output controls](https://github.github.com/gh-aw/reference/faq/); [repository memory](https://github.github.com/gh-aw/reference/repo-memory/); [cache/retention](https://github.github.com/gh-aw/reference/cache-memory/).
+24. **Hatchet:** [overview/licence](https://docs.hatchet.run/v1); [durable tasks](https://docs.hatchet.run/v1/durable-tasks); [storage/guarantees](https://docs.hatchet.run/v1/architecture-and-guarantees); [DAGs](https://docs.hatchet.run/v1/directed-acyclic-graphs); [approval/retry/timeout patterns](https://docs.hatchet.run/v1/from-temporal-to-hatchet).
+25. **Trigger.dev:** [overview/licence](https://trigger.dev/docs/introduction); [agent API](https://trigger.dev/docs/ai-chat/reference); [waitpoints](https://trigger.dev/docs/wait-for-token); [task retries](https://trigger.dev/docs/tasks/overview); [hosting/checkpoint distinction](https://trigger.dev/docs/self-hosting/overview); [self-hosted databases](https://trigger.dev/docs/self-hosting/docker).
+26. **Kestra:** [repository/licence](https://github.com/kestra-io/kestra); [agent tasks](https://kestra.io/docs/ai-orchestration/ai-agents); [flow controls](https://kestra.io/docs/workflow-components/tasks/flowable-tasks); [loop bounds](https://kestra.io/plugins/core/flow/io.kestra.plugin.core.flow.loopuntil); [approvals](https://kestra.io/docs/use-cases/approval-processes); [storage](https://kestra.io/docs/concepts/storage).
+27. **Windmill:** [mixed licensing](https://github.com/windmill-labs/windmill/blob/main/LICENSE); [architecture](https://www.windmill.dev/docs/flows/architecture); [code workflows](https://www.windmill.dev/docs/core_concepts/workflows_as_code); [agents](https://www.windmill.dev/docs/core_concepts/ai_agents); [loop bounds](https://www.windmill.dev/docs/openflow); [approvals](https://www.windmill.dev/docs/flows/flow_approval); [retention configuration](https://www.windmill.dev/docs/core_concepts/infrastructure_as_code).
+28. **Lambda durable functions:** [overview](https://docs.aws.amazon.com/lambda/latest/dg/durable-functions.html); [SDK semantics](https://docs.aws.amazon.com/lambda/latest/dg/durable-execution-sdk.html); [configuration/retention](https://docs.aws.amazon.com/lambda/latest/dg/durable-configuration.html); [callbacks](https://docs.aws.amazon.com/durable-execution/sdk-reference/operations/callback/); [agent integration](https://docs.aws.amazon.com/durable-execution/sdk-reference/integrations/pydantic-ai/); [local development](https://docs.aws.amazon.com/durable-execution/getting-started/development-environment/).
+29. **Absurd:** [repository/licence/status](https://github.com/earendil-works/absurd); [concepts/retries/events](https://earendil-works.github.io/absurd/concepts/); [SDK](https://earendil-works.github.io/absurd/sdks/python/); [cleanup controls](https://earendil-works.github.io/absurd/tools/absurdctl/).
+30. **Unhinged:** [repository, licence, execution, agent integration and cleanup](https://github.com/amackera/unhinged).
+31. **pgtask:** [repository/licence/semantics](https://github.com/Kludex/pgtask); [preview, retries and retention](https://github.com/Kludex/pgtask/releases/tag/v0.4.0); [agent integration](https://github.com/Kludex/pydantic-ai-pgtask).
+32. **Gemini Enterprise Workflow Builder:** [overview](https://docs.cloud.google.com/gemini/enterprise/docs/workflow-builder); [flow controls/models](https://docs.cloud.google.com/gemini/enterprise/docs/workflow-builder/workflows); [external agents](https://docs.cloud.google.com/gemini/enterprise/docs/workflow-builder/add-existing-agents); [human approval](https://docs.cloud.google.com/gemini/enterprise/docs/workflow-builder/use-hitl-steps); [run history](https://docs.cloud.google.com/gemini/enterprise/docs/workflow-builder/workflow-runs); [limits](https://docs.cloud.google.com/gemini/enterprise/docs/workflow-builder/quotas-and-limits).
+33. **Temporal user report:** [version changes and nondeterminism](https://community.temporal.io/t/clarification-on-workflow-getversion-and-when-it-s-safe-to-remove/17961).
+34. **Dify user report:** [parallel Human Input resume race](https://github.com/langgenius/dify/issues/42103).
+35. **n8n user report:** [repeated tool calls](https://community.n8n.io/t/my-workflow-are-execution-the-tools-multiple-times/191727).
+36. **Inngest user report:** [self-hosted retention request](https://github.com/inngest/inngest/issues/5215).
