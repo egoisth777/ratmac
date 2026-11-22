@@ -1,7 +1,0 @@
-state = "prepare"
-status = "blocked"
-goal_revision = "fixture"
-input_revision = ""
-output_revision = ""
-active_refs = []
-blocker = "input_revision"

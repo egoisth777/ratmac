@@ -19,12 +19,3 @@ target
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
-
-# Hidden ticket tests are local verification artifacts.
-test-hidden/
-
-# Engine root: runtime ignored, Machine Class and receipts tracked (ENS-012)
-.ratmac/runs/
-.ratmac/mint.toml
-.ratmac/locks/
-.ratmac/log.md

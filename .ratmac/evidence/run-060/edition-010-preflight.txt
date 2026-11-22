@@ -1,8 +1,0 @@
-Close commit: c48774bf2cb358fe608a450189aead6879c71711
-cargo build --offline -p ratmac-qa --bin edition-cut: exit 0
-Command:
-target/debug/edition-cut.exe --repo E:/hive/packs/repos/agents/tools/ratmac --name edition-010 --message-file C:/Users/egois/AppData/Local/Temp/tmp.pzKIznu1OT/edition-010-message.txt --checks C:/Users/egois/AppData/Local/Temp/tmp.pzKIznu1OT/edition-010-checks.txt --at c48774bf2cb358fe608a450189aead6879c71711 --check-only
-Exit: 1, expected refusal, not a failed proof check
-Stderr:
-edition-cut: refused; the cycle is not at rest: the intake work area holds i-063-build-message-test-engine
-Only the over-strict rest scan refused. No tag was created. The integrated bundles must remain in intake until run-060 reaches rest, so the prior edition-009 conflict resolution applies: bind the proper rest scan to this commit, run all declared checks fresh, prove the checkout still equals this commit, and create the normalized annotated tag once.

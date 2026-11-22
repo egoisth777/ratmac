@@ -1,9 +1,0 @@
-[states.build]
-prompt = "Build the output"
-
-[states.review]
-prompt = "Review the output"
-
-[[transitions]]
-from = "build"
-to = "review"

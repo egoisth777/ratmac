@@ -1,6 +1,0 @@
-# The graph has states only. The input_revision prerequisite is intentionally absent.
-[states.plan]
-prompt = "Prepare input"
-
-[states.execute]
-prompt = "Execute work"

@@ -1,9 +1,0 @@
-[states.prepare]
-prompt = "Prepare the run."
-
-[states.review]
-prompt = "Review the run."
-
-[[transitions]]
-from = "prepare"
-to = "review"

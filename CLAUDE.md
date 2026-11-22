@@ -1,1 +1,1 @@
-@.arca/schema.md
+@AGENTS.md
