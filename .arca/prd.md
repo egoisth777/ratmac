@@ -10,7 +10,6 @@ This file is the core product definition of ratmac. It does not change with a sp
 - An agent MUST NOT edit this file, unless Billy starts a conversation as a product revision.
 - Only Billy decides a change. In a product revision, an agent may write the change that Billy decides.
 - An agent that finds a conflict between this file and any other file reports it to Billy. It does not edit this file to remove the conflict.
-- Direction flows from this file to `steering.md`, then to the goal, then to issues, then to tickets.
 
 ## What ratmac is
 
@@ -60,4 +59,3 @@ The research is in [the agent graph engineering study](research/re-agent-graph-e
 
 - The language of mission 3.
 - How many things may run at once, and the rules for two branches that write the same file.
-- The product rules of the engine as built today. Those stay in `goal/` until a planning pass folds this definition in.
