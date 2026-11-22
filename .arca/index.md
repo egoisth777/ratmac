@@ -1,11 +1,9 @@
 # ratmac
 
-ratmac (`rtm`) is a Rust engine that runs agent work as an explicit state
-machine. Its shared runtime root is the primary checkout's `.ratmac/`; the Machine Class
-(`.ratmac/ratmac.toml`, plain TOML) is read from the invoking checkout and declares States,
-prompts, guards, and transitions; the Engine instantiates it into a Run and is the only writer
-of run state. Progress is proven by machine-checked guards over artifacts on disk - never by an
-agent's claim. Deterministic and offline: no network, no installs, no hidden global state.
+ratmac is a tiny, robust runner for work that follows a graph of steps. It
+defines the graph as a finite state machine, walks it, and executes it. It
+works with any agent. The engine as built today, the `rtm` command, is
+described by the map below and by the goal in `.arca/goal/`.
 
 Consult this file first, every time: the map below orients you; the routes
 table locates every file; then read the file itself. The map is orientation
@@ -240,7 +238,7 @@ markers. Opt-in release lane: `RATMAC_RELEASE_ACCEPTANCE=1`.
 
 | You want | Read |
 | :--- | :--- |
-| Where we are heading; the lines no work may cross | [steering.md](steering.md) |
+| The properties every issue advances, taken from [prd.md](prd.md); the lines no work may cross; open questions; the current sprint | [steering.md](steering.md) |
 | How to contribute: loop, tickets, evidence - **binding** | [schema.md](schema.md) |
 | What happened lately | [log.md](log.md) tail |
 | Unchosen ideas parked with zero commitment | [Wishlist](wishlist.md) |
@@ -251,7 +249,8 @@ All agent routing and documentation must use these paths.
 
 | Path | What lives there |
 | :--- | :--- |
-| `.arca/steering.md` | Direction and guardrails: thesis, invariants, non-goals; first re-aligned on a pivot. |
+| `.arca/prd.md` | Product definition: core problem and core missions; locked, human-only. |
+| `.arca/steering.md` | Direction and guardrails: the properties every issue advances (taken from prd.md), invariants, open questions, and the current sprint. Re-aligned first on a pivot, after prd.md on a product revision. |
 | `.arca/schema.md` | The working rules - binding for every contributor. |
 | `.arca/runbook-spec.md` | What a runbook **is** - the one definition of the Machine Class format, guard kinds, ownership, and `RB*` diagnostics. |
 | `.arca/runbook-authoring.md` | How to write one - scaffold, edit, `rtm doctor --json`, repair by code. Procedure only; every schema fact is a link into the specification. |
@@ -269,6 +268,7 @@ All agent routing and documentation must use these paths.
 | `.arca/log.md` | Human-only append-only history; every human landing leaves a line. `rtm` logs transitions in `.ratmac/log.md`. |
 | `.arca/tpl/` | Blank forms; a form filled in at its proper path is the real thing. |
 | `.arca/vis/` | Shared pictures and graphs. |
+| `.arca/research/` | Research studies, one folder per study; background for product decisions, not rules. |
 | `test-hidden/` | Hidden test code, out of git, listed by its owning ticket. |
 | `test/` | The runnable suite plus `test/test-list.md`. |
 | `profiles/plan-build/` | The distributable Plan-Build profile: manifest, instructions, terms, Machine Class template, record schemas, packaged checkers, and blanks - embedded into the Engine at build time and exported by `rtm profile`. |

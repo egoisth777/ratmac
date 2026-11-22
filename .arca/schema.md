@@ -211,13 +211,18 @@ the moment the goal is frozen until the last ticket is done, the goal does not m
 
 ## Steering layers
 
+`.arca/prd.md`, the product definition, sits above steering and is human-only: no agent edits it unless
+Billy opens a product revision, and an agent that finds a conflict between it and another file reports the
+conflict to Billy instead of editing `prd.md`. On a product revision, `prd.md` lands first, then steering.
+
 `.arca/steering.md` binds by three layers, hardness strictly increasing top to bottom; each carries its own
 update clock:
 
 - **Authored identity** — What we are building, Ideal shape, Thesis, Invariants, Non-goals. Changes only on a
   pivot and lands **first**, before any dependent change in `.arca/goal/`, `.arca/issue/`, `.arca/ticket/`
   (see Units and git, shop lane). **Ideal shape** is the destination the rest of the file serves: the
-  properties the finished system has, as prose only — no requirement IDs, no dates, no ordering (that is
+  properties the finished system has, which are the core problem and the core missions in `prd.md`:
+  Ideal shape lists them by name and adds none — no requirement IDs, no dates, no ordering (that is
   Horizon), no measurement of distance (that is the gap check). It is direction, never evidence: a residual
   may not cite it and no ticket is ever cut from it. Its one mechanical use is the P1 admission test below.
 - **Horizon** (forecast) — an authored ordering of directions beyond the current sprint, in direction/wish/
